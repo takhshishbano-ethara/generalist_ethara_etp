@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kensei2.SandboxCard">
+        <div t-attf-class="o_kensei2_card #{props.disabled ? 'o_kensei2_card_disabled' : ''}">
+            <!-- Card Header -->
+            <div class="o_kensei2_card_header">
+                <div class="o_kensei2_card_title">
+                    <span class="o_kensei2_card_label" t-out="props.modelLabel"/>
+                    <span t-attf-class="o_kensei2_status_badge o_kensei2_status_#{statusColor}">
+                        <span class="o_kensei2_status_dot"/>
+                        <t t-out="props.dockerStatus"/>
+                    </span>
+                </div>
+                <div class="o_kensei2_card_actions">
+                    <t t-if="props.disabled">
+                        <button class="o_kensei2_btn_disabled" disabled="true">
+                            <i class="fa fa-lock me-1"/>Coming Soon
+                        </button>
+                    </t>
+                    <t t-elif="props.loading">
+                        <button class="o_kensei2_btn_loading" disabled="true">
+                            <i class="fa fa-spinner fa-spin me-1"/> Working...
+                        </button>
+                    </t>
+                    <t t-elif="isRunning or isStarting">
+                        <button t-if="isRunning" class="o_kensei2_btn_test"
+                                t-on-click="onGenerateTestsClick"
+                                t-att-disabled="props.generatingTests">
+                            <t t-if="props.generatingTests">
+                                <i class="fa fa-spinner fa-spin me-1"/> Generating…
+                            </t>
+                            <t t-else="">
+                                <i class="fa fa-flask me-1"/> Generate Tests
+                            </t>
+                        </button>
+                        <button class="o_kensei2_btn_stop" t-on-click="onStopClick">
+                            <i class="fa fa-stop me-1"/> Stop
+                        </button>
+                    </t>
+                    <t t-else="">
+                        <button class="o_kensei2_btn_start" t-on-click="onStartClick">
+                            <i class="fa fa-play me-1"/> Start Sandbox
+                        </button>
+                    </t>
+                </div>
+            </div>
+
+            <!-- Error Banner -->
+            <div t-if="props.dockerError" class="o_kensei2_card_error">
+                <i class="fa fa-exclamation-triangle me-1"/>
+                <t t-out="props.dockerError"/>
+            </div>
+
+            <!-- Disabled Overlay -->
+            <t t-if="props.disabled">
+                <div class="o_kensei2_card_body_disabled">
+                    <i class="fa fa-lock"/>
+                    <p>This model is not yet available.</p>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="o_kensei2_card_content">
+                    <div class="o_kensei2_card_panel">
+                        <Kensei2ChatWidget
+                            sandboxId="props.sandboxId"
+                            dockerStatus="props.dockerStatus"
+                            dockerWsUrl="props.dockerWsUrl"
+                            gatewayToken="props.gatewayToken"
+                            modelType="props.modelType"
+                        />
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

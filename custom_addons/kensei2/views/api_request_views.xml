@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_kensei2_api_request_list" model="ir.ui.view">
+        <field name="name">kensei2.api.request.list</field>
+        <field name="model">kensei2.api.request</field>
+        <field name="arch" type="xml">
+            <list string="API Request Logs" default_order="request_time desc">
+                <field name="task_id" optional="show"/>
+                <field name="request_time"/>
+                <field name="service_name"/>
+                <field name="method" decoration-info="method == 'GET'" decoration-success="method == 'POST'" decoration-warning="method in ('PUT', 'PATCH')" decoration-danger="method == 'DELETE'"/>
+                <field name="path"/>
+                <field name="status_code" decoration-success="status_code &lt; 400" decoration-danger="status_code &gt;= 400"/>
+                <field name="duration_ms"/>
+                <field name="sandbox_id" optional="hide"/>
+                <field name="kensei2_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_kensei2_api_request_form" model="ir.ui.view">
+        <field name="name">kensei2.api.request.form</field>
+        <field name="model">kensei2.api.request</field>
+        <field name="arch" type="xml">
+            <form string="API Request Log" create="0" edit="0">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="task_id"/>
+                            <field name="sandbox_id"/>
+                            <field name="kensei2_id"/>
+                            <field name="service_name"/>
+                            <field name="request_time"/>
+                        </group>
+                        <group>
+                            <field name="method"/>
+                            <field name="path"/>
+                            <field name="status_code"/>
+                            <field name="duration_ms"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Request">
+                            <group>
+                                <field name="query_params" widget="text"/>
+                                <field name="request_body" widget="text"/>
+                            </group>
+                        </page>
+                        <page string="Response">
+                            <group>
+                                <field name="response_body" widget="text"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_kensei2_api_request_search" model="ir.ui.view">
+        <field name="name">kensei2.api.request.search</field>
+        <field name="model">kensei2.api.request</field>
+        <field name="arch" type="xml">
+            <search string="API Request Logs">
+                <field name="task_id" string="Task ID"/>
+                <field name="service_name"/>
+                <field name="method"/>
+                <field name="path"/>
+                <field name="sandbox_id"/>
+                <field name="kensei2_id"/>
+                <filter name="errors" string="Errors (4xx/5xx)" domain="[('status_code', '&gt;=', 400)]"/>
+                <group>
+                    <filter name="group_task_id" string="Task ID" context="{'group_by': 'task_id'}"/>
+                    <filter name="group_service" string="Service" context="{'group_by': 'service_name'}"/>
+                    <filter name="group_method" string="Method" context="{'group_by': 'method'}"/>
+                    <filter name="group_sandbox" string="Sandbox" context="{'group_by': 'sandbox_id'}"/>
+                    <filter name="group_task" string="Task" context="{'group_by': 'kensei2_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_kensei2_api_request" model="ir.actions.act_window">
+        <field name="name">API Request Logs</field>
+        <field name="res_model">kensei2.api.request</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_kensei2_api_request_search"/>
+    </record>
+</odoo>

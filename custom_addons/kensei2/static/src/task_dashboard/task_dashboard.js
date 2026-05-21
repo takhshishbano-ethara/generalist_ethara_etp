@@ -1,0 +1,824 @@
+/** @odoo-module */
+import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
+import { registry } from "@web/core/registry";
+import { useService } from "@web/core/utils/hooks";
+import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
+import { GogAuthDialog } from "../components/gog_auth_dialog/gog_auth_dialog";
+import { rpc } from "@web/core/network/rpc";
+
+const BATCH_MODELS = [
+    { type: "claude", label: "Claude Opus 4.7", color: "#c084fc" },
+    { type: "gpt", label: "GPT-5.5", color: "#34d399" },
+];
+
+const TRAJECTORY_FIELD_MAP = {
+    claude: "claude_trajectory",
+    gpt: "gpt_trajectory",
+};
+
+const BATCH_POLL_INTERVAL_MS = 5000;
+
+export class TaskDashboard extends Component {
+    static template = "kensei2.TaskDashboard";
+    static components = { GogAuthDialog };
+    static props = { ...standardWidgetProps };
+
+    setup() {
+        this.notification = useService("notification");
+        this.orm = useService("orm");
+        this.batchModels = BATCH_MODELS;
+        this._pollTimer = null;
+
+        this.state = useState({
+            batchPrompt: "",
+            batchStarting: false,
+            batchStopping: false,
+            sandboxes: [],
+            showGogAuth: false,
+            gogAuthDone: false,
+            rubrics: [],
+            newRubricLabel: "",
+            rubricError: "",
+            testResults: {},
+            expandedTestIds: {},
+            testWeightsStatus: "idle",
+            testWeightsError: "",
+            activeTrajectoryTab: "claude",
+        });
+
+        this._onBatchStatusChanged = (ev) => {
+            this._handleBatchStatusChanged(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "KENSEI2:BATCH_STATUS_CHANGED",
+            this._onBatchStatusChanged,
+        );
+        this._onSandboxStatusChanged = (ev) => {
+            this._handleSandboxStatusChanged(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "KENSEI2:SANDBOX_STATUS_CHANGED",
+            this._onSandboxStatusChanged,
+        );
+
+        onMounted(async () => {
+            this._checkGogAuthStatus();
+            this._loadRubrics();
+            this._loadTestWeightsStatus();
+            await this._loadSandboxes();
+            this._loadTestResults();
+            if (this.batchStatus === "starting" || this.batchStatus === "running" || this.batchStatus === "stopping") {
+                this._startPolling();
+            }
+        });
+        onWillUnmount(() => {
+            this._stopPolling();
+            if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
+            this.env.bus.removeEventListener(
+                "KENSEI2:BATCH_STATUS_CHANGED",
+                this._onBatchStatusChanged,
+            );
+            this.env.bus.removeEventListener(
+                "KENSEI2:SANDBOX_STATUS_CHANGED",
+                this._onSandboxStatusChanged,
+            );
+        });
+    }
+
+    async _handleBatchStatusChanged(_payload) {
+        await this.props.record.load();
+        await this._loadSandboxes();
+        await this._loadTestResults();
+        const status = this.batchStatus;
+        if (status === "done" || status === "error" || status === "idle") {
+            this._stopPolling();
+            this.state.batchStarting = false;
+            this.state.batchStopping = false;
+        }
+        if (status === "done") {
+            for (const model of BATCH_MODELS) {
+                await this._autoTriggerTaskDescription(model.type);
+            }
+        }
+    }
+
+    async _handleSandboxStatusChanged(_payload) {
+        await this._loadSandboxes();
+        await this.props.record.load();
+    }
+
+    get taskId() {
+        return this.props.record.resId;
+    }
+
+    get taskEmail() {
+        return this.props.record.data.email || "";
+    }
+
+    get batchStatus() {
+        return this.props.record.data.batch_status || "idle";
+    }
+
+    get batchError() {
+        return this.props.record.data.batch_error || "";
+    }
+
+    get batchSize() {
+        return this.props.record.data.batch_size || 8;
+    }
+
+    get isBatchActive() {
+        const s = this.batchStatus;
+        return s === "starting" || s === "running" || s === "stopping";
+    }
+
+    get canStartBatch() {
+        return !this.isBatchActive && !this.state.batchStarting && this.taskId;
+    }
+
+    get canStopBatch() {
+        return (this.batchStatus === "starting" || this.batchStatus === "running") && !this.state.batchStopping;
+    }
+
+    get totalPods() {
+        return BATCH_MODELS.length * this.batchSize;
+    }
+
+    get sandboxesByModel() {
+        const grouped = {};
+        for (const m of BATCH_MODELS) {
+            grouped[m.type] = this.state.sandboxes
+                .filter((sb) => sb.model_type === m.type)
+                .sort((a, b) => (a.variant_index || 0) - (b.variant_index || 0));
+        }
+        return grouped;
+    }
+
+    get completedCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.session_status === "completed"
+        ).length;
+    }
+
+    get runningCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "running"
+        ).length;
+    }
+
+    get startingCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "starting"
+        ).length;
+    }
+
+    get errorCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "error"
+        ).length;
+    }
+
+    get stoppedCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "stopped"
+        ).length;
+    }
+
+    get batchProgressPercent() {
+        const total = this.totalPods;
+        if (total === 0) return 0;
+        return Math.round((this.completedCount / total) * 100);
+    }
+
+    async _loadSandboxes() {
+        if (!this.taskId) return;
+
+        const sandboxes = await this.orm.searchRead(
+            "kensei2.sandbox",
+            [["kensei2_id", "=", this.taskId]],
+            [
+                "id", "model_type", "variant_index", "docker_status",
+                "docker_port", "docker_gateway_token",
+                "docker_ws_url", "docker_error", "docker_workdir",
+                "session_status", "docker_compose_project",
+            ],
+            { order: "model_type asc, variant_index asc" },
+        );
+
+        this.state.sandboxes = sandboxes;
+    }
+
+    _startPolling() {
+        if (this._pollTimer) return;
+        this._pollTimer = setInterval(() => this._pollBatchStatus(), BATCH_POLL_INTERVAL_MS);
+    }
+
+    _stopPolling() {
+        if (this._pollTimer) {
+            clearInterval(this._pollTimer);
+            this._pollTimer = null;
+        }
+    }
+
+    async _pollBatchStatus() {
+        try {
+            await this.props.record.load();
+            await this._loadSandboxes();
+            const status = this.batchStatus;
+            if (status === "done" || status === "error" || status === "idle") {
+                this._stopPolling();
+                this.state.batchStarting = false;
+                this.state.batchStopping = false;
+                if (status === "done") {
+                    this.notification.add("Batch completed successfully!", { type: "success" });
+                    await this._loadTestResults();
+                    for (const model of BATCH_MODELS) {
+                        await this._autoTriggerTaskDescription(model.type);
+                    }
+                } else if (status === "error") {
+                    this.notification.add("Batch completed with errors.", { type: "warning" });
+                    await this._loadTestResults();
+                }
+            }
+        } catch (e) {
+            console.warn("[kensei2-dashboard] Batch poll failed:", e);
+        }
+    }
+
+    onBatchPromptInput(ev) {
+        this.state.batchPrompt = ev.target.value;
+    }
+
+    async onStartBatch() {
+        const prompt = this.state.batchPrompt.trim();
+        if (!prompt) {
+            this.notification.add("Please enter a prompt for the batch run.", { type: "warning" });
+            return;
+        }
+        if (!this.canStartBatch) return;
+
+        this.state.batchStarting = true;
+        try {
+            await this.orm.call("kensei2.kensei2", "action_start_batch", [[this.taskId], prompt]);
+            await this.props.record.load();
+            await this._loadSandboxes();
+            this._startPolling();
+            this.notification.add(`Batch started: ${this.totalPods} pods launching...`, { type: "info" });
+        } catch (e) {
+            this.state.batchStarting = false;
+            const msg = e.data?.message || e.message || "Failed to start batch";
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
+    async onStopBatch() {
+        if (!this.canStopBatch) return;
+
+        const confirmed = window.confirm(
+            "Are you sure you want to stop the batch? All running pods will be terminated and trajectories exported."
+        );
+        if (!confirmed) return;
+
+        this.state.batchStopping = true;
+        try {
+            await this.orm.call("kensei2.kensei2", "action_stop_batch", [[this.taskId]]);
+            await this.props.record.load();
+            await this._loadSandboxes();
+            this.notification.add("Batch stopping...", { type: "info" });
+        } catch (e) {
+            this.state.batchStopping = false;
+            const msg = e.data?.message || e.message || "Failed to stop batch";
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
+    podStatusClass(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        const ss = sandbox.session_status || "not_started";
+        if (ss === "completed") return "completed";
+        if (ds === "running") return "running";
+        if (ds === "starting") return "starting";
+        if (ds === "error") return "error";
+        return "stopped";
+    }
+
+    podStatusIcon(sandbox) {
+        const cls = this.podStatusClass(sandbox);
+        const map = {
+            completed: "fa-check",
+            running: "fa-circle-o-notch fa-spin",
+            starting: "fa-spinner fa-spin",
+            error: "fa-exclamation-triangle",
+            stopped: "fa-circle-o",
+        };
+        return map[cls] || "fa-circle-o";
+    }
+
+    podTooltip(sandbox) {
+        const vi = sandbox.variant_index || 0;
+        const model = sandbox.model_type || "?";
+        const ds = sandbox.docker_status || "stopped";
+        const ss = sandbox.session_status || "not_started";
+        let tip = `${model} #${vi} — Pod: ${ds}`;
+        if (ss !== "not_started") tip += `, Session: ${ss}`;
+        if (sandbox.docker_error) tip += `\nError: ${sandbox.docker_error}`;
+        return tip;
+    }
+
+    onTrajectoryTabClick(modelType) {
+        this.state.activeTrajectoryTab = modelType;
+    }
+
+    get trajectoryEntries() {
+        const fieldName = TRAJECTORY_FIELD_MAP[this.state.activeTrajectoryTab];
+        if (!fieldName) return [];
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    get trajectoryCount() {
+        return this.trajectoryEntries.length;
+    }
+
+    get maxTrajectories() {
+        return 12;
+    }
+
+    _trajectoryCountCache = {};
+
+    getModelTrajectoryCount(modelType) {
+        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
+        if (!fieldName) return 0;
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return 0;
+        const cached = this._trajectoryCountCache[modelType];
+        if (cached && cached.raw === raw) return cached.count;
+        try {
+            const parsed = JSON.parse(raw);
+            const count = Array.isArray(parsed) ? parsed.length : 0;
+            this._trajectoryCountCache[modelType] = { raw, count };
+            return count;
+        } catch (_e) {
+            this._trajectoryCountCache[modelType] = { raw, count: 0 };
+            return 0;
+        }
+    }
+
+    async _autoTriggerTaskDescription(modelType) {
+        if (!modelType) return;
+
+        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
+        if (!fieldName) return;
+
+        const recordId = this.taskId;
+        if (!recordId) return;
+
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return;
+
+        let entries;
+        try {
+            const parsed = JSON.parse(raw);
+            entries = Array.isArray(parsed) ? parsed : [parsed];
+        } catch (_e) {
+            return;
+        }
+
+        if (entries.length === 0) return;
+
+        const entryIndex = entries.length - 1;
+        const entry = entries[entryIndex];
+
+        if (entry.task_description_status === "pending" || entry.task_description_status === "done") {
+            return;
+        }
+
+        try {
+            await rpc("/kensei2/generate_task_description", {
+                record_id: recordId,
+                field_name: fieldName,
+                entry_index: entryIndex,
+            });
+            this.env.bus.trigger("KENSEI2:TASK_DESC_TRIGGERED", {
+                field_name: fieldName,
+                entry_index: entryIndex,
+            });
+            this._pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex);
+        } catch (e) {
+            console.warn("[kensei2-dashboard] Auto task description trigger failed:", e);
+        }
+    }
+
+    _pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex) {
+        const poll = setInterval(async () => {
+            try {
+                await this.props.record.load();
+                const raw = this.props.record.data[fieldName];
+                if (!raw || !raw.trim()) return;
+                const parsed = JSON.parse(raw);
+                const entries = Array.isArray(parsed) ? parsed : [parsed];
+                if (entryIndex >= entries.length) return;
+                const status = entries[entryIndex].task_description_status;
+                if (!status || status === "pending") return;
+                clearInterval(poll);
+                if (status !== "done") return;
+                const qcStatus = entries[entryIndex].qc_status;
+                if (qcStatus === "pending" || qcStatus === "done") return;
+                await rpc("/kensei2/trajectory_qc", {
+                    record_id: recordId,
+                    field_name: fieldName,
+                    entry_index: entryIndex,
+                });
+                this.env.bus.trigger("KENSEI2:QC_TRIGGERED", {
+                    field_name: fieldName,
+                    entry_index: entryIndex,
+                });
+            } catch (e) {
+                clearInterval(poll);
+                console.warn("[kensei2-dashboard] Auto QC trigger failed:", e);
+            }
+        }, 5000);
+    }
+
+    getTestResultsForTrajectory(trajIndex) {
+        const results = this.state.testResults[this.state.activeTrajectoryTab] || [];
+        return results.filter(r => r.trajectory_index === trajIndex);
+    }
+
+    async _checkGogAuthStatus() {
+        if (!this.taskId) return;
+        try {
+            const data = await rpc("/kensei2/gog/status", { task_id: this.taskId });
+            this.state.gogAuthDone = !!data.authenticated;
+        } catch (e) {
+            console.warn("[kensei2-dashboard] Failed to check gog auth status:", e);
+        }
+    }
+
+    onGogAuthClick() {
+        this.state.showGogAuth = true;
+    }
+
+    onGogAuthClose() {
+        this.state.showGogAuth = false;
+    }
+
+    onGogAuthSuccess() {
+        this.state.showGogAuth = false;
+        this.state.gogAuthDone = true;
+    }
+
+    _loadRubrics() {
+        const raw = this.props.record.data.rubrics;
+        if (!raw || !raw.trim()) {
+            this.state.rubrics = [];
+            return;
+        }
+        try {
+            const parsed = JSON.parse(raw);
+            const migrateRubric = (r) => ({
+                ...r,
+                claude: r.claude || Array(12).fill(null),
+                gpt: r.gpt || Array(12).fill(null),
+                justification: r.justification || { claude: "", gpt: "" },
+                score: r.score ?? 1,
+                is_positive: r.is_positive ?? true,
+                type: r.type || "task completion",
+                evaluation_target: r.evaluation_target || "state change",
+                importance: r.importance || "important",
+            });
+            if (Array.isArray(parsed)) {
+                this.state.rubrics = parsed.map(migrateRubric);
+            } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
+                const globalJ = parsed.justification || { claude: "", gpt: "" };
+                this.state.rubrics = parsed.rubrics.map(r => migrateRubric({
+                    ...r,
+                    justification: r.justification || { ...globalJ },
+                }));
+            } else {
+                this.state.rubrics = [];
+            }
+        } catch (_e) {
+            this.state.rubrics = [];
+        }
+    }
+
+    async _saveRubrics() {
+        const value = JSON.stringify(this.state.rubrics);
+        await this.orm.write("kensei2.kensei2", [this.taskId], { rubrics: value });
+        await this.props.record.load();
+    }
+
+    onRubricLabelInput(ev) {
+        this.state.newRubricLabel = ev.target.value;
+    }
+
+    async onAddRubric() {
+        const label = this.state.newRubricLabel.trim();
+        if (!label) return;
+        this.state.rubrics.push({
+            label,
+            claude: Array(12).fill(null),
+            gpt: Array(12).fill(null),
+            justification: { claude: "", gpt: "" },
+            score: 1,
+            is_positive: true,
+            type: "task completion",
+            evaluation_target: "state change",
+            importance: "important",
+        });
+        this.state.newRubricLabel = "";
+        await this._saveRubrics();
+    }
+
+    async onRubricMetaChange(rubricIndex, field, ev) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        const val = ev.target.value;
+        if (field === "score") {
+            rubric.score = parseInt(val, 10);
+            rubric.is_positive = rubric.score > 0;
+        } else {
+            rubric[field] = val;
+        }
+        if (field === "importance") {
+            const absScore = Math.abs(rubric.score);
+            if (rubric.importance === "critically_important" && absScore < 5) {
+                rubric.score = rubric.is_positive ? 5 : -5;
+            }
+        }
+        await this._saveRubrics();
+    }
+
+    onRubricKeydown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.onAddRubric();
+        }
+    }
+
+    async onRemoveRubric(index) {
+        this.state.rubrics.splice(index, 1);
+        await this._saveRubrics();
+    }
+
+    async onToggleRubricResult(rubricIndex, model, slotIndex) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        const current = rubric[model][slotIndex];
+        if (current === null || current === "fail") {
+            rubric[model][slotIndex] = "pass";
+        } else {
+            rubric[model][slotIndex] = "fail";
+        }
+        await this._saveRubrics();
+    }
+
+    rubricNeedsJustification(rubricIndex, model) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return false;
+        const pass8 = rubric[model].slice(0, 8);
+        return pass8.every(v => v === "fail");
+    }
+
+    onJustificationInput(rubricIndex, model, ev) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        if (!rubric.justification) rubric.justification = { claude: "", gpt: "" };
+        rubric.justification[model] = ev.target.value;
+    }
+
+    async onSaveJustification() {
+        await this._saveRubrics();
+    }
+
+    async _loadTestResults() {
+        if (!this.taskId) return;
+        try {
+            const sandboxIds = this.state.sandboxes.map(sb => sb.id).filter(Boolean);
+            if (sandboxIds.length === 0) {
+                this.state.testResults = {};
+                return;
+            }
+            const results = await this.orm.searchRead(
+                "kensei2.test.result",
+                [["sandbox_id", "in", sandboxIds]],
+                [
+                    "id", "sandbox_id", "model_type", "model_used", "status",
+                    "tests_total", "tests_passed", "tests_failed", "tests_errored",
+                    "duration_generation_ms", "duration_execution_ms", "create_date",
+                    "trajectory_index", "test_code", "test_output", "score", "test_scores",
+                ],
+                { order: "trajectory_index asc, create_date desc", limit: 100 },
+            );
+            const grouped = {};
+            for (const r of results) {
+                let modelType = "";
+                if (r.sandbox_id) {
+                    const sbId = r.sandbox_id[0];
+                    const sb = this.state.sandboxes.find(s => s.id === sbId);
+                    if (sb) modelType = sb.model_type;
+                }
+                if (!modelType) modelType = r.model_type || "unknown";
+                if (!grouped[modelType]) grouped[modelType] = [];
+                grouped[modelType].push(r);
+            }
+            this.state.testResults = grouped;
+        } catch (e) {
+            console.warn("[kensei2-dashboard] Failed to load test results:", e);
+        }
+    }
+
+    async _loadTestWeightsStatus() {
+        if (!this.taskId) return;
+        try {
+            const [data] = await this.orm.read(
+                "kensei2.kensei2",
+                [this.taskId],
+                ["test_weights_status", "test_weights_error"],
+            );
+            this.state.testWeightsStatus = data.test_weights_status || "idle";
+            this.state.testWeightsError = data.test_weights_error || "";
+        } catch (e) {
+            console.warn("[kensei2-dashboard] Failed to load test weights status:", e);
+        }
+    }
+
+    async onGenerateTestWeights() {
+        if (!this.taskId) return;
+        try {
+            this.state.testWeightsStatus = "generating";
+            this.state.testWeightsError = "";
+            await this.orm.call("kensei2.kensei2", "action_generate_test_weights", [[this.taskId]]);
+            this.notification.add("Test weight generation started.", { type: "info" });
+            this._pollTestWeightsStatus();
+        } catch (e) {
+            this.state.testWeightsStatus = "error";
+            this.state.testWeightsError = e.message || String(e);
+            this.notification.add("Failed to start test weight generation: " + (e.message || e), { type: "danger" });
+        }
+    }
+
+    _pollTestWeightsStatus() {
+        if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
+        this._testWeightsPollTimer = setInterval(async () => {
+            await this._loadTestWeightsStatus();
+            if (this.state.testWeightsStatus !== "generating") {
+                clearInterval(this._testWeightsPollTimer);
+                this._testWeightsPollTimer = null;
+                if (this.state.testWeightsStatus === "done") {
+                    this.notification.add("Test weights generated successfully.", { type: "success" });
+                    await this._loadTestResults();
+                } else if (this.state.testWeightsStatus === "error") {
+                    this.notification.add("Test weight generation failed: " + this.state.testWeightsError, { type: "danger" });
+                }
+            }
+        }, 5000);
+    }
+
+    get activeTestResults() {
+        return this.state.testResults[this.state.activeTrajectoryTab] || [];
+    }
+
+    get testResultsByTrajectory() {
+        const results = this.activeTestResults;
+        const grouped = {};
+        for (const r of results) {
+            const idx = r.trajectory_index || 0;
+            if (!grouped[idx]) grouped[idx] = [];
+            grouped[idx].push(r);
+        }
+        return Object.keys(grouped)
+            .sort((a, b) => Number(a) - Number(b))
+            .map(idx => ({ index: Number(idx), results: grouped[idx] }));
+    }
+
+    get testResultsSummary() {
+        const results = this.activeTestResults;
+        if (results.length === 0) return null;
+        let totalTests = 0, passed = 0, failed = 0, errored = 0, running = 0;
+        for (const r of results) {
+            totalTests += r.tests_total || 0;
+            passed += r.tests_passed || 0;
+            failed += r.tests_failed || 0;
+            errored += r.tests_errored || 0;
+            if (r.status === "running" || r.status === "generating") running++;
+        }
+        return { total: totalTests, passed, failed, errored, running };
+    }
+
+    onToggleTestDetail(resultId) {
+        this.state.expandedTestIds = {
+            ...this.state.expandedTestIds,
+            [resultId]: !this.state.expandedTestIds[resultId],
+        };
+    }
+
+    isTestExpanded(resultId) {
+        return !!this.state.expandedTestIds[resultId];
+    }
+
+    async onSetTestScore(resultId, score) {
+        try {
+            await this.orm.write("kensei2.test.result", [resultId], { score });
+            const allResults = Object.values(this.state.testResults).flat();
+            const result = allResults.find(r => r.id === resultId);
+            if (result) result.score = score;
+        } catch (e) {
+            this.notification.add("Failed to save score", { type: "danger" });
+        }
+    }
+
+    async onSetFunctionScore(resultId, funcName, score) {
+        const allResults = Object.values(this.state.testResults).flat();
+        const result = allResults.find(r => r.id === resultId);
+        if (!result) return;
+        let scores = {};
+        try {
+            scores = JSON.parse(result.test_scores || "{}");
+        } catch (_e) {
+            scores = {};
+        }
+        scores[funcName] = score;
+        const value = JSON.stringify(scores);
+        try {
+            await this.orm.write("kensei2.test.result", [resultId], { test_scores: value });
+            result.test_scores = value;
+        } catch (e) {
+            this.notification.add("Failed to save function score", { type: "danger" });
+        }
+    }
+
+    getFunctionScore(result, funcName) {
+        try {
+            const scores = JSON.parse(result.test_scores || "{}");
+            return scores[funcName] ?? null;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    getTestFunctions(result) {
+        if (!result.test_code) return [];
+        const regex = /(?:def|async def)\s+(test_\w+)\s*\(/gm;
+        const funcs = [];
+        let match;
+        while ((match = regex.exec(result.test_code)) !== null) {
+            funcs.push(match[1]);
+        }
+        return funcs;
+    }
+
+    getFunctionStatus(result, funcName) {
+        if (!result.test_output) return "unknown";
+        const output = result.test_output;
+        if (output.includes(funcName + " PASSED") || output.match(new RegExp(funcName + "\\s+PASSED"))) return "passed";
+        if (output.includes(funcName + " FAILED") || output.match(new RegExp(funcName + "\\s+FAILED"))) return "failed";
+        if (output.includes(funcName + " ERROR") || output.match(new RegExp(funcName + "\\s+ERROR"))) return "error";
+        return "unknown";
+    }
+
+    getFunctionOutput(result, funcName) {
+        if (!result.test_output) return "";
+        const output = result.test_output;
+        const patterns = [
+            new RegExp(`_{2,}\\s*${funcName}\\s*_{2,}([\\s\\S]*?)(?=_{2,}\\s*\\w|={2,}|$)`, "m"),
+            new RegExp(`FAILED.*${funcName}[^\\n]*\\n([\\s\\S]*?)(?=FAILED|PASSED|ERROR|={2,}|$)`, "m"),
+            new RegExp(`(${funcName}[\\s\\S]*?)(?=\\n\\S+::\\w+|\\n={2,}|$)`, "m"),
+        ];
+        for (const pat of patterns) {
+            const match = output.match(pat);
+            if (match && match[1] && match[1].trim()) return match[1].trim();
+        }
+        const lines = output.split("\n");
+        const relevant = [];
+        let capturing = false;
+        for (const line of lines) {
+            if (line.includes(funcName)) {
+                capturing = true;
+                relevant.push(line);
+            } else if (capturing) {
+                if (line.match(/^(PASSED|FAILED|ERROR|_{2,}|={2,})/)) break;
+                relevant.push(line);
+            }
+        }
+        return relevant.join("\n").trim();
+    }
+
+    getFunctionCode(result, funcName) {
+        if (!result.test_code) return "";
+        const code = result.test_code;
+        const regex = new RegExp(`([ \\t]*(?:def|async def)\\s+${funcName}\\s*\\([\\s\\S]*?)(?=\\n[ \\t]*(?:def|async def|class)\\s|$)`, "m");
+        const match = code.match(regex);
+        return match ? match[1].trim() : "";
+    }
+}
+
+export const taskDashboardDef = { component: TaskDashboard };
+registry.category("view_widgets").add("kensei2_task_dashboard", taskDashboardDef);

@@ -1,0 +1,35 @@
+<odoo>
+
+    <record model="ir.actions.client" id="kensei2_costing_action">
+        <field name="name">Token Usage</field>
+        <field name="tag">kensei2_costing_dashboard</field>
+    </record>
+
+    <menuitem name="Kensei2" id="kensei2.menu_kensei2_root"
+              groups="kensei2.group_kensei2_tasker"/>
+
+    <menuitem name="Tasks" id="kensei2.menu_kensei2_tasks" parent="kensei2.menu_kensei2_root"
+              action="kensei2_kensei2_action_window" sequence="10"
+              groups="kensei2.group_kensei2_tasker"/>
+    <menuitem name="Costing" id="kensei2.menu_kensei2_costing" parent="kensei2.menu_kensei2_root"
+              action="kensei2_costing_action" sequence="12"
+              groups="kensei2.group_kensei2_pl"/>
+    <menuitem name="Personas" id="kensei2.menu_kensei2_personas" parent="kensei2.menu_kensei2_root"
+              action="kensei2_persona_action_window" sequence="15"
+              groups="kensei2.group_kensei2_ql"/>
+    <menuitem name="Domains" id="kensei2.menu_kensei2_domains" parent="kensei2.menu_kensei2_root"
+              action="domain_action_window" sequence="30"
+              groups="kensei2.group_kensei2_ql"/>
+    <menuitem name="Turns" id="kensei2.menu_kensei2_turns" parent="kensei2.menu_kensei2_root"
+              action="kensei2_turn_action_window" sequence="25"
+              groups="kensei2.group_kensei2_ql"/>
+    <menuitem name="Sandboxes" id="kensei2.menu_kensei2_sandboxes" parent="kensei2.menu_kensei2_root"
+              action="kensei2_sandbox_action_window" sequence="35"
+              groups="kensei2.group_kensei2_ql"/>
+    <menuitem name="API Logs" id="kensei2.menu_kensei2_api_requests" parent="kensei2.menu_kensei2_root"
+              action="action_kensei2_api_request" sequence="40"
+              groups="kensei2.group_kensei2_pl"/>
+    <menuitem name="Test Results" id="kensei2.menu_kensei2_test_results" parent="kensei2.menu_kensei2_root"
+              action="action_kensei2_test_results" sequence="45"
+              groups="kensei2.group_kensei2_tasker"/>
+</odoo>

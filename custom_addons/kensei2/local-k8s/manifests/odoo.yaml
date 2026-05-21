@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odoo-config
+  namespace: kensei2
+data:
+  odoo.conf: |
+    [options]
+    admin_passwd = admin
+    db_host = postgres.kensei2.svc.cluster.local
+    db_port = 5432
+    db_user = odoo
+    db_password = odoo_local_pw
+    db_name = kensei2_test
+    addons_path = /opt/ethara/app/addons,/opt/ethara/app/custom_addons
+    data_dir = /tmp/odoo-data
+    server_wide_modules = base,web
+    without_demo = all
+    workers = 0
+    limit_time_cpu = 600
+    limit_time_real = 1200
+    max_cron_threads = 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+  namespace: kensei2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo
+  template:
+    metadata:
+      labels:
+        app: odoo
+    spec:
+      containers:
+        - name: odoo
+          image: kensei2-odoo:local
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              python /opt/ethara/app/odoo-bin --config=/etc/odoo/odoo.conf \
+                --init=base,web,kensei2 --stop-after-init --no-http 2>&1 || true
+              exec python /opt/ethara/app/odoo-bin --config=/etc/odoo/odoo.conf
+          ports:
+            - containerPort: 8069
+            - containerPort: 8072
+          env:
+            # Kensei2 K8s mode
+            - name: KENSEI2_K8S_NO_NODE_SELECTOR
+              value: "1"
+            - name: KENSEI2_K8S_SKIP_S3
+              value: "1"
+            - name: KENSEI2_K8S_LOW_RESOURCES
+              value: "1"
+            - name: KENSEI2_K8S_SKIP_MOCKS
+              value: "1"
+            - name: SANDBOX_POOL_WORKERS
+              value: "20"
+            # API keys (loaded from .env baked into image, but override here for clarity)
+            - name: AWS_BEARER_TOKEN_BEDROCK
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: AWS_BEARER_TOKEN_BEDROCK
+            - name: KENSEI2_AWS_BEARER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: KENSEI2_AWS_BEARER_TOKEN
+            - name: KENSEI2_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: KENSEI2_OPENAI_API_KEY
+            - name: KENSEI2_LITELLM_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: KENSEI2_LITELLM_MASTER_KEY
+            - name: KENSEI2_LITELLM_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: KENSEI2_LITELLM_DB_PASSWORD
+            - name: KENSEI2_LLAMA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: KENSEI2_LLAMA_API_KEY
+            - name: KENSEI2_MOONSHOT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: kensei2-env
+                  key: KENSEI2_MOONSHOT_API_KEY
+          volumeMounts:
+            - name: odoo-config
+              mountPath: /etc/odoo/odoo.conf
+              subPath: odoo.conf
+              readOnly: true
+            - name: odoo-data
+              mountPath: /tmp/odoo-data
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "768Mi"
+            limits:
+              memory: "2Gi"
+          readinessProbe:
+            httpGet:
+              path: /web/health
+              port: 8069
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /web/health
+              port: 8069
+            initialDelaySeconds: 120
+            periodSeconds: 30
+      volumes:
+        - name: odoo-config
+          configMap:
+            name: odoo-config
+        - name: odoo-data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo
+  namespace: kensei2
+spec:
+  type: NodePort
+  selector:
+    app: odoo
+  ports:
+    - port: 8069
+      targetPort: 8069
+      nodePort: 30069
+      name: http
+    - port: 8072
+      targetPort: 8072
+      name: longpolling
