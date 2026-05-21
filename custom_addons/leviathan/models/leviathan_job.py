@@ -90,56 +90,166 @@ def _submit_bg(label, fn, *args, **kwargs):
         return None
 
 
+_HEARTBEAT_INTERVAL_S = int(os.environ.get("LEVIATHAN_HEARTBEAT_INTERVAL_S", "60"))
+_HEARTBEAT_MODE = os.environ.get("LEVIATHAN_HEARTBEAT_MODE", "aggregator").lower()
+
+
+class _HeartbeatManager:
+    """Process-wide shared heartbeat pulser.
+
+    Replaces the per-job daemon-thread pattern that burned one thread AND
+    one DB cursor every 60s for every active job. With 50 PRD workers
+    running we were spawning 50 heartbeat threads competing for cursors
+    against the workers themselves — the cursor pool (db_maxconn) was
+    being drained by heartbeats alone, leaving real Odoo requests waiting.
+
+    Design:
+      * ONE daemon thread per Python process, lazily started on first
+        register() call. Idle-exits when the registry empties; respawns
+        on the next register(). No idle thread between batches.
+      * Registry: ``set[(db_name, record_id)]``. register() / unregister()
+        are O(1) under a single Lock. Multi-tenant safe (db_name keyed).
+      * Every interval (LEVIATHAN_HEARTBEAT_INTERVAL_S, default 60s),
+        the thread snapshots the registry, groups by db_name, and for
+        each group issues ONE batched UPDATE filtered by state IN
+        ('extracting','generating','scoring'). Terminal jobs never get
+        pinged even if a worker forgot to unregister.
+      * Self-heal: outer try/except in the loop. Any error (DB drop,
+        registry corruption) is logged and the next tick continues.
+        The thread MUST NOT die — the watchdog cron (5min) is the
+        secondary safety net for jobs that go quiet.
+      * Backward-compat: jobs running under the legacy per-job daemon
+        at deploy time keep their own daemons and drain naturally
+        (worst case ~9 min for PRD). New jobs route through the manager
+        unless LEVIATHAN_HEARTBEAT_MODE=per_job.
+    """
+
+    __slots__ = ("_active", "_lock", "_interval", "_stop_event", "_thread")
+
+    def __init__(self, interval=_HEARTBEAT_INTERVAL_S):
+        self._active: set[tuple[str, int]] = set()
+        self._lock = threading.Lock()
+        self._interval = max(5, int(interval))
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def register(self, db_name, record_id):
+        if not record_id or not db_name:
+            return
+        with self._lock:
+            self._active.add((db_name, record_id))
+            self._ensure_thread_locked()
+
+    def unregister(self, db_name, record_id):
+        if not record_id or not db_name:
+            return
+        with self._lock:
+            self._active.discard((db_name, record_id))
+
+    def _ensure_thread_locked(self):
+        # Called with self._lock held. Lazy-start the thread on the first
+        # registration; respawn if a prior thread idle-exited.
+        t = self._thread
+        if t is not None and t.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="leviathan-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop_event.wait(self._interval):
+            try:
+                # Snapshot under lock; idle-exit if empty.
+                with self._lock:
+                    if not self._active:
+                        self._thread = None
+                        return
+                    groups: dict[str, list[int]] = {}
+                    for db_name, rid in self._active:
+                        groups.setdefault(db_name, []).append(rid)
+
+                for db_name, ids in groups.items():
+                    try:
+                        self._bulk_pulse(db_name, ids)
+                    except Exception:
+                        _logger.debug(
+                            "[leviathan] heartbeat pulse failed for db=%s "
+                            "ids=%s (will retry next tick)",
+                            db_name, ids, exc_info=True,
+                        )
+            except Exception:
+                # Catch-all so a bad tick never kills the thread.
+                # Watchdog cron is the real safety net.
+                _logger.exception(
+                    "[leviathan] heartbeat manager tick crashed; continuing",
+                )
+
+    def _bulk_pulse(self, db_name, record_ids):
+        registry = Registry(db_name)
+        with registry.cursor() as cr:
+            cr.execute(
+                "UPDATE leviathan_job "
+                "SET last_heartbeat = (now() AT TIME ZONE 'UTC') "
+                "WHERE id = ANY(%s) "
+                "  AND state IN ('extracting', 'generating', 'scoring')",
+                (list(record_ids),),
+            )
+            cr.commit()
+
+
+_HEARTBEAT_MGR = _HeartbeatManager()
+
+
 class _HeartbeatTicker:
-    """Daemon-thread heartbeat pulser for the lifetime of a bg worker.
+    """Backward-compat facade so call sites don't change.
 
-    Pulses ``last_heartbeat`` every ``interval`` seconds while the worker is
-    alive. Use as a context manager so __exit__ stops the pulser on both
-    success and exception:
-
-        with _HeartbeatTicker(self, db_name, record_id):
-            ... long-running work ...
-
-    Why this matters: the previous heartbeat-write-per-attempt strategy meant
-    a single Bedrock call under adaptive throttle (which silently waits 15+
-    min and still returns 200) sat between heartbeats long enough to trip the
-    watchdog. The ticker decouples heartbeat from where in the code the
-    worker happens to be — only a genuinely dead worker (crash, OOM, GIL
-    hang) stops pulsing.
-
-    Each pulse uses a short-lived cursor (via ``_write_with_cursor``) so the
-    ticker never holds a DB connection between pulses. Pulse failures are
-    logged at DEBUG and the loop keeps running — a single pool-exhausted
-    pulse is not worth killing the ticker over.
+    By default (LEVIATHAN_HEARTBEAT_MODE=aggregator) this is a thin wrapper
+    that register/unregisters the job with the shared _HEARTBEAT_MGR. If
+    operations needs to roll back to per-job daemons (e.g. for debugging
+    the aggregator under load), set LEVIATHAN_HEARTBEAT_MODE=per_job and
+    redeploy — the call sites stay identical.
     """
 
     __slots__ = ("_model", "_db_name", "_record_id", "_interval",
-                 "_stop_event", "_thread")
+                 "_mode", "_stop_event", "_thread")
 
-    def __init__(self, model, db_name, record_id, interval=60):
+    def __init__(self, model, db_name, record_id, interval=_HEARTBEAT_INTERVAL_S):
         self._model = model
         self._db_name = db_name
         self._record_id = record_id
         self._interval = interval
+        self._mode = _HEARTBEAT_MODE
         self._stop_event = threading.Event()
         self._thread = None
 
     def __enter__(self):
-        self._thread = threading.Thread(
-            target=self._run,
-            name=f"leviathan-hb[job={self._record_id}]",
-            daemon=True,
-        )
-        self._thread.start()
+        if self._mode == "per_job":
+            self._thread = threading.Thread(
+                target=self._run_legacy,
+                name=f"leviathan-hb[job={self._record_id}]",
+                daemon=True,
+            )
+            self._thread.start()
+        else:
+            _HEARTBEAT_MGR.register(self._db_name, self._record_id)
         return self
 
     def __exit__(self, exc_type, exc, tb):
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2)
-        return False  # never swallow exceptions
+        if self._mode == "per_job":
+            self._stop_event.set()
+            if self._thread is not None:
+                self._thread.join(timeout=2)
+        else:
+            _HEARTBEAT_MGR.unregister(self._db_name, self._record_id)
+        return False
 
-    def _run(self):
+    def _run_legacy(self):
+        # Old per-job daemon body kept for the LEVIATHAN_HEARTBEAT_MODE=per_job
+        # rollback switch. Identical to the pre-hotfix _HeartbeatTicker._run.
         while not self._stop_event.wait(self._interval):
             try:
                 self._model._write_with_cursor(
