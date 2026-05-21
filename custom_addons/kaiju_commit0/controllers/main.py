@@ -11,12 +11,6 @@ WEBHOOK_TOKEN_PARAM = "kaiju.webhook_token"
 
 
 class KaijuCallbackController(http.Controller):
-    """Receives pipeline completion callbacks from Argo workflows.
-
-    Auth: Bearer token validated against ir.config_parameter 'kaiju.webhook_token'.
-    Both endpoints are JSON-RPC free (type='json' not used — raw HTTP POST).
-    """
-
     def _validate_token(self):
         auth_header = request.httprequest.headers.get("Authorization", "")
         if not auth_header.startswith("Bearer "):
@@ -30,18 +24,70 @@ class KaijuCallbackController(http.Controller):
             return False
         return token == expected
 
+    def _upsert_callback_steps(self, parent_record, steps_data, parent_field):
+        if not steps_data or not isinstance(steps_data, list):
+            return
+        Step = request.env["kaiju.commit0.workflow.step"].sudo()
+        existing_map = {
+            s.node_id: s for s in Step.search([(parent_field, "=", parent_record.id)])
+        }
+        for step_data in steps_data:
+            if not isinstance(step_data, dict):
+                continue
+            name = step_data.get("name") or ""
+            order = step_data.get("order", 0)
+            if not name:
+                continue
+            node_id = f"callback-{order}"
+            phase_raw = (step_data.get("phase") or "Pending").capitalize()
+            phase_map = {
+                "Succeeded": "Succeeded",
+                "Failed": "Failed",
+                "Error": "Error",
+                "Running": "Running",
+                "Skipped": "Skipped",
+                "Omitted": "Omitted",
+            }
+            phase = phase_map.get(phase_raw, "Pending")
+            vals = {
+                "display_name": name,
+                "phase": phase,
+                "log_file": step_data.get("log_file", ""),
+                "step_order": order,
+                "node_type": "Pod",
+            }
+            if node_id in existing_map:
+                existing_map[node_id].write(vals)
+            else:
+                vals["node_id"] = node_id
+                vals[parent_field] = parent_record.id
+                Step.create(vals)
+        _logger.info(
+            "Upserted %d callback steps for %s (id=%s)",
+            len([s for s in steps_data if isinstance(s, dict) and s.get("name")]),
+            parent_record._name,
+            parent_record.id,
+        )
+
     @http.route(
         "/kaiju/callback/build", type="http", auth="none", methods=["POST"], csrf=False
     )
     def callback_build(self, **kwargs):
         """Receive build pipeline completion callback.
 
-        Expected JSON payload:
+        Expected JSON payload::
+
             {
                 "job_id": "<odoo record id>",
                 "status": "success" | "failed",
                 "image_uri": "<ECR image URI>",
-                "s3_dataset_uri": "<S3 path to dataset_entries.json>"
+                "s3_dataset_uri": "<S3 path to dataset_entries.json>",
+                "s3_log_prefix": "kaiju_logs/<RepoFlat>/<job_id>/",
+                "steps": [
+                    {"name": "clone-repo", "log_file": "clone-repo.log",
+                     "phase": "Succeeded", "order": 1},
+                    ...
+                ]
             }
         """
         if not self._validate_token():
@@ -72,21 +118,18 @@ class KaijuCallbackController(http.Controller):
         if build.build_status in ("done", "failed"):
             _logger.info(
                 "Build %s already finalized (status=%s); ignoring duplicate callback",
-                build.name, build.build_status,
+                build.name,
+                build.build_status,
             )
             return Response(
                 json.dumps({"ok": True, "duplicate": True}),
-                status=200, content_type="application/json",
+                status=200,
+                content_type="application/json",
             )
 
         from odoo import fields as odoo_fields
 
-        # NOTE: Step sync, log fetch, and S3 metadata are INTENTIONALLY NOT done here.
-        # They block the callback handler for 30s–several minutes, causing the Argo
-        # callback-on-exit pod's curl to hang (no --max-time), which then SIGTERMs
-        # at activeDeadlineSeconds (~10min) — the 635s onExit hang.
-        # The cron (_cron_poll_build_status) back-fills steps + logs + metadata
-        # within 60s for terminal builds (Set 2: terminal-but-incomplete in last 10min).
+        s3_log_prefix = data.get("s3_log_prefix", "")
 
         if status == "success":
             build.write(
@@ -95,21 +138,24 @@ class KaijuCallbackController(http.Controller):
                     "build_end": odoo_fields.Datetime.now(),
                     "image_uri": data.get("image_uri", ""),
                     "s3_dataset_uri": data.get("s3_dataset_uri", ""),
+                    "s3_log_prefix": s3_log_prefix,
                     "build_log": self._append_log(
                         build.build_log, "✓ Build pipeline completed successfully."
                     ),
                 }
             )
-            # Pipeline metadata (dataset_entries.json from S3) is back-filled by cron.
         else:
             message = data.get("message", "Pipeline reported failure")
             build.write(
                 {
                     "build_status": "failed",
                     "build_end": odoo_fields.Datetime.now(),
+                    "s3_log_prefix": s3_log_prefix,
                     "build_log": self._append_log(build.build_log, f"✗ {message}"),
                 }
             )
+
+        self._upsert_callback_steps(build, data.get("steps", []), "build_id")
 
         _logger.info("Build callback processed: build=%s status=%s", build.name, status)
         return Response(
@@ -122,21 +168,17 @@ class KaijuCallbackController(http.Controller):
     def callback_run(self, **kwargs):
         """Receive run pipeline completion callback.
 
-        Expected JSON payload:
+        Expected JSON payload::
+
             {
                 "job_id": "<odoo record id>",
                 "status": "success" | "failed",
+                "s3_log_prefix": "kaiju_logs/<RepoFlat>/<job_id>/",
+                "steps": [{"name": "...", "log_file": "...", "phase": "...", "order": N}, ...],
                 "pass_rate": 85.0,
-                "tests_passed": 12,
-                "tests_failed": 2,
-                "tests_total": 14,
-                "duration_seconds": 342.5,
-                "cost_usd": 1.23,
-                "tokens_input": 150000,
-                "tokens_output": 45000,
-                "results_s3_url": "...",
-                "hf_dataset_url": "...",
-                "github_branch_url": "..."
+                "tests_passed": 12, "tests_failed": 2, "tests_total": 14,
+                "duration_seconds": 342.5, "cost_usd": 1.23,
+                "tokens_input": 150000, "tokens_output": 45000
             }
         """
         if not self._validate_token():
@@ -167,25 +209,25 @@ class KaijuCallbackController(http.Controller):
         if run.run_status in ("done", "failed"):
             _logger.info(
                 "Run %s already finalized (status=%s); ignoring duplicate callback",
-                run.name, run.run_status,
+                run.name,
+                run.run_status,
             )
             return Response(
                 json.dumps({"ok": True, "duplicate": True}),
-                status=200, content_type="application/json",
+                status=200,
+                content_type="application/json",
             )
 
         from odoo import fields as odoo_fields
 
-        # NOTE: Step sync + log fetch are INTENTIONALLY NOT done here. They block
-        # the callback for 30s–minutes and cause the Argo callback-on-exit pod to
-        # hang on its curl call. The cron (_cron_poll_run_status) back-fills
-        # steps + logs within 60s for terminal runs.
+        s3_log_prefix = data.get("s3_log_prefix", "")
 
         if status == "success":
             run.write(
                 {
                     "run_status": "done",
                     "run_end": odoo_fields.Datetime.now(),
+                    "s3_log_prefix": s3_log_prefix,
                     "pass_rate": data.get("pass_rate", 0.0),
                     "tests_passed": data.get("tests_passed", 0),
                     "tests_failed": data.get("tests_failed", 0),
@@ -205,9 +247,12 @@ class KaijuCallbackController(http.Controller):
                 {
                     "run_status": "failed",
                     "run_end": odoo_fields.Datetime.now(),
+                    "s3_log_prefix": s3_log_prefix,
                     "run_log": self._append_log(run.run_log, f"✗ {message}"),
                 }
             )
+
+        self._upsert_callback_steps(run, data.get("steps", []), "run_id")
 
         _logger.info("Run callback processed: run=%s status=%s", run.name, status)
         return Response(

@@ -10,6 +10,11 @@
         <field name="model">kaiju.commit0.run</field>
         <field name="arch" type="xml">
             <list>
+                <header>
+                    <button name="action_sync_all_logs" type="object"
+                            string="Sync All Logs" class="btn-secondary"
+                            icon="fa-cloud-download"/>
+                </header>
                 <field name="name" string="Run ID"/>
                 <field name="build_id" string="Build"/>
                 <field name="repo_name" string="Repository"/>
@@ -45,12 +50,12 @@
                             invisible="run_status != 'running'"
                             confirm="This will abort the running evaluation. Continue?"/>
 
-                    <button name="action_fetch_all_step_logs" type="object"
-                            string="Fetch Logs from Argo"
+                    <button name="action_sync_logs" type="object"
+                            string="Sync Logs"
                             class="btn-secondary"
                             icon="fa-cloud-download"
-                            invisible="not workflow_name"
-                            help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
+                            invisible="not s3_log_prefix or run_status == 'running'"
+                            help="Download step logs from S3 (uploaded by the Argo exit hook on workflow completion)."/>
                 </header>
 
                 <sheet>
@@ -186,7 +191,7 @@
                                     <div class="alert alert-info" invisible="combined_log_text">
                                         <i class="fa fa-info-circle me-2"/>
                                         No logs captured yet. Click
-                                        <b>Fetch Logs from Argo</b> in the header.
+                                        <b>Sync Logs</b> in the header to download from S3.
                                     </div>
                                 </page>
                             </notebook>
@@ -224,6 +229,15 @@
         <field name="name">Evaluation Runs</field>
         <field name="res_model">kaiju.commit0.run</field>
         <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_server_sync_run_logs" model="ir.actions.server">
+        <field name="name">Sync Logs</field>
+        <field name="model_id" ref="model_kaiju_commit0_run"/>
+        <field name="binding_model_id" ref="model_kaiju_commit0_run"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">records.action_sync_logs()</field>
     </record>
 
 </odoo>

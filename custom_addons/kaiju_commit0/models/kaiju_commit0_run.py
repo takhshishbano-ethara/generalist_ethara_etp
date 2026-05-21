@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
-from datetime import timedelta
+
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -64,6 +64,12 @@ class KaijuCommit0Run(models.Model):
     run_end = fields.Datetime(string="Run End", readonly=True)
     run_log = fields.Text(string="Run Log")
     workflow_name = fields.Char(string="Run Workflow", readonly=True)
+    s3_log_prefix = fields.Char(
+        string="S3 Log Prefix",
+        readonly=True,
+        help="S3 key prefix where workflow step logs are stored "
+        "(e.g. kaiju_logs/RepoName/123/). Set by the Argo exit-hook callback.",
+    )
     step_ids = fields.One2many(
         "kaiju.commit0.workflow.step", "run_id", string="Workflow Steps"
     )
@@ -129,8 +135,13 @@ class KaijuCommit0Run(models.Model):
             else:
                 rec.error_summary = False
 
-    @api.depends("step_ids.log_text", "step_ids.display_name",
-                 "step_ids.phase", "step_ids.started_at", "step_ids.finished_at")
+    @api.depends(
+        "step_ids.log_text",
+        "step_ids.display_name",
+        "step_ids.phase",
+        "step_ids.started_at",
+        "step_ids.finished_at",
+    )
     def _compute_combined_log_text(self):
         for rec in self:
             steps = rec.step_ids.sorted("started_at")
@@ -145,12 +156,16 @@ class KaijuCommit0Run(models.Model):
                     f"({step.phase or 'Pending'})",
                 ]
                 if step.started_at:
-                    header_bits.append(f"started {step.started_at.strftime('%H:%M:%S')}")
+                    header_bits.append(
+                        f"started {step.started_at.strftime('%H:%M:%S')}"
+                    )
                 if step.finished_at:
-                    header_bits.append(f"finished {step.finished_at.strftime('%H:%M:%S')}")
+                    header_bits.append(
+                        f"finished {step.finished_at.strftime('%H:%M:%S')}"
+                    )
                 header = " ".join(header_bits)
-                separator = "─" * 6 + " " + header + " " + "─" * max(
-                    6, 100 - len(header) - 14
+                separator = (
+                    "─" * 6 + " " + header + " " + "─" * max(6, 100 - len(header) - 14)
                 )
                 body = step.log_text or "(no log captured)"
                 parts.append(f"{separator}\n{body}")
@@ -258,218 +273,174 @@ class KaijuCommit0Run(models.Model):
             }
         )
 
-    # ── Cron: Poll Argo for running runs ─────────────────────────────────────
+    # ── S3 Log Sync (exit-hook based) ───────────────────────────────
 
-    POLL_RUNNING_LIMIT = 20
-    POLL_TERMINAL_INCOMPLETE_LIMIT = 10
+    def action_sync_logs(self):
+        """Download step log files from S3 for one or more runs.
 
-    @api.model
-    def _cron_poll_run_status(self):
-        """Called by ir.cron every 60s to update running evaluations from Argo.
-
-        Bounded per tick (POLL_RUNNING_LIMIT + POLL_TERMINAL_INCOMPLETE_LIMIT)
-        so a large backlog can't stack ticks. Ordered by run_end asc so the
-        runs closest to Argo pod GC (5 min) are polled first.
+        Works on single record (form button) and multi-record (list
+        Action menu).  Silently skips records without *s3_log_prefix*.
         """
-        start_ts = fields.Datetime.now()
-        running_runs = self.search(
-            [("run_status", "=", "running"), ("workflow_name", "!=", False)],
-            order="run_start asc, create_date asc",
-            limit=self.POLL_RUNNING_LIMIT,
-        )
-        # Defense in depth: re-poll recently-finished runs missing steps/logs
-        # (catches callback-wins-race where steps weren't synced before pod GC).
-        # Pure SQL via stored has_log + polish OR to include zero-step runs.
-        recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
-        terminal_incomplete = self.search([
-                ("run_status", "in", ("done", "failed")),
-                ("workflow_name", "!=", False),
-                ("run_end", ">=", recent_cutoff),
-                "|",
-                ("step_ids", "=", False),
-                ("step_ids.has_log", "=", False),
-            ],
-            order="run_end asc, create_date asc",
-            limit=self.POLL_TERMINAL_INCOMPLETE_LIMIT,
-        )
-        all_runs = running_runs | terminal_incomplete
-        if not all_runs:
-            return
-        _logger.info(
-            "[kaiju.commit0.run] poll_run: tick running=%s terminal_incomplete=%s",
-            len(running_runs), len(terminal_incomplete),
-        )
-
-        argo = self.env["kaiju.argo.client"]
-        for run in all_runs:
-            try:
-                status = argo.get_workflow_status(run.workflow_name)
-            except RuntimeError as e:
-                _logger.warning(
-                    "Failed to poll run %s (workflow %s): %s",
-                    run.name,
-                    run.workflow_name,
-                    e,
-                )
-                continue
-
-            phase = status.get("phase", "")
-            progress = status.get("progress", "")
-            previous_status = run.run_status
-
-            # Sync per-step records on every poll so the UI updates progressively
-            try:
-                run._sync_steps()
-            except Exception as e:
-                _logger.warning(
-                    "Failed to sync steps for run %s: %s", run.name, e
-                )
-
-            # Incrementally persist logs for any finished step that doesn't
-            # yet have logs cached. This ensures logs land in Postgres well
-            # before Argo's pod GC (default 5min) deletes the source pods.
-            try:
-                run._persist_step_logs_incremental()
-            except Exception as e:
-                _logger.warning(
-                    "Incremental log persist failed for run %s: %s", run.name, e
-                )
-
-            # Skip status write if already terminal (callback won). Step sync above runs unconditionally.
-            if run.run_status in ("done", "failed"):
-                pass
-            elif phase in ("Succeeded",):
-                run.write(
-                    {
-                        "run_status": "done",
-                        "run_end": fields.Datetime.now(),
-                        "run_log": self._append_log(
-                            run.run_log, f"Workflow completed. Progress: {progress}"
-                        ),
-                    }
-                )
-            elif phase in ("Failed", "Error"):
-                message = status.get("message", "Unknown error")
-                run.write(
-                    {
-                        "run_status": "failed",
-                        "run_end": fields.Datetime.now(),
-                        "run_log": self._append_log(
-                            run.run_log, f"Workflow failed: {phase} — {message}"
-                        ),
-                    }
-                )
-            elif phase in ("Running", "Pending", ""):
-                run.write(
-                    {
-                        "run_log": self._append_log(
-                            run.run_log, f"Status: {phase or 'Pending'} ({progress})"
-                        ),
-                    }
-                )
-
-            # On running → terminal transition, persist all step logs once
-            if (
-                previous_status == "running"
-                and run.run_status in ("done", "failed")
-            ):
-                try:
-                    run._persist_step_logs()
-                except Exception as e:
-                    _logger.warning(
-                        "Failed to persist step logs for run %s: %s",
-                        run.name,
-                        e,
-                    )
-        elapsed = (fields.Datetime.now() - start_ts).total_seconds()
-        _logger.info(
-            "[kaiju.commit0.run] poll_run: done processed=%s elapsed=%.2fs",
-            len(all_runs), elapsed,
-        )
-
-    # ── Step Sync & Log Persistence ─────────────────────────────────
-
-    def _sync_steps(self):
-        """Fetch workflow nodes from Argo and upsert step records."""
-        self.ensure_one()
-        if not self.workflow_name:
-            return
-        argo = self.env["kaiju.argo.client"]
-        nodes = argo.list_workflow_nodes(self.workflow_name)
-        if not nodes:
-            return
-        Step = self.env["kaiju.commit0.workflow.step"]
-        # Lazy import to avoid circular reference at module load
-        from .kaiju_commit0 import _parse_argo_dt
-        existing = {s.node_id: s for s in self.step_ids}
-        for node in nodes:
-            node_id = node.get("id") or ""
-            if not node_id:
-                continue
-            vals = {
-                "display_name": node.get("displayName") or node.get("name") or node_id,
-                "pod_name": node.get("podName") or node_id,
-                "template_name": node.get("templateName") or "",
-                "node_type": node.get("type") or "Pod",
-                "phase": node.get("phase") or "Pending",
-                "message": node.get("message") or "",
-                "started_at": _parse_argo_dt(node.get("startedAt")),
-                "finished_at": _parse_argo_dt(node.get("finishedAt")),
-            }
-            if node_id in existing:
-                existing[node_id].write(vals)
-            else:
-                vals["node_id"] = node_id
-                vals["run_id"] = self.id
-                Step.create(vals)
-
-    def _persist_step_logs(self):
-        """Fetch and persist logs for every Pod-type step. Called once on
-        running → terminal transition so logs survive Argo pod GC."""
-        self.ensure_one()
-        for step in self.step_ids:
-            if step.node_type != "Pod" or not step.pod_name:
-                continue
-            step.action_fetch_logs()
-
-    def _persist_step_logs_incremental(self):
-        """Fetch logs ONLY for steps that have finished but don't yet have logs.
-
-        Called on every cron poll to capture step logs as soon as each pod
-        completes — well before Argo's pod garbage collection (typically 5min)
-        kicks in. Idempotent: skips steps that already have log_text.
-        """
-        self.ensure_one()
-        terminal_phases = ("Succeeded", "Failed", "Error")
-        for step in self.step_ids:
-            if step.node_type != "Pod" or not step.pod_name:
-                continue
-            if step.phase not in terminal_phases:
-                continue
-            if step.has_log:
-                continue  # already captured — don't re-fetch
-            try:
-                step.action_fetch_logs()
-            except Exception as e:
-                _logger.warning(
-                    "Incremental log fetch failed for step %s (pod=%s): %s",
-                    step.display_name or step.node_id,
-                    step.pod_name,
-                    e,
-                )
-
-    def action_fetch_all_step_logs(self):
-        """Manual trigger: sync step list from Argo, then fetch logs for each step."""
-        self.ensure_one()
-        if not self.workflow_name:
+        eligible = self.filtered(lambda r: r.s3_log_prefix)
+        if not eligible:
             from odoo.exceptions import UserError
-            raise UserError("No workflow has been submitted for this run yet.")
-        try:
-            self._sync_steps()
-        except Exception as e:
-            _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
-        self.step_ids.action_fetch_logs()
+
+            raise UserError(
+                "None of the selected runs have an S3 log prefix yet. "
+                "Logs are uploaded by the Argo exit hook on workflow completion."
+            )
+        for rec in eligible:
+            rec._fetch_logs_from_s3()
         return {"type": "ir.actions.client", "tag": "reload"}
+
+    def action_sync_all_logs(self):
+        """Sync logs for every terminal run that has an S3 log prefix.
+
+        Intended as a bulk convenience action from the list-view header.
+        """
+        eligible = self.search(
+            [
+                ("s3_log_prefix", "!=", False),
+                ("run_status", "in", ["done", "failed"]),
+            ]
+        )
+        if not eligible:
+            from odoo.exceptions import UserError
+
+            raise UserError("No completed runs need log syncing.")
+        for rec in eligible:
+            rec._fetch_logs_from_s3()
+        return {"type": "ir.actions.client", "tag": "reload"}
+
+    def _fetch_logs_from_s3(self):
+        """Download step logs from S3 using the exit-hook convention.
+
+        Requires:
+            self.s3_log_prefix   e.g. ``s3://bucket/kaiju_logs/Repo/42/``
+            step.log_file        e.g. ``run-eval.log``  (relative to prefix)
+
+        Falls back to manifest.json in the prefix to discover steps when
+        the callback's ``steps[]`` payload was lost.
+        """
+        self.ensure_one()
+        if not self.s3_log_prefix or not self.s3_log_prefix.startswith("s3://"):
+            return
+
+        try:
+            import boto3
+        except ImportError:
+            _logger.error(
+                "boto3 missing in Odoo venv — cannot fetch S3 logs for %s",
+                self.name,
+            )
+            return
+
+        # Parse s3://bucket/prefix
+        rest = self.s3_log_prefix[5:]
+        if "/" not in rest:
+            _logger.warning(
+                "Malformed s3_log_prefix for %s: %s",
+                self.name,
+                self.s3_log_prefix,
+            )
+            return
+        bucket, prefix = rest.split("/", 1)
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        region = ICP.get_param("kaiju.aws_region", "ap-south-1")
+        access_key = ICP.get_param("kaiju.aws_access_key_id", "") or None
+        secret_key = ICP.get_param("kaiju.aws_secret_access_key", "") or None
+
+        client_kwargs = {"region_name": region}
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+        except Exception as e:
+            _logger.error("Failed to create S3 client for %s: %s", self.name, e)
+            return
+
+        # If no steps exist yet, try manifest.json as fallback
+        if not self.step_ids:
+            self._discover_steps_from_manifest(s3, bucket, prefix)
+
+        fetched = 0
+        failed = 0
+        for step in self.step_ids:
+            if not step.log_file:
+                continue
+            key = prefix + step.log_file
+            try:
+                obj = s3.get_object(Bucket=bucket, Key=key)
+                log_content = obj["Body"].read().decode("utf-8", errors="replace")
+                step.write(
+                    {
+                        "log_text": log_content,
+                        "log_fetched_at": fields.Datetime.now(),
+                    }
+                )
+                fetched += 1
+            except Exception as e:
+                _logger.warning(
+                    "S3 log fetch failed for step %s (key=%s): %s",
+                    step.display_name or step.node_id,
+                    key,
+                    e,
+                )
+                failed += 1
+
+        _logger.info(
+            "S3 log sync for %s: fetched=%d failed=%d total_steps=%d",
+            self.name,
+            fetched,
+            failed,
+            len(self.step_ids),
+        )
+
+    def _discover_steps_from_manifest(self, s3, bucket, prefix):
+        """Read manifest.json from S3 and create step records.
+
+        Used as a fallback when the callback's ``steps[]`` payload was
+        lost (network error, Odoo downtime, etc.).
+        """
+        import json
+
+        manifest_key = prefix + "manifest.json"
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=manifest_key)
+            manifest = json.loads(obj["Body"].read())
+        except Exception as e:
+            _logger.info(
+                "No manifest.json for %s at s3://%s/%s: %s",
+                self.name,
+                bucket,
+                manifest_key,
+                e,
+            )
+            return
+
+        steps_data = manifest.get("steps", [])
+        if not steps_data:
+            return
+
+        Step = self.env["kaiju.commit0.workflow.step"]
+        for entry in steps_data:
+            order = entry.get("order", 0)
+            Step.create(
+                {
+                    "run_id": self.id,
+                    "node_id": f"manifest-{order}",
+                    "display_name": entry.get("name", f"step-{order}"),
+                    "phase": entry.get("phase", "Succeeded"),
+                    "log_file": entry.get("log_file", ""),
+                    "step_order": order,
+                    "node_type": "Pod",
+                }
+            )
 
     @staticmethod
     def _append_log(existing_log, new_line):
