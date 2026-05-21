@@ -80,6 +80,7 @@ export class TaskDashboard extends Component {
             testWeightsStatus: "idle",
             testWeightsError: "",
             activeTrajectoryTab: "claude",
+            pendingPodActions: {},
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -536,30 +537,49 @@ export class TaskDashboard extends Component {
         return ds === "starting" || ds === "running";
     }
 
+    isPodActionPending(sandbox) {
+        return Boolean(this.state.pendingPodActions[sandbox.id]);
+    }
+
+    podRetryIcon(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "error" ? "fa-refresh" : "fa-play";
+    }
+
+    podRetryLabel(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "error" ? "Retry" : "Start";
+    }
+
     async onRetryPod(sandbox) {
-        if (!this.canRetryPod(sandbox)) {
+        if (!this.canRetryPod(sandbox) || this.isPodActionPending(sandbox)) {
             return;
         }
         const label = `${this.podModelLabel(sandbox)} ${this.podSessionLabel(sandbox)}`;
+        const verb = this.podRetryLabel(sandbox);
+        this.state.pendingPodActions[sandbox.id] = "retry";
         try {
             await this.orm.call("kensei2.sandbox", "action_retry_pod", [[sandbox.id]]);
-            this.notification.add(`Retrying ${label}…`, { type: "info" });
+            this.notification.add(`${verb}ing ${label}…`, { type: "info" });
             await this._loadSandboxes();
             this._startPolling();
         } catch (e) {
-            const msg = e.data?.message || e.message || `Failed to retry ${label}`;
+            const msg = e.data?.message || e.message || `Failed to ${verb.toLowerCase()} ${label}`;
             this.notification.add(msg, { type: "danger" });
+        } finally {
+            delete this.state.pendingPodActions[sandbox.id];
         }
     }
 
     async onStopPod(sandbox) {
-        if (!this.canStopPod(sandbox)) {
+        if (!this.canStopPod(sandbox) || this.isPodActionPending(sandbox)) {
             return;
         }
         const label = `${this.podModelLabel(sandbox)} ${this.podSessionLabel(sandbox)}`;
         if (!window.confirm(`Stop ${label}? Any in-progress work on this pod will be lost.`)) {
             return;
         }
+        this.state.pendingPodActions[sandbox.id] = "stop";
         try {
             await this.orm.call("kensei2.sandbox", "action_stop_sandbox", [[sandbox.id]]);
             this.notification.add(`Stopping ${label}…`, { type: "info" });
@@ -568,6 +588,8 @@ export class TaskDashboard extends Component {
         } catch (e) {
             const msg = e.data?.message || e.message || `Failed to stop ${label}`;
             this.notification.add(msg, { type: "danger" });
+        } finally {
+            delete this.state.pendingPodActions[sandbox.id];
         }
     }
 

@@ -186,18 +186,22 @@
                                             <t t-if="this.canRetryPod(sb)">
                                                 <button type="button"
                                                         class="o_kensei2_pod_action o_kensei2_pod_action--retry"
-                                                        t-att-title="'Retry ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-title="this.podRetryLabel(sb) + ' ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-aria-label="this.podRetryLabel(sb) + ' ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-disabled="this.isPodActionPending(sb) ? 'disabled' : undefined"
                                                         t-on-click.stop="() => this.onRetryPod(sb)">
-                                                    <i class="fa fa-refresh"/>
-                                                    <span>Retry</span>
+                                                    <i t-attf-class="fa #{this.isPodActionPending(sb) ? 'fa-spinner fa-spin' : this.podRetryIcon(sb)}"/>
+                                                    <span t-out="this.podRetryLabel(sb)"/>
                                                 </button>
                                             </t>
                                             <t t-if="this.canStopPod(sb)">
                                                 <button type="button"
                                                         class="o_kensei2_pod_action o_kensei2_pod_action--stop"
                                                         t-att-title="'Stop ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-aria-label="'Stop ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-disabled="this.isPodActionPending(sb) ? 'disabled' : undefined"
                                                         t-on-click.stop="() => this.onStopPod(sb)">
-                                                    <i class="fa fa-stop"/>
+                                                    <i t-attf-class="fa #{this.isPodActionPending(sb) ? 'fa-spinner fa-spin' : 'fa-stop'}"/>
                                                     <span>Stop</span>
                                                 </button>
                                             </t>
