@@ -506,13 +506,69 @@ export class TaskDashboard extends Component {
 
     podTooltip(sandbox) {
         const vi = sandbox.variant_index || 0;
-        const model = sandbox.model_type || "?";
+        const modelLabel = this.podModelLabel(sandbox);
         const ds = sandbox.docker_status || "stopped";
         const ss = sandbox.session_status || "not_started";
-        let tip = `${model} #${vi} — Pod: ${ds}`;
+        let tip = `${modelLabel} — Session ${vi} — Pod: ${ds}`;
         if (ss !== "not_started") tip += `, Session: ${ss}`;
         if (sandbox.docker_error) tip += `\nError: ${sandbox.docker_error}`;
+        if (this.canRetryPod(sandbox)) tip += "\nClick refresh icon to retry this pod.";
+        if (this.canStopPod(sandbox)) tip += "\nClick stop icon to stop this pod.";
         return tip;
+    }
+
+    podModelLabel(sandbox) {
+        const model = BATCH_MODELS.find((m) => m.type === sandbox.model_type);
+        return model ? model.label : (sandbox.model_type || "Unknown");
+    }
+
+    podSessionLabel(sandbox) {
+        return `Session ${sandbox.variant_index || 0}`;
+    }
+
+    canRetryPod(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "error" || ds === "stopped";
+    }
+
+    canStopPod(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "starting" || ds === "running";
+    }
+
+    async onRetryPod(sandbox) {
+        if (!this.canRetryPod(sandbox)) {
+            return;
+        }
+        const label = `${this.podModelLabel(sandbox)} ${this.podSessionLabel(sandbox)}`;
+        try {
+            await this.orm.call("kensei2.sandbox", "action_retry_pod", [[sandbox.id]]);
+            this.notification.add(`Retrying ${label}…`, { type: "info" });
+            await this._loadSandboxes();
+            this._startPolling();
+        } catch (e) {
+            const msg = e.data?.message || e.message || `Failed to retry ${label}`;
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
+    async onStopPod(sandbox) {
+        if (!this.canStopPod(sandbox)) {
+            return;
+        }
+        const label = `${this.podModelLabel(sandbox)} ${this.podSessionLabel(sandbox)}`;
+        if (!window.confirm(`Stop ${label}? Any in-progress work on this pod will be lost.`)) {
+            return;
+        }
+        try {
+            await this.orm.call("kensei2.sandbox", "action_stop_sandbox", [[sandbox.id]]);
+            this.notification.add(`Stopping ${label}…`, { type: "info" });
+            await this._loadSandboxes();
+            this._startPolling();
+        } catch (e) {
+            const msg = e.data?.message || e.message || `Failed to stop ${label}`;
+            this.notification.add(msg, { type: "danger" });
+        }
     }
 
     onTrajectoryTabClick(modelType) {

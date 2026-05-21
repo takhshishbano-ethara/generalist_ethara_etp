@@ -2689,6 +2689,40 @@ class Kensei2Sandbox(models.Model):
             mode,
         )
 
+    def action_retry_pod(self):
+        """Re-deploy a single pod that is currently stopped or errored."""
+        self.ensure_one()
+
+        if self.docker_status in ("starting", "running"):
+            raise UserError(
+                "Pod is already %s — nothing to retry." % self.docker_status
+            )
+
+        _logger.info(
+            "[SANDBOX] action_retry_pod | sandbox=%s | model=%s | "
+            "variant_index=%s | current_status=%s",
+            self.id,
+            self.model_type,
+            self.variant_index,
+            self.docker_status,
+        )
+
+        if self.docker_status == "error":
+            mode = self._deployment_mode()
+            try:
+                if mode == "k8s":
+                    self._stop_k8s()
+                else:
+                    self._stop_local()
+            except Exception as e:
+                _logger.warning(
+                    "action_retry_pod: cleanup failed (sandbox=%s, mode=%s): %s",
+                    self.id, mode, e,
+                )
+                self.write({"docker_status": "stopped", "docker_error": False})
+
+        return self.action_start_sandbox()
+
     def _persist_output_artifacts_to_s3(self):
         self.ensure_one()
         from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX, NAMESPACE

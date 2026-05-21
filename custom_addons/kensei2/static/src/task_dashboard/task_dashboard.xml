@@ -179,8 +179,28 @@
                                     <t t-foreach="this.sandboxesByModel[model.type] || []" t-as="sb" t-key="sb.id">
                                         <div t-attf-class="o_kensei2_pod_cell o_kensei2_pod_#{this.podStatusClass(sb)}"
                                              t-att-title="this.podTooltip(sb)">
-                                            <i t-attf-class="fa #{this.podStatusIcon(sb)}"/>
-                                            <span class="o_kensei2_pod_num">#<t t-out="sb.variant_index || 0"/></span>
+                                            <div class="o_kensei2_pod_cell_main">
+                                                <i t-attf-class="fa #{this.podStatusIcon(sb)}"/>
+                                                <span class="o_kensei2_pod_label" t-out="this.podSessionLabel(sb)"/>
+                                            </div>
+                                            <t t-if="this.canRetryPod(sb)">
+                                                <button type="button"
+                                                        class="o_kensei2_pod_action o_kensei2_pod_action--retry"
+                                                        t-att-title="'Retry ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-on-click.stop="() => this.onRetryPod(sb)">
+                                                    <i class="fa fa-refresh"/>
+                                                    <span>Retry</span>
+                                                </button>
+                                            </t>
+                                            <t t-if="this.canStopPod(sb)">
+                                                <button type="button"
+                                                        class="o_kensei2_pod_action o_kensei2_pod_action--stop"
+                                                        t-att-title="'Stop ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-on-click.stop="() => this.onStopPod(sb)">
+                                                    <i class="fa fa-stop"/>
+                                                    <span>Stop</span>
+                                                </button>
+                                            </t>
                                         </div>
                                     </t>
                                 </div>

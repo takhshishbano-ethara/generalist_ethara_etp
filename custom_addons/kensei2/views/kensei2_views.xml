@@ -347,6 +347,19 @@ for user in records:
       <field name="arch" type="xml">
         <form>
           <header>
+            <button name="action_retry_pod"
+                    type="object"
+                    string="Retry Pod"
+                    class="btn-primary"
+                    icon="fa-refresh"
+                    invisible="docker_status not in ('error', 'stopped')"
+                    confirm="Retry deploying this sandbox pod?"/>
+            <button name="action_stop_sandbox"
+                    type="object"
+                    string="Stop Pod"
+                    class="btn-secondary"
+                    icon="fa-stop"
+                    invisible="docker_status not in ('running', 'starting')"/>
           </header>
           <sheet>
             <group>
@@ -384,6 +397,43 @@ for user in records:
                     <field name="status_code" decoration-success="status_code &lt; 400" decoration-danger="status_code &gt;= 400"/>
                     <field name="duration_ms"/>
                   </list>
+                </field>
+              </page>
+              <page string="Connection / WebSocket Errors">
+                <div class="alert alert-danger" role="alert"
+                     invisible="docker_status != 'error'">
+                    <strong><i class="fa fa-exclamation-triangle me-1"/>This pod failed to start or crashed.</strong>
+                    <div class="mt-2">
+                        Use <b>Retry Pod</b> in the header above to redeploy.
+                        Review the error details and recent failed requests below to diagnose the cause.
+                    </div>
+                </div>
+                <div class="alert alert-warning" role="alert"
+                     invisible="docker_status != 'stopped' or not docker_error">
+                    <strong><i class="fa fa-info-circle me-1"/>Pod is stopped but recorded an error on its last run.</strong>
+                </div>
+                <group string="Latest Error Detail">
+                    <field name="docker_error" nolabel="1" readonly="1"
+                           placeholder="No connection or WebSocket errors recorded for this sandbox."/>
+                </group>
+                <group string="Connectivity Snapshot">
+                    <field name="docker_status" readonly="1"/>
+                    <field name="docker_ws_url" widget="url" readonly="1"/>
+                    <field name="docker_dashboard_url" widget="url" readonly="1"/>
+                    <field name="docker_compose_project" readonly="1"/>
+                    <field name="docker_port" readonly="1"/>
+                </group>
+                <separator string="Recent Failed Requests (HTTP &amp;ge; 400)"/>
+                <field name="api_request_ids" nolabel="1" readonly="1"
+                       domain="[('status_code', '&gt;=', 400)]">
+                    <list default_order="request_time desc" limit="50">
+                        <field name="request_time"/>
+                        <field name="service_name"/>
+                        <field name="method"/>
+                        <field name="path"/>
+                        <field name="status_code" decoration-danger="status_code &gt;= 400"/>
+                        <field name="duration_ms"/>
+                    </list>
                 </field>
               </page>
               <page string="Test Results">
