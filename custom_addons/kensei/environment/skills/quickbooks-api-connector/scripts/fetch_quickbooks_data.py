@@ -61,8 +61,8 @@ def main():
     parser.add_argument("--query", metavar="SQL", help="Execute raw query (e.g. \"SELECT * FROM Invoice WHERE Balance > '0'\")")
     parser.add_argument("--start-date", metavar="DATE", help="Report start date (YYYY-MM-DD)")
     parser.add_argument("--end-date", metavar="DATE", help="Report end date (YYYY-MM-DD)")
-    parser.add_argument("--url", default=os.environ.get("QUICKBOOKS_API_URL", "http://localhost:8012"),
-                        help="API base URL (default: $QUICKBOOKS_API_URL or http://localhost:8012)")
+    parser.add_argument("--url", default=os.environ.get("QUICKBOOKS_API_URL", "http://localhost:8007"),
+                        help="API base URL (default: $QUICKBOOKS_API_URL or http://localhost:8007)")
     parser.add_argument("--realm-id", default=os.environ.get("REALM_ID", "4620816365272861350"),
                         help="Company realm ID (default: $REALM_ID)")
 

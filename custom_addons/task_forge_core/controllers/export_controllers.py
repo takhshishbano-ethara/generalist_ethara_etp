@@ -1,7 +1,7 @@
 import io
 import base64
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from odoo import http, fields
 from odoo.http import request
@@ -189,7 +189,7 @@ class TaskForgeExportController(http.Controller):
 
     def _write_title_banner(self, ws, fmt, title, col_count):
         """Write a branded title banner across the top of the sheet."""
-        now_str = datetime.now().strftime('%d %b %Y, %I:%M %p')
+        now_str = (fields.Datetime.now() + IST_OFFSET).strftime('%d %b %Y, %I:%M %p')
         ws.merge_range(0, 0, 0, col_count - 1, title, fmt['title'])
         ws.merge_range(1, 0, 1, col_count - 1, 'Downloaded on: %s' % now_str, fmt['subtitle'])
         ws.set_row(0, 36)
@@ -231,7 +231,7 @@ class TaskForgeExportController(http.Controller):
         wb.close()
         file_bytes = output.getvalue()
         file_b64 = base64.b64encode(file_bytes).decode('utf-8')
-        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        timestamp = (fields.Datetime.now() + IST_OFFSET).strftime('%Y%m%d_%H%M%S')
         filename = '%s_%s.xlsx' % (report_name, timestamp)
         try:
             s3_url = generate_s3_link(file_b64, prefix='reports', filename=filename)
@@ -271,7 +271,7 @@ class TaskForgeExportController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = request.env['project.project']._task_forge_live_domain()
             if kwargs.get('show_all') in [1, '1']:
                 domain = []
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
@@ -389,6 +389,12 @@ class TaskForgeExportController(http.Controller):
 
             tasks = TaskLog.search(domain, order='create_date desc')
 
+            Blocker = request.env['task.forge.blocker'].sudo()
+            blockers = Blocker.search([('task_id', 'in', tasks.ids)]) if tasks else Blocker
+            blocker_names_by_task = {}
+            for blk in blockers:
+                blocker_names_by_task.setdefault(blk.task_id.id, []).append(blk.name or '')
+
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
             fmt = self._get_formats(wb)
@@ -422,7 +428,7 @@ class TaskForgeExportController(http.Controller):
                     round(int(t.pause_time) / 60, 2) if t.pause_time else 0,
                     t.quality_score or 0,
                     t.task_score or 0,
-                    t.blocker_reason or '',
+                    ", ".join(n for n in blocker_names_by_task.get(t.id, []) if n),
                 ]
                 self._write_row(ws, fmt, idx + 3, row, col_types)
 
@@ -612,7 +618,7 @@ class TaskForgeExportController(http.Controller):
                     avg_score = round(sum(s.quality_score for s in scores) / len(scores), 1)
 
                 # alloc_status = getattr(emp, 'tf_allocation_status', '') or ''
-                active_projects = request.env['project.project'].sudo().search_count(['|', '|', ('project_tasker', '=', emp.id), ('project_qc_reviewer', '=', emp.id), ('project_lead', '=', emp.id), ('non_stemp_project_status', 'in', ['not_started', 'production'])])
+                active_projects = request.env['project.project'].sudo().search_count(['|', '|', ('project_tasker', '=', emp.id), ('project_qc_reviewer', '=', emp.id), ('project_lead', '=', emp.id)] + request.env['project.project']._task_forge_live_domain())
 
                 alloc_status = "Allocated" if active_projects else 'On-Bench'
 
@@ -656,7 +662,7 @@ class TaskForgeExportController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = request.env['project.project']._task_forge_live_domain()
             if kwargs.get('show_all') in [1, '1']:
                 domain = []
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
@@ -793,7 +799,7 @@ class TaskForgeExportController(http.Controller):
                 return return_Response(message="Employee not found", status=404)
 
             employee = user_id.employee_id
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = request.env['project.project']._task_forge_live_domain()
             if kwargs.get('active_projects') in [1, '1']:
                 domain = []
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
@@ -970,8 +976,7 @@ class TaskForgeExportController(http.Controller):
                     ('project_tasker', '=', emp.id),
                     ('project_qc_reviewer', '=', emp.id),
                     ('project_lead', '=', emp.id),
-                    ('non_stemp_project_status', 'in', ['not_started', 'production']),
-                ])
+                ] + request.env['project.project']._task_forge_live_domain())
                 alloc_status = 'Allocated' if active_projects else 'On-Bench'
 
                 row = [
@@ -1277,7 +1282,7 @@ class TaskForgeExportController(http.Controller):
 
             date_from, date_to = _parse_range(kwargs)
 
-            proj_domain = [('task_forge_status', '=', 'live')]
+            proj_domain = Project._task_forge_live_domain()
             proj_domain += _category_domain(kwargs)
 
             search = (kwargs.get('search') or '').strip()

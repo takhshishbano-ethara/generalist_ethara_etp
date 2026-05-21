@@ -61,7 +61,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("GOOGLE_CLASSROOM_API_URL", "http://localhost:8011")
+    base_url = os.environ.get("GOOGLE_CLASSROOM_API_URL", "http://localhost:8002")
 
     try:
         if args.courses:

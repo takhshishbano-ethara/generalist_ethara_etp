@@ -61,7 +61,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("YOUTUBE_API_URL", "http://localhost:8008")
+    base_url = os.environ.get("YOUTUBE_API_URL", "http://localhost:8009")
 
     try:
         if args.channel:

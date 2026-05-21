@@ -290,3 +290,53 @@ entry_id,date,meal,food_id,food_name,brand,serving_size,serving_unit,servings,ca
 289,2025-04-28,Dinner,29,Marinara Sauce,Rao's Homemade,0.5,cup (125g),1,80,5,0.5,0,390,7,2,5,1
 290,2025-04-28,Snacks,18,Protein Shake (whey),Optimum Nutrition,1,scoop (31g),1,120,1.5,0.5,30,130,3,1,1,24
 291,2025-04-28,Snacks,19,Apple,,1,medium (182g),1,95,0.3,0.1,0,2,25,4.4,19,0.5
+301,2026-03-01,Breakfast,1001,White bread toast,,1,serving,2,160,6.1,0,0,0,16.7,0.5,4,5
+302,2026-03-01,Breakfast,1002,Scrambled eggs,,1,serving,1,180,6.8,0,0,0,18.8,0.6,4.6,12
+303,2026-03-01,Breakfast,1003,Orange juice (8oz),,1,serving,1,110,4.2,0,0,0,11.5,0.4,2.8,1.5
+304,2026-03-01,Lunch,1004,Ham sandwich on white bread,,1,serving,1,340,12.9,0,0,0,35.5,1.1,8.6,18
+305,2026-03-01,Lunch,1005,Potato chips (1oz bag),,1,serving,1,152,5.8,0,0,0,15.9,0.5,3.8,2
+306,2026-03-01,Lunch,1006,Diet Coke (12oz),,1,serving,1,0,0,0,0,0,0,0,0,0
+307,2026-03-01,Dinner,1007,Fried chicken thigh,,1,serving,2,440,16.7,0,0,0,45.9,1.4,11.1,34
+308,2026-03-01,Dinner,1008,White rice (1 cup cooked),,1,serving,1.5,306,11.6,0,0,0,31.9,1,7.7,6
+309,2026-03-01,Dinner,1009,Canned green beans,,1,serving,0.5,20,0.8,0,0,0,2.1,0.1,0.5,1
+310,2026-03-01,Snacks,1010,Peanut butter crackers,,1,serving,1,190,7.2,0,0,0,19.8,0.6,4.8,4
+311,2026-03-05,Breakfast,1011,Instant oatmeal packet,,1,serving,1,130,4.9,0,0,0,15.1,0.2,5.6,4
+312,2026-03-05,Breakfast,1012,Black coffee,,1,serving,2,10,0.4,0,0,0,1.2,0,0.4,0
+313,2026-03-05,Lunch,1013,McDonald's Quarter Pounder,,1,serving,1,520,19.6,0,0,0,60.5,0.8,22.3,30
+314,2026-03-05,Lunch,1014,McDonald's Medium Fries,,1,serving,1,320,12,0,0,0,37.2,0.5,13.7,4
+315,2026-03-05,Lunch,1015,Sweet tea (large),,1,serving,1,280,10.5,0,0,0,32.6,0.4,12,0
+316,2026-03-05,Dinner,1016,Frozen TV dinner — Salisbury steak,,1,serving,1,380,14.3,0,0,0,44.2,0.6,16.3,19
+317,2026-03-05,Dinner,1017,White dinner roll,,1,serving,2,160,6,0,0,0,18.6,0.2,6.9,5
+318,2026-03-05,Snacks,1018,Vanilla ice cream (1 cup),,1,serving,1,273,10.3,0,0,0,31.7,0.4,11.7,4.5
+319,2026-03-10,Breakfast,1019,Skipped breakfast,,1,serving,1,0,0,0,0,0,0,0,0,0
+320,2026-03-10,Lunch,1020,Canned chicken noodle soup,,1,serving,1.5,225,9.9,0,0,0,23.1,1,4.5,12
+321,2026-03-10,Lunch,1021,Saltine crackers (10),,1,serving,1,130,5.7,0,0,0,13.3,0.6,2.6,2.5
+322,2026-03-10,Dinner,1022,Pork chop (pan fried),,1,serving,1,290,12.8,0,0,0,29.8,1.3,5.8,28
+323,2026-03-10,Dinner,1023,Mashed potatoes with butter,,1,serving,1,210,9.2,0,0,0,21.6,0.9,4.2,3.5
+324,2026-03-10,Dinner,1024,Canned corn,,1,serving,0.5,66,2.9,0,0,0,6.8,0.3,1.3,2
+325,2026-03-10,Snacks,1025,Honey roasted peanuts (1oz),,1,serving,1,170,7.5,0,0,0,17.5,0.7,3.4,5
+326,2026-03-15,Breakfast,1026,Bacon (3 strips),,1,serving,1,130,5,0,0,0,10.1,0.4,2.7,9
+327,2026-03-15,Breakfast,1027,Fried egg,,1,serving,2,180,6.9,0,0,0,14,0.6,3.7,12
+328,2026-03-15,Breakfast,1028,White toast with butter,,1,serving,2,200,7.7,0,0,0,15.6,0.7,4.1,5
+329,2026-03-15,Lunch,1029,Tuna fish sandwich,,1,serving,1,310,11.9,0,0,0,24.1,1,6.3,24
+330,2026-03-15,Lunch,1030,Dill pickle spear,,1,serving,2,8,0.3,0,0,0,0.6,0,0.2,0.4
+331,2026-03-15,Dinner,1031,Beef pot roast,,1,serving,1.5,420,16.1,0,0,0,32.7,1.4,8.6,42
+332,2026-03-15,Dinner,1032,Boiled carrots,,1,serving,0.5,27,1,0,0,0,2.1,0.1,0.6,0.6
+333,2026-03-15,Dinner,1033,White dinner roll,,1,serving,1,80,3.1,0,0,0,6.2,0.3,1.6,2.5
+334,2026-03-15,Snacks,1034,Oreo cookies (3),,1,serving,1,160,6.1,0,0,0,12.5,0.5,3.3,2
+335,2026-03-21,Breakfast,1035,Skipped breakfast,,1,serving,1,0,0,0,0,0,0,0,0,0
+336,2026-03-21,Lunch,1036,Wendy's Baconator,,1,serving,1,950,37.6,0,0,0,98.4,2.2,27.5,57
+337,2026-03-21,Lunch,1037,Wendy's small fries,,1,serving,1,230,9.1,0,0,0,23.8,0.5,6.7,3
+338,2026-03-21,Lunch,1038,Diet Coke (medium),,1,serving,1,0,0,0,0,0,0,0,0,0
+339,2026-03-21,Dinner,1039,Canned beef stew,,1,serving,1.5,315,12.5,0,0,0,32.6,0.7,9.1,18
+340,2026-03-21,Dinner,1040,White bread (2 slices),,1,serving,1,160,6.3,0,0,0,16.6,0.4,4.6,5
+341,2026-03-21,Snacks,1041,Chocolate chip cookies (2),,1,serving,1,140,5.5,0,0,0,14.5,0.3,4.1,2
+292,2026-05-11,Dinner,46,Ladder 24 Firehouse Beef Stew,Ladder 24 Firehouse,2,cups,1,520,22,8,110,1850,38,6,6,42
+293,2026-05-12,Dinner,47,Ladder 24 Firehouse Chili,Ladder 24 Firehouse,1.5,cups,2,960,36,12,190,3300,70,16,10,76
+294,2026-05-13,Lunch,46,Ladder 24 Firehouse Beef Stew,Ladder 24 Firehouse,2,cups,1,520,22,8,110,1850,38,6,6,42
+295,2026-05-14,Dinner,47,Ladder 24 Firehouse Chili,Ladder 24 Firehouse,1.5,cups,1,480,18,6,95,1650,35,8,5,38
+296,2026-05-15,Dinner,46,Ladder 24 Firehouse Beef Stew,Ladder 24 Firehouse,2,cups,1,520,22,8,110,1850,38,6,6,42
+297,2026-05-17,Dinner,46,Ladder 24 Firehouse Beef Stew,Ladder 24 Firehouse,2,cups,1,520,22,8,110,1850,38,6,6,42
+298,2026-05-18,Lunch,47,Ladder 24 Firehouse Chili,Ladder 24 Firehouse,1.5,cups,1,480,18,6,95,1650,35,8,5,38
+299,2026-05-17,Snacks,18,Protein Shake (whey),Optimum Nutrition,1,scoop (31g),1,120,1.5,0.5,30,130,3,1,1,24
+300,2026-05-19,Snacks,18,Protein Shake (whey),Optimum Nutrition,1,scoop (31g),1,120,1.5,0.5,30,130,3,1,1,24

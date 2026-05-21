@@ -212,7 +212,7 @@ import json
 import os
 import urllib.request
 
-BASE = os.environ.get("AMAZON_SELLER_API_URL", "http://localhost:8004")
+BASE = os.environ.get("AMAZON_SELLER_API_URL", "http://localhost:8000")
 
 def api_get(path, params=None):
     url = f"{BASE}{path}"

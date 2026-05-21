@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="module_category_gohan" model="ir.module.category">
+            <field name="name">Gohan</field>
+            <field name="description">Gohan — Automated PRD Generation Pipeline</field>
+            <field name="sequence">100</field>
+        </record>
+
+        <!-- Privilege name must differ from the parent module category name
+             ("Gohan"), otherwise Odoo renders both under the same header on
+             the Users form / Settings > Users and the module appears
+             duplicated in the access-rights tree. Using "Access Level" makes
+             the sub-grouping read as: Gohan > Access Level > {User, Admin}. -->
+        <record id="res_groups_privilege_gohan" model="res.groups.privilege">
+            <field name="name">Access Level</field>
+            <field name="sequence">100</field>
+            <field name="category_id" ref="module_category_gohan"/>
+        </record>
+
+    </data>
+
+    <data noupdate="1">
+
+        <record id="group_gohan_user" model="res.groups">
+            <field name="name">User</field>
+            <field name="privilege_id" ref="res_groups_privilege_gohan"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <record id="group_gohan_admin" model="res.groups">
+            <field name="name">Admin</field>
+            <field name="privilege_id" ref="res_groups_privilege_gohan"/>
+            <field name="implied_ids" eval="[(4, ref('group_gohan_user'))]"/>
+        </record>
+
+    </data>
+</odoo>

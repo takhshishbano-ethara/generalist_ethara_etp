@@ -45,7 +45,7 @@ server {
     server_name _;
     resolver kube-dns.kube-system.svc.cluster.local valid=10s;
     client_max_body_size 0;
-    location ~ ^/(\\d+)(?:/(.*))? {
+    location ~ ^/sandbox/(\\d+)(?:/(.*))? {
         set $task_id $1;
         set $path $2;
         set $backend kensei-sandbox-$task_id.%(namespace)s.svc.cluster.local:18789;
@@ -168,6 +168,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
 
     config_dict = {
         "gateway": {
+            "mode": "local",
             "bind": "lan",
             "auth": {
                 "mode": "token",
@@ -196,10 +197,14 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             },
         },
         "browser": {
-            "enabled": True,
-            "headless": True,
-            "noSandbox": True,
-            "defaultProfile": "openclaw",
+            "enabled": False,
+        },
+        "tools": {
+            "deny": ["browser"],
+            "web": {
+                "search": {"enabled": False},
+                "fetch": {"enabled": False},
+            },
         },
         "models": {"providers": {}},
     }
@@ -272,7 +277,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
     config_dict["agents"] = {
         "defaults": {
             "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
-            "imageModel": {"primary": "litellm/" + MODEL_DEFAULTS.get(model_type, "claude-opus-4.7")},
+            "imageModel": {"primary": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7")},
             "thinkingDefault": "xhigh",
         }
     }
@@ -387,6 +392,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         self._create_litellm_configmap(core_v1, task_id, labels, litellm_yaml)
 
         skills_cm = self._create_skills_configmap(core_v1, task_id, labels, sandbox_record)
+        mock_data_cms = self._create_mock_data_configmaps(core_v1, task_id, labels)
 
         self._create_deployment(
             apps_v1,
@@ -407,6 +413,7 @@ class KenseiSandboxK8s(models.AbstractModel):
             bedrock_arn,
             gateway_token,
             skills_cm=skills_cm,
+            mock_data_cms=mock_data_cms,
         )
 
         self._create_service(core_v1, sandbox_record, labels, name)
@@ -711,6 +718,103 @@ class KenseiSandboxK8s(models.AbstractModel):
                 raise
         return cm_name
 
+    def _create_mock_data_configmaps(self, core_v1, task_id, labels):
+        """Create per-service ConfigMaps from mock data files (CSV/JSON).
+
+        In K8s mode, sidecar images are pulled from ECR and may contain stale
+        data baked in at build time.  This method reads the *current* data files
+        from the module's ``environment/<svc>/`` directories and stores them in
+        ConfigMaps so they can be overlaid onto the sidecar via ``subPath``
+        volume mounts (see ``_create_deployment``).
+
+        Returns ``{dir_name: {"cm_name": str, "files": [str]}}``.
+        """
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return {}
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return {}
+
+        overlay_extensions = {".csv", ".json", ".py", ".txt"}
+        result = {}
+
+        for entry in sorted(os.listdir(env_dir)):
+            svc_dir = os.path.join(env_dir, entry)
+            if not os.path.isfile(os.path.join(svc_dir, "service.toml")):
+                continue
+
+            data = {}
+            for fname in sorted(os.listdir(svc_dir)):
+                fpath = os.path.join(svc_dir, fname)
+                if not os.path.isfile(fpath):
+                    continue
+                _, ext = os.path.splitext(fname)
+                if ext.lower() not in overlay_extensions:
+                    continue
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data[fname] = f.read()
+                except (UnicodeDecodeError, OSError):
+                    continue
+
+            if not data:
+                continue
+
+            total_size = sum(len(v.encode("utf-8")) for v in data.values())
+            if total_size > 1_000_000:
+                _logger.warning(
+                    "Mock data for %s exceeds 1 MB (%d bytes), skipping "
+                    "ConfigMap -- sidecar will use baked-in image data",
+                    entry,
+                    total_size,
+                )
+                continue
+
+            cm_name = "kensei-mock-data-%s-%s" % (entry, task_id)
+            cm = client.V1ConfigMap(
+                api_version="v1",
+                kind="ConfigMap",
+                metadata=client.V1ObjectMeta(
+                    name=cm_name,
+                    namespace=NAMESPACE,
+                    labels=labels,
+                ),
+                data=data,
+            )
+            try:
+                core_v1.create_namespaced_config_map(
+                    namespace=NAMESPACE, body=cm,
+                )
+            except ApiException as e:
+                if e.status == 409:
+                    core_v1.replace_namespaced_config_map(
+                        name=cm_name, namespace=NAMESPACE, body=cm,
+                    )
+                else:
+                    raise
+
+            result[entry] = {"cm_name": cm_name, "files": sorted(data.keys())}
+
+        return result
+
+    def _list_mock_service_dirs(self):
+        from odoo.modules.module import get_module_path
+
+        mod_path = get_module_path("kensei")
+        if not mod_path:
+            return []
+        env_dir = os.path.join(mod_path, "environment")
+        if not os.path.isdir(env_dir):
+            return []
+        return [
+            entry
+            for entry in sorted(os.listdir(env_dir))
+            if os.path.isfile(os.path.join(env_dir, entry, "service.toml"))
+        ]
+
     def _load_environment_services(self):
         """Load mock service metadata from module's environment/ directory."""
         from odoo.modules.module import get_module_path
@@ -741,6 +845,14 @@ class KenseiSandboxK8s(models.AbstractModel):
                 except ImportError:
                     svc_meta = _parse_service_toml_fallback(toml_path)
                     if svc_meta:
+                        svc_meta["dir_name"] = entry
+                        svc_meta["data_dir"] = "/app"
+                        port = svc_meta.get("port", 0)
+                        svc_meta["start_cmd"] = (
+                            "uvicorn server:app --host 0.0.0.0 --port %d" % port
+                            if port
+                            else ""
+                        )
                         services.append(svc_meta)
                     continue
             with open(toml_path, "rb") as f:
@@ -754,12 +866,21 @@ class KenseiSandboxK8s(models.AbstractModel):
                 k8s_image = "%s/kensei-mock-%s:%s" % (
                     registry_prefix.rstrip("/"), svc_name, image_tag
                 )
+            port = svc.get("port", 0)
+            default_start_cmd = (
+                "uvicorn server:app --host 0.0.0.0 --port %d" % port
+                if port
+                else ""
+            )
             svc_meta = {
                 "name": svc.get("name", ""),
-                "port": svc.get("port", 0),
+                "dir_name": entry,
+                "port": port,
                 "env_var_name": svc.get("env_var_name", ""),
                 "healthcheck_path": svc.get("healthcheck_path", "/health"),
                 "k8s_image": k8s_image,
+                "data_dir": k8s.get("data_dir", "/app"),
+                "start_cmd": svc.get("start_cmd", "") or default_start_cmd,
                 "cpu_request": k8s.get("cpu_request", "25m"),
                 "memory_request": k8s.get("memory_request", "128Mi"),
                 "memory_limit": k8s.get("memory_limit", "256Mi"),
@@ -788,6 +909,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         bedrock_arn,
         gateway_token,
         skills_cm=None,
+        mock_data_cms=None,
     ):
         task_id = sandbox_record.id
         secret_name = "kensei-sandbox-creds-%s" % task_id
@@ -1272,6 +1394,23 @@ class KenseiSandboxK8s(models.AbstractModel):
             resources=client.V1ResourceRequirements(
                 requests={"cpu": "50m", "memory": "64Mi"},
             ),
+            lifecycle=client.V1Lifecycle(
+                pre_stop=client.V1LifecycleHandler(
+                    _exec=client.V1ExecAction(
+                        command=[
+                            "sh",
+                            "-c",
+                            'echo "[kensei] session-backup preStop: final sync..." && '
+                            "aws s3 sync /data/session/ %s "
+                            "--no-progress --quiet 2>/dev/null || true && "
+                            "aws s3 sync /data/browser-profiles/ %s "
+                            "--no-progress --quiet 2>/dev/null || true && "
+                            'echo "[kensei] session-backup preStop: done"'
+                            % (session_s3_path, browser_s3_path),
+                        ],
+                    ),
+                ),
+            ),
         )
 
         postgres_container = client.V1Container(
@@ -1327,14 +1466,42 @@ class KenseiSandboxK8s(models.AbstractModel):
             session_backup_container,
         ]
 
+        mock_data_cms = mock_data_cms or {}
         for svc in mock_services:
             if not svc.get("k8s_image"):
                 continue
+
+            svc_dir_name = svc.get("dir_name", svc["name"])
+            svc_data = mock_data_cms.get(svc_dir_name, {})
+            svc_vol_mounts = []
+            if svc_data:
+                data_dir = svc.get("data_dir", "/app")
+                vol_name = "mock-data-%s" % svc_dir_name
+                for fname in svc_data.get("files", []):
+                    svc_vol_mounts.append(
+                        client.V1VolumeMount(
+                            name=vol_name,
+                            mount_path="%s/%s" % (data_dir, fname),
+                            sub_path=fname,
+                        )
+                    )
+
+            svc_command = None
+            overlay_files = svc_data.get("files", [])
+            if "requirements.txt" in overlay_files and svc.get("start_cmd"):
+                svc_command = [
+                    "sh", "-c",
+                    "pip install --no-cache-dir -q -r requirements.txt && "
+                    "exec %s" % svc["start_cmd"],
+                ]
+
             containers.append(
                 client.V1Container(
                     name=svc["name"],
                     image=svc["k8s_image"],
+                    command=svc_command,
                     ports=[client.V1ContainerPort(container_port=svc["port"])],
+                    volume_mounts=svc_vol_mounts or None,
                     resources=client.V1ResourceRequirements(
                         requests={
                             "cpu": svc.get("cpu_request") or "25m",
@@ -1419,6 +1586,20 @@ class KenseiSandboxK8s(models.AbstractModel):
                     ),
                 )
             )
+
+        for svc in mock_services:
+            svc_dir_name = svc.get("dir_name", svc["name"])
+            svc_data = mock_data_cms.get(svc_dir_name, {})
+            if svc_data.get("cm_name"):
+                volumes.append(
+                    client.V1Volume(
+                        name="mock-data-%s" % svc_dir_name,
+                        config_map=client.V1ConfigMapVolumeSource(
+                            name=svc_data["cm_name"],
+                            optional=True,
+                        ),
+                    )
+                )
 
         deployment = client.V1Deployment(
             api_version="apps/v1",
@@ -1655,51 +1836,95 @@ class KenseiSandboxK8s(models.AbstractModel):
                 raise
 
         if ws_host:
+            # "kensei-ws.example.com" → host only;
+            # "projects.example.com/kensei-sandbox" → host + path prefix
+            if "/" in ws_host:
+                hostname, path_part = ws_host.split("/", 1)
+                prefix = "/" + path_part.strip("/")
+            else:
+                hostname = ws_host
+                prefix = ""
+
+            ws_backend = client.V1IngressBackend(
+                service=client.V1IngressServiceBackend(
+                    name=WS_ROUTER_NAME,
+                    port=client.V1ServiceBackendPort(number=80),
+                ),
+            )
+
+            annotations = {
+                "nginx.ingress.kubernetes.io/proxy-read-timeout": "600",
+                "nginx.ingress.kubernetes.io/proxy-send-timeout": "600",
+                "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
+                "nginx.ingress.kubernetes.io/upstream-hash-by": "$request_uri",
+                "nginx.ingress.kubernetes.io/proxy-buffering": "off",
+                "nginx.ingress.kubernetes.io/proxy-buffer-size": "256k",
+                "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
+            }
+
+            if prefix:
+                annotations["nginx.ingress.kubernetes.io/rewrite-target"] = "/$2"
+                annotations["nginx.ingress.kubernetes.io/use-regex"] = "true"
+                ingress_paths = [
+                    client.V1HTTPIngressPath(
+                        path="%s(/|$)(.*)" % prefix,
+                        path_type="ImplementationSpecific",
+                        backend=ws_backend,
+                    ),
+                ]
+            else:
+                ingress_paths = [
+                    client.V1HTTPIngressPath(
+                        path="/sandbox/",
+                        path_type="Prefix",
+                        backend=ws_backend,
+                    ),
+                    client.V1HTTPIngressPath(
+                        path="/litellm/",
+                        path_type="Prefix",
+                        backend=ws_backend,
+                    ),
+                ]
+
             ingress = client.V1Ingress(
                 metadata=client.V1ObjectMeta(
                     name=WS_ROUTER_NAME,
                     namespace=NAMESPACE,
                     labels=WS_ROUTER_LABELS,
-                    annotations={
-                        "nginx.ingress.kubernetes.io/proxy-read-timeout": "600",
-                        "nginx.ingress.kubernetes.io/proxy-send-timeout": "600",
-                        "nginx.ingress.kubernetes.io/proxy-http-version": "1.1",
-                        "nginx.ingress.kubernetes.io/upstream-hash-by": "$request_uri",
-                        "nginx.ingress.kubernetes.io/proxy-buffering": "off",
-                        "nginx.ingress.kubernetes.io/proxy-buffer-size": "256k",
-                        "nginx.ingress.kubernetes.io/proxy-body-size": "100m",
-                    },
+                    annotations=annotations,
                 ),
                 spec=client.V1IngressSpec(
                     rules=[
                         client.V1IngressRule(
-                            host=ws_host,
+                            host=hostname,
                             http=client.V1HTTPIngressRuleValue(
-                                paths=[
-                                    client.V1HTTPIngressPath(
-                                        path="/",
-                                        path_type="Prefix",
-                                        backend=client.V1IngressBackend(
-                                            service=client.V1IngressServiceBackend(
-                                                name=WS_ROUTER_NAME,
-                                                port=client.V1ServicePort(
-                                                    number=80,
-                                                ),
-                                            ),
-                                        ),
-                                    ),
-                                ],
+                                paths=ingress_paths,
                             ),
                         ),
                     ],
                 ),
             )
+
             try:
-                networking_v1.create_namespaced_ingress(
-                    namespace=NAMESPACE, body=ingress
+                existing = networking_v1.read_namespaced_ingress(
+                    name=WS_ROUTER_NAME, namespace=NAMESPACE
+                )
+                ingress.metadata.resource_version = (
+                    existing.metadata.resource_version
+                )
+                networking_v1.replace_namespaced_ingress(
+                    name=WS_ROUTER_NAME, namespace=NAMESPACE, body=ingress
                 )
             except ApiException as e:
-                if e.status != 409:
+                if e.status == 404:
+                    try:
+                        networking_v1.create_namespaced_ingress(
+                            namespace=NAMESPACE, body=ingress
+                        )
+                    except ApiException as e2:
+                        if e2.status != 409:
+                            raise
+                else:
                     raise
 
         _logger.info("WS router created (host=%s)", ws_host or "no-ingress")
@@ -1750,6 +1975,17 @@ class KenseiSandboxK8s(models.AbstractModel):
             "kensei-litellm-config-%s" % task_id,
             NAMESPACE,
         )
+        self._delete_resource(
+            core_v1.delete_namespaced_config_map,
+            "kensei-sandbox-skills-%s" % task_id,
+            NAMESPACE,
+        )
+        for svc_dir in self._list_mock_service_dirs():
+            self._delete_resource(
+                core_v1.delete_namespaced_config_map,
+                "kensei-mock-data-%s-%s" % (svc_dir, task_id),
+                NAMESPACE,
+            )
 
     def _delete_resource(self, delete_func, name, namespace):
         try:

@@ -451,11 +451,25 @@ class AuroraGithubToken(models.Model):
         reclaimed = cr.fetchall()
 
         cr.execute("""
+            UPDATE aurora_github_token t
+            SET leased_by_run_id = NULL, leased_at = NULL,
+                last_health_check = NOW() AT TIME ZONE 'UTC'
+            FROM aurora_evaluation e
+            WHERE t.leased_by_run_id = e.id
+              AND (e.stage IN ('done', 'failed')
+                   OR t.last_heartbeat < (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 minutes')
+            RETURNING t.id, t.name, e.id AS eval_id, e.stage,
+                      (t.last_heartbeat < (NOW() AT TIME ZONE 'UTC') - INTERVAL '60 minutes') AS force_released
+        """)
+        reclaimed_eval = cr.fetchall()
+
+        cr.execute("""
             UPDATE aurora_github_token
             SET leased_by_run_id = NULL, leased_at = NULL,
                 last_health_check = NOW() AT TIME ZONE 'UTC'
             WHERE leased_by_run_id IS NOT NULL
               AND leased_by_run_id NOT IN (SELECT id FROM aurora_pipeline)
+              AND leased_by_run_id NOT IN (SELECT id FROM aurora_evaluation)
             RETURNING id
         """)
         orphaned = cr.fetchall()
@@ -464,10 +478,12 @@ class AuroraGithubToken(models.Model):
 
         normal = sum(1 for r in reclaimed if not r[4])
         forced = sum(1 for r in reclaimed if r[4])
-        if reclaimed or orphaned:
+        eval_normal = sum(1 for r in reclaimed_eval if not r[4])
+        eval_forced = sum(1 for r in reclaimed_eval if r[4])
+        if reclaimed or reclaimed_eval or orphaned:
             _logger.info(
-                "Orphan reclaim: %d normal, %d forced, %d deleted-pipeline",
-                normal, forced, len(orphaned),
+                "Orphan reclaim: pipeline=%d normal/%d forced, eval=%d normal/%d forced, %d deleted-run",
+                normal, forced, eval_normal, eval_forced, len(orphaned),
             )
 
     # ------------------------------------------------------------------

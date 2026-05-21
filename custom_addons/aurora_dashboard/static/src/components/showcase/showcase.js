@@ -4,7 +4,8 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
-const DEFAULT_TRAJECTORIES_URL = "https://github.com/Ethara-Ai/milo-bench-paper/tree/main/trajectories";
+//const DEFAULT_TRAJECTORIES_URL = "https://github.com/Ethara-Ai/milo-bench-paper/tree/main/trajectories";
+const DEFAULT_TRAJECTORIES_URL = "https://github.com/Ethara-Ai/milo-bench";
 const DEFAULT_DATASET_URL = "https://huggingface.co/datasets/ethara/MILO-Bench";
 
 export class AuroraShowcase extends Component {

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_argus_root"
+              name="Argus"
+              web_icon="argus,static/description/icon.png"
+              sequence="42"/>
+
+    <!-- ============= Tasks ============= -->
+    <menuitem id="menu_argus_tasks_root"
+              name="Tasks"
+              parent="menu_argus_root"
+              sequence="10"/>
+
+    <menuitem id="menu_argus_tasks_all"
+              name="All Tasks"
+              parent="menu_argus_tasks_root"
+              action="action_argus_task"
+              sequence="10"/>
+
+    <menuitem id="menu_argus_tasks_my"
+              name="My Tasks"
+              parent="menu_argus_tasks_root"
+              action="action_argus_task_my"
+              sequence="20"/>
+
+    <!-- ============= QC ============= -->
+    <menuitem id="menu_argus_qc_root"
+              name="QC"
+              parent="menu_argus_root"
+              sequence="20"/>
+
+    <menuitem id="menu_argus_qc_queue"
+              name="QC Queue"
+              parent="menu_argus_qc_root"
+              action="action_argus_qc_queue"
+              sequence="10"/>
+
+    <!-- ============= Reports ============= -->
+    <menuitem id="menu_argus_reports_root"
+              name="Reports"
+              parent="menu_argus_root"
+              sequence="30"
+              groups="argus.group_argus_pl,argus.group_argus_ql,argus.group_argus_manager"/>
+
+    <menuitem id="menu_argus_pivot"
+              name="Status Pivot"
+              parent="menu_argus_reports_root"
+              action="action_argus_pivot"
+              sequence="10"/>
+
+    <menuitem id="menu_argus_graph"
+              name="Approval Trend"
+              parent="menu_argus_reports_root"
+              action="action_argus_graph"
+              sequence="20"/>
+
+</odoo>

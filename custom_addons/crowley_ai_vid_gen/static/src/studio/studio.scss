@@ -1,0 +1,857 @@
+// =====================================================================
+// Crowley Seedance Studio — dark cyber-dashboard design system tokens
+// =====================================================================
+
+$crowley-bg-deep:     #0a0a0a;
+$crowley-bg-panel:    #111111;
+$crowley-border-low:  #1f1f1f;
+$crowley-border-mid:  #2a2a2a;
+$crowley-border-hi:   #4a4a4a;
+$crowley-text-primary:#f0f0f0;
+$crowley-text-muted:  #888888;
+$crowley-text-dim:    #555555;
+$crowley-accent:      #c8ff00;
+$crowley-accent-dim:  #6e8b00;
+$crowley-danger:      #ff5252;
+$crowley-success:     #4ade80;
+
+$crowley-mono: "SF Mono", "JetBrains Mono", "Menlo", "Consolas", monospace;
+$crowley-tx:   120ms ease;
+
+// =====================================================================
+// Root surface — fills the action manager content area
+// =====================================================================
+.o_crow_studio {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    background: $crowley-bg-deep;
+    color: $crowley-text-primary;
+    font-family: $crowley-mono;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+    overflow: hidden;
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    button { font-family: inherit; }
+
+    // ------------------------------------------------------------- top bar
+    .o_crow_topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 3.75rem;
+        padding: 0 1.5rem;
+        background: $crowley-bg-deep;
+        border-bottom: 1px solid $crowley-border-low;
+        flex-shrink: 0;
+    }
+    .o_crow_brand {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .o_crow_logo {
+        width: 1.5rem;
+        height: 1.5rem;
+        background: $crowley-accent;
+        border-radius: 2px;
+        box-shadow: 0 0 0.5rem rgba($crowley-accent, 0.35);
+    }
+    .o_crow_brand_title {
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        font-size: 0.875rem;
+        color: $crowley-text-primary;
+    }
+    .o_crow_brand_sub {
+        color: $crowley-text-muted;
+        font-size: 0.6875rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        margin-top: 0.125rem;
+    }
+    .o_crow_status {
+        display: flex;
+        align-items: center;
+        gap: 1.25rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 0.75rem;
+        color: $crowley-text-muted;
+    }
+    .o_crow_pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.375rem 0.625rem;
+        border: 1px solid $crowley-border-mid;
+        border-radius: 999px;
+        color: $crowley-text-primary;
+    }
+    .o_crow_dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: $crowley-text-dim;
+        display: inline-block;
+        flex-shrink: 0;
+
+        &--ok {
+            background: $crowley-success;
+            box-shadow: 0 0 0.375rem rgba($crowley-success, 0.7);
+        }
+    }
+    .o_crow_meta {
+        font-variant-numeric: tabular-nums;
+        color: $crowley-text-primary;
+    }
+    .o_crow_clock { color: $crowley-accent; }
+
+    .o_crow_apikey {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.75rem;
+        background: transparent;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-primary;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.75rem;
+        cursor: pointer;
+        transition: border-color $crowley-tx, color $crowley-tx;
+
+        &:hover {
+            border-color: $crowley-accent;
+            color: $crowley-accent;
+        }
+    }
+
+    // -------------------------------------------------------- body shell
+    .o_crow_body {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    // ============================================================ left
+    .o_crow_left {
+        flex: 0 0 30rem;
+        max-width: 32%;
+        background: $crowley-bg-deep;
+        border-right: 1px solid $crowley-border-low;
+        padding: 1.5rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1.5rem;
+    }
+
+    .o_crow_tabs {
+        display: flex;
+        gap: 1.5rem;
+        border-bottom: 1px solid $crowley-border-low;
+        padding-bottom: 0.5rem;
+    }
+    .o_crow_tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        background: transparent;
+        border: 0;
+        padding: 0.5rem 0;
+        color: $crowley-text-muted;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.75rem;
+        cursor: pointer;
+        position: relative;
+        transition: color $crowley-tx;
+
+        &:hover { color: $crowley-text-primary; }
+
+        &--active {
+            color: $crowley-accent;
+            &::after {
+                content: "";
+                position: absolute;
+                left: 0; right: 0;
+                bottom: -0.5rem;
+                height: 2px;
+                background: $crowley-accent;
+                box-shadow: 0 0 0.5rem rgba($crowley-accent, 0.5);
+            }
+        }
+        &--disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+            &:hover { color: $crowley-text-muted; }
+        }
+    }
+    .o_crow_tab_icon {
+        display: inline-flex;
+        width: 1rem;
+        height: 1rem;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid currentColor;
+        font-size: 0.625rem;
+        font-weight: 700;
+    }
+
+    .o_crow_section {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+    }
+    .o_crow_section_head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+    }
+    .o_crow_label {
+        margin: 0;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: $crowley-text-muted;
+    }
+    .o_crow_sub {
+        font-size: 0.625rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $crowley-text-dim;
+    }
+    .o_crow_help {
+        margin: 0;
+        font-size: 0.6875rem;
+        color: $crowley-text-dim;
+        line-height: 1.4;
+    }
+
+    // ---------- prompt textarea
+    .o_crow_textarea_wrap { position: relative; }
+    .o_crow_textarea {
+        width: 100%;
+        background: $crowley-bg-panel;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-primary;
+        font-family: $crowley-mono;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        padding: 0.75rem 0.875rem 1.75rem;
+        resize: vertical;
+        min-height: 6.5rem;
+        outline: 0;
+        transition: border-color $crowley-tx;
+
+        &:focus { border-color: $crowley-accent; }
+        &::placeholder { color: $crowley-text-dim; }
+    }
+    .o_crow_count {
+        position: absolute;
+        right: 0.625rem;
+        bottom: 0.5rem;
+        font-size: 0.6875rem;
+        letter-spacing: 0.04em;
+        color: $crowley-text-dim;
+        pointer-events: none;
+        font-variant-numeric: tabular-nums;
+
+        &--warn { color: #f5b942; }
+        &--danger { color: $crowley-danger; }
+    }
+
+    // ---------- chips
+    .o_crow_chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .o_crow_chip {
+        min-width: 2.75rem;
+        height: 2.125rem;
+        padding: 0 0.875rem;
+        background: transparent;
+        color: $crowley-text-muted;
+        border: 1px solid $crowley-border-mid;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.75rem;
+        cursor: pointer;
+        font-family: $crowley-mono;
+        transition: border-color $crowley-tx, color $crowley-tx, background $crowley-tx;
+
+        &:hover {
+            border-color: $crowley-border-hi;
+            color: $crowley-text-primary;
+        }
+        &--active {
+            background: $crowley-accent;
+            color: #000;
+            border-color: $crowley-accent;
+        }
+        &--big {
+            flex: 1;
+            height: 3rem;
+            font-size: 0.875rem;
+            font-weight: 600;
+        }
+        &--variant {
+            flex: 1;
+            height: 3rem;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            justify-content: center;
+            gap: 0.125rem;
+            padding: 0.375rem 0.875rem;
+        }
+    }
+    .o_crow_variant_name { font-weight: 700; }
+    .o_crow_variant_ver  {
+        font-size: 0.625rem;
+        opacity: 0.7;
+        letter-spacing: 0.08em;
+    }
+
+    // ---------- audio toggle
+    .o_crow_audio {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.625rem;
+        height: 3rem;
+        background: $crowley-bg-panel;
+        color: $crowley-text-muted;
+        border: 1px solid $crowley-border-mid;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        cursor: pointer;
+        font-family: $crowley-mono;
+        transition: all $crowley-tx;
+
+        &:hover { border-color: $crowley-border-hi; color: $crowley-text-primary; }
+        &--on {
+            background: $crowley-accent;
+            color: #000;
+            border-color: $crowley-accent;
+            box-shadow: 0 0 1rem rgba($crowley-accent, 0.18);
+        }
+    }
+
+    // ---------- seed
+    .o_crow_seed_row {
+        display: flex;
+        gap: 0.5rem;
+    }
+    .o_crow_seed_input {
+        flex: 1;
+        background: $crowley-bg-panel;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-primary;
+        font-family: $crowley-mono;
+        font-size: 0.8125rem;
+        padding: 0 0.75rem;
+        height: 2.5rem;
+        outline: 0;
+        transition: border-color $crowley-tx;
+
+        &:focus { border-color: $crowley-accent; }
+        &::placeholder { color: $crowley-text-dim; }
+    }
+    .o_crow_seed_btn {
+        width: 2.5rem;
+        height: 2.5rem;
+        background: transparent;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-muted;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: all $crowley-tx;
+
+        &:hover {
+            border-color: $crowley-border-hi;
+            color: $crowley-text-primary;
+        }
+        &--active {
+            background: $crowley-accent;
+            color: #000;
+            border-color: $crowley-accent;
+        }
+    }
+
+    // ---------- generate
+    .o_crow_generate {
+        margin-top: 0.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+    }
+    .o_crow_btn_generate {
+        height: 3.75rem;
+        background: $crowley-accent;
+        color: #000;
+        border: 0;
+        font-family: $crowley-mono;
+        font-weight: 700;
+        font-size: 1rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.75rem;
+        transition: filter $crowley-tx, transform $crowley-tx;
+        box-shadow: 0 0 1.25rem rgba($crowley-accent, 0.25);
+
+        &:hover { filter: brightness(1.08); transform: translateY(-1px); }
+        &:active { transform: translateY(0); }
+        &--disabled {
+            background: $crowley-accent-dim;
+            color: rgba(0,0,0,0.6);
+            cursor: not-allowed;
+            box-shadow: none;
+            &:hover { filter: none; transform: none; }
+        }
+    }
+    .o_crow_generate_sub {
+        text-align: center;
+        font-size: 0.6875rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: $crowley-text-dim;
+    }
+
+    // ============================================================ right
+    .o_crow_right {
+        flex: 1;
+        min-width: 0;
+        padding: 1.5rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        overflow-y: auto;
+    }
+
+    // ---------- canvas
+    .o_crow_canvas {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: $crowley-bg-deep;
+        border: 1px solid $crowley-border-low;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .o_crow_corner {
+        position: absolute;
+        width: 1.5rem;
+        height: 1.5rem;
+        pointer-events: none;
+        &--tl { top: 0.5rem;    left: 0.5rem;    border-top: 1px solid $crowley-border-hi; border-left: 1px solid $crowley-border-hi; }
+        &--tr { top: 0.5rem;    right: 0.5rem;   border-top: 1px solid $crowley-border-hi; border-right: 1px solid $crowley-border-hi; }
+        &--bl { bottom: 0.5rem; left: 0.5rem;    border-bottom: 1px solid $crowley-border-hi; border-left: 1px solid $crowley-border-hi; }
+        &--br { bottom: 0.5rem; right: 0.5rem;   border-bottom: 1px solid $crowley-border-hi; border-right: 1px solid $crowley-border-hi; }
+    }
+    .o_crow_canvas_tag {
+        position: absolute;
+        top: 0.75rem;
+        right: 1.25rem;
+        font-size: 0.6875rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: $crowley-text-dim;
+        pointer-events: none;
+    }
+    .o_crow_canvas_inner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.875rem;
+        padding: 3rem 2rem;
+        text-align: center;
+        max-width: 36rem;
+    }
+    .o_crow_canvas_idle_top {
+        font-size: 0.6875rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: $crowley-text-dim;
+    }
+    .o_crow_canvas_glyph {
+        font-size: 3rem;
+        line-height: 1;
+        color: $crowley-accent;
+        filter: drop-shadow(0 0 0.5rem rgba($crowley-accent, 0.5));
+        animation: o_crow_pulse 4s ease-in-out infinite;
+    }
+    .o_crow_canvas_h {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 400;
+        color: $crowley-text-primary;
+        font-family: "Times New Roman", "Georgia", serif;
+        letter-spacing: -0.01em;
+    }
+    .o_crow_canvas_p {
+        margin: 0;
+        color: $crowley-text-muted;
+        line-height: 1.55;
+        font-size: 0.875rem;
+        max-width: 32rem;
+    }
+    .o_crow_canvas_state {
+        font-size: 1.125rem;
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: $crowley-accent;
+
+        &--err { color: $crowley-danger; }
+    }
+    .o_crow_canvas_elapsed {
+        color: $crowley-text-primary;
+        font-size: 1rem;
+        font-variant-numeric: tabular-nums;
+    }
+    .o_crow_canvas_eta {
+        color: $crowley-text-dim;
+        font-size: 0.75rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+    }
+    .o_crow_canvas_err {
+        background: rgba($crowley-danger, 0.08);
+        border: 1px solid rgba($crowley-danger, 0.4);
+        color: #ffd5d5;
+        font-family: $crowley-mono;
+        font-size: 0.75rem;
+        padding: 0.75rem 1rem;
+        white-space: pre-wrap;
+        max-width: 36rem;
+        margin: 0;
+    }
+    .o_crow_canvas_actions {
+        display: flex;
+        gap: 0.75rem;
+        margin-top: 0.25rem;
+    }
+    .o_crow_canvas_video {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        background: #000;
+    }
+    .o_crow_canvas_meta {
+        font-size: 0.6875rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: $crowley-text-muted;
+    }
+    .o_crow_spinner {
+        width: 2.5rem;
+        height: 2.5rem;
+        border: 2px solid $crowley-border-mid;
+        border-top-color: $crowley-accent;
+        border-radius: 50%;
+        animation: o_crow_spin 0.9s linear infinite;
+    }
+
+    // ---------- buttons
+    .o_crow_btn {
+        font-family: $crowley-mono;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        padding: 0.5rem 0.9rem;
+        border-radius: 0;
+        cursor: pointer;
+        transition: all $crowley-tx;
+        background: transparent;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-primary;
+
+        &:hover { border-color: $crowley-accent; color: $crowley-accent; }
+        &--primary {
+            background: $crowley-accent;
+            color: #000;
+            border-color: $crowley-accent;
+            &:hover { filter: brightness(1.08); color: #000; }
+        }
+        &--ghost {
+            background: transparent;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        &[disabled] { opacity: 0.4; cursor: not-allowed; }
+    }
+
+    // ---------- reel
+    .o_crow_reel {
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+    .o_crow_reel_head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+    }
+    .o_crow_reel_title {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.625rem;
+        font-size: 0.75rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: $crowley-text-primary;
+
+        .fa-play { color: $crowley-accent; font-size: 0.625rem; }
+    }
+    .o_crow_reel_count {
+        color: $crowley-text-dim;
+        margin-left: 0.5rem;
+    }
+    .o_crow_reel_actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.75rem;
+    }
+    .o_crow_reel_hint {
+        color: $crowley-text-dim;
+        font-size: 0.625rem;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+    }
+    .o_crow_reel_strip {
+        display: flex;
+        gap: 0.75rem;
+        overflow-x: auto;
+        padding-bottom: 0.5rem;
+        scrollbar-width: thin;
+        scrollbar-color: $crowley-border-mid transparent;
+
+        &::-webkit-scrollbar { height: 6px; }
+        &::-webkit-scrollbar-thumb { background: $crowley-border-mid; }
+    }
+    .o_crow_reel_empty {
+        padding: 1.5rem;
+        border: 1px dashed $crowley-border-mid;
+        color: $crowley-text-dim;
+        font-size: 0.75rem;
+        letter-spacing: 0.04em;
+        flex: 1;
+        text-align: center;
+    }
+    .o_crow_reel_item {
+        position: relative;
+        flex: 0 0 auto;
+        width: 11.25rem;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border: 1px solid $crowley-border-mid;
+        cursor: pointer;
+        overflow: hidden;
+        transition: border-color $crowley-tx, transform $crowley-tx;
+
+        &:hover {
+            border-color: $crowley-border-hi;
+            transform: translateY(-1px);
+        }
+        &--selected {
+            border: 2px solid $crowley-accent;
+            box-shadow: 0 0 0.75rem rgba($crowley-accent, 0.4);
+        }
+    }
+    .o_crow_reel_video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        pointer-events: none;
+    }
+    .o_crow_reel_overlay {
+        position: absolute;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.375rem;
+        padding: 0.25rem 0.4rem;
+        font-size: 0.5625rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: rgba(0,0,0,0.7);
+        color: $crowley-text-primary;
+        backdrop-filter: blur(2px);
+
+        &--tl { top: 0.375rem; left: 0.375rem; }
+        &--tr { top: 0.375rem; right: 0.375rem; color: $crowley-accent; }
+    }
+    .o_crow_reel_caption {
+        position: absolute;
+        left: 0; right: 0; bottom: 0;
+        padding: 0.25rem 0.4rem;
+        font-size: 0.5625rem;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: $crowley-text-muted;
+        background: linear-gradient(to top, rgba(0,0,0,0.85), transparent);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    // ---------- refine button (secondary action — replaces GENERATE
+    //            once a job exists, neon-green text on a dark border
+    //            instead of the inverse fill).
+    .o_crowley_studio__refine_btn {
+        height: 3.25rem;
+        background: $crowley-bg-panel;
+        color: $crowley-accent;
+        border: 1px solid $crowley-accent;
+        font-family: $crowley-mono;
+        font-weight: 700;
+        font-size: 0.9375rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.625rem;
+        transition: background $crowley-tx, color $crowley-tx, filter $crowley-tx;
+        box-shadow: inset 0 0 0 0 rgba($crowley-accent, 0.2);
+
+        &:hover {
+            background: rgba($crowley-accent, 0.08);
+            box-shadow: 0 0 0.75rem rgba($crowley-accent, 0.25);
+        }
+        &:active { filter: brightness(0.95); }
+        &--disabled {
+            color: $crowley-text-dim;
+            border-color: $crowley-border-mid;
+            cursor: not-allowed;
+            background: transparent;
+            &:hover { background: transparent; box-shadow: none; }
+        }
+    }
+
+    // ---------- attempt switcher (3-slot strip below canvas, above reel)
+    .o_crowley_studio__attempt_switcher {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        padding: 0.875rem;
+        border: 1px solid $crowley-border-low;
+        background: $crowley-bg-panel;
+    }
+    .o_crowley_studio__attempt_switcher_label {
+        font-size: 0.625rem;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: $crowley-text-muted;
+    }
+    .o_crowley_studio__attempt_switcher_chips {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.5rem;
+    }
+    .o_crowley_studio__attempt_switcher_caption {
+        font-size: 0.6875rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: $crowley-text-dim;
+    }
+    .o_crowley_studio__attempt_chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.5rem 0.75rem;
+        height: 2.375rem;
+        background: transparent;
+        border: 1px solid $crowley-border-mid;
+        color: $crowley-text-muted;
+        font-family: $crowley-mono;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: border-color $crowley-tx, color $crowley-tx, background $crowley-tx;
+
+        &:hover:not([disabled]) {
+            border-color: $crowley-border-hi;
+            color: $crowley-text-primary;
+        }
+        &--active {
+            border: 2px solid $crowley-accent;
+            color: $crowley-accent;
+            font-weight: 700;
+            box-shadow: 0 0 0.5rem rgba($crowley-accent, 0.25);
+        }
+        &--empty {
+            opacity: 0.35;
+            cursor: not-allowed;
+            border-style: dashed;
+        }
+        &[disabled] { cursor: not-allowed; }
+    }
+    .o_crowley_studio__attempt_chip_dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+        background: $crowley-text-dim;
+        flex-shrink: 0;
+
+        .o_crowley_studio__attempt_chip--ready    & { background: $crowley-success; box-shadow: 0 0 0.375rem rgba($crowley-success, 0.7); }
+        .o_crowley_studio__attempt_chip--polling  & { background: #f5b942; box-shadow: 0 0 0.375rem rgba(245, 185, 66, 0.7); }
+        .o_crowley_studio__attempt_chip--failed   & { background: $crowley-danger; box-shadow: 0 0 0.375rem rgba($crowley-danger, 0.7); }
+        .o_crowley_studio__attempt_chip--cancelled & { background: $crowley-text-dim; }
+        .o_crowley_studio__attempt_chip--empty    & { background: $crowley-border-mid; }
+    }
+    .o_crowley_studio__attempt_chip_label {
+        flex: 1;
+        text-align: left;
+    }
+    .o_crowley_studio__attempt_chip_state {
+        font-size: 0.5625rem;
+        letter-spacing: 0.08em;
+        color: $crowley-text-dim;
+        .o_crowley_studio__attempt_chip--active & { color: $crowley-accent; }
+    }
+
+    // ============================================================ responsive
+    @media (max-width: 900px) {
+        .o_crow_body { flex-direction: column-reverse; }
+        .o_crow_left {
+            flex: 0 0 auto;
+            max-width: none;
+            border-right: 0;
+            border-top: 1px solid $crowley-border-low;
+        }
+    }
+}
+
+@keyframes o_crow_spin { to { transform: rotate(360deg); } }
+@keyframes o_crow_pulse {
+    0%, 100% { opacity: 0.85; transform: scale(1); }
+    50%      { opacity: 1;    transform: scale(1.06); }
+}

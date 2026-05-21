@@ -6,7 +6,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>Pax — Personalized Agent Security Evaluation · ETHARA AI</title>
+      <title>Pax - Personalized Agent Security Evaluation · ETHARA AI</title>
       <meta name="description" content="Pax evaluates the security posture of personalized LLM-based agents against established attack primitives. Three attack categories: Indirect Prompt Injection (IPI), Memory Credential Extraction, and Tool-Return Deception (TRD)."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -232,42 +232,42 @@
         Kimi-K2.5 succeeds on <b>40%</b> IPI, <b>60%</b> MEM, <b>10%</b> TRD.
       </p>
       <p class="reveal-cost mono">
-        Multi-scenario · 3 attack types · <span class="tok-sentinel">GLM-5</span> <b>41% more vulnerable</b> — at <b>6× the cost</b>.
+        Multi-scenario · 3 attack types · <span class="tok-sentinel">GLM-5</span> <b>41% more vulnerable</b> - at <b>6× the cost</b>.
       </p>
     </div>
 
     <div class="charts" style="grid-template-columns: 1fr;">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Overall Score Comparison full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 - Overall Score Comparison full size">
           <img class="chart-light" src="/pax_dashboard/static/src/portal/img/01_overall_score_comparison.png" alt="Overall Score Comparison between GLM-5 and Kimi-K2.5" loading="lazy" />
           <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/01_overall_score_comparison_dark.png" alt="Overall Score Comparison between GLM-5 and Kimi-K2.5" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 — Overall Score Comparison</figcaption>
+        <figcaption>Fig. 1 - Overall Score Comparison</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Success Rate by Attack Type full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 - Success Rate by Attack Type full size">
           <img class="chart-light" src="/pax_dashboard/static/src/portal/img/03_success_rate_by_attack_type.png" alt="Success Rate by Attack Type" loading="lazy" />
           <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/03_success_rate_by_attack_type_dark.png" alt="Success Rate by Attack Type" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 2 — Success Rate by Attack Type</figcaption>
+        <figcaption>Fig. 2 - Success Rate by Attack Type</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 — Tool Calls Analysis full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 3 - Tool Calls Analysis full size">
           <img class="chart-light" src="/pax_dashboard/static/src/portal/img/09_tool_calls_analysis.png" alt="Tool Calls Analysis across scenarios" loading="lazy" />
           <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/09_tool_calls_analysis_dark.png" alt="Tool Calls Analysis across scenarios" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 3 — Tool Calls Analysis</figcaption>
+        <figcaption>Fig. 3 - Tool Calls Analysis</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 — Cumulative Attack Success as Cases Accumulate full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 4 - Cumulative Attack Success as Cases Accumulate full size">
           <img class="chart-light" src="/pax_dashboard/static/src/portal/img/14_cumulative_compromise_line.png" alt="Cumulative Attack Success as Cases Accumulate" loading="lazy" />
           <img class="chart-dark" src="/pax_dashboard/static/src/portal/img/14_cumulative_compromise_line_dark.png" alt="Cumulative Attack Success as Cases Accumulate" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 4 — Cumulative Attack Success as Cases Accumulate</figcaption>
+        <figcaption>Fig. 4 - Cumulative Attack Success as Cases Accumulate</figcaption>
       </figure>
     </div>
   </section>
@@ -288,7 +288,7 @@
 
     <div class="matrix-wrap">
       <table class="matrix" id="matrix" aria-describedby="matrix-desc" style="table-layout:fixed; width:100%;">
-        <caption id="matrix-desc" class="sr-only">Dataset viewer for Pax attack scenarios — IPI, Memory Credential Extraction, and TRD.</caption>
+        <caption id="matrix-desc" class="sr-only">Dataset viewer for Pax attack scenarios - IPI, Memory Credential Extraction, and TRD.</caption>
         <colgroup>
           <col style="width:5%;"/>
           <col style="width:14%;"/>
@@ -352,9 +352,10 @@
     <p class="section-label" id="resources-label">§08 · Resources</p>
 
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+<!--      <a class="resource" href="https://github.com/Ethara-Ai/pax" target="_blank" rel="noopener">-->
       <a class="resource" href="https://github.com/Ethara-Ai/pax" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
-        <p class="res-title">Trajectories</p>
+        <p class="res-title">Harness</p>
         <p class="res-url mono">github.com/Ethara-Ai/pax</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>

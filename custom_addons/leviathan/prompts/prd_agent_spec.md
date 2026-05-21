@@ -43,25 +43,25 @@ Commit to these inferences. Do not hedge. The rest of the PRD flows from them.
 PHASE 1 - WRITE THE PRD
 ========================================
 
-Produce 2,800-3,400 words total (hard cap 3,500, never exceed). Density over padding. Cover BOTH the visual/technical ambition AND the underlying application logic. Implementation-ready prose. No vague adjectives ("modern", "clean", "sleek", "seamless", "beautiful") without numeric or reference-backed definitions. Every animation spec includes exact duration + cubic-bezier easing. Every data claim names the field and its type.
+Produce 4,000-4,800 words total (hard cap 5,000, never exceed). Density over padding. Cover BOTH the visual/technical ambition AND the underlying application logic. Implementation-ready prose. No vague adjectives ("modern", "clean", "sleek", "seamless", "beautiful") without numeric or reference-backed definitions. Every animation spec includes exact duration + cubic-bezier easing. Every data claim names the field and its type.
 
-WORD BUDGET ALLOCATION (per-section ranges, not ceilings - total must stay within 2,800-3,500):
-- Section 1 Product Overview: 150-250
-- Section 2 Visual & Brand Direction: 300-450
-- Section 3 Technical Ambition: 250-400
-- Section 4 Site Architecture & Page Specifications: 800-1,300 (longest permitted)
-- Section 5 Motion Language: 200-350
-- Section 6 Backend & Application Logic: 400-600
-- Section 7 Accessibility & Quality: 150-250
-- Section 8 Content & SEO: 150-250
+WORD BUDGET ALLOCATION (per-section ranges, not ceilings - total must stay within 4,000-5,000):
+- Section 1 Product Overview: 200-350
+- Section 2 Visual & Brand Direction: 400-650
+- Section 3 Technical Ambition: 350-550
+- Section 4 Site Architecture & Page Specifications: 1,100-1,800 (longest permitted)
+- Section 5 Motion Language: 300-500
+- Section 6 Backend & Application Logic: 550-850
+- Section 7 Accessibility & Quality: 200-350
+- Section 8 Content & SEO: 200-350
 
 The ranges exist so dense sites can breathe and simple sites can compress. Expand a section because the source site's complexity demands it, NOT because the budget permits it.
 
 WORD-COUNT SELF-AUDIT (mandatory before emitting the PRD):
 1. After drafting, count words (any reasonable tokenizer-agnostic method: whitespace split on prose body, exclude code blocks).
-2. If total > 3,500: compress - cut filler, merge redundant bullets, tighten prose. Never drop a required section. Never drop a numeric spec, a reference, or an easing value to meet the cap.
-3. If total < 2,800: you under-specified. Expand Section 4 / Section 5 / Section 6 with concrete values (exact durations, exact field types, exact page specs) until you cross 2,800. Do not pad with adjectives.
-4. Re-count. Only emit when 2,800 <= total <= 3,500.
+2. If total > 5,000: compress - cut filler, merge redundant bullets, tighten prose. Never drop a required section. Never drop a numeric spec, a reference, or an easing value to meet the cap.
+3. If total < 4,000: you under-specified. Expand Section 4 / Section 5 / Section 6 with concrete values (exact durations, exact field types, exact page specs) until you cross 4,000. Do not pad with adjectives.
+4. Re-count. Only emit when 4,000 <= total <= 5,000.
 5. The PRD must end with the final line of Section 8. Do NOT append a WORD_COUNT trailer, a word-count note, a summary line, or any meta-commentary. The self-audit is internal; the emitted document contains only the preamble and the eight sections.
 
 ========================================
@@ -79,13 +79,13 @@ Project: [Brand or project name from the target website]
 Category: [One of the five categories from Phase 0]
 Target resolution: [Pick exactly one of: Desktop 1920x1080, Tablet 768x1024, Mobile 390x844 - from Phase 0]
 
-One or two sentences opening the document -- a plain-English functional description of what the site is, what the page contains, and the key behaviour the agent must build. Example shape: "Recreate the homepage of the [brand] website. The prototype shows a [layout type] with [major visible sections]. The agent must implement [key technical behaviour]." Do NOT write poetic mood-pitches, art-direction metaphors, or sensory language. Do NOT open with generic boilerplate about "a cutting-edge web experience." The opener is a brief, factual scope statement -- not creative writing.
+One or two sentences opening the document. Write them fresh for this specific site, grounded in the brand's actual domain and sensory character (luxury furniture, OTT catalog, narrative game, editorial, civic portal, etc.). Do NOT open with generic boilerplate about "a cutting-edge web experience" or variations of that phrasing. Do NOT repeat this sentence or its rhythm across PRDs. The opener must be unmistakably about this one site.
 
 Then write the eight sections below. Use H2 (##) for section headings and H3 (###) for sub-headings. Do NOT number below H3.
 
 ---
 
-## 1. Product Overview
+# 1. Product Overview
 
 Not a brochure-site summary. State what the site IS and what it must FEEL like (a specific sensory claim, not a generic adjective). Include:
 - Elevator pitch in two or three sentences tied to the brand's actual domain (luxury furniture, data dashboard, narrative game, editorial, e-commerce).
@@ -94,7 +94,7 @@ Not a brochure-site summary. State what the site IS and what it must FEEL like (
 - Target users, concretely (device, connection, expertise, attention profile).
 - One-sentence category justification expanded (why this site belongs in Normal Website vs Cool Transition vs the others).
 
-## 2. Visual & Brand Direction
+# 2. Visual & Brand Direction
 
 Philosophy first (one or two sentences of creative position, e.g. "Wabi-sabi meets brutalist editorial"). Then the following three sub-sections using H3:
 
@@ -107,7 +107,7 @@ List typefaces with weights, fallbacks, and what each is used for. Then a type s
 ### Layout
 Grid system (column count, max-width, gutters per breakpoint), margin system, asymmetry rules, baseline grid. Explicit numbers everywhere.
 
-## 3. Technical Ambition
+# 3. Technical Ambition
 
 ### Core Stack
 Bullet list with each library on its own line: framework (Next.js 14 App Router, React 19, SvelteKit, Astro, plain HTML - whichever), animation (GSAP 3.12 with exact plugins named, Framer Motion, Lottie, Rive, Theatre.js, or explicit "none, vanilla CSS + tiny JS"), 3D/WebGL (Three.js r160, react-three-fiber, drei, custom shaders), smooth scroll (Lenis 1.1 with lerp value stated, or native), CMS (Sanity, Contentful, Payload, flat MDX), deployment (Vercel Edge, Cloudflare Pages, Netlify), image pipeline (Cloudinary, imgix, next/image with formats stated).
@@ -119,7 +119,7 @@ Name any custom DOM events the build dispatches on window (e.g. app:share_click)
 ### Performance Targets
 Pre-flight numeric targets: Lighthouse thresholds per category, LCP, CLS, INP / TBT, bundle-size ceilings for JS / CSS / fonts (state gzipped values), frame-rate target at the target resolution, device baseline (e.g. "60fps on M1 MacBook", "45fps on iPhone 12").
 
-## 4. Site Architecture & Page Specifications
+# 4. Site Architecture & Page Specifications
 
 Cover the full sitemap and every page, in two parts.
 
@@ -143,7 +143,7 @@ Category-specific depth required inside the relevant pages:
 - SVG & Vector Graphics: path data or generation strategy, morph targets, SMIL vs CSS vs JS driver, filter primitives (feTurbulence, feDisplacementMap).
 - 3D & WebGL / Game: scene graph, camera path, lighting rig, material / shader breakdown, physics, frame budget at the target resolution, low-GPU fallback.
 
-## 5. Motion Language
+# 5. Motion Language
 
 Global physics that apply across the site. Include:
 - Default duration band (e.g. "300-900ms") and default easing curve as a named cubic-bezier. State "never linear" if that is the rule.
@@ -154,7 +154,7 @@ Global physics that apply across the site. Include:
 - Any scroll-driver synchronization contract (e.g. "Lenis must be synchronized with ScrollTrigger via scrollerProxy").
 - Global prefers-reduced-motion contract: which libraries are disabled, which animations become instant opacity, which stay as instant position changes.
 
-## 6. Backend & Application Logic
+# 6. Backend & Application Logic
 
 Never skip this section. If the site is purely static, say so in one or two sentences explaining WHY static suffices for this brand, and describe the build-time pipeline instead (static generation, content source, revalidation strategy). Otherwise, include the following sub-sections using H3:
 
@@ -174,7 +174,7 @@ Endpoints, methods, request / response shapes, third-party integrations (uploadc
 ### Modal / Dialog Contract
 If any modals, drawers, overlays, or lightboxes exist, state the ARIA pattern explicitly: which element carries role="dialog", which element carries aria-modal="true", which element carries aria-labelledby and which id it points at, where focus moves on open, where focus returns on close, which keys dismiss, whether scrim-click dismisses. Place the ARIA attributes on the scrim or root container (the element that becomes the accessibility boundary), not on an inner presentational card - note this so it is not refactored later.
 
-## 7. Accessibility & Quality
+# 7. Accessibility & Quality
 
 Bullets covering:
 - Color contrast ratios for primary foreground / background pairs (state the numeric ratio, e.g. "Bone on Noir is 15.8:1").
@@ -184,7 +184,7 @@ Bullets covering:
 - Alt text enforcement (CMS-level requirement, validation).
 - Screen reader: labels for decorative motion, WebGL canvas, custom cursor, icon buttons.
 
-## 8. Content & SEO
+# 8. Content & SEO
 
 Semantic structure (one H1 per page rule), structured-data types (Organization, Article, Product, Event - pick what applies), Open Graph strategy (image dimensions, generator if auto, template if fixed), sitemap and robots handling, canonical-URL policy.
 
@@ -197,7 +197,7 @@ HARD RULES:
 - Inputs are: the target website URL, 10 reference screenshots, and 5 page assets. Infer everything else. Never ask the user a question.
 - Never invent fake site URLs anywhere in the PRD.
 - The TARGET WEBSITE URL must never appear in the PRD output. Refer to the site by its brand or project name only. The URL lives in website.md alongside the task folder, not in the PRD body.
-- Word budget: 2,800-3,500 words. 3,500 is a hard ceiling - never exceed. Run the word-count self-audit internally before emitting. Do NOT print a WORD_COUNT trailer or any meta-commentary in the output.
+- Word budget: 4,000-5,000 words. 5,000 is a hard ceiling - never exceed. Run the word-count self-audit internally before emitting. Do NOT print a WORD_COUNT trailer or any meta-commentary in the output.
 - Density over padding. If over budget, compress prose - never drop a spec, a reference, or an easing value.
 - Every animation spec: exact ms + cubic-bezier. Every stagger: fixed delay list or auto-rule, stated.
 - Every data field: name + type.

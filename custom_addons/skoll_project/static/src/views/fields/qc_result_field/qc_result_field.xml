@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="skoll.QcResultField">
+        <div class="o_field_skoll_qc_result o_field_widget">
+
+            <!-- QC action bar: Run QC / Re-run QC always visible when trajectory exists -->
+            <div class="skoll-qc-action-bar" t-if="hasGoldenTrajectory">
+                <t t-if="state.qcRunning">
+                    <span class="skoll-qc-running">
+                        <i class="fa fa-spinner fa-spin"/> Running QC...
+                    </span>
+                    <button class="skoll-qc-stop-btn"
+                            t-on-click="onStopQc"
+                            title="Stop QC">
+                        <i class="fa fa-stop"/> Stop
+                    </button>
+                </t>
+                <t t-else="">
+                    <button t-if="canRunQc"
+                            class="skoll-qc-run-btn"
+                            t-on-click="onRunQc"
+                            title="Run QC review on the golden trajectory">
+                        <i class="fa fa-play-circle"/> <t t-if="state.html or state.rawFallback">Re-run QC</t><t t-else="">Run QC</t>
+                    </button>
+                </t>
+            </div>
+
+            <!-- Streaming preview while QC is running -->
+            <t t-if="state.qcRunning and state.qcStreaming">
+                <pre class="skoll-qc-streaming"><t t-esc="state.qcStreaming"/></pre>
+            </t>
+
+            <!-- Parsed QC result display -->
+            <t t-elif="state.html">
+                <div class="skoll-qc-container">
+                    <div t-out="state.html"/>
+                    <div class="skoll-qc-improve-bar">
+                        <button t-if="canImprove"
+                                class="skoll-improve-btn"
+                                t-on-click="onImprove"
+                                title="Improve trajectory based on QC feedback">
+                            <i class="fa fa-magic"/> Improve Trajectory
+                        </button>
+                        <span t-if="state.improving" class="skoll-improve-running">
+                            <i class="fa fa-spinner fa-spin"/> Improving...
+                        </span>
+                    </div>
+                </div>
+            </t>
+
+            <!-- Raw fallback (unparseable QC result) -->
+            <t t-elif="state.rawFallback">
+                <pre class="skoll-qc-raw"><t t-esc="state.rawFallback"/></pre>
+                <div class="skoll-qc-improve-bar">
+                    <button t-if="canImprove"
+                            class="skoll-improve-btn"
+                            t-on-click="onImprove"
+                            title="Improve trajectory based on QC feedback">
+                        <i class="fa fa-magic"/> Improve Trajectory
+                    </button>
+                    <span t-if="state.improving" class="skoll-improve-running">
+                        <i class="fa fa-spinner fa-spin"/> Improving...
+                    </span>
+                </div>
+            </t>
+
+            <!-- Empty state (no result yet, no stream running) -->
+            <t t-elif="!state.qcRunning">
+                <div class="skoll-qc-empty">
+                    <t t-if="hasGoldenTrajectory">
+                        <i class="fa fa-flask"/> Click <b>Run QC</b> to review the golden trajectory
+                    </t>
+                    <t t-else="">
+                        <i class="fa fa-check-circle-o"/> Generate a golden trajectory first
+                    </t>
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+from datetime import timedelta
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -63,6 +64,28 @@ class KaijuCommit0Run(models.Model):
     run_end = fields.Datetime(string="Run End", readonly=True)
     run_log = fields.Text(string="Run Log")
     workflow_name = fields.Char(string="Run Workflow", readonly=True)
+    step_ids = fields.One2many(
+        "kaiju.commit0.workflow.step", "run_id", string="Workflow Steps"
+    )
+
+    # ── Log summary (computed from step_ids) ────────────────────────
+
+    error_summary = fields.Char(
+        string="Error Summary",
+        compute="_compute_error_summary",
+        store=False,
+        help="Truncated error from first failed step — quick triage in list view",
+    )
+    combined_log_text = fields.Text(
+        string="Combined Logs",
+        compute="_compute_combined_log_text",
+        store=False,
+    )
+    step_count = fields.Integer(
+        string="Step Count",
+        compute="_compute_step_count",
+        store=False,
+    )
 
     # ── Metrics ──────────────────────────────────────────────────────────────
 
@@ -89,6 +112,54 @@ class KaijuCommit0Run(models.Model):
     def _compute_is_running(self):
         for rec in self:
             rec.is_running = rec.run_status == "running"
+
+    @api.depends("step_ids.phase", "step_ids.message", "step_ids.display_name")
+    def _compute_error_summary(self):
+        for rec in self:
+            failed = rec.step_ids.filtered(
+                lambda s: s.phase in ("Failed", "Error")
+            ).sorted("started_at")
+            if failed:
+                first = failed[0]
+                step_label = first.display_name or first.node_id or "unknown"
+                msg = (first.message or "(no error message)").strip()
+                if len(msg) > 200:
+                    msg = msg[:197] + "…"
+                rec.error_summary = f"{step_label}: {msg}"
+            else:
+                rec.error_summary = False
+
+    @api.depends("step_ids.log_text", "step_ids.display_name",
+                 "step_ids.phase", "step_ids.started_at", "step_ids.finished_at")
+    def _compute_combined_log_text(self):
+        for rec in self:
+            steps = rec.step_ids.sorted("started_at")
+            if not steps:
+                rec.combined_log_text = False
+                continue
+            parts = []
+            for i, step in enumerate(steps, start=1):
+                header_bits = [
+                    f"[{i}/{len(steps)}]",
+                    step.display_name or step.node_id or "step",
+                    f"({step.phase or 'Pending'})",
+                ]
+                if step.started_at:
+                    header_bits.append(f"started {step.started_at.strftime('%H:%M:%S')}")
+                if step.finished_at:
+                    header_bits.append(f"finished {step.finished_at.strftime('%H:%M:%S')}")
+                header = " ".join(header_bits)
+                separator = "─" * 6 + " " + header + " " + "─" * max(
+                    6, 100 - len(header) - 14
+                )
+                body = step.log_text or "(no log captured)"
+                parts.append(f"{separator}\n{body}")
+            rec.combined_log_text = "\n\n".join(parts)
+
+    @api.depends("step_ids")
+    def _compute_step_count(self):
+        for rec in self:
+            rec.step_count = len(rec.step_ids)
 
     # ── CRUD ─────────────────────────────────────────────────────────────────
 
@@ -129,7 +200,7 @@ class KaijuCommit0Run(models.Model):
         parameters = {
             "repo_name": build.repo_name,
             "language": build.language,
-            "branch_name": build.branch_name or "commit0_combined",
+            "branch_name": "commit0_combined",  # constant; pipeline hardcodes commit0_all internally
             "model_preset": model_preset_map.get(self.model_name, self.model_name),
             "num_samples": str(self.num_samples),
             "max_iteration": str(self.max_iteration),
@@ -189,17 +260,48 @@ class KaijuCommit0Run(models.Model):
 
     # ── Cron: Poll Argo for running runs ─────────────────────────────────────
 
+    POLL_RUNNING_LIMIT = 20
+    POLL_TERMINAL_INCOMPLETE_LIMIT = 10
+
     @api.model
     def _cron_poll_run_status(self):
-        """Called by ir.cron every 60s to update running evaluations from Argo."""
+        """Called by ir.cron every 60s to update running evaluations from Argo.
+
+        Bounded per tick (POLL_RUNNING_LIMIT + POLL_TERMINAL_INCOMPLETE_LIMIT)
+        so a large backlog can't stack ticks. Ordered by run_end asc so the
+        runs closest to Argo pod GC (5 min) are polled first.
+        """
+        start_ts = fields.Datetime.now()
         running_runs = self.search(
-            [("run_status", "=", "running"), ("workflow_name", "!=", False)]
+            [("run_status", "=", "running"), ("workflow_name", "!=", False)],
+            order="run_start asc, create_date asc",
+            limit=self.POLL_RUNNING_LIMIT,
         )
-        if not running_runs:
+        # Defense in depth: re-poll recently-finished runs missing steps/logs
+        # (catches callback-wins-race where steps weren't synced before pod GC).
+        # Pure SQL via stored has_log + polish OR to include zero-step runs.
+        recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
+        terminal_incomplete = self.search([
+                ("run_status", "in", ("done", "failed")),
+                ("workflow_name", "!=", False),
+                ("run_end", ">=", recent_cutoff),
+                "|",
+                ("step_ids", "=", False),
+                ("step_ids.has_log", "=", False),
+            ],
+            order="run_end asc, create_date asc",
+            limit=self.POLL_TERMINAL_INCOMPLETE_LIMIT,
+        )
+        all_runs = running_runs | terminal_incomplete
+        if not all_runs:
             return
+        _logger.info(
+            "[kaiju.commit0.run] poll_run: tick running=%s terminal_incomplete=%s",
+            len(running_runs), len(terminal_incomplete),
+        )
 
         argo = self.env["kaiju.argo.client"]
-        for run in running_runs:
+        for run in all_runs:
             try:
                 status = argo.get_workflow_status(run.workflow_name)
             except RuntimeError as e:
@@ -213,8 +315,30 @@ class KaijuCommit0Run(models.Model):
 
             phase = status.get("phase", "")
             progress = status.get("progress", "")
+            previous_status = run.run_status
 
-            if phase in ("Succeeded",):
+            # Sync per-step records on every poll so the UI updates progressively
+            try:
+                run._sync_steps()
+            except Exception as e:
+                _logger.warning(
+                    "Failed to sync steps for run %s: %s", run.name, e
+                )
+
+            # Incrementally persist logs for any finished step that doesn't
+            # yet have logs cached. This ensures logs land in Postgres well
+            # before Argo's pod GC (default 5min) deletes the source pods.
+            try:
+                run._persist_step_logs_incremental()
+            except Exception as e:
+                _logger.warning(
+                    "Incremental log persist failed for run %s: %s", run.name, e
+                )
+
+            # Skip status write if already terminal (callback won). Step sync above runs unconditionally.
+            if run.run_status in ("done", "failed"):
+                pass
+            elif phase in ("Succeeded",):
                 run.write(
                     {
                         "run_status": "done",
@@ -243,6 +367,109 @@ class KaijuCommit0Run(models.Model):
                         ),
                     }
                 )
+
+            # On running → terminal transition, persist all step logs once
+            if (
+                previous_status == "running"
+                and run.run_status in ("done", "failed")
+            ):
+                try:
+                    run._persist_step_logs()
+                except Exception as e:
+                    _logger.warning(
+                        "Failed to persist step logs for run %s: %s",
+                        run.name,
+                        e,
+                    )
+        elapsed = (fields.Datetime.now() - start_ts).total_seconds()
+        _logger.info(
+            "[kaiju.commit0.run] poll_run: done processed=%s elapsed=%.2fs",
+            len(all_runs), elapsed,
+        )
+
+    # ── Step Sync & Log Persistence ─────────────────────────────────
+
+    def _sync_steps(self):
+        """Fetch workflow nodes from Argo and upsert step records."""
+        self.ensure_one()
+        if not self.workflow_name:
+            return
+        argo = self.env["kaiju.argo.client"]
+        nodes = argo.list_workflow_nodes(self.workflow_name)
+        if not nodes:
+            return
+        Step = self.env["kaiju.commit0.workflow.step"]
+        # Lazy import to avoid circular reference at module load
+        from .kaiju_commit0 import _parse_argo_dt
+        existing = {s.node_id: s for s in self.step_ids}
+        for node in nodes:
+            node_id = node.get("id") or ""
+            if not node_id:
+                continue
+            vals = {
+                "display_name": node.get("displayName") or node.get("name") or node_id,
+                "pod_name": node.get("podName") or node_id,
+                "template_name": node.get("templateName") or "",
+                "node_type": node.get("type") or "Pod",
+                "phase": node.get("phase") or "Pending",
+                "message": node.get("message") or "",
+                "started_at": _parse_argo_dt(node.get("startedAt")),
+                "finished_at": _parse_argo_dt(node.get("finishedAt")),
+            }
+            if node_id in existing:
+                existing[node_id].write(vals)
+            else:
+                vals["node_id"] = node_id
+                vals["run_id"] = self.id
+                Step.create(vals)
+
+    def _persist_step_logs(self):
+        """Fetch and persist logs for every Pod-type step. Called once on
+        running → terminal transition so logs survive Argo pod GC."""
+        self.ensure_one()
+        for step in self.step_ids:
+            if step.node_type != "Pod" or not step.pod_name:
+                continue
+            step.action_fetch_logs()
+
+    def _persist_step_logs_incremental(self):
+        """Fetch logs ONLY for steps that have finished but don't yet have logs.
+
+        Called on every cron poll to capture step logs as soon as each pod
+        completes — well before Argo's pod garbage collection (typically 5min)
+        kicks in. Idempotent: skips steps that already have log_text.
+        """
+        self.ensure_one()
+        terminal_phases = ("Succeeded", "Failed", "Error")
+        for step in self.step_ids:
+            if step.node_type != "Pod" or not step.pod_name:
+                continue
+            if step.phase not in terminal_phases:
+                continue
+            if step.has_log:
+                continue  # already captured — don't re-fetch
+            try:
+                step.action_fetch_logs()
+            except Exception as e:
+                _logger.warning(
+                    "Incremental log fetch failed for step %s (pod=%s): %s",
+                    step.display_name or step.node_id,
+                    step.pod_name,
+                    e,
+                )
+
+    def action_fetch_all_step_logs(self):
+        """Manual trigger: sync step list from Argo, then fetch logs for each step."""
+        self.ensure_one()
+        if not self.workflow_name:
+            from odoo.exceptions import UserError
+            raise UserError("No workflow has been submitted for this run yet.")
+        try:
+            self._sync_steps()
+        except Exception as e:
+            _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
+        self.step_ids.action_fetch_logs()
+        return {"type": "ir.actions.client", "tag": "reload"}
 
     @staticmethod
     def _append_log(existing_log, new_line):

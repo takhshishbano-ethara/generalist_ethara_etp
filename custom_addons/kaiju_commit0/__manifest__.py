@@ -15,6 +15,7 @@
         "wizard/import_csv_wizard_views.xml",
         "views/kaiju_commit0_views.xml",
         "views/kaiju_commit0_run_views.xml",
+        "views/kaiju_workflow_step_views.xml",
         "views/res_config_settings_views.xml",
         "views/kaiju_commit0_menus.xml",
     ],

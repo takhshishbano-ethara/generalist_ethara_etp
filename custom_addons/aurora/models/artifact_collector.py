@@ -7,6 +7,8 @@ to S3 and create/update aurora_evaluation_instance DB records.
 import json
 import logging
 import os
+import re
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -34,12 +36,28 @@ _ALLOWED_INSTANCE_COLUMNS = frozenset({
     "dockerfile_local_path", "build_log_local_path", "run_log_local_path",
     "test_patch_log_local_path", "fix_patch_log_local_path",
     "report_json_local_path",
+    # Post-eval ECR push phase writes these.
+    "ecr_image_uri", "ecr_image_digest",
 })
 
 _INLINE_DOCKERFILE_CAP = 16 * 1024
 _INLINE_REPORT_CAP = 128 * 1024
 _INLINE_FIX_PATCH_CAP = 256 * 1024
 _LOG_TAIL_BYTES = 64 * 1024
+
+ECR_RESOURCE_TAGS: list[tuple[str, str]] = [
+    ("Environment", "Production"),
+    ("Project", "Aurora"),
+    ("Owner", "Ethara AI"),
+    ("Team", "DevOps"),
+    ("ManagedBy", "Ethara-internel"),
+    ("CostCenter", "RD-001 / OPS-002"),
+    ("map-migrated", "migWBK9WXSX89"),
+]
+
+
+def _ecr_tag_cli_args() -> list[str]:
+    return [f"Key={k},Value={v}" for k, v in ECR_RESOURCE_TAGS]
 
 
 def load_s3_config() -> dict:
@@ -449,3 +467,328 @@ def populate_report_artifacts(conn, rec_id: int, workdir: str, output_dir: str,
                 vals["report_json_s3_uri"] = s3_uri
 
         update_instance(conn, db_instance_id, vals)
+
+
+def push_resolved_images_to_ecr(conn, rec_id: int, workdir: str, output_dir: str,
+                                instances, run_numbers: dict,
+                                ecr_registry: str, ecr_region: str,
+                                s3_config: dict, use_s3: bool, s3_folder: str,
+                                phase: str) -> dict:
+    """Push each resolved instance's OCI image to ECR via skopeo.
+
+    Source: ``oci:<workdir>/oci_tars/<safe_name>.tar.d`` only (multi-arch
+    manifest list). docker-daemon source is forbidden because the multi-arch
+    build only loads the native arch into the daemon — pushing from daemon
+    would silently drop the other arch.
+
+    Also writes ``ecr_manifest.json`` to ``<output_dir>/`` and uploads it to
+    S3 alongside ``final_report.json`` for downstream discovery.
+
+    Returns: ``{"ecr_pushed_count": N, "ecr_repository": "<host>/<repo>",
+                "ecr_manifest_s3_uri": "<url or empty>"}``.
+    """
+    import subprocess
+    # Registry kind: defaults to 'ecr' (production). Setting
+    # AURORA_REGISTRY_KIND=local opts out of AWS auth, ECR repo precreate,
+    # and TLS verification — used for local-k8s development against a
+    # bring-your-own OCI registry (e.g. registry:2 in the aurora namespace).
+    kind = (os.environ.get("AURORA_REGISTRY_KIND") or "ecr").strip().lower()
+
+    final_report_path = Path(output_dir) / "final_report.json"
+    if not final_report_path.exists():
+        raise RuntimeError(
+            f"final_report.json not found at {final_report_path}; "
+            "cannot determine resolved instances."
+        )
+    with open(final_report_path, "r", encoding="utf-8") as f:
+        report = json.load(f)
+    resolved_ids = set(report.get("resolved_ids") or [])
+    if not resolved_ids:
+        _logger.warning("No resolved_ids in final_report.json — nothing to push.")
+        return {"ecr_pushed_count": 0, "ecr_repository": "", "ecr_manifest_s3_uri": ""}
+
+    if not ecr_registry:
+        raise RuntimeError(
+            "AURORA_ECR_REGISTRY is not set; cannot push images. For prod, set "
+            "the ECR host (<account>.dkr.ecr.<region>.amazonaws.com). For local, "
+            "set the in-cluster registry host (e.g. registry.aurora.svc.cluster.local:5000)."
+        )
+
+    ecr_token = ""
+    if kind == "ecr":
+        if not ecr_region:
+            raise RuntimeError(
+                "AURORA_ECR_REGION is required when AURORA_REGISTRY_KIND=ecr "
+                "(or unset, which defaults to ecr)."
+            )
+        try:
+            token_proc = subprocess.run(
+                ["aws", "ecr", "get-login-password", "--region", ecr_region],
+                capture_output=True, text=True, check=True, timeout=60,
+            )
+            ecr_token = token_proc.stdout.strip()
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "`aws` CLI not found in worker image. Add awscli to Dockerfile.worker."
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"`aws ecr get-login-password` failed: {exc.stderr or exc}. "
+                "Check IRSA (prod) or AWS credentials (local) are reachable "
+                "from the worker pod."
+            ) from exc
+    else:
+        _logger.info(
+            "AURORA_REGISTRY_KIND=%s — using non-AWS push path (no token, no "
+            "ECR repo precreate, TLS verification disabled).",
+            kind,
+        )
+
+    # ``resolved_ids`` in final_report.json uses the harness format
+    # ``<org>/<repo>:pr-<number>`` (per PullRequestBase.id). The DB-side
+    # `instance_id` column uses ``<org>__<repo>-pr-<number>`` (per
+    # instance_id_for). Index by the harness format here, derive the DB
+    # format only when we need to write the row.
+    by_id: dict[str, Any] = {}
+    for inst in instances:
+        try:
+            pr = inst.pr
+            harness_id = f"{pr.org}/{pr.repo}:pr-{pr.number}"
+            by_id[harness_id] = inst
+        except Exception:
+            _logger.debug("Failed to index instance for ecr push", exc_info=True)
+
+    org_for_repo = ""
+    repo_for_repo = ""
+    pushed_count = 0
+    manifest_entries: list[dict[str, Any]] = []
+    oci_tars_root = Path(workdir) / "oci_tars"
+    import tempfile as _tempfile
+
+    ecr_repo_path = "aurora"
+    if kind == "ecr" and resolved_ids:
+        try:
+            ensure_ecr_repository(ecr_registry, ecr_region, ecr_repo_path)
+        except Exception as exc:
+            _logger.warning(
+                "Failed to ensure ECR repository %s exists: %s. "
+                "Push will fail if the repo isn't pre-created.",
+                ecr_repo_path, exc,
+            )
+
+    for iid in sorted(resolved_ids):
+        inst = by_id.get(iid)
+        if not inst:
+            _logger.warning("Resolved id %r not found in instances map; skipping ECR push", iid)
+            continue
+        pr = inst.pr
+        org, repo = pr.org, pr.repo
+        org_for_repo = org_for_repo or org
+        repo_for_repo = repo_for_repo or repo
+        try:
+            image = inst.dependency()
+            image_tag_str = image.image_full_name()
+        except Exception:
+            _logger.exception("Cannot determine image tag for instance %s", iid)
+            continue
+        safe_name = image_tag_str.replace("/", "_").replace(":", "_")
+        oci_dir = oci_tars_root / f"{safe_name}.tar.d"
+        if not oci_dir.is_dir():
+            _logger.error(
+                "OCI dir %s missing — multi-arch build did not produce the layout. "
+                "Skipping ECR push for %s.",
+                oci_dir, iid,
+            )
+            continue
+
+        pr_number = getattr(pr, "number", None)
+        if not pr_number:
+            _logger.error(
+                "PR number missing for %s; refusing to push (would collide on the shared aurora repo).",
+                iid,
+            )
+            continue
+        # Tag from PR number (mutable). The digest captured below is the
+        # immutable handle stored alongside on the instance row.
+        raw_tag = f"{org}__{repo}__pr-{pr_number}".lower()
+        ecr_tag = re.sub(r"[^a-zA-Z0-9_.-]", "_", raw_tag)[:300]
+        ecr_ref = f"{ecr_registry}/{ecr_repo_path}:{ecr_tag}"
+
+        # Capture the manifest digest reliably via --digestfile. Skopeo's
+        # stdout/stderr only contain per-blob sha256 lines during transfer;
+        # those are blob digests, not the manifest digest we need for the
+        # immutable `<ref>@sha256:...` reference in the pull script.
+        digest = ""
+        with _tempfile.NamedTemporaryFile(
+            prefix="skopeo_digest_", suffix=".txt", delete=False,
+        ) as df:
+            digestfile_path = df.name
+        try:
+            cmd = [
+                "skopeo", "copy", "--multi-arch", "all",
+                "--digestfile", digestfile_path,
+            ]
+            if kind == "ecr":
+                cmd.extend(["--dest-creds", f"AWS:{ecr_token}"])
+            else:
+                # registry:2 (or similar) running plain HTTP inside the cluster.
+                cmd.append("--dest-tls-verify=false")
+            cmd.extend([f"oci:{oci_dir}", f"docker://{ecr_ref}"])
+            try:
+                subprocess.run(
+                    cmd, capture_output=True, text=True, check=True, timeout=1800,
+                )
+            except subprocess.CalledProcessError as exc:
+                _logger.error(
+                    "skopeo push failed for %s -> %s: %s",
+                    oci_dir, ecr_ref, exc.stderr or exc,
+                )
+                continue
+            except FileNotFoundError as exc:
+                raise RuntimeError(
+                    "`skopeo` not found in worker image. Add skopeo to Dockerfile.worker."
+                ) from exc
+            try:
+                with open(digestfile_path, "r", encoding="utf-8") as df_in:
+                    digest = df_in.read().strip()
+                    if not digest.startswith("sha256:"):
+                        digest = ""
+            except OSError:
+                _logger.debug("Could not read digestfile %s", digestfile_path, exc_info=True)
+        finally:
+            try:
+                os.unlink(digestfile_path)
+            except OSError:
+                pass
+
+        run_number = run_numbers.get((org, repo), 1)
+        # DB row uses the underscore-dash form (instance_id_for) so look up
+        # / update by that — not by the harness id we used for the by_id map.
+        # Defensive try/except: a per-instance DB hiccup must not kill the
+        # entire batch's subsequent pushes (we already paid for the push).
+        try:
+            db_iid = instance_id_for(pr)
+            db_instance_id = ensure_instance(conn, rec_id, org, repo, db_iid)
+            update_instance(conn, db_instance_id, {
+                "ecr_image_uri": ecr_ref,
+                "ecr_image_digest": digest,
+            })
+        except Exception:
+            _logger.exception(
+                "DB write failed for %s after successful push to %s — "
+                "image is in the registry but DB row was not updated.",
+                iid, ecr_ref,
+            )
+            continue
+        manifest_entries.append({
+            "instance_id": iid,             # harness id (as in final_report)
+            "org": org,
+            "repo": repo,
+            "pr_number": pr_number,
+            "ecr_image_uri": ecr_ref,
+            "ecr_image_digest": digest,
+            "status": "resolved",
+        })
+        pushed_count += 1
+        _logger.info("Pushed %s -> %s (%s)", iid, ecr_ref, digest or "no-digest")
+
+    ecr_repository_uri = f"{ecr_registry}/{ecr_repo_path}".lower() if resolved_ids else ""
+
+    manifest_s3_uri = ""
+    if manifest_entries:
+        manifest_doc = {
+            "evaluation_id": rec_id,
+            "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "ecr_repository": ecr_repository_uri,
+            "image_count": len(manifest_entries),
+            "images": manifest_entries,
+        }
+        manifest_path = Path(output_dir) / "ecr_manifest.json"
+        with open(manifest_path, "w", encoding="utf-8") as f:
+            json.dump(manifest_doc, f, indent=2)
+        run_number = run_numbers.get((org_for_repo, repo_for_repo), 1) if org_for_repo else 1
+        manifest_s3_uri = _upload_artifact(
+            s3_config, use_s3, str(manifest_path),
+            s3_storage.build_s3_key(
+                org_for_repo or "unknown", repo_for_repo or "unknown",
+                run_number, "ecr_manifest.json",
+                folder=s3_folder, phase=phase,
+            ),
+        ) or ""
+
+    # Signal failure when at least one resolved instance was expected but
+    # nothing actually pushed — keeps the eval row's oci_export_status truthful.
+    all_failed = bool(resolved_ids) and pushed_count == 0
+    return {
+        "ecr_pushed_count": pushed_count,
+        "ecr_repository": ecr_repository_uri,
+        "ecr_manifest_s3_uri": manifest_s3_uri,
+        "ecr_all_failed": all_failed,
+    }
+
+
+def ensure_ecr_repository(ecr_registry: str, region: str, repo_path: str) -> None:
+    import subprocess
+    import json as _json
+
+    repo_arn: Optional[str] = None
+
+    try:
+        result = subprocess.run(
+            ["aws", "ecr", "describe-repositories",
+             "--region", region, "--repository-names", repo_path,
+             "--output", "json"],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        data = _json.loads(result.stdout or "{}")
+        repos = data.get("repositories") or []
+        if repos:
+            repo_arn = repos[0].get("repositoryArn")
+    except subprocess.CalledProcessError:
+        pass  # repo doesn't exist — fall through to create
+    except FileNotFoundError:
+        return  # aws CLI missing; let the push surface the real error
+
+    if repo_arn is None:
+        try:
+            result = subprocess.run(
+                ["aws", "ecr", "create-repository",
+                 "--region", region, "--repository-name", repo_path,
+                 "--image-scanning-configuration", "scanOnPush=true",
+                 "--tags", *_ecr_tag_cli_args(),
+                 "--output", "json"],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+            data = _json.loads(result.stdout or "{}")
+            repo_arn = (data.get("repository") or {}).get("repositoryArn")
+        except subprocess.CalledProcessError as exc:
+            stderr = (exc.stderr or "").lower()
+            if not ("repositoryalreadyexists" in stderr or "already exists" in stderr):
+                raise
+            # race: another caller created it — re-describe to recover the ARN
+            try:
+                result = subprocess.run(
+                    ["aws", "ecr", "describe-repositories",
+                     "--region", region, "--repository-names", repo_path,
+                     "--output", "json"],
+                    capture_output=True, text=True, check=True, timeout=30,
+                )
+                repos = (_json.loads(result.stdout or "{}").get("repositories") or [])
+                if repos:
+                    repo_arn = repos[0].get("repositoryArn")
+            except Exception:
+                pass
+
+    if repo_arn:
+        try:
+            subprocess.run(
+                ["aws", "ecr", "tag-resource",
+                 "--region", region, "--resource-arn", repo_arn,
+                 "--tags", *_ecr_tag_cli_args()],
+                capture_output=True, text=True, check=True, timeout=30,
+            )
+        except subprocess.CalledProcessError as exc:
+            _logger.warning(
+                "ecr tag-resource failed for %s: %s",
+                repo_path, (exc.stderr or "").strip(),
+            )

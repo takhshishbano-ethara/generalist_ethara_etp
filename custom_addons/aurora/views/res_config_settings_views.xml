@@ -78,6 +78,21 @@
                         </setting>
                     </block>
 
+                    <block title="auroraScraping Sync">
+                        <setting string="auroraScraping Repo"
+                                 help="owner/repo slug for the private auroraScraping repo. Read at discovery time (skip already-done repos) and written to after Phase 2 (append org/repo to done_repo.txt).">
+                            <field name="aurora_auroraScraping_repo" placeholder="ElhaanEth/auroraScraping"/>
+                        </setting>
+                        <setting string="auroraScraping Branch"
+                                 help="Branch of the auroraScraping repo to read and write.">
+                            <field name="aurora_auroraScraping_branch" placeholder="main"/>
+                        </setting>
+                        <setting string="auroraScraping PAT"
+                                 help="GitHub Personal Access Token with contents:read+write scope on the private auroraScraping repo. Accepts a single PAT or comma-separated pool. Encrypted at rest.">
+                            <field name="aurora_auroraScraping_token" password="True"/>
+                        </setting>
+                    </block>
+
                 </app>
             </xpath>
         </field>

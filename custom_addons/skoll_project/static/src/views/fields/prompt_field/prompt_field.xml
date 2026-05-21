@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="skoll.PromptField">
+        <div class="o_field_skoll_prompt o_field_widget">
+
+            <div class="skoll-prompt-container">
+                <div class="skoll-prompt-header">
+                    <span class="skoll-prompt-label">
+                        <t t-if="state.streaming">
+                            <i class="fa fa-circle skoll-streaming-dot"/> Streaming
+                        </t>
+                        <t t-else="">
+                            <i class="fa fa-magic"/> Golden Trajectory Generation
+                        </t>
+                    </span>
+                    <div class="skoll-prompt-actions">
+                        <t t-if="hasGoldenContent and !state.streaming">
+                            <button class="skoll-copy-btn" t-on-click="onCopyJson" title="Copy JSON">
+                                <t t-if="state.copied">
+                                    <i class="fa fa-check"/> Copied
+                                </t>
+                                <t t-else="">
+                                    <i class="fa fa-clipboard"/> Copy
+                                </t>
+                            </button>
+                        </t>
+                        <t t-if="isAiMode and !isReadonly">
+                            <t t-if="state.generating">
+                                <button class="skoll-prompt-stop-btn"
+                                        t-on-click="onStopGenerate">
+                                    <i class="fa fa-stop"/> Stop
+                                </button>
+                            </t>
+                            <t t-elif="!state.streaming">
+                                <button class="skoll-prompt-generate-btn"
+                                        t-att-disabled="!canGenerate"
+                                        t-on-click="onGenerate">
+                                    <i class="fa fa-magic"/> Generate from Claude 4.7 Trajectory
+                                </button>
+                            </t>
+                        </t>
+                    </div>
+                </div>
+
+                <t t-if="!state.streaming and !hasGoldenContent">
+                    <div class="skoll-prompt-source-info">
+                        <t t-if="hasClaudeTrajectory">
+                            <div class="skoll-prompt-source-ready">
+                                <i class="fa fa-check-circle"/> Claude 4.7 trajectory available as generation source
+                            </div>
+                        </t>
+                        <t t-else="">
+                            <div class="skoll-prompt-source-missing">
+                                <i class="fa fa-exclamation-triangle"/> No Claude 4.7 trajectory available. Generate or capture a Claude trajectory first.
+                            </div>
+                        </t>
+                    </div>
+                </t>
+
+                <t t-if="state.streaming">
+                    <div class="skoll-prompt-viewer-body skoll-prompt-viewer-streaming" t-ref="streamBody">
+                        <t t-out="streamHighlightedHtml"/>
+                    </div>
+                </t>
+
+                <t t-elif="state.truncated and hasGoldenContent">
+                    <div class="skoll-truncation-banner">
+                        <i class="fa fa-exclamation-triangle"/>
+                        Output truncated — the model hit the max token limit. The trajectory JSON is incomplete.
+                    </div>
+                    <div class="skoll-prompt-viewer-body" t-out="state.goldenHtml"/>
+                </t>
+
+                <t t-elif="hasGoldenContent">
+                    <div class="skoll-prompt-viewer-body" t-out="state.goldenHtml"/>
+                </t>
+            </div>
+
+        </div>
+    </t>
+
+</templates>

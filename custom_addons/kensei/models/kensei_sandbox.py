@@ -603,7 +603,7 @@ class KenseiSandbox(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = "https://%s/%s/#token=%s" % (
+                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
                         ws_host,
                         rec.id,
                         rec.docker_gateway_token,
@@ -1246,6 +1246,7 @@ class KenseiSandbox(models.Model):
         icp = self.env["ir.config_parameter"].sudo()
         bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
         prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
         task_id = self.kensei_id.task_id or str(self.kensei_id.id)
 
         media_ext_re = re.compile(
@@ -1267,10 +1268,41 @@ class KenseiSandbox(models.Model):
             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
 
-        type_map = {
-            "image": "generated_image", "video": "media", "audio": "media",
-            "application/pdf": "document", "text": "data_export",
-        }
+        write_tool_names = {"write", "save_file", "create_file", "write_file"}
+        workspace_prefix = "/home/node/.openclaw/"
+
+        def _classify(ext):
+            mime = mime_map.get(ext, "application/octet-stream")
+            if mime.startswith("image"):
+                return mime, "generated_image"
+            if mime.startswith("video") or mime.startswith("audio"):
+                return mime, "media"
+            if mime == "application/pdf":
+                return mime, "document"
+            return mime, "data_export"
+
+        def _add_artifact(path, seen, artifacts):
+            basename = path.rsplit("/", 1)[-1] if "/" in path else path
+            if basename in seen:
+                return
+            seen.add(basename)
+            ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+            mime, artifact_type = _classify(ext)
+            entry = {
+                "filename": basename,
+                "mime_type": mime,
+                "artifact_type": artifact_type,
+                "description": "Agent-generated %s output" % ext.upper(),
+                "container_path": path if path.startswith(workspace_prefix) else "",
+            }
+            if bucket:
+                entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
+                    bucket, prefix, task_id, basename
+                )
+                entry["s3_url"] = "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/%s" % (
+                    bucket, region, prefix, task_id, basename
+                )
+            artifacts.append(entry)
 
         seen = set()
         artifacts = []
@@ -1279,32 +1311,77 @@ class KenseiSandbox(models.Model):
             response_text = t.response or ""
             paths = media_ext_re.findall(response_text)
             for path in paths:
-                basename = path.rsplit("/", 1)[-1] if "/" in path else path
-                if basename in seen:
-                    continue
-                seen.add(basename)
-                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
-                mime = mime_map.get(ext, "application/octet-stream")
-                if mime.startswith("image"):
-                    artifact_type = "generated_image"
-                elif mime.startswith("video") or mime.startswith("audio"):
-                    artifact_type = "media"
-                elif mime == "application/pdf":
-                    artifact_type = "document"
-                else:
-                    artifact_type = "data_export"
+                _add_artifact(path, seen, artifacts)
 
-                entry = {
-                    "filename": basename,
-                    "mime_type": mime,
-                    "artifact_type": artifact_type,
-                    "description": "Agent-generated %s output" % ext.upper(),
-                }
-                if bucket:
-                    entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
-                        bucket, prefix, task_id, basename
-                    )
-                artifacts.append(entry)
+            tc_raw = t.tool_calls or ""
+            if tc_raw:
+                try:
+                    tc_list = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
+                    if isinstance(tc_list, list):
+                        for tc in tc_list:
+                            if not isinstance(tc, dict):
+                                continue
+                            name = (tc.get("name") or "").lower()
+                            if name in write_tool_names:
+                                args = tc.get("args") or tc.get("arguments") or tc.get("input") or {}
+                                if isinstance(args, str):
+                                    try:
+                                        args = json.loads(args)
+                                    except (json.JSONDecodeError, TypeError):
+                                        args = {}
+                                fpath = args.get("path") or args.get("file_path") or args.get("filePath") or ""
+                                if fpath and fpath.startswith(workspace_prefix):
+                                    _add_artifact(fpath, seen, artifacts)
+                            result = tc.get("result") or ""
+                            if isinstance(result, str):
+                                for rpath in media_ext_re.findall(result):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            traj_raw = t.trajectory_messages or ""
+            if traj_raw:
+                try:
+                    traj_msgs = json.loads(traj_raw) if isinstance(traj_raw, str) else traj_raw
+                    if isinstance(traj_msgs, list):
+                        for msg in traj_msgs:
+                            if not isinstance(msg, dict):
+                                continue
+                            inner = msg.get("message", msg)
+                            if not isinstance(inner, dict):
+                                continue
+                            role = inner.get("role", "")
+                            content = inner.get("content")
+                            if role == "assistant" and isinstance(content, list):
+                                for block in content:
+                                    if not isinstance(block, dict):
+                                        continue
+                                    if block.get("type") in ("tool_use", "toolCall"):
+                                        inp = block.get("input") or block.get("arguments") or {}
+                                        if isinstance(inp, str):
+                                            try:
+                                                inp = json.loads(inp)
+                                            except (json.JSONDecodeError, TypeError):
+                                                inp = {}
+                                        bname = (block.get("name") or "").lower()
+                                        if bname in write_tool_names:
+                                            fpath = inp.get("path") or inp.get("file_path") or inp.get("filePath") or ""
+                                            if fpath and fpath.startswith(workspace_prefix):
+                                                _add_artifact(fpath, seen, artifacts)
+                            elif role == "tool" or role == "toolResult":
+                                text = ""
+                                if isinstance(content, str):
+                                    text = content
+                                elif isinstance(content, list):
+                                    text = " ".join(
+                                        b.get("text", "") for b in content
+                                        if isinstance(b, dict) and b.get("type") == "text"
+                                    )
+                                for rpath in media_ext_re.findall(text):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         return artifacts
 
     def action_export_session(self):
@@ -1702,6 +1779,141 @@ class KenseiSandbox(models.Model):
             mode,
         )
 
+    def _persist_output_artifacts_to_s3(self):
+        self.ensure_one()
+        from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX, NAMESPACE
+
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        access_key = (
+            os.environ.get("KENSEI_S3_ACCESS_KEY_ID")
+            or os.environ.get("AWS_SECRET_KEY", "")
+        )
+        secret_key = (
+            os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY")
+            or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        )
+        if not bucket:
+            _logger.info("_persist_output_artifacts_to_s3: no S3 bucket configured, skipping")
+            return
+
+        artifacts = self._build_output_artifacts()
+        if not artifacts:
+            return
+
+        task_id = self.kensei_id.task_id or str(self.kensei_id.id)
+        mode = self._deployment_mode()
+        persona_name = (
+            self.kensei_id.persona_id.name if self.kensei_id.persona_id else "marcus"
+        )
+
+        s3_files = []
+        for art in artifacts:
+            container_path = art.get("container_path", "")
+            if not container_path:
+                continue
+
+            file_bytes = None
+            if mode == "k8s":
+                file_bytes = self._read_file_from_k8s(container_path, NAMESPACE)
+            else:
+                file_bytes = self._read_file_from_local(container_path, persona_name)
+
+            if not file_bytes:
+                _logger.warning(
+                    "_persist_output_artifacts_to_s3: could not read %s (sandbox=%s)",
+                    container_path, self.id,
+                )
+                continue
+
+            s3_files.append({
+                "object_key": art["filename"],
+                "data": file_bytes,
+                "content_type": art.get("mime_type", "application/octet-stream"),
+            })
+
+        if not s3_files:
+            return
+
+        _logger.info(
+            "_persist_output_artifacts_to_s3: uploading %d files for task %s",
+            len(s3_files), task_id,
+        )
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+
+            client_kwargs = {
+                "region_name": region,
+                "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+            }
+            if access_key and secret_key:
+                client_kwargs["aws_access_key_id"] = access_key
+                client_kwargs["aws_secret_access_key"] = secret_key
+
+            s3 = boto3.client("s3", **client_kwargs)
+            for fm in s3_files:
+                key = "%s/output/tasks/%s/%s" % (prefix, task_id, fm["object_key"])
+                s3.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=fm["data"],
+                    ContentType=fm["content_type"],
+                )
+                _logger.info(
+                    "Artifact upload OK: s3://%s/%s (%d bytes)",
+                    bucket, key, len(fm["data"]),
+                )
+        except Exception:
+            _logger.exception(
+                "_persist_output_artifacts_to_s3 failed for task %s", task_id,
+            )
+
+    def _read_file_from_k8s(self, container_path, namespace):
+        import subprocess
+        import tempfile
+
+        pod_name = "kensei-sandbox-%s" % self.id
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            src = "%s:%s" % (pod_name, container_path)
+            subprocess.run(
+                ["kubectl", "cp", src, tmp_path, "-n", namespace, "-c", "openclaw"],
+                capture_output=True, text=True, timeout=30, check=True,
+            )
+            with open(tmp_path, "rb") as f:
+                return f.read()
+        except Exception as e:
+            _logger.warning("kubectl cp read failed for %s: %s", container_path, e)
+            return None
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    def _read_file_from_local(self, container_path, persona_name):
+        workdir = self.docker_workdir
+        if not workdir:
+            return None
+        relative = container_path.replace("/home/node/.openclaw/", "")
+        host_path = os.path.realpath(os.path.join(workdir, "data", persona_name, relative))
+        allowed_base = os.path.realpath(os.path.join(workdir, "data", persona_name))
+        if not host_path.startswith(allowed_base + os.sep):
+            _logger.warning("Path traversal blocked: %s", container_path)
+            return None
+        if not os.path.isfile(host_path):
+            return None
+        try:
+            with open(host_path, "rb") as f:
+                return f.read()
+        except OSError as e:
+            _logger.warning("Failed to read artifact %s: %s", host_path, e)
+            return None
+
     def action_stop_sandbox(self):
         self.ensure_one()
 
@@ -1719,6 +1931,11 @@ class KenseiSandbox(models.Model):
             "action_stop_sandbox: audit done, api_request_ids=%d (sandbox=%s)",
             len(self.api_request_ids), self.id,
         )
+
+        try:
+            self._persist_output_artifacts_to_s3()
+        except Exception as e:
+            _logger.warning("Artifact S3 persistence failed (sandbox=%s): %s", self.id, e)
 
         self._export_trajectory_to_task()
 
@@ -2325,7 +2542,10 @@ class KenseiSandbox(models.Model):
             try:
                 status = k8s_model.get_sandbox_status(self)
                 if status == "running":
-                    self.write({"docker_status": "running"})
+                    update_vals = {"docker_status": "running"}
+                    if not self.docker_port:
+                        update_vals["docker_port"] = 18789
+                    self.write(update_vals)
                     _logger.info(
                         "K8s sandbox %s is now running",
                         self.id,
@@ -2525,11 +2745,14 @@ class KenseiSandbox(models.Model):
                 },
             },
             "browser": {
-                "enabled": True,
-                "headless": True,
-                "noSandbox": True,
-                "defaultProfile": "openclaw",
-                "executablePath": "/usr/bin/chromium",
+                "enabled": False,
+            },
+            "tools": {
+                "deny": ["browser"],
+                "web": {
+                    "search": {"enabled": False},
+                    "fetch": {"enabled": False},
+                },
             },
             "models": {"providers": {}},
         }
@@ -2629,7 +2852,7 @@ class KenseiSandbox(models.Model):
             config["agents"] = {
                 "defaults": {
                     "model": default_model,
-                    "imageModel": {"primary": "litellm/" + default_model},
+                    "imageModel": {"primary": default_model},
                     "thinkingDefault": "xhigh",
                 }
             }
@@ -3213,11 +3436,12 @@ class KenseiSandbox(models.Model):
             )
 
         cud_operations = self._extract_cud_operations()
-        if not cud_operations:
-            _logger.info("No CUD operations found, skipping test generation (sandbox=%s)", self.id)
+        read_operations = self._extract_read_operations()
+        if not cud_operations and not read_operations:
+            _logger.info("No API operations found, skipping test generation (sandbox=%s)", self.id)
             raise UserError(
                 "No testable operations found. The agent hasn't performed any "
-                "Create/Update/Delete actions on the mock APIs yet."
+                "API calls on the mock APIs yet."
             )
 
         TestResult = self.env["kensei.test.result"].sudo()
@@ -3245,7 +3469,7 @@ class KenseiSandbox(models.Model):
 
         try:
             system_prompt = self._load_test_gen_system_prompt()
-            user_message = self._build_test_gen_user_message(cud_operations)
+            user_message = self._build_test_gen_user_message(cud_operations, read_operations)
             result_record.write({"generation_prompt": user_message})
 
             inference_arn = ICP.get_param("kensei.test_gen_inference_arn", "")
@@ -3343,6 +3567,35 @@ class KenseiSandbox(models.Model):
 
         return operations
 
+    def _extract_read_operations(self):
+        """Extract and summarize READ (GET) operations from collected API audit logs.
+
+        Returns a list of dicts grouped by service+endpoint with call counts,
+        used for generating negative tests against unnecessary API calls.
+        """
+        self.ensure_one()
+        _INFRA_PREFIXES = ("/audit", "/health", "/docs", "/openapi")
+        _INFRA_EXACT = {"/health", "/healthz", "/docs", "/openapi.json", "/favicon.ico"}
+        endpoint_counts = {}
+
+        for req in self.api_request_ids:
+            if not req.method or req.method.upper() != "GET":
+                continue
+            path = req.path or ""
+            if path in _INFRA_EXACT or any(path.startswith(p) for p in _INFRA_PREFIXES):
+                continue
+            key = (req.service_name or "unknown", path)
+            endpoint_counts[key] = endpoint_counts.get(key, 0) + 1
+
+        reads = []
+        for (service, path), count in sorted(endpoint_counts.items()):
+            reads.append({
+                "service_name": service,
+                "path": path,
+                "count": count,
+            })
+        return reads
+
     def _load_test_gen_system_prompt(self):
         """Load the test generation system prompt from test_generation_prompt.md."""
         from odoo.modules.module import get_module_path
@@ -3367,8 +3620,7 @@ class KenseiSandbox(models.Model):
             "- Import only: os, json, urllib.request, urllib.parse, pytest\n"
         )
 
-    def _build_test_gen_user_message(self, cud_operations):
-        """Build the user message for the LLM with CUD operations and API docs."""
+    def _build_test_gen_user_message(self, cud_operations, read_operations):
         from odoo.modules.module import get_module_path
 
         module_path = get_module_path("kensei")
@@ -3393,6 +3645,13 @@ class KenseiSandbox(models.Model):
                         "port": svc_meta["port"],
                     }
 
+        task_toml = ""
+        if self.kensei_id:
+            try:
+                task_toml = self.kensei_id._build_harbor_task_toml() or ""
+            except Exception:
+                pass
+
         user_prompts = []
         for turn in self.turn_ids.sorted("turn_number"):
             if turn.prompt:
@@ -3404,27 +3663,53 @@ class KenseiSandbox(models.Model):
             p = prompt[:2000] if len(prompt) > 2000 else prompt
             message_parts.append("### Turn %d\n%s\n" % (i, p))
 
-        message_parts.append("\n## CUD Operations Performed (from audit log)\n")
-        message_parts.append("These are the actual HTTP mutations the agent made:\n\n")
-        for i, op in enumerate(cud_operations[:50], 1):
-            message_parts.append(
-                "### Operation %d\n"
-                "- Service: %s\n"
-                "- Method: %s\n"
-                "- Path: %s\n"
-                "- Request Body: %s\n"
-                "- Response Status: %d\n"
-                "- Response Body: %s\n\n"
-                % (
-                    i,
-                    op["service_name"],
-                    op["method"],
-                    op["path"],
-                    op["request_body"][:1000] if op["request_body"] else "N/A",
-                    op["status_code"],
-                    op["response_body"][:1000] if op["response_body"] else "N/A",
+        if task_toml:
+            message_parts.append("\n## task.toml (distractor_skills and metadata)\n")
+            message_parts.append("```toml\n%s\n```\n" % task_toml)
+
+        if cud_operations:
+            message_parts.append("\n## CUD Operations Performed (from audit log)\n")
+            message_parts.append("These are the actual HTTP mutations the agent made:\n\n")
+            for i, op in enumerate(cud_operations[:50], 1):
+                message_parts.append(
+                    "### Operation %d\n"
+                    "- Service: %s\n"
+                    "- Method: %s\n"
+                    "- Path: %s\n"
+                    "- Request Body: %s\n"
+                    "- Response Status: %d\n"
+                    "- Response Body: %s\n\n"
+                    % (
+                        i,
+                        op["service_name"],
+                        op["method"],
+                        op["path"],
+                        op["request_body"][:1000] if op["request_body"] else "N/A",
+                        op["status_code"],
+                        op["response_body"][:1000] if op["response_body"] else "N/A",
+                    )
                 )
+
+        if read_operations:
+            message_parts.append("\n## READ Operations Summary (GET requests by the agent)\n")
+            message_parts.append(
+                "These are all GET requests the agent made, grouped by service and endpoint.\n"
+                "Analyze which reads were necessary to fulfill the task vs. unnecessary.\n\n"
             )
+            by_service = {}
+            for op in read_operations:
+                svc = op["service_name"]
+                if svc not in by_service:
+                    by_service[svc] = []
+                by_service[svc].append(op)
+            for svc_name in sorted(by_service):
+                message_parts.append("### Service: %s\n" % svc_name)
+                for op in by_service[svc_name]:
+                    message_parts.append(
+                        "- `GET %s` — %d call%s\n"
+                        % (op["path"], op["count"], "s" if op["count"] != 1 else "")
+                    )
+                message_parts.append("")
 
         message_parts.append("\n## Environment Variables for API Base URLs\n")
         message_parts.append("Use `os.environ['<ENV_VAR>']` to get the full base URL (e.g. `http://localhost:<port>`).\n\n")
@@ -3995,7 +4280,10 @@ class KenseiSandbox(models.Model):
             try:
                 status = k8s.get_sandbox_status(sandbox)
                 if status != sandbox.docker_status:
-                    sandbox.write({"docker_status": status})
+                    update_vals = {"docker_status": status}
+                    if status == "running" and not sandbox.docker_port:
+                        update_vals["docker_port"] = 18789
+                    sandbox.write(update_vals)
                     if status == "error":
                         sandbox.write(
                             {

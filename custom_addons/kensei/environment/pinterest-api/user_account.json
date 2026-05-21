@@ -24,5 +24,31 @@
     "following_count": 215,
     "monthly_views": 67000,
     "created_at": "2024-06-18T10:30:00"
+  },
+  {
+    "account_type": "BUSINESS",
+    "username": "amandaxo_beats",
+    "profile_image": "https://i.pinimg.com/avatars/amandaxo_beats_150.jpg",
+    "website_url": "https://www.beatstars.com/amandaxo",
+    "business_name": "AmandaXO Beats",
+    "board_count": 3,
+    "pin_count": 8,
+    "follower_count": 890,
+    "following_count": 145,
+    "monthly_views": 15200,
+    "created_at": "2023-06-10T08:00:00"
+  },
+  {
+    "account_type": "PERSONAL",
+    "username": "ashleyrogers_home",
+    "profile_image": "https://i.pinimg.com/avatars/ashleyrogers_home_1710000000_150.jpg",
+    "website_url": "",
+    "business_name": "",
+    "board_count": 6,
+    "pin_count": 58,
+    "follower_count": 842,
+    "following_count": 191,
+    "monthly_views": 18400,
+    "created_at": "2024-01-18T09:20:00"
   }
 ]

@@ -7,16 +7,24 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Leviathan" string="Leviathan" name="leviathan">
-                    <block title="Extraction Service">
-                        <setting string="Extraction Service URL">
+                    <block title="Extraction Lambda">
+                        <setting string="Lambda Function" help="AWS Lambda function name or ARN. Used with boto3 lambda:Invoke (async).">
                             <div class="content-group">
                                 <div class="row mt16">
-                                    <label for="leviathan_extraction_service_url" class="col-lg-3 o_light_label"/>
-                                    <field name="leviathan_extraction_service_url" class="oe_inline"/>
+                                    <label for="leviathan_lambda_function_name" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_lambda_function_name" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_lambda_region" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_lambda_region" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_batch_concurrency" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_batch_concurrency" class="oe_inline"/>
                                 </div>
                             </div>
                         </setting>
-                        <setting string="Extraction AWS Credentials">
+                        <setting string="Extraction AWS Credentials" help="Leave empty to use EKS pod IAM role (IRSA).">
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="leviathan_extraction_access_key_id" class="col-lg-3 o_light_label"/>
@@ -39,10 +47,6 @@
                                 <div class="row mt16">
                                     <label for="leviathan_bedrock_region" class="col-lg-3 o_light_label"/>
                                     <field name="leviathan_bedrock_region" class="oe_inline"/>
-                                </div>
-                                <div class="row mt16">
-                                    <label for="leviathan_max_llm_attempts" class="col-lg-3 o_light_label"/>
-                                    <field name="leviathan_max_llm_attempts" class="oe_inline"/>
                                 </div>
                             </div>
                         </setting>
@@ -101,6 +105,10 @@
                                     <field name="leviathan_prd_prompt_file" filename="leviathan_prd_prompt_filename" class="oe_inline"/>
                                     <field name="leviathan_prd_prompt_filename" invisible="1"/>
                                 </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="leviathan_prd_prompt_status" class="text-muted"/>
+                                </div>
                                 <div class="row mt8">
                                     <div class="col-lg-3"/>
                                     <button name="action_clear_prd_prompt" type="object" string="Reset to Default" class="btn-link btn-sm" icon="fa-undo"/>
@@ -113,6 +121,10 @@
                                     <label for="leviathan_qc_prompt_file" class="col-lg-3 o_light_label"/>
                                     <field name="leviathan_qc_prompt_file" filename="leviathan_qc_prompt_filename" class="oe_inline"/>
                                     <field name="leviathan_qc_prompt_filename" invisible="1"/>
+                                </div>
+                                <div class="row">
+                                    <div class="col-lg-3"/>
+                                    <field name="leviathan_qc_prompt_status" class="text-muted"/>
                                 </div>
                                 <div class="row mt8">
                                     <div class="col-lg-3"/>
@@ -127,6 +139,54 @@
                                 <div class="row mt16">
                                     <label for="leviathan_max_jobs_per_user" class="col-lg-3 o_light_label"/>
                                     <field name="leviathan_max_jobs_per_user" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Watchdog &amp; Recovery (Live)">
+                        <setting string="Watchdog Thresholds" help="How long a stuck task waits before the watchdog auto-retries or fails it. Live settings — changes take effect on the next 5-min cron tick.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_watchdog_extracting_minutes" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_watchdog_extracting_minutes" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_watchdog_generating_minutes" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_watchdog_generating_minutes" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_watchdog_auto_retry_max" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_watchdog_auto_retry_max" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Webhook" help="Maximum webhook body size (bytes). Live — takes effect on next request.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_webhook_max_bytes" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_webhook_max_bytes" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Concurrency (Requires Pod Restart)">
+                        <setting string="PRD Worker Pool" help="Max concurrent PRD-generation threads per process. Sized against db_maxconn. Real total = this × Odoo workers × pods. After changing, devops must restart pods and ideally mirror to LEVIATHAN_PRD_POOL_SIZE env var.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_prd_pool_size" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_prd_pool_size" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Bedrock Concurrency" help="Self-throttle: max simultaneous Bedrock calls per process. Set lower than the AWS TPS quota so adaptive retry never fires. After changing, devops must restart pods and ideally mirror to LEVIATHAN_BEDROCK_MAX_CONCURRENT env var.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_max_concurrent" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_max_concurrent" class="oe_inline"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_bedrock_inner_retries" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_bedrock_inner_retries" class="oe_inline"/>
                                 </div>
                             </div>
                         </setting>

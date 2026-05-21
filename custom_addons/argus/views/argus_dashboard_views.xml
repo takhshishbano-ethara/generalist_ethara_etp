@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- =========================================================
+         Pivot: task_status × qc_status count matrix
+    ========================================================== -->
+    <record id="view_argus_task_pivot" model="ir.ui.view">
+        <field name="name">argus.task.pivot</field>
+        <field name="model">argus.task</field>
+        <field name="arch" type="xml">
+            <pivot string="Argus — Status Mix">
+                <field name="task_status" type="row"/>
+                <field name="qc_status" type="col"/>
+                <field name="final_decision" type="col"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_argus_pivot" model="ir.actions.act_window">
+        <field name="name">Status Pivot</field>
+        <field name="res_model">argus.task</field>
+        <field name="view_mode">pivot,list</field>
+        <field name="view_id" ref="view_argus_task_pivot"/>
+    </record>
+
+    <!-- =========================================================
+         Graph: approval trend over time
+    ========================================================== -->
+    <record id="view_argus_task_graph" model="ir.ui.view">
+        <field name="name">argus.task.graph</field>
+        <field name="model">argus.task</field>
+        <field name="arch" type="xml">
+            <graph string="Argus — Approval Trend" type="line" stacked="0">
+                <field name="timestamp" interval="month"/>
+                <field name="final_decision"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="action_argus_graph" model="ir.actions.act_window">
+        <field name="name">Approval Trend</field>
+        <field name="res_model">argus.task</field>
+        <field name="view_mode">graph,list</field>
+        <field name="view_id" ref="view_argus_task_graph"/>
+    </record>
+
+</odoo>

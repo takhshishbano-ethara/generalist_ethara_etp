@@ -1,0 +1,433 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- =========================================================
+         FORM — single page, three header buttons.
+
+         Flow:  fill metadata + prompt  →  click **QC Prompt**
+                 →  Approve / Reject appear once the check has run
+                 →  if the prompt has grammar errors, a red banner
+                    with the feedback shows up before the buttons.
+
+         All Kimi K2.5 plumbing flows through
+         ``task_forge_core.services.kimi_client.call_kimi`` so the
+         Bedrock config (API key, ARN, region) is shared between
+         task_forge_core and Argus — set it once under
+         Settings → Task Forge → Kimi K2.5 Configuration.
+    ========================================================== -->
+    <record id="view_argus_task_form" model="ir.ui.view">
+        <field name="name">argus.task.form</field>
+        <field name="model">argus.task</field>
+        <field name="arch" type="xml">
+            <form string="Argus Task" class="o_argus_form">
+                <header>
+                    <!-- Header buttons + group visibility table:
+
+                         Button       Tasker  PL      QL      Manager
+                         ────────────────────────────────────────────
+                         QC Check     —       —       —       ✓
+                         Approve      —       ✓ (*)   ✓ (*)   ✓ (*)
+                         Cancel       ✓       ✓       ✓       ✓
+
+                         (*) Approve only when prompt_grammar_level is
+                             good / excellent AND the task isn't already
+                             approved.  This is the spec "PL / QR
+                             approve a passing grammar grade" path —
+                             auto-QC may have rejected an 80-score
+                             task under the strict 100 threshold, and
+                             this gives the reviewer a one-click
+                             override.
+
+                         QC Check is restricted to Managers so PL / QL
+                         don't accidentally re-run a Bedrock call from
+                         the reviewer view.  The auto-trigger on
+                         prompt save / update already fires the check
+                         server-side, so PL / QL don't need the
+                         manual button. -->
+                    <button name="action_qc_check_prompt" type="object"
+                            string="QC Check"
+                            icon="fa-spell-check"
+                            class="btn-primary"
+                            groups="argus.group_argus_manager"
+                            invisible="not prompt or prompt_grammar_level in ('good', 'excellent')"/>
+                    <button name="action_qc_approve" type="object"
+                            string="Approve"
+                            icon="fa-check-circle"
+                            class="btn-success"
+                            groups="argus.group_argus_pl,argus.group_argus_ql,argus.group_argus_manager"
+                            confirm="Approve this task?  Task / QC / Final Decision will all flip to Approved."
+                            invisible="prompt_grammar_level not in ('good', 'excellent') or final_decision == 'approved'"/>
+                    <button name="action_cancel_task" type="object"
+                            string="Cancel"
+                            icon="fa-ban"
+                            class="btn-secondary"
+                            confirm="Cancel this task?  The verdict will be set to Rejected."
+                            invisible="prompt_grammar_level in ('good', 'excellent')"/>
+                    <field name="task_status" widget="statusbar"
+                           statusbar_visible="pending,in_progress,approved,rejected"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" type="object"
+                                name="action_view_duplicates"
+                                icon="fa-clone"
+                                invisible="not is_duplicate">
+                            <field name="duplicate_count" widget="statinfo" string="Duplicates"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Duplicate"
+                            bg_color="text-bg-warning"
+                            invisible="not is_duplicate"/>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+
+                    <!-- ===== Task metadata =====
+                         The Tasker (Employee) drives the PL / QR
+                         auto-fill via the model's onchange — pick an
+                         employee and the two slots populate from
+                         their task_forge_pl_id / task_forge_qr_id
+                         pointers (defined in task_forge_bridge).
+                         Manager-group users can still override the
+                         two slots manually after the auto-fill. -->
+                    <group>
+                        <group>
+                            <field name="timestamp"/>
+                            <field name="employee_id"
+                                   widget="many2one_avatar_employee"/>
+                            <field name="email" widget="email"/>
+                        </group>
+                        <group>
+                            <field name="pl_user_id" widget="many2one_avatar_user"/>
+                            <field name="ql_user_id" widget="many2one_avatar_user"/>
+                        </group>
+                    </group>
+
+                    <!-- ===== Input + Output URLs side-by-side =====
+                         Each side has an inline Preview icon button
+                         that opens the Instagram reel inside a modal
+                         dialog (argus.video.preview.wizard) on the
+                         SAME page — see action_preview_input /
+                         action_preview_output → _open_preview on the
+                         model.  Shortcodes are still computed +
+                         stored (used by duplicate detection + the
+                         search view) but are hidden in the form. -->
+                    <group>
+                        <group string="Input Video (Original)">
+                            <field name="input_video_url" widget="url"
+                                   placeholder="https://www.instagram.com/reel/..."/>
+                            <field name="input_shortcode" invisible="1"/>
+                            <button name="action_preview_input"
+                                    type="object"
+                                    string="Preview"
+                                    icon="fa-eye"
+                                    class="btn-sm btn-secondary"
+                                    invisible="not input_video_url"/>
+                        </group>
+                        <group string="Output Video (Generated)">
+                            <field name="output_video_url" widget="url"
+                                   placeholder="https://www.instagram.com/reel/..."/>
+                            <field name="output_shortcode" invisible="1"/>
+                            <button name="action_preview_output"
+                                    type="object"
+                                    string="Preview"
+                                    icon="fa-eye"
+                                    class="btn-sm btn-secondary"
+                                    invisible="not output_video_url"/>
+                        </group>
+                    </group>
+
+                    <!-- ===== Prompt ===== -->
+                    <separator string="Prompt"/>
+                    <field name="prompt" nolabel="1"
+                           placeholder="Describe the generation / reaction instruction sent to the model..."
+                           style="min-height: 160px;"/>
+
+                    <!-- ===== ERROR banner — visible when level is
+                         poor or fair.  Shows the feedback prominently
+                         AND a Re-run QC Check button so the reviewer
+                         can edit the prompt above and re-grade
+                         without going back to the header. ===== -->
+                    <div class="alert alert-danger" role="alert"
+                         invisible="prompt_grammar_level not in ('poor', 'fair')">
+                        <h4 class="alert-heading">
+                            <i class="fa fa-exclamation-triangle me-2"/>
+                            Grammar issues detected
+                            (<field name="prompt_grammar_score" readonly="1" class="oe_inline"/>%,
+                             <field name="prompt_grammar_level" readonly="1" class="oe_inline"/>)
+                        </h4>
+                        <p>
+                            <strong>Feedback:</strong>
+                            <field name="prompt_grammar_feedback"
+                                   readonly="1" nolabel="1"/>
+                        </p>
+                        <hr/>
+                        <!-- Re-run QC is the same Bedrock call as the
+                             header button, so it carries the same
+                             group restriction — Manager only.  PL /
+                             QL see the red banner with the feedback
+                             but not the re-run button. -->
+                        <button name="action_qc_check_prompt"
+                                type="object"
+                                string="Re-run QC Check"
+                                icon="fa-refresh"
+                                class="btn-primary"
+                                groups="argus.group_argus_manager"/>
+                    </div>
+
+                    <!-- ===== CLEAN banner — visible when level is
+                         good or excellent.  Task has been auto-
+                         approved (qc_status + task_status +
+                         final_decision all set to "approved" in the
+                         same write that populated these fields). ===== -->
+                    <div class="alert alert-success" role="alert"
+                         invisible="prompt_grammar_level not in ('good', 'excellent')">
+                        <h4 class="alert-heading">
+                            <i class="fa fa-check-circle me-2"/>
+                            Task auto-approved
+                            (<field name="prompt_grammar_score" readonly="1" class="oe_inline"/>%,
+                             <field name="prompt_grammar_level" readonly="1" class="oe_inline"/>)
+                        </h4>
+                        <p>
+                            <strong>Feedback:</strong>
+                            <field name="prompt_grammar_feedback"
+                                   readonly="1" nolabel="1"/>
+                        </p>
+                    </div>
+
+                    <!-- ===== Score / level / verdict / timestamp ===== -->
+                    <group invisible="prompt_grammar_level == 'unchecked'"
+                           string="QC Result (Kimi K2.5)">
+                        <group>
+                            <field name="prompt_grammar_score"
+                                   widget="progressbar"
+                                   options="{'editable': false, 'current_value': 'prompt_grammar_score', 'max_value': 100}"/>
+                            <field name="prompt_grammar_level" widget="badge"
+                                   decoration-success="prompt_grammar_level == 'excellent'"
+                                   decoration-info="prompt_grammar_level == 'good'"
+                                   decoration-warning="prompt_grammar_level == 'fair'"
+                                   decoration-danger="prompt_grammar_level == 'poor'"/>
+                        </group>
+                        <group>
+                            <field name="qc_status" widget="badge" readonly="1"
+                                   decoration-success="qc_status == 'approved'"
+                                   decoration-danger="qc_status == 'rejected'"
+                                   decoration-warning="qc_status in ('pending', 'needs_revision')"/>
+                            <field name="prompt_grammar_checked_on" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <!-- ===== Collapsible raw JSON ===== -->
+                    <details class="o_argus_grammar_json"
+                             invisible="prompt_grammar_level == 'unchecked'">
+                        <summary>
+                            <i class="fa fa-code me-1"/>
+                            Raw Kimi response (JSON)
+                        </summary>
+                        <field name="prompt_grammar_response_json"
+                               readonly="1" nolabel="1"
+                               widget="ace"
+                               options="{'mode': 'json'}"/>
+                    </details>
+
+                    <!-- ===== Reviewer notes ===== -->
+                    <group string="Notes">
+                        <group>
+                            <field name="ql_remarks" nolabel="1"
+                                   placeholder="QL: rationale, fixes required, etc."
+                                   style="min-height: 120px;"
+                                   groups="argus.group_argus_ql"/>
+                        </group>
+                        <group>
+                            <field name="tasker_remarks" nolabel="1"
+                                   placeholder="Tasker: execution notes..."
+                                   style="min-height: 120px;"/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         LIST
+    ========================================================== -->
+    <record id="view_argus_task_list" model="ir.ui.view">
+        <field name="name">argus.task.list</field>
+        <field name="model">argus.task</field>
+        <field name="arch" type="xml">
+            <list string="Argus Tasks" sample="1"
+                  decoration-success="final_decision == 'approved'"
+                  decoration-danger="final_decision == 'rejected' or task_status == 'rejected'"
+                  decoration-warning="qc_status == 'needs_revision'"
+                  decoration-info="task_status == 'in_progress'"
+                  decoration-muted="not active">
+                <field name="timestamp"/>
+                <field name="name"/>
+                <field name="employee_id" widget="many2one_avatar_employee" optional="show"/>
+                <field name="email" optional="hide"/>
+                <field name="pl_user_id" widget="many2one_avatar_user"/>
+                <field name="ql_user_id" widget="many2one_avatar_user"/>
+                <field name="task_status" widget="badge"
+                       decoration-success="task_status == 'approved'"
+                       decoration-danger="task_status == 'rejected'"
+                       decoration-info="task_status == 'in_progress'"
+                       decoration-warning="task_status == 'needs_revision'"/>
+                <field name="qc_status" widget="badge"
+                       decoration-success="qc_status == 'approved'"
+                       decoration-danger="qc_status == 'rejected'"
+                       decoration-warning="qc_status in ('pending', 'needs_revision')"/>
+                <field name="final_decision" widget="badge"
+                       decoration-success="final_decision == 'approved'"
+                       decoration-danger="final_decision == 'rejected'"/>
+                <field name="is_duplicate" widget="boolean_toggle" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         KANBAN
+    ========================================================== -->
+    <record id="view_argus_task_kanban" model="ir.ui.view">
+        <field name="name">argus.task.kanban</field>
+        <field name="model">argus.task</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="task_status" class="o_argus_kanban" sample="1">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="task_status"/>
+                <field name="qc_status"/>
+                <field name="final_decision"/>
+                <field name="pl_user_id"/>
+                <field name="ql_user_id"/>
+                <field name="color"/>
+                <field name="is_duplicate"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_card o_argus_card">
+                            <div class="o_argus_card__head">
+                                <strong><field name="name"/></strong>
+                                <span class="badge text-bg-warning" t-if="record.is_duplicate.raw_value">DUP</span>
+                            </div>
+                            <div class="o_argus_card__body">
+                                <div class="text-muted small">
+                                    <i class="fa fa-envelope"/> <field name="email"/>
+                                </div>
+                                <div class="o_argus_card__meta">
+                                    <field name="qc_status" widget="label_selection"
+                                           options="{'classes': {'approved':'success','rejected':'danger','pending':'info','needs_revision':'warning'}}"/>
+                                    <field name="final_decision" widget="label_selection"
+                                           options="{'classes': {'approved':'success','rejected':'danger','pending':'secondary'}}"/>
+                                </div>
+                            </div>
+                            <div class="o_argus_card__footer">
+                                <field name="pl_user_id" widget="many2one_avatar_user"
+                                       class="oe_kanban_avatar"/>
+                                <field name="ql_user_id" widget="many2one_avatar_user"
+                                       class="oe_kanban_avatar"/>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         SEARCH
+    ========================================================== -->
+    <record id="view_argus_task_search" model="ir.ui.view">
+        <field name="name">argus.task.search</field>
+        <field name="model">argus.task</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="email"/>
+                <field name="employee_id"/>
+                <field name="input_shortcode"/>
+                <field name="output_shortcode"/>
+                <field name="pl_user_id"/>
+                <field name="ql_user_id"/>
+                <field name="prompt"/>
+                <separator/>
+                <filter name="my_owned" string="Owned by me"
+                        domain="[('create_uid', '=', uid)]"/>
+                <filter name="my_pl" string="PL = me"
+                        domain="[('pl_user_id', '=', uid)]"/>
+                <filter name="my_ql" string="QR = me"
+                        domain="[('ql_user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="pending" string="Pending"
+                        domain="[('task_status', '=', 'pending')]"/>
+                <filter name="in_progress" string="In Progress"
+                        domain="[('task_status', '=', 'in_progress')]"/>
+                <filter name="qc_pending" string="QC Pending"
+                        domain="[('qc_status', '=', 'pending')]"/>
+                <filter name="qc_needs_revision" string="QC Needs Revision"
+                        domain="[('qc_status', '=', 'needs_revision')]"/>
+                <filter name="approved" string="Approved"
+                        domain="[('final_decision', '=', 'approved')]"/>
+                <filter name="rejected" string="Rejected"
+                        domain="[('final_decision', '=', 'rejected')]"/>
+                <separator/>
+                <filter name="duplicates" string="Has Duplicates"
+                        domain="[('is_duplicate', '=', True)]"/>
+                <separator/>
+                <filter name="this_month" string="This Month"
+                        domain="[('timestamp', '&gt;=', (context_today().replace(day=1)).strftime('%Y-%m-%d'))]"/>
+                <separator/>
+                <filter name="group_status" string="Task Status"
+                        context="{'group_by': 'task_status'}"/>
+                <filter name="group_qc" string="QC Status"
+                        context="{'group_by': 'qc_status'}"/>
+                <filter name="group_final" string="Final Decision"
+                        context="{'group_by': 'final_decision'}"/>
+                <filter name="group_pl" string="Project Lead"
+                        context="{'group_by': 'pl_user_id'}"/>
+                <filter name="group_ql" string="Quality Reviewer"
+                        context="{'group_by': 'ql_user_id'}"/>
+                <filter name="group_month" string="Month"
+                        context="{'group_by': 'timestamp:month'}"/>
+            </search>
+        </field>
+    </record>
+
+    <!-- =========================================================
+         ACTIONS
+    ========================================================== -->
+    <record id="action_argus_task" model="ir.actions.act_window">
+        <field name="name">All Tasks</field>
+        <field name="res_model">argus.task</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="search_view_id" ref="view_argus_task_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create your first Argus task.</p>
+            <p>Paste an Input Video URL and an Output Video URL, fill
+               the prompt, assign a PL and a QL, and the task lands in
+               the review queue.</p>
+        </field>
+    </record>
+
+    <record id="action_argus_task_my" model="ir.actions.act_window">
+        <field name="name">My Tasks</field>
+        <field name="res_model">argus.task</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="domain">[
+            '|', '|',
+            ('create_uid', '=', uid),
+            ('pl_user_id', '=', uid),
+            ('ql_user_id', '=', uid)
+        ]</field>
+        <field name="context">{"search_default_in_progress": 1}</field>
+    </record>
+
+    <record id="action_argus_qc_queue" model="ir.actions.act_window">
+        <field name="name">QC Queue</field>
+        <field name="res_model">argus.task</field>
+        <field name="view_mode">list,kanban,form</field>
+        <field name="domain">[('qc_status', 'in', ('pending', 'needs_revision'))]</field>
+        <field name="context">{"search_default_qc_pending": 1}</field>
+    </record>
+
+</odoo>

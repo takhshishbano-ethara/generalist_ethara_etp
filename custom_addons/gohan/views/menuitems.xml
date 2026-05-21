@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_gohan_root"
+              name="Gohan"
+              sequence="100"
+              groups="group_gohan_user"
+              web_icon="gohan,static/description/icon.png"/>
+
+    <!-- Admin sees "All Tasks" (all, can create) -->
+    <menuitem id="menu_gohan_jobs_admin"
+              name="All Tasks"
+              parent="menu_gohan_root"
+              action="action_gohan_job"
+              sequence="10"
+              groups="group_gohan_admin"/>
+
+    <!-- Tasker sees "My Tasks" (own tasks, Start Task button in list header) -->
+    <menuitem id="menu_gohan_jobs_tasker"
+              name="My Tasks"
+              parent="menu_gohan_root"
+              action="action_gohan_job_tasker"
+              sequence="11"
+              groups="group_gohan_user"/>
+
+    <menuitem id="menu_gohan_config"
+              name="Configuration"
+              parent="menu_gohan_root"
+              sequence="90"
+              groups="group_gohan_admin"/>
+
+    <menuitem id="menu_gohan_import"
+              name="Import URLs"
+              parent="menu_gohan_config"
+              action="action_gohan_import_wizard"
+              sequence="5"/>
+
+    <menuitem id="menu_gohan_add_category"
+              name="Add Category"
+              parent="menu_gohan_config"
+              action="action_gohan_category_new"
+              sequence="7"/>
+
+    <menuitem id="menu_gohan_settings"
+              name="Settings"
+              parent="menu_gohan_config"
+              action="base_setup.action_general_configuration"
+              sequence="10"/>
+</odoo>

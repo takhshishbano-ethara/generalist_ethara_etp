@@ -1,18 +1,11 @@
 id,name,color,description,teamId,createdAt,updatedAt
-label-bug,Bug,#eb5757,Something isn't working correctly,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-feature,Feature,#6fcf97,New functionality or enhancement,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-tech-debt,Tech Debt,#f2994a,Technical debt cleanup,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-p0-incident,P0 Incident,#eb5757,Production incident requiring immediate attention,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-blocked,Blocked,#95a2b3,Blocked by external dependency or another issue,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-needs-design,Needs Design,#bb6bd9,Requires design input before implementation,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-customer-reported,Customer Reported,#26b5ce,Reported by a customer,,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-backend,backend,#5e6ad2,Backend-specific work,team-backend,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-api,api,#5e6ad2,API-related work,team-backend,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-database,database,#5e6ad2,Database-related work,team-backend,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-frontend,frontend,#26b5ce,Frontend-specific work,team-frontend,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-ui,ui,#26b5ce,User interface work,team-frontend,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-performance,performance,#26b5ce,Performance optimization,team-frontend,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-infra,infra,#f2994a,Infrastructure work,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-ci-cd,ci/cd,#f2994a,CI/CD pipeline work,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-security,security,#f2994a,Security-related work,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
-label-monitoring,monitoring,#f2994a,Monitoring and observability,team-platform,2024-01-10T09:00:00,2024-01-10T09:00:00
+label-bug,Bug,#eb5757,Something isn't working correctly,,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-critical,Critical,#eb5757,Critical severity,,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-high,High,#f2994a,High severity,,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-medium,Medium,#f2c94c,Medium severity,,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-low,Low,#bdbdbd,Low severity,,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-dark-mode,Dark Mode,#5e6ad2,Dark mode contrast and theming issues,team-ux,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-form-validation,Form Validation,#26b5ce,Form validation behavior and copy,team-ux,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-medications,Medications,#bb6bd9,Medications module of the patient portal,team-ux,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-dashboard,Dashboard,#6fcf97,Dashboard module of the patient portal,team-ux,2026-01-15T09:00:00,2026-01-15T09:00:00
+label-charge-nurse-review,Charge Nurse Review,#f2c94c,Requires charge nurse spot-test sign-off,team-ux,2026-01-15T09:00:00,2026-01-15T09:00:00

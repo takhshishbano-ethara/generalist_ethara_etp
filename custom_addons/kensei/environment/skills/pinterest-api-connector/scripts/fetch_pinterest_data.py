@@ -76,7 +76,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("PINTEREST_API_URL", "http://localhost:8005")
+    base_url = os.environ.get("PINTEREST_API_URL", "http://localhost:8006")
 
     try:
         if args.account:

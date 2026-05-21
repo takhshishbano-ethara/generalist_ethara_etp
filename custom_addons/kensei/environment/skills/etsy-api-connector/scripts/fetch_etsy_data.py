@@ -59,7 +59,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("ETSY_API_URL", "http://localhost:8003")
+    base_url = os.environ.get("ETSY_API_URL", "http://localhost:8001")
 
     try:
         if args.shop:

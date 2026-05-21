@@ -151,6 +151,17 @@ class EmployeeController(http.Controller):
                         request.env.ref('api_auth_gateway.role_tasker_technical').id,
                         request.env.ref('api_auth_gateway.role_tasker_stem').id,
                         request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                        if employee.id not in ProjectRequest.project_tasker.ids:
+                            assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                                [employee.id], exclude_project_id=ProjectRequest.id,
+                            )
+                            if assignment_errors:
+                                return return_Response(
+                                    message="Cannot assign tasker: active task on a running project.",
+                                    status=400,
+                                    errors=assignment_errors,
+                                )
+                            request.env['project.project'].sudo()._apply_tasker_removals(removals)
                         emp_list = ProjectRequest.project_tasker.ids
                         emp_list.append(employee.id)
                         ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
@@ -465,6 +476,13 @@ class EmployeeController(http.Controller):
                                 request.env.ref('api_auth_gateway.role_tasker_technical').id,
                                 request.env.ref('api_auth_gateway.role_tasker_stem').id,
                                 request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
+                                if employee.id not in ProjectRequest.project_tasker.ids:
+                                    assignment_errors, removals = request.env['project.project'].sudo()._validate_tasker_assignment(
+                                        [employee.id], exclude_project_id=ProjectRequest.id,
+                                    )
+                                    if assignment_errors:
+                                        raise Exception(assignment_errors[0]['message'])
+                                    request.env['project.project'].sudo()._apply_tasker_removals(removals)
                                 emp_list = ProjectRequest.project_tasker.ids
                                 emp_list.append(employee.id)
                                 ProjectRequest.sudo().project_tasker = [(6, 0, emp_list)]
@@ -816,6 +834,9 @@ class EmployeeController(http.Controller):
             if kwargs.get('department_id'):
                 domain.append(('department_id', '=', int(kwargs['department_id'])))
 
+            if kwargs.get('exclude_me') in [1, '1']:
+                domain.append(('employee_id', 'not in', [employee.id]))
+
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
@@ -894,7 +915,7 @@ class EmployeeController(http.Controller):
                 else:
                     data.append(vals)
 
-            active_projects = request.env['project.project'].sudo().search([('non_stemp_project_status', 'in', ['not_started', 'production'])])
+            active_projects = request.env['project.project'].sudo().search(request.env['project.project']._task_forge_live_domain())
             assigned_ids = set()
             for ap in active_projects:
                 assigned_ids.update(ap.project_lead.ids)
@@ -955,15 +976,21 @@ class EmployeeController(http.Controller):
             return return_Response(message=str(e), status=400)
 
     @http.route('/api/v2/get_user_role', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
     def get_user_role(self, **kwargs):
         temp = []
         try:
-            domain = [('project_type', '=', 'non-stem')]
+            user = request.env.user
+            if user.user_role.id in [request.env.ref('api_auth_gateway.role_cto_technical').id]:
+                domain = []
+            else:
+                domain = [('project_type', '=', 'non-stem')]
             if kwargs.get('project_type'):
                 domain = [('project_type', '=', kwargs.get('project_type'))]
             roles = request.env['api.role'].sudo().search(domain)
             for role in roles:
-                temp.append({'id': role.id, 'name': role.name})
+                # temp.append({'id': role.id, 'name': role.name})
+                temp.append({'id': role.id, 'name': role.user_type})
             return return_Response(
                 message="success",
                 status=200,
@@ -1190,9 +1217,9 @@ class EmployeeController(http.Controller):
             else:
                 return return_Response(message="Insufficient permissions", status=403)
 
-            active_projects = request.env['project.project'].sudo().search([
-                ('non_stemp_project_status', 'in', ['not_started', 'production'])
-            ])
+            active_projects = request.env['project.project'].sudo().search(
+                request.env['project.project']._task_forge_live_domain()
+            )
             assigned_ids = set()
             for ap in active_projects:
                 assigned_ids.update(ap.project_lead.ids)

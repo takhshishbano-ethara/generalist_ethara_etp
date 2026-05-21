@@ -58,12 +58,35 @@ class KaijuCallbackController(http.Controller):
         if not job_id or not status:
             return Response("Missing job_id or status", status=400)
 
-        build = request.env["kaiju.commit0"].sudo().browse(int(job_id))
+        try:
+            record_id = int(job_id)
+        except (ValueError, TypeError):
+            return Response("Invalid job_id", status=400)
+
+        build = request.env["kaiju.commit0"].sudo().browse(record_id)
         if not build.exists():
             _logger.warning("Build callback for non-existent record id=%s", job_id)
             return Response("Not found", status=404)
 
+        # Idempotency: if already in terminal state, skip duplicate callback
+        if build.build_status in ("done", "failed"):
+            _logger.info(
+                "Build %s already finalized (status=%s); ignoring duplicate callback",
+                build.name, build.build_status,
+            )
+            return Response(
+                json.dumps({"ok": True, "duplicate": True}),
+                status=200, content_type="application/json",
+            )
+
         from odoo import fields as odoo_fields
+
+        # NOTE: Step sync, log fetch, and S3 metadata are INTENTIONALLY NOT done here.
+        # They block the callback handler for 30s–several minutes, causing the Argo
+        # callback-on-exit pod's curl to hang (no --max-time), which then SIGTERMs
+        # at activeDeadlineSeconds (~10min) — the 635s onExit hang.
+        # The cron (_cron_poll_build_status) back-fills steps + logs + metadata
+        # within 60s for terminal builds (Set 2: terminal-but-incomplete in last 10min).
 
         if status == "success":
             build.write(
@@ -77,6 +100,7 @@ class KaijuCallbackController(http.Controller):
                     ),
                 }
             )
+            # Pipeline metadata (dataset_entries.json from S3) is back-filled by cron.
         else:
             message = data.get("message", "Pipeline reported failure")
             build.write(
@@ -129,12 +153,33 @@ class KaijuCallbackController(http.Controller):
         if not job_id or not status:
             return Response("Missing job_id or status", status=400)
 
-        run = request.env["kaiju.commit0.run"].sudo().browse(int(job_id))
+        try:
+            record_id = int(job_id)
+        except (ValueError, TypeError):
+            return Response("Invalid job_id", status=400)
+
+        run = request.env["kaiju.commit0.run"].sudo().browse(record_id)
         if not run.exists():
             _logger.warning("Run callback for non-existent record id=%s", job_id)
             return Response("Not found", status=404)
 
+        # Idempotency: skip duplicate callback if already finalized
+        if run.run_status in ("done", "failed"):
+            _logger.info(
+                "Run %s already finalized (status=%s); ignoring duplicate callback",
+                run.name, run.run_status,
+            )
+            return Response(
+                json.dumps({"ok": True, "duplicate": True}),
+                status=200, content_type="application/json",
+            )
+
         from odoo import fields as odoo_fields
+
+        # NOTE: Step sync + log fetch are INTENTIONALLY NOT done here. They block
+        # the callback for 30s–minutes and cause the Argo callback-on-exit pod to
+        # hang on its curl call. The cron (_cron_poll_run_status) back-fills
+        # steps + logs within 60s for terminal runs.
 
         if status == "success":
             run.write(

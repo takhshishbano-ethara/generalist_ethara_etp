@@ -198,6 +198,16 @@ def get_container_status(container_id: str):
     return result
 
 
+# --- User Search (fixed path - MUST come before parameterized /{user_id} routes) ---
+
+@app.get("/ig_user_search")
+def search_users(q: str = Query(...)):
+    result = instagram_data.search_users(q)
+    if "error" in result:
+        return JSONResponse(status_code=400, content=result)
+    return result
+
+
 # --- User (parameterized paths - MUST come after fixed paths) ---
 
 @app.get("/{user_id}/media")

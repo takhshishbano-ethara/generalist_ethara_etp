@@ -11,17 +11,6 @@ IST_MINUTES = 30
 class HrEmployee(models.Model):
     _inherit = 'hr.employee'
 
-    # --- Probation ---
-    employee_state = fields.Selection([
-        ('probation', 'Probation'),
-        ('confirmed', 'Confirmed'),
-    ], string='Employment Status', default='probation', tracking=True,
-        help='Probation employees have restricted leave access.')
-
-    probation_end_date = fields.Date(
-        string='Probation End Date',
-        help='Date when probation period ends. Employee is auto-confirmed after this date.')
-
     # --- Late Arrival Tracking ---
     late_arrival_count = fields.Integer(
         string='Late Arrivals (This Month)',
@@ -179,7 +168,6 @@ class HrEmployee(models.Model):
     def _cron_monthly_leave_accrual(self):
         """
         Monthly cron (runs 1st of each month): Allocate 1 SL, 1 CL, 1 EL per active employee.
-        Probation employees get SL and EL only (no CL).
         """
         employees = self.sudo().search([('active', '=', True)])
         sl_type = self.env.ref('ethara_attendance_leave.leave_type_sl', raise_if_not_found=False)
@@ -193,15 +181,12 @@ class HrEmployee(models.Model):
         for emp in employees:
             leave_types_to_allocate = []
 
-            # SL: available during probation
             if sl_type:
                 leave_types_to_allocate.append(sl_type)
 
-            # CL: NOT available during probation
-            if cl_type and emp.employee_state != 'probation':
+            if cl_type:
                 leave_types_to_allocate.append(cl_type)
 
-            # EL: available during probation
             if el_type:
                 leave_types_to_allocate.append(el_type)
 
@@ -378,7 +363,6 @@ class HrEmployee(models.Model):
 
         allocations = []
 
-        # SL: available during probation, 1/month for remaining months
         if sl_type:
             allocations.append({
                 'name': 'Sick Leave - Initial %s' % current_year,
@@ -389,7 +373,7 @@ class HrEmployee(models.Model):
                 'date_to': year_end,
             })
 
-        if cl_type and self.employee_state != 'probation':
+        if cl_type:
             allocations.append({
                 'name': 'Casual Leave - Initial %s' % current_year,
                 'holiday_status_id': cl_type.id,

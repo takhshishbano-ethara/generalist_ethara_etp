@@ -165,7 +165,44 @@
 
         var det=document.createElement('tr');
         det.className='detail-row';det.id='det-'+idx;
-        det.innerHTML='<td colspan="8"><div class="detail-content"><div class="detail-json"><pre></pre></div><div class="detail-image"><img src="/loki_dashboard/static/src/portal/img/'+encodeURIComponent(rec.png_file)+'" alt="ECG" draggable="false"/><span class="img-hint">Click to view</span></div></div></td>';
+        var docTile = '';
+        if (rec.doc_html) {
+          var docUrl = '/loki_dashboard/static/src/portal/docs/'+encodeURIComponent(rec.doc_html)+'?v='+(rec.doc_html_v || Date.now());
+          var dlUrl = rec.doc_docx ? '/loki_dashboard/static/src/portal/docs/'+encodeURIComponent(rec.doc_docx)+'?v='+(rec.doc_docx_v || Date.now()) : '';
+          docTile =
+            '<div class="detail-doc" data-doc="'+esc(docUrl)+'" data-doc-name="'+esc(rec.doc_html)+'"'+
+            (dlUrl ? ' data-doc-dl="'+esc(dlUrl)+'"' : '')+'>'+
+              '<div class="doc-card">'+
+                '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
+                  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'+
+                  '<polyline points="14 2 14 8 20 8"/>'+
+                  '<line x1="8" y1="13" x2="16" y2="13"/>'+
+                  '<line x1="8" y1="17" x2="14" y2="17"/>'+
+                '</svg>'+
+                '<div class="doc-meta">'+
+                  '<div class="doc-title">QC Report</div>'+
+                  '<div class="doc-sub">Click to preview</div>'+
+                '</div>'+
+              '</div>'+
+            '</div>';
+        }
+        var jsonPanel =
+          '<div class="detail-json">'+
+            '<div class="json-toolbar">'+
+              '<button type="button" class="json-copy" aria-label="Copy JSON" title="Copy JSON">'+
+                '<svg class="ico-copy" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
+                  '<rect x="9" y="9" width="13" height="13" rx="1"/>'+
+                  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>'+
+                '</svg>'+
+                '<svg class="ico-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'+
+                  '<polyline points="20 6 9 17 4 12"/>'+
+                '</svg>'+
+                '<span class="json-copy-label">Copy</span>'+
+              '</button>'+
+            '</div>'+
+            '<pre></pre>'+
+          '</div>';
+        det.innerHTML='<td colspan="8"><div class="detail-content">'+jsonPanel+'<div class="detail-right">'+docTile+'<div class="detail-image"><img src="/loki_dashboard/static/src/portal/img/'+encodeURIComponent(rec.png_file)+'" alt="ECG" draggable="false"/><span class="img-hint">Click to view</span></div></div></div></td>';
         tbody.appendChild(det);
       });
       tbody.style.minHeight = '';
@@ -319,7 +356,94 @@
       else{pre.textContent='Loading\u2026';fetch('/loki/api/record/'+rec.index).then(function(r){return r.json();}).then(function(d){cache[rec.index]=d;pre.innerHTML=jsonTree(d,null,0,true);bindToggles(pre);}).catch(function(){pre.textContent='Error';});}
 
       det.querySelector('.detail-image').onclick=function(e){e.stopPropagation();openLb(this.querySelector('img').src,rec.png_file);};
+      var docEl = det.querySelector('.detail-doc');
+      if (docEl) {
+        docEl.onclick=function(e){
+          e.stopPropagation();
+          openDoc(this.dataset.doc, this.dataset.docName, this.dataset.docDl || '');
+        };
+      }
+      var copyBtn = det.querySelector('.json-copy');
+      if (copyBtn) {
+        copyBtn.onclick = function(e) {
+          e.stopPropagation();
+          var data = cache[rec.index];
+          if (!data) return;
+          var text = JSON.stringify(data, null, 2);
+          copyToClipboard(text, copyBtn);
+        };
+      }
     }
+
+    function copyToClipboard(text, btn) {
+      var done = function() {
+        btn.classList.add('copied');
+        var label = btn.querySelector('.json-copy-label');
+        var prev = label ? label.textContent : '';
+        if (label) label.textContent = 'Copied';
+        setTimeout(function() {
+          btn.classList.remove('copied');
+          if (label) label.textContent = prev || 'Copy';
+        }, 1500);
+      };
+      var fail = function() {
+        var label = btn.querySelector('.json-copy-label');
+        if (label) { var prev = label.textContent; label.textContent = 'Failed'; setTimeout(function(){ label.textContent = prev || 'Copy'; }, 1500); }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done).catch(function(){ fallback(); });
+      } else {
+        fallback();
+      }
+      function fallback() {
+        try {
+          var ta = document.createElement('textarea');
+          ta.value = text;
+          ta.setAttribute('readonly','');
+          ta.style.position='absolute'; ta.style.left='-9999px';
+          document.body.appendChild(ta);
+          ta.select();
+          var ok = document.execCommand('copy');
+          document.body.removeChild(ta);
+          if (ok) done(); else fail();
+        } catch (e) { fail(); }
+      }
+    }
+
+    var docModal = document.getElementById('doc-modal');
+    var docFrame = document.getElementById('doc-iframe');
+    var docCaption = document.getElementById('doc-caption');
+    var docClose = document.getElementById('doc-close');
+    var docBackdrop = document.getElementById('doc-backdrop');
+    var docDownload = document.getElementById('doc-download');
+    var docOpen = false;
+    function openDoc(url, name, dlUrl) {
+      if (!docModal || !docFrame) return;
+      docFrame.src = url;
+      if (docCaption) docCaption.textContent = name || '';
+      if (docDownload) {
+        if (dlUrl) { docDownload.href = dlUrl; docDownload.style.display=''; }
+        else { docDownload.removeAttribute('href'); docDownload.style.display='none'; }
+      }
+      docModal.classList.add('active');
+      docModal.setAttribute('aria-hidden','false');
+      document.body.style.overflow='hidden';
+      setTimeout(function(){ docOpen = true; }, 60);
+    }
+    function closeDoc(e) {
+      if (e) e.stopPropagation();
+      if (!docOpen) return;
+      docOpen = false;
+      docModal.classList.remove('active');
+      docModal.setAttribute('aria-hidden','true');
+      document.body.style.overflow='';
+      setTimeout(function(){ if (!docOpen && docFrame) docFrame.src='about:blank'; }, 250);
+    }
+    if (docClose) docClose.addEventListener('click', closeDoc);
+    if (docBackdrop) docBackdrop.addEventListener('click', closeDoc);
+    document.addEventListener('keydown', function(e){
+      if (docOpen && e.key === 'Escape') closeDoc(e);
+    });
 
     function applyLbTransform(){
       lightboxImg.style.transform='scale('+lbZoom+') translate('+lbPanX+'px,'+lbPanY+'px)';

@@ -173,6 +173,54 @@ def _ack_message(channel, delivery_tag):
 
 
 # ── Sandbox Polling ───────────────────────────────────────────────────────────
+def _download_input_files_as_attachments(task_id, input_files):
+    """Download input files from S3, return as WS-ready base64 attachment dicts."""
+    if not input_files:
+        return []
+
+    s3_bucket = os.getenv("KENSEI_S3_BUCKET", "production-grtlabs-tag")
+    s3_prefix = os.getenv("KENSEI_S3_PREFIX", "Kensei")
+    s3_region = os.getenv("KENSEI_S3_REGION", "us-east-1")
+    access_key = os.getenv("KENSEI_S3_ACCESS_KEY_ID") or os.getenv("AWS_SECRET_KEY", "")
+    secret_key = os.getenv("KENSEI_S3_SECRET_ACCESS_KEY") or os.getenv("AWS_ACCESS_SECRET_KEY", "")
+
+    try:
+        import boto3
+    except ImportError:
+        _logger.error("boto3 not installed — cannot download input files")
+        return []
+
+    session_kwargs = {"region_name": s3_region}
+    if access_key and secret_key:
+        session_kwargs["aws_access_key_id"] = access_key
+        session_kwargs["aws_secret_access_key"] = secret_key
+    s3 = boto3.client("s3", **session_kwargs)
+
+    import base64
+    import io
+
+    attachments = []
+    for f in input_files:
+        stored_as = f.get("storedAs", "")
+        if not stored_as:
+            continue
+        s3_key = "%s/input/tasks/%s/%s" % (s3_prefix, task_id, stored_as)
+        try:
+            buf = io.BytesIO()
+            s3.download_fileobj(s3_bucket, s3_key, buf)
+            buf.seek(0)
+            attachments.append({
+                "fileName": f.get("name", stored_as),
+                "mimeType": f.get("mimeType", "application/octet-stream"),
+                "content": base64.b64encode(buf.read()).decode(),
+            })
+            _logger.info("Downloaded %s from S3 (%d bytes)", stored_as, buf.tell())
+        except Exception as e:
+            _logger.warning("Failed to download %s from S3: %s", stored_as, e)
+
+    return attachments
+
+
 def _wait_for_sandbox_running(sandbox_id, timeout=SANDBOX_START_TIMEOUT):
     """Poll docker_status until 'running' or 'error'. Returns status string."""
     deadline = time.time() + timeout
@@ -448,11 +496,16 @@ def _process_task(connection, channel, delivery_tag, properties, body):
                 else:
                     raise
 
-        # 5. Create turn + send prompt
+        # 5. Download input files from S3 and build WS attachments
+        input_files = claim.get("input_files") or []
+        ws_attachments = _download_input_files_as_attachments(task_id, input_files)
+
+        # 6. Create turn + send prompt with attachments
         _logger.info(
-            "Sending initial_prompt (task=%s, sandbox=%s): %.100s",
+            "Sending initial_prompt (task=%s, sandbox=%s, attachments=%d): %.100s",
             task_id,
             sandbox_id,
+            len(ws_attachments),
             initial_prompt,
         )
         turn_result = _call_odoo(
@@ -464,7 +517,7 @@ def _process_task(connection, channel, delivery_tag, properties, body):
             raise RuntimeError("create_turn failed: %s" % turn_result["error"])
         turn_id = turn_result["turn_id"]
 
-        ws_client.send_message(initial_prompt)
+        ws_client.send_message(initial_prompt, ws_attachments or None)
 
         # 6. Wait for response
         _logger.info(

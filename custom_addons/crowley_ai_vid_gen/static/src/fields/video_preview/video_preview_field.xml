@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="crowley_ai_vid_gen.VideoPreviewField">
+        <div class="o_crowley_video_preview_field">
+            <t t-if="value">
+                <video t-ref="video"
+                       t-att-src="value"
+                       controls="controls"
+                       preload="metadata"
+                       playsinline="playsinline"
+                       style="width: 100%; max-width: 960px; max-height: 540px; background: #000; border-radius: 4px;">
+                    Your browser does not support HTML5 video playback.
+                </video>
+                <div t-if="state.status === 'loading'" class="text-muted small mt-1">
+                    <i class="fa fa-spinner fa-spin me-1"/> Loading video metadata…
+                </div>
+                <div t-if="state.status === 'error'" class="alert alert-danger mt-1 small">
+                    <strong>Playback failed:</strong> <t t-esc="displayError"/>
+                    <div class="mt-1">
+                        <a t-att-href="value" target="_blank" rel="noopener">Try opening the URL directly in a new tab</a>
+                        — if that works, this is a CORS or autoplay-policy issue.
+                    </div>
+                </div>
+            </t>
+            <t t-else="">
+                <div class="o_crowley_video_preview_field__empty text-muted">
+                    <i class="fa fa-film me-1"/> No video available yet.
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>

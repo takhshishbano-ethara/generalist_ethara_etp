@@ -90,6 +90,98 @@ class Project(models.Model):
 
     is_timer_enabled = fields.Boolean(string='Timer Enabled', default=False)
 
+    _TASKER_ACTIVE_TASK_STATES = ('in_progress', 'ack', 'escalated')
+
+    @api.model
+    def _validate_tasker_assignment(self, tasker_ids, exclude_project_id=None):
+        """Returns ``(errors, removals)``. Caller MUST apply ``removals`` via
+        :meth:`_apply_tasker_removals` only when ``errors`` is empty.
+
+        A project is 'running' iff ``non_stemp_project_status == 'production'``.
+        A tasker is blocked when already on another running project with a
+        ``task.forge.log`` in an active state; otherwise queued for removal
+        from every other project. Pass ``exclude_project_id`` on update to
+        skip the target project itself; pass ``None`` on create.
+        """
+        Project = self.env['project.project'].sudo()
+        Employee = self.env['hr.employee'].sudo()
+        Log = self.env['task.forge.log'].sudo() if 'task.forge.log' in self.env else None
+
+        errors = []
+        removals = {}
+        seen = set()
+
+        for tid in tasker_ids or []:
+            if not tid or tid in seen:
+                continue
+            seen.add(tid)
+
+            tasker = Employee.browse(tid)
+            if not tasker.exists():
+                continue
+
+            domain = [('project_tasker', 'in', [tid])]
+            if exclude_project_id:
+                domain.append(('id', '!=', exclude_project_id))
+            other_projects = Project.search(domain)
+            if not other_projects:
+                continue
+
+            running_others = other_projects.filtered(
+                lambda p: p.non_stemp_project_status == 'production'
+            )
+
+            is_blocked = False
+            if running_others and Log is not None:
+                active_log = Log.search([
+                    ('employee_id', '=', tid),
+                    ('project_id', 'in', running_others.ids),
+                    ('state', 'in', list(self._TASKER_ACTIVE_TASK_STATES)),
+                ], limit=1)
+                if active_log:
+                    errors.append({
+                        'tasker_id': tasker.id,
+                        'tasker_name': tasker.name,
+                        'task_id': active_log.id,
+                        'task_name': active_log.name,
+                        'task_sequence': active_log.sequence,
+                        'project_id': active_log.project_id.id,
+                        'project_name': active_log.project_id.name,
+                        'message': (
+                            "Tasker '%s' is currently working on task '%s' "
+                            "(ID %s) in running project '%s' (ID %s). "
+                            "Cannot assign to another project until the tasker is idle."
+                        ) % (
+                            tasker.name,
+                            active_log.sequence or active_log.name,
+                            active_log.id,
+                            active_log.project_id.name,
+                            active_log.project_id.id,
+                        ),
+                    })
+                    is_blocked = True
+
+            if is_blocked:
+                continue
+
+            for proj in other_projects:
+                removals.setdefault(proj.id, []).append(tid)
+
+        return errors, removals
+
+    @api.model
+    def _apply_tasker_removals(self, removals):
+        """Apply removal dict produced by :meth:`_validate_tasker_assignment`."""
+        if not removals:
+            return
+        Project = self.env['project.project'].sudo()
+        for project_id, tasker_ids in removals.items():
+            if not tasker_ids:
+                continue
+            Project.browse(project_id).write({
+                'project_tasker': [(3, tid) for tid in tasker_ids],
+            })
+
     def create_slack_channel(self):
         if not self.slack_channel_name:
             _logger.info('No slack_channel_name set for project %s, skipping', self.name)

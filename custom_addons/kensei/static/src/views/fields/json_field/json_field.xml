@@ -50,6 +50,11 @@
                                                 </t>
                                             </button>
                                         </t>
+                                        <button class="kensei-json-copy-btn"
+                                                t-on-click="() => this.onCopyEntry(entry.index)"
+                                                title="Copy trajectory JSON to clipboard">
+                                            <i class="fa fa-copy"/>
+                                        </button>
                                         <button class="kensei-json-edit-btn"
                                                 t-att-disabled="isAnyActionRunning"
                                                 t-on-click="() => this.onEditEntry(entry.index)"

@@ -11,7 +11,8 @@ class HuskarlShowcase extends Component {
     setup() {
         this.orm = useService("orm");
         this.state = useState({
-            github_url: "https://github.com/harbor-framework/harbor",
+//            github_url: "https://github.com/harbor-framework/harbor",
+            github_url: "https://github.com/Ethara-Ai/mars",
             docs_url: "https://harborframework.com/docs",
         });
 

@@ -100,7 +100,7 @@ class TaskForgeTaskController(http.Controller):
                 return return_Response(message="Employee profile not found", status=404)
             team_ids = employee._get_team_employee_ids()
 
-            domain = [('non_stemp_project_status', 'in', ['not_started', 'production'])]
+            domain = request.env['project.project']._task_forge_live_domain()
             if kwargs.get('show_all') in [1, '1']:
                 domain = []
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:

@@ -6,3 +6,4 @@ access_leviathan_category_admin,leviathan.category.admin,model_leviathan_categor
 access_leviathan_rerun_wizard_user,leviathan.rerun.wizard.user,model_leviathan_rerun_wizard,group_leviathan_user,1,1,1,0
 access_leviathan_import_wizard_admin,leviathan.import.wizard.admin,model_leviathan_import_wizard,group_leviathan_admin,1,1,1,0
 access_leviathan_start_task_wizard_user,leviathan.start.task.wizard.user,model_leviathan_start_task_wizard,group_leviathan_user,1,1,1,0
+access_leviathan_bulk_assign_wizard_admin,leviathan.bulk.assign.wizard.admin,model_leviathan_bulk_assign_wizard,group_leviathan_admin,1,1,1,0

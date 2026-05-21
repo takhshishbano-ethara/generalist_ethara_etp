@@ -1,1565 +1,5 @@
 [
   {
-    "Id": "1001",
-    "DocNumber": "1001",
-    "TxnDate": "2025-02-03",
-    "DueDate": "2025-03-05",
-    "CustomerRef": {
-      "value": "1",
-      "name": "Mark Thompson"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 75.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly lawn mowing - February week 1",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 75.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 75.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "mark.thompson@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-03T10:00:00-05:00",
-      "LastUpdatedTime": "2025-02-20T09:30:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1002",
-    "DocNumber": "1002",
-    "TxnDate": "2025-02-05",
-    "DueDate": "2025-03-07",
-    "CustomerRef": {
-      "value": "8",
-      "name": "Oakwood HOA"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 600.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Common area mowing - February",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 150.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 195.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Entrance hedge trimming",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "9",
-            "name": "Shrub & Hedge Trimming"
-          },
-          "UnitPrice": 65.0,
-          "Qty": 3
-        }
-      },
-      {
-        "Amount": 795.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 795.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "admin@oakwoodhoa.org"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-05T11:00:00-05:00",
-      "LastUpdatedTime": "2025-02-25T14:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1003",
-    "DocNumber": "1003",
-    "TxnDate": "2025-02-10",
-    "DueDate": "2025-03-12",
-    "CustomerRef": {
-      "value": "3",
-      "name": "Robert & Lisa Chen"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 300.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly lawn mowing - February (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 300.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 300.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "rchen@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-10T08:30:00-05:00",
-      "LastUpdatedTime": "2025-03-01T10:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1004",
-    "DocNumber": "1004",
-    "TxnDate": "2025-02-12",
-    "DueDate": "2025-03-14",
-    "CustomerRef": {
-      "value": "2",
-      "name": "Sarah Jenkins"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 285.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Garden design consultation - 3 hours",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "2",
-            "name": "Garden Design Consultation"
-          },
-          "UnitPrice": 95.0,
-          "Qty": 3
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 450.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Landscape design plan with 3D rendering",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "10",
-            "name": "Landscape Design Plan"
-          },
-          "UnitPrice": 450.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 735.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 735.0,
-    "Balance": 350.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "sarah.jenkins@gmail.com"
-    },
-    "Status": "Open",
-    "MetaData": {
-      "CreateTime": "2025-02-12T14:00:00-05:00",
-      "LastUpdatedTime": "2025-02-12T14:00:00-05:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1005",
-    "DocNumber": "1005",
-    "TxnDate": "2025-02-15",
-    "DueDate": "2025-03-17",
-    "CustomerRef": {
-      "value": "9",
-      "name": "Meridian Office Park"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 600.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly grounds maintenance - February (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 150.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 260.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Shrub trimming - all entrances",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "9",
-            "name": "Shrub & Hedge Trimming"
-          },
-          "UnitPrice": 65.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 860.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 860.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "facilities@meridianoffice.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-15T09:00:00-05:00",
-      "LastUpdatedTime": "2025-03-05T11:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1006",
-    "DocNumber": "1006",
-    "TxnDate": "2025-02-20",
-    "DueDate": "2025-03-22",
-    "CustomerRef": {
-      "value": "6",
-      "name": "David Washington"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 480.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Tree trimming - 3 large oaks (4 hours)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "3",
-            "name": "Tree Trimming"
-          },
-          "UnitPrice": 120.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 480.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 480.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "dwash@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-20T15:00:00-05:00",
-      "LastUpdatedTime": "2025-03-10T09:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1007",
-    "DocNumber": "1007",
-    "TxnDate": "2025-02-25",
-    "DueDate": "2025-03-27",
-    "CustomerRef": {
-      "value": "13",
-      "name": "Lakeside Village HOA"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 1200.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Monthly landscape maintenance - February",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 300.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 390.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Common area shrub maintenance",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "9",
-            "name": "Shrub & Hedge Trimming"
-          },
-          "UnitPrice": 65.0,
-          "Qty": 6
-        }
-      },
-      {
-        "Amount": 1590.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 1590.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "board@lakesidevillage.org"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-25T10:30:00-05:00",
-      "LastUpdatedTime": "2025-03-15T14:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1008",
-    "DocNumber": "1008",
-    "TxnDate": "2025-03-01",
-    "DueDate": "2025-03-31",
-    "CustomerRef": {
-      "value": "5",
-      "name": "James & Karen Mitchell"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 250.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring cleanup - full yard",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 255.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Mulch installation - 3 yards",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "5",
-            "name": "Mulch Installation"
-          },
-          "UnitPrice": 85.0,
-          "Qty": 3
-        }
-      },
-      {
-        "Amount": 505.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 505.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "jkmitchell@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-01T09:00:00-05:00",
-      "LastUpdatedTime": "2025-03-20T11:30:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1009",
-    "DocNumber": "1009",
-    "TxnDate": "2025-03-03",
-    "DueDate": "2025-04-02",
-    "CustomerRef": {
-      "value": "4",
-      "name": "Patricia Nguyen"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 150.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Bi-weekly mowing - March (2 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Amount": 150.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 150.0,
-    "Balance": 150.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "pnguyen@outlook.com"
-    },
-    "Status": "Overdue",
-    "MetaData": {
-      "CreateTime": "2025-03-03T08:00:00-05:00",
-      "LastUpdatedTime": "2025-03-03T08:00:00-05:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1010",
-    "DocNumber": "1010",
-    "TxnDate": "2025-03-05",
-    "DueDate": "2025-04-04",
-    "CustomerRef": {
-      "value": "10",
-      "name": "William Carter"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 2500.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Irrigation system installation - front and back yard",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "6",
-            "name": "Irrigation System Install"
-          },
-          "UnitPrice": 2500.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 2500.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 2500.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "wcarter@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-05T13:00:00-05:00",
-      "LastUpdatedTime": "2025-03-25T10:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1011",
-    "DocNumber": "1011",
-    "TxnDate": "2025-03-07",
-    "DueDate": "2025-04-06",
-    "CustomerRef": {
-      "value": "7",
-      "name": "Amanda Foster"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 4500.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Paver patio installation - 250 sq ft",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "7",
-            "name": "Hardscaping - Patio/Walkway"
-          },
-          "UnitPrice": 18.0,
-          "Qty": 250
-        }
-      },
-      {
-        "Amount": 4500.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 4500.0,
-    "Balance": 525.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "afoster@gmail.com"
-    },
-    "Status": "Open",
-    "MetaData": {
-      "CreateTime": "2025-03-07T10:00:00-05:00",
-      "LastUpdatedTime": "2025-04-01T09:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1012",
-    "DocNumber": "1012",
-    "TxnDate": "2025-03-10",
-    "DueDate": "2025-04-09",
-    "CustomerRef": {
-      "value": "8",
-      "name": "Oakwood HOA"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 600.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Common area mowing - March (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 150.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 250.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring cleanup - common areas",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 850.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 850.0,
-    "Balance": 850.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "admin@oakwoodhoa.org"
-    },
-    "Status": "Overdue",
-    "MetaData": {
-      "CreateTime": "2025-03-10T09:00:00-05:00",
-      "LastUpdatedTime": "2025-03-10T09:00:00-05:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1013",
-    "DocNumber": "1013",
-    "TxnDate": "2025-03-12",
-    "DueDate": "2025-04-11",
-    "CustomerRef": {
-      "value": "11",
-      "name": "Jennifer Martinez"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 190.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Garden design consultation - 2 hours",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "2",
-            "name": "Garden Design Consultation"
-          },
-          "UnitPrice": 95.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Amount": 190.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 190.0,
-    "Balance": 190.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "jmartinez@email.com"
-    },
-    "Status": "Overdue",
-    "MetaData": {
-      "CreateTime": "2025-03-12T14:30:00-05:00",
-      "LastUpdatedTime": "2025-03-12T14:30:00-05:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1014",
-    "DocNumber": "1014",
-    "TxnDate": "2025-03-15",
-    "DueDate": "2025-04-14",
-    "CustomerRef": {
-      "value": "12",
-      "name": "Thomas & Mary Kelly"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 300.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly lawn mowing - March (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 300.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 300.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "tkelly@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-15T08:30:00-05:00",
-      "LastUpdatedTime": "2025-04-01T10:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1015",
-    "DocNumber": "1015",
-    "TxnDate": "2025-03-18",
-    "DueDate": "2025-04-17",
-    "CustomerRef": {
-      "value": "14",
-      "name": "Michael Brown"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 250.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring cleanup - full property",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 360.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Tree trimming - 3 hours",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "3",
-            "name": "Tree Trimming"
-          },
-          "UnitPrice": 120.0,
-          "Qty": 3
-        }
-      },
-      {
-        "Amount": 610.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 610.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "mbrown77@gmail.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-18T10:00:00-05:00",
-      "LastUpdatedTime": "2025-04-05T09:30:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1016",
-    "DocNumber": "1016",
-    "TxnDate": "2025-03-20",
-    "DueDate": "2025-04-19",
-    "CustomerRef": {
-      "value": "15",
-      "name": "Catherine Shaw"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 425.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Mulch installation - 5 yards",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "5",
-            "name": "Mulch Installation"
-          },
-          "UnitPrice": 85.0,
-          "Qty": 5
-        }
-      },
-      {
-        "Amount": 425.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 425.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "cshaw@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-20T11:00:00-05:00",
-      "LastUpdatedTime": "2025-04-08T14:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1017",
-    "DocNumber": "1017",
-    "TxnDate": "2025-03-22",
-    "DueDate": "2025-04-21",
-    "CustomerRef": {
-      "value": "16",
-      "name": "Richard & Joan Palmer"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 300.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly mowing - March (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 130.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Shrub trimming - front and back",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "9",
-            "name": "Shrub & Hedge Trimming"
-          },
-          "UnitPrice": 65.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Amount": 430.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 430.0,
-    "Balance": 430.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "rpalmer@email.com"
-    },
-    "Status": "Overdue",
-    "MetaData": {
-      "CreateTime": "2025-03-22T09:30:00-05:00",
-      "LastUpdatedTime": "2025-03-22T09:30:00-05:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1018",
-    "DocNumber": "1018",
-    "TxnDate": "2025-03-25",
-    "DueDate": "2025-04-24",
-    "CustomerRef": {
-      "value": "13",
-      "name": "Lakeside Village HOA"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 1200.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Monthly landscape maintenance - March (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 300.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 250.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring cleanup - pool area and clubhouse",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 1450.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 1450.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "board@lakesidevillage.org"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-25T10:00:00-05:00",
-      "LastUpdatedTime": "2025-04-20T14:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1019",
-    "DocNumber": "1019",
-    "TxnDate": "2025-03-28",
-    "DueDate": "2025-04-27",
-    "CustomerRef": {
-      "value": "17",
-      "name": "Uptown Church Campus"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 500.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring planting - entrance beds",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 510.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Mulch - 6 yards around campus",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "5",
-            "name": "Mulch Installation"
-          },
-          "UnitPrice": 85.0,
-          "Qty": 6
-        }
-      },
-      {
-        "Amount": 1010.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 1010.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "office@uptownfbc.org"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-03-28T14:00:00-05:00",
-      "LastUpdatedTime": "2025-04-15T11:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1020",
-    "DocNumber": "1020",
-    "TxnDate": "2025-04-01",
-    "DueDate": "2025-05-01",
-    "CustomerRef": {
-      "value": "9",
-      "name": "Meridian Office Park"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 600.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly grounds maintenance - April week 1-4",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 150.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 500.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring flower bed installation",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Amount": 1100.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 1100.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "facilities@meridianoffice.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-04-01T09:00:00-04:00",
-      "LastUpdatedTime": "2025-04-20T10:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1021",
-    "DocNumber": "1021",
-    "TxnDate": "2025-04-03",
-    "DueDate": "2025-05-03",
-    "CustomerRef": {
-      "value": "23",
-      "name": "Kevin & Laura Adams"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 3600.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Paver walkway installation - 200 sq ft",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "7",
-            "name": "Hardscaping - Patio/Walkway"
-          },
-          "UnitPrice": 18.0,
-          "Qty": 200
-        }
-      },
-      {
-        "Amount": 3600.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 3600.0,
-    "Balance": 800.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "kadams@email.com"
-    },
-    "Status": "Open",
-    "MetaData": {
-      "CreateTime": "2025-04-03T11:00:00-04:00",
-      "LastUpdatedTime": "2025-04-18T09:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1022",
-    "DocNumber": "1022",
-    "TxnDate": "2025-04-05",
-    "DueDate": "2025-05-05",
-    "CustomerRef": {
-      "value": "18",
-      "name": "Daniel Harris"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 300.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly mowing - April (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 300.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 300.0,
-    "Balance": 300.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "dharris@outlook.com"
-    },
-    "Status": "Open",
-    "MetaData": {
-      "CreateTime": "2025-04-05T08:00:00-04:00",
-      "LastUpdatedTime": "2025-04-05T08:00:00-04:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1023",
-    "DocNumber": "1023",
-    "TxnDate": "2025-04-07",
-    "DueDate": "2025-05-07",
-    "CustomerRef": {
-      "value": "19",
-      "name": "Stephanie Coleman"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 600.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Tree trimming - large magnolia and 2 pines (5 hours)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "3",
-            "name": "Tree Trimming"
-          },
-          "UnitPrice": 120.0,
-          "Qty": 5
-        }
-      },
-      {
-        "Amount": 600.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 600.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "scoleman@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-04-07T10:30:00-04:00",
-      "LastUpdatedTime": "2025-04-22T14:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1024",
-    "DocNumber": "1024",
-    "TxnDate": "2025-04-10",
-    "DueDate": "2025-05-10",
-    "CustomerRef": {
-      "value": "20",
-      "name": "Brian & Tanya Ross"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 250.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Spring cleanup - debris and bed prep",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "4",
-            "name": "Spring Cleanup"
-          },
-          "UnitPrice": 250.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 170.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Mulch installation - 2 yards",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "5",
-            "name": "Mulch Installation"
-          },
-          "UnitPrice": 85.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Amount": 420.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 420.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "bross@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-04-10T09:00:00-04:00",
-      "LastUpdatedTime": "2025-04-25T11:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1025",
-    "DocNumber": "1025",
-    "TxnDate": "2025-04-12",
-    "DueDate": "2025-05-12",
-    "CustomerRef": {
-      "value": "1",
-      "name": "Mark Thompson"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 300.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Weekly mowing - April (4 visits)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 300.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 300.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "mark.thompson@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-04-12T08:00:00-04:00",
-      "LastUpdatedTime": "2025-04-28T10:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1026",
-    "DocNumber": "1026",
-    "TxnDate": "2025-04-14",
-    "DueDate": "2025-05-14",
-    "CustomerRef": {
-      "value": "21",
-      "name": "Heritage Square Shopping"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 450.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Parking lot island maintenance - mowing and edging",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 150.0,
-          "Qty": 3
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 340.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Mulch refresh - parking islands (4 yards)",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "5",
-            "name": "Mulch Installation"
-          },
-          "UnitPrice": 85.0,
-          "Qty": 4
-        }
-      },
-      {
-        "Amount": 790.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 790.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "property@heritagesq.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-04-14T11:00:00-04:00",
-      "LastUpdatedTime": "2025-04-28T15:00:00-04:00"
-    },
-    "SyncToken": "1"
-  },
-  {
-    "Id": "1027",
-    "DocNumber": "1027",
-    "TxnDate": "2025-04-15",
-    "DueDate": "2025-05-15",
-    "CustomerRef": {
-      "value": "22",
-      "name": "Nancy Wright"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 175.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Irrigation system spring check and adjustment",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "6",
-            "name": "Irrigation System Install"
-          },
-          "UnitPrice": 175.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 175.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 175.0,
-    "Balance": 175.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "nwright@gmail.com"
-    },
-    "Status": "Open",
-    "MetaData": {
-      "CreateTime": "2025-04-15T14:00:00-04:00",
-      "LastUpdatedTime": "2025-04-15T14:00:00-04:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1028",
-    "DocNumber": "1028",
-    "TxnDate": "2025-01-15",
-    "DueDate": "2025-02-14",
-    "CustomerRef": {
-      "value": "9",
-      "name": "Meridian Office Park"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 200.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Winter grounds check and debris removal",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "8",
-            "name": "Seasonal Cleanup"
-          },
-          "UnitPrice": 200.0,
-          "Qty": 1
-        }
-      },
-      {
-        "Amount": 200.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 200.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "facilities@meridianoffice.com"
-    },
-    "Status": "Voided",
-    "MetaData": {
-      "CreateTime": "2025-01-15T09:00:00-05:00",
-      "LastUpdatedTime": "2025-01-20T10:00:00-05:00"
-    },
-    "SyncToken": "2"
-  },
-  {
-    "Id": "1029",
-    "DocNumber": "1029",
-    "TxnDate": "2025-04-20",
-    "DueDate": "2025-05-20",
-    "CustomerRef": {
-      "value": "25",
-      "name": "Sandra Phillips"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 190.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Garden consultation - 2 hours",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "2",
-            "name": "Garden Design Consultation"
-          },
-          "UnitPrice": 95.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Id": "2",
-        "LineNum": 2,
-        "Amount": 255.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Seasonal planting - 3 beds",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "5",
-            "name": "Mulch Installation"
-          },
-          "UnitPrice": 85.0,
-          "Qty": 3
-        }
-      },
-      {
-        "Amount": 445.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 445.0,
-    "Balance": 445.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "sphillips@email.com"
-    },
-    "Status": "Open",
-    "MetaData": {
-      "CreateTime": "2025-04-20T10:00:00-04:00",
-      "LastUpdatedTime": "2025-04-20T10:00:00-04:00"
-    },
-    "SyncToken": "0"
-  },
-  {
-    "Id": "1030",
-    "DocNumber": "1030",
-    "TxnDate": "2025-02-01",
-    "DueDate": "2025-03-03",
-    "CustomerRef": {
-      "value": "24",
-      "name": "George Henderson"
-    },
-    "Line": [
-      {
-        "Id": "1",
-        "LineNum": 1,
-        "Amount": 150.0,
-        "DetailType": "SalesItemLineDetail",
-        "Description": "Bi-weekly mowing - February",
-        "SalesItemLineDetail": {
-          "ItemRef": {
-            "value": "1",
-            "name": "Weekly Lawn Mowing"
-          },
-          "UnitPrice": 75.0,
-          "Qty": 2
-        }
-      },
-      {
-        "Amount": 150.0,
-        "DetailType": "SubTotalLineDetail",
-        "SubTotalLineDetail": {}
-      }
-    ],
-    "TotalAmt": 150.0,
-    "Balance": 0.0,
-    "PrintStatus": "Printed",
-    "EmailStatus": "Sent",
-    "BillEmail": {
-      "Address": "ghenderson@email.com"
-    },
-    "Status": "Paid",
-    "MetaData": {
-      "CreateTime": "2025-02-01T08:30:00-05:00",
-      "LastUpdatedTime": "2025-02-28T10:00:00-05:00"
-    },
-    "SyncToken": "1"
-  },
-  {
     "Id": "5001",
     "DocNumber": "INV-2026-0301",
     "TxnDate": "2026-03-01",
@@ -1692,7 +132,7 @@
     "Line": [
       {
         "Amount": 5415.0,
-        "Description": "Monthly Membership - March 2026 (57 members \u00d7 $95)",
+        "Description": "Monthly Membership - March 2026 (57 members × $95)",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Membership Income"
@@ -1716,7 +156,7 @@
     "Line": [
       {
         "Amount": 80.0,
-        "Description": "Drop-in fees collected - first half March (4 sessions \u00d7 $20)",
+        "Description": "Drop-in fees collected - first half March (4 sessions × $20)",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Drop-in Fees"
@@ -1740,7 +180,7 @@
     "Line": [
       {
         "Amount": 60.0,
-        "Description": "Drop-in fees collected - second half March (3 sessions \u00d7 $20)",
+        "Description": "Drop-in fees collected - second half March (3 sessions × $20)",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Drop-in Fees"
@@ -2008,7 +448,7 @@
     "Line": [
       {
         "Amount": 5035.0,
-        "Description": "Monthly Membership - April 2026 (53 members \u00d7 $95)",
+        "Description": "Monthly Membership - April 2026 (53 members × $95)",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Membership Income"
@@ -2032,7 +472,7 @@
     "Line": [
       {
         "Amount": 100.0,
-        "Description": "Drop-in fees collected - April week 1 (5 sessions \u00d7 $20)",
+        "Description": "Drop-in fees collected - April week 1 (5 sessions × $20)",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Drop-in Fees"
@@ -2056,7 +496,7 @@
     "Line": [
       {
         "Amount": 1200.0,
-        "Description": "Tournament registration fees - 40 competitors \u00d7 $30",
+        "Description": "Tournament registration fees - 40 competitors × $30",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Tournament Revenue"
@@ -2065,7 +505,7 @@
       },
       {
         "Amount": 360.0,
-        "Description": "Spectator entry - 72 \u00d7 $5",
+        "Description": "Spectator entry - 72 × $5",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Tournament Revenue"
@@ -2090,7 +530,7 @@
     "Line": [
       {
         "Amount": 60.0,
-        "Description": "Drop-in fees collected - April weeks 3-4 (3 sessions \u00d7 $20)",
+        "Description": "Drop-in fees collected - April weeks 3-4 (3 sessions × $20)",
         "SalesItemLineDetail": {
           "ItemRef": {
             "name": "Drop-in Fees"
@@ -2101,5 +541,173 @@
     "TotalAmt": 60.0,
     "Balance": 0,
     "Status": "Paid"
+  },
+  {
+    "Id": "1201",
+    "DocNumber": "ISC-2024-009",
+    "TxnDate": "2024-04-10",
+    "DueDate": "2024-04-20",
+    "CustomerRef": {
+      "value": "203",
+      "name": "Marcus Webb"
+    },
+    "TotalAmt": 1800000.0,
+    "Balance": 1800000.0,
+    "Line": [
+      {
+        "Description": "Penetration Testing - TechVault Portal",
+        "Amount": 600000.0
+      },
+      {
+        "Description": "Infrastructure Security Audit",
+        "Amount": 480000.0
+      },
+      {
+        "Description": "API Vulnerability Assessment",
+        "Amount": 360000.0
+      },
+      {
+        "Description": "Security Policy Documentation",
+        "Amount": 240000.0
+      },
+      {
+        "Description": "Client Handoff Walkthrough",
+        "Amount": 120000.0
+      }
+    ],
+    "EmailStatus": "Sent",
+    "BillEmail": {
+      "Address": "mwebb@techvault.io"
+    },
+    "MetaData": {
+      "CreateTime": "2024-04-10T10:00:00"
+    },
+    "Status": "Unpaid"
+  },
+  {
+    "Id": "1401",
+    "DocNumber": "BAR-1101",
+    "TxnDate": "2025-04-18",
+    "DueDate": "2025-04-18",
+    "CustomerRef": {
+      "value": "301",
+      "name": "Bar Walk-In"
+    },
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 54.0,
+        "DetailType": "SalesItemLineDetail",
+        "Description": "Buffalo Trace pours",
+        "SalesItemLineDetail": {
+          "ItemRef": {
+            "value": "401",
+            "name": "Buffalo Trace"
+          },
+          "UnitPrice": 18.0,
+          "Qty": 3
+        }
+      },
+      {
+        "Amount": 54.0,
+        "DetailType": "SubTotalLineDetail",
+        "SubTotalLineDetail": {}
+      }
+    ],
+    "TotalAmt": 54.0,
+    "Balance": 0.0,
+    "PrintStatus": "NotSet",
+    "EmailStatus": "NotSet",
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2025-04-18T20:15:00-04:00",
+      "LastUpdatedTime": "2025-04-18T20:15:00-04:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "1402",
+    "DocNumber": "BAR-1102",
+    "TxnDate": "2025-04-18",
+    "DueDate": "2025-04-18",
+    "CustomerRef": {
+      "value": "301",
+      "name": "Bar Walk-In"
+    },
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 36.0,
+        "DetailType": "SalesItemLineDetail",
+        "Description": "Maker's Mark pours",
+        "SalesItemLineDetail": {
+          "ItemRef": {
+            "value": "402",
+            "name": "Maker's Mark"
+          },
+          "UnitPrice": 18.0,
+          "Qty": 2
+        }
+      },
+      {
+        "Amount": 36.0,
+        "DetailType": "SubTotalLineDetail",
+        "SubTotalLineDetail": {}
+      }
+    ],
+    "TotalAmt": 36.0,
+    "Balance": 0.0,
+    "PrintStatus": "NotSet",
+    "EmailStatus": "NotSet",
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2025-04-18T21:05:00-04:00",
+      "LastUpdatedTime": "2025-04-18T21:05:00-04:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "1403",
+    "DocNumber": "BAR-1103",
+    "TxnDate": "2025-04-19",
+    "DueDate": "2025-04-19",
+    "CustomerRef": {
+      "value": "301",
+      "name": "Bar Walk-In"
+    },
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 44.0,
+        "DetailType": "SalesItemLineDetail",
+        "Description": "Olmeca Silver Tequila pours",
+        "SalesItemLineDetail": {
+          "ItemRef": {
+            "value": "405",
+            "name": "Olmeca Silver Tequila"
+          },
+          "UnitPrice": 22.0,
+          "Qty": 2
+        }
+      },
+      {
+        "Amount": 44.0,
+        "DetailType": "SubTotalLineDetail",
+        "SubTotalLineDetail": {}
+      }
+    ],
+    "TotalAmt": 44.0,
+    "Balance": 0.0,
+    "PrintStatus": "NotSet",
+    "EmailStatus": "NotSet",
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2025-04-19T19:45:00-04:00",
+      "LastUpdatedTime": "2025-04-19T19:45:00-04:00"
+    },
+    "SyncToken": "1"
   }
 ]

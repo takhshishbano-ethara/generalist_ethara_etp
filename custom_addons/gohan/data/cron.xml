@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="seq_gohan_job" model="ir.sequence">
+        <field name="name">Gohan Task</field>
+        <field name="code">gohan.job</field>
+        <field name="prefix">LEV-</field>
+        <field name="padding">5</field>
+    </record>
+
+    <record id="ir_cron_gohan_watchdog" model="ir.cron">
+        <field name="name">Gohan: Watchdog Stuck Tasks</field>
+        <field name="model_id" ref="model_gohan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_watchdog_stuck_jobs()</field>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <!--
+        Spec-mandated reconciler (HANDOFF_ODOO.md §4.6).
+        Catches runs whose Lambda completed but whose webhook never
+        delivered (network failure, signature mismatch, etc.) by probing
+        S3 for the completion artifacts. Runs every 10 min on jobs whose
+        started_at is older than 30 min.
+    -->
+    <record id="cron_reconcile_runs" model="ir.cron">
+        <field name="name">Gohan: Reconcile Orphaned Runs</field>
+        <field name="model_id" ref="model_gohan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._reconcile_orphaned_runs()</field>
+        <field name="interval_number">10</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

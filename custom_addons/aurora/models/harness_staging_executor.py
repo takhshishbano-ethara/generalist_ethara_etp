@@ -195,26 +195,7 @@ def _run_staging_test(db_name, uid, rec_id):
         # which silently returns [] on relative paths when worker thread CWD
         # doesn't match the expected root. Force-resolve before passing in.
         dataset_path_abs = os.path.abspath(dataset_path)
-        patch_path = os.path.abspath(os.path.join(test_output_dir, "patches.jsonl"))
-        with open(dataset_path_abs, "r", encoding="utf-8") as f_in, \
-             open(patch_path, "w", encoding="utf-8") as f_out:
-            for line in f_in:
-                line = line.strip()
-                if not line:
-                    continue
-                entry = json.loads(line)
-                if entry.get("org") == org and entry.get("repo") == repo:
-                    from odoo.addons.aurora.models.evaluation import AuroraEvaluation
-                    number = AuroraEvaluation._resolve_entry_number(entry)
-                    if number is None:
-                        continue
-                    patch_entry = {
-                        "org": entry["org"],
-                        "repo": entry["repo"],
-                        "number": number,
-                        "fix_patch": entry.get("fix_patch", ""),
-                    }
-                    f_out.write(json.dumps(patch_entry, ensure_ascii=False) + "\n")
+        patch_path = dataset_path_abs
 
         _append_test_log(cr, rec_id, "Building EvalConfig for mini-evaluation...")
         cr.commit()

@@ -1,0 +1,100 @@
+<odoo>
+  <data>
+
+    <!-- ============ Generation Log Views ============ -->
+
+    <record model="ir.ui.view" id="skoll_generation_list">
+      <field name="name">skoll.generation.list</field>
+      <field name="model">skoll.generation</field>
+      <field name="arch" type="xml">
+        <list default_order="create_date desc">
+          <field name="create_date" string="Date"/>
+          <field name="call_type" widget="badge"
+                 decoration-info="call_type == 'generate'"
+                 decoration-warning="call_type == 'qc'"
+                 decoration-success="call_type == 'improve'"/>
+          <field name="task_ref"/>
+          <field name="user_id"/>
+          <field name="persona_id" optional="hide"/>
+          <field name="input_tokens" sum="Total Input"/>
+          <field name="output_tokens" sum="Total Output"/>
+          <field name="total_tokens" sum="Total"/>
+          <field name="total_cost" sum="Total Cost ($)" widget="float" digits="[12,4]"/>
+          <field name="duration_s" optional="hide"/>
+          <field name="status" widget="badge"
+                 decoration-success="status == 'success'"
+                 decoration-danger="status == 'error'"/>
+          <field name="model_arn" optional="hide"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="skoll_generation_form">
+      <field name="name">skoll.generation.form</field>
+      <field name="model">skoll.generation</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <group>
+              <group string="Generation Info">
+                <field name="call_type"/>
+                <field name="task_id"/>
+                <field name="task_ref"/>
+                <field name="user_id"/>
+                <field name="persona_id"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'success'"
+                       decoration-danger="status == 'error'"/>
+                <field name="model_arn"/>
+                <field name="duration_s"/>
+              </group>
+              <group string="Token Usage &amp; Cost">
+                <field name="input_tokens"/>
+                <field name="output_tokens"/>
+                <field name="total_tokens"/>
+                <field name="input_cost"/>
+                <field name="output_cost"/>
+                <field name="total_cost"/>
+              </group>
+            </group>
+            <group string="Error" invisible="status != 'error'">
+              <field name="error_message" nolabel="1"/>
+            </group>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="skoll_generation_search">
+      <field name="name">skoll.generation.search</field>
+      <field name="model">skoll.generation</field>
+      <field name="arch" type="xml">
+        <search>
+          <field name="task_ref"/>
+          <field name="user_id"/>
+          <field name="persona_id"/>
+          <filter name="type_generate" string="Generate" domain="[('call_type', '=', 'generate')]"/>
+          <filter name="type_qc" string="QC" domain="[('call_type', '=', 'qc')]"/>
+          <filter name="type_improve" string="Improve" domain="[('call_type', '=', 'improve')]"/>
+          <separator/>
+          <filter name="success" string="Success" domain="[('status', '=', 'success')]"/>
+          <filter name="errors" string="Errors" domain="[('status', '=', 'error')]"/>
+          <group>
+            <filter name="group_user" string="User" context="{'group_by': 'user_id'}"/>
+            <filter name="group_task" string="Task" context="{'group_by': 'task_id'}"/>
+            <filter name="group_type" string="Type" context="{'group_by': 'call_type'}"/>
+            <filter name="group_status" string="Status" context="{'group_by': 'status'}"/>
+          </group>
+        </search>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="skoll_generation_action">
+      <field name="name">Golden Generation Logs</field>
+      <field name="res_model">skoll.generation</field>
+      <field name="view_mode">list,form</field>
+      <field name="search_view_id" ref="skoll_generation_search"/>
+    </record>
+
+  </data>
+</odoo>

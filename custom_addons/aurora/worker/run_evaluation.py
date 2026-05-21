@@ -9,6 +9,7 @@ report generation).  Every DB operation uses a short-lived cursor.
 SIGTERM triggers graceful stop between stages.
 """
 
+import base64
 import logging
 import os
 import signal
@@ -71,7 +72,24 @@ def _boot_odoo(db_name: str, conf_path: Optional[str] = None):
     from odoo.modules.registry import Registry
     registry = Registry(db_name)
     _logger.info("Odoo registry booted for db=%s", db_name)
+    _ensure_schema_compatible(registry, db_name)
     return registry
+
+
+def _ensure_schema_compatible(registry, db_name: str) -> None:
+    statements = (
+        "ALTER TABLE aurora_github_token "
+        "DROP CONSTRAINT IF EXISTS aurora_github_token_leased_by_run_id_fkey",
+        "ALTER TABLE aurora_evaluation "
+        "ADD COLUMN IF NOT EXISTS custom_jsonl_file BYTEA",
+    )
+    try:
+        with registry.cursor() as cr:
+            for sql in statements:
+                cr.execute(sql)
+        _logger.info("Self-heal: schema-compat DDL applied (idempotent)")
+    except Exception:
+        _logger.exception("Self-heal: schema-compat DDL failed; continuing")
 
 
 def _open_cursor(db_name: str):
@@ -159,7 +177,7 @@ def _setup_buildx_builder():
         ],
         capture_output=True,
         text=True,
-        timeout=60,
+        timeout=300,
     )
     if result.returncode != 0:
         _logger.warning(
@@ -175,9 +193,12 @@ def _setup_buildx_builder():
 _ALLOWED_EVAL_COLUMNS = frozenset({
     "stage", "build_status", "run_status", "report_status",
     "total_instances", "resolved_instances", "unresolved_instances", "error_instances",
-    "final_report_file", "dataset_jsonl_url", "missing_registries", "patch_file", "repo_dir", "workdir",
+    "final_report_file", "dataset_jsonl_url", "missing_registries", "base_fallback_prs", "patch_file", "repo_dir", "workdir",
     "output_dir", "last_heartbeat", "progress_text", "log", "s3_run_number",
     "base_dockerfile_content", "base_dockerfile_s3_uri",
+    # Tar-decision + ECR phase
+    "tar_decision_deadline", "oci_export_status",
+    "ecr_repository", "ecr_pushed_count", "ecr_manifest_s3_uri",
 })
 
 
@@ -243,7 +264,9 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         cur.execute(
             "SELECT dataset_file, patch_file, repo_dir, workdir, output_dir, "
             "force_build, max_workers_build, max_workers_run, docker_platform, "
-            "instance_limit, specific_prs, pipeline_id "
+            "instance_limit, specific_prs, pipeline_id, "
+            "tar_decision_window_minutes, staging_test_id, "
+            "dataset_source, custom_jsonl_file "
             "FROM aurora_evaluation WHERE id = %s",
             (rec_id,),
         )
@@ -263,6 +286,10 @@ def _read_eval_config(conn, rec_id: int) -> dict:
         "instance_limit": row[9] or 0,
         "specific_prs": row[10] or "",
         "pipeline_id": row[11],
+        "tar_decision_window_minutes": int(row[12] or 0),
+        "staging_test_id": row[13],
+        "dataset_source": row[14] or "pipeline",
+        "custom_jsonl_file": base64.b64decode(bytes(row[15])) if row[15] else None,
     }
 
 
@@ -325,47 +352,6 @@ def _resolve_entry_number(entry: dict) -> int | None:
         except (TypeError, ValueError):
             pass
     return None
-
-
-def _generate_patch_file(dataset_path: str, output_path: str) -> str:
-    """Regenerate patches.jsonl from dataset file.
-
-    The Odoo server generates this file locally but it's not available
-    inside the K8s pod. We regenerate it from the already-resolved dataset.
-    Returns the output path.
-    """
-    import json as _json
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    total_lines = 0
-    error_lines = 0
-    with open(dataset_path, "r", encoding="utf-8") as f_in, \
-         open(output_path, "w", encoding="utf-8") as f_out:
-        for line in f_in:
-            line = line.strip()
-            if not line:
-                continue
-            total_lines += 1
-            try:
-                entry = _json.loads(line)
-            except (ValueError, _json.JSONDecodeError) as e:
-                error_lines += 1
-                _logger.warning("Skipping corrupt dataset line %d: %s", total_lines, e)
-                continue
-            number = _resolve_entry_number(entry)
-            if number is None:
-                continue
-            patch_entry = {
-                "org": entry.get("org", ""),
-                "repo": entry.get("repo", ""),
-                "number": number,
-                "fix_patch": entry.get("fix_patch", ""),
-            }
-            f_out.write(_json.dumps(patch_entry, ensure_ascii=False) + "\n")
-    if total_lines > 0 and error_lines / total_lines > 0.5:
-        raise RuntimeError(
-            f"Dataset appears corrupted: {error_lines}/{total_lines} lines failed to parse"
-        )
-    return output_path
 
 
 def _safe_collect(conn, rec_id: int, phase_label: str, fn):
@@ -480,6 +466,7 @@ def run_evaluation(db_name: str, rec_id: int):
     tokens = None
     git_askpass_script = None
     pipeline_id = None
+    lease_key = None
 
     try:
         _heartbeat(conn, rec_id, "Initializing evaluation worker")
@@ -494,6 +481,28 @@ def run_evaluation(db_name: str, rec_id: int):
         cfg = _read_eval_config(conn, rec_id)
         _append_log(conn, rec_id, f"Config loaded: workdir={cfg['workdir']}")
 
+        # ── Multi-arch + ECR preflight (skipped for test-evals) ───────────
+        if not cfg.get("staging_test_id"):
+            platform_val = (cfg.get("docker_platform") or "").strip()
+            if "," not in platform_val:
+                msg = (
+                    f"Multi-arch is mandatory for full evaluations. "
+                    f"docker_platform must be comma-separated (e.g. "
+                    f"'linux/amd64,linux/arm64'). Got: {platform_val!r}"
+                )
+                _fail_eval(conn, rec_id, msg)
+                raise RuntimeError(msg)
+            import shutil as _shutil
+            if not _shutil.which("skopeo"):
+                msg = "skopeo not found in worker image; required for ECR push phase."
+                _fail_eval(conn, rec_id, msg)
+                raise RuntimeError(msg)
+            if not _shutil.which("aws"):
+                _logger.warning(
+                    "`aws` CLI not found in worker image — ECR auth token retrieval "
+                    "will fail. ECR push phase will surface this if invoked."
+                )
+
         if cfg.get("docker_platform"):
             _setup_buildx_builder()
             _append_log(conn, rec_id, f"Buildx multi-arch builder ready (platform={cfg['docker_platform']}).")
@@ -504,12 +513,9 @@ def run_evaluation(db_name: str, rec_id: int):
                 Path(cfg[dir_key]).mkdir(parents=True, exist_ok=True)
 
         # Lease tokens from the pool (same lifecycle as Phase 1 worker)
-        # Use pipeline_id as the lease key (FK references aurora_pipeline)
         pipeline_id = cfg.get("pipeline_id")
-        if not pipeline_id:
-            _fail_eval(conn, rec_id, "Evaluation has no linked pipeline_id; cannot lease tokens.")
-            return
-        tokens = _lease_tokens(db_name, pipeline_id, count=1)
+        lease_key = pipeline_id if pipeline_id else rec_id
+        tokens = _lease_tokens(db_name, lease_key, count=1)
         if not tokens:
             _fail_eval(conn, rec_id, "No GitHub tokens available in the pool.")
             return
@@ -528,31 +534,44 @@ def run_evaluation(db_name: str, rec_id: int):
             dataset_file = dataset_resolver.resolve_to_local(conn, dataset_file)
             _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
         elif not os.path.isfile(dataset_file):
-            # Local path from server doesn't exist in pod — fetch original S3 URL from pipeline
-            original_url = None
-            if pipeline_id:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT step6_file FROM aurora_pipeline WHERE id = %s",
-                        (pipeline_id,),
-                    )
-                    prow = cur.fetchone()
-                    if prow and prow[0] and dataset_resolver.is_remote(prow[0]):
-                        original_url = prow[0]
-            if original_url:
-                _append_log(conn, rec_id, f"Dataset local path missing, downloading from pipeline S3: {original_url}")
-                dataset_file = dataset_resolver.resolve_to_local(conn, original_url)
-                _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+            if cfg.get("dataset_source") == "custom":
+                raw = cfg.get("custom_jsonl_file")
+                if raw:
+                    Path(dataset_file).parent.mkdir(parents=True, exist_ok=True)
+                    with open(dataset_file, "wb") as fh:
+                        fh.write(raw)
+                    _append_log(conn, rec_id, f"Custom dataset written to disk: {dataset_file}")
+                else:
+                    _fail_eval(conn, rec_id, "Custom dataset data missing from evaluation record.")
+                    return
             else:
-                _fail_eval(conn, rec_id, f"Dataset file not found and no remote source available: {dataset_file}")
-                return
+                original_url = None
+                if pipeline_id:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            "SELECT step6_file FROM aurora_pipeline WHERE id = %s",
+                            (pipeline_id,),
+                        )
+                        prow = cur.fetchone()
+                        if prow and prow[0] and dataset_resolver.is_remote(prow[0]):
+                            original_url = prow[0]
+                if original_url:
+                    _append_log(conn, rec_id, f"Dataset local path missing, downloading from pipeline S3: {original_url}")
+                    dataset_file = dataset_resolver.resolve_to_local(conn, original_url)
+                    _append_log(conn, rec_id, f"Dataset cached locally: {dataset_file}")
+                else:
+                    _fail_eval(conn, rec_id, f"Dataset file not found and no remote source available: {dataset_file}")
+                    return
 
         # Regenerate patch file locally (server-generated file isn't in the pod)
         patch_file = cfg["patch_file"]
-        if patch_file and not os.path.isfile(patch_file):
-            _append_log(conn, rec_id, f"Patch file not found locally, regenerating from dataset...")
-            _generate_patch_file(dataset_file, patch_file)
-            _append_log(conn, rec_id, f"Patch file regenerated: {patch_file}")
+        if not patch_file or not os.path.isfile(patch_file):
+            patch_file = dataset_file
+            _append_log(
+                conn, rec_id,
+                "Using dataset file directly as patch source "
+                "(LHT records carry fix_patch — no separate patches.jsonl needed).",
+            )
 
         log_dir = Path(cfg["output_dir"]) / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -751,6 +770,29 @@ def run_evaluation(db_name: str, rec_id: int):
             raise
 
         try:
+            if patch_file and os.path.isfile(patch_file + ".fallback_summary.json"):
+                with open(patch_file + ".fallback_summary.json") as _fs:
+                    _fallback = json.load(_fs)
+                _prs = _fallback.get("base_fallback_prs") or []
+                if _prs:
+                    _pr_list = ", ".join(f"#{n}" for n in _prs[:20])
+                    if len(_prs) > 20:
+                        _pr_list += f", … (+{len(_prs) - 20} more)"
+                    _org = _fallback.get("org") or ""
+                    _repo = _fallback.get("repo") or ""
+                    _append_log(
+                        conn, rec_id,
+                        f"[notice] {_org}/{_repo}: "
+                        f"{len(_prs)} PR(s) had no matching interval and used base "
+                        f"harness {_repo}.py — verify deps match: {_pr_list}",
+                    )
+                    _update_eval(conn, rec_id, {
+                        "base_fallback_prs": f"{_org}/{_repo}: " + ", ".join(str(n) for n in _prs),
+                    })
+        except Exception as _fs_exc:
+            _logger.warning("Failed to surface fallback summary: %s", _fs_exc)
+
+        try:
             base_info = artifact_collector.populate_build_artifacts(
                 conn, rec_id, cfg["workdir"], eval_config.instances,
                 s3_config, use_s3, run_numbers, s3_folder, phase,
@@ -863,6 +905,91 @@ def run_evaluation(db_name: str, rec_id: int):
                 except Exception as exc:
                     _logger.warning("Failed to upload final_report.json: %s", exc)
 
+        # ── Tar-decision window + optional ECR push ───────────────────────
+        # Test-evals (staging_test_id set) skip this phase entirely so the
+        # Test Harness dry-run stays fast.
+        if (
+            not cfg.get("staging_test_id")
+            and int(cfg.get("tar_decision_window_minutes", 0) or 0) > 0
+        ):
+            from datetime import datetime, timedelta
+            window_min = int(cfg["tar_decision_window_minutes"])
+            deadline = datetime.utcnow() + timedelta(minutes=window_min)
+            _update_eval(conn, rec_id, {
+                "stage": "awaiting_tar_decision",
+                "tar_decision_deadline": deadline,
+                "oci_export_status": "idle",
+            })
+            _append_log(conn, rec_id,
+                f"Awaiting tar export decision (window: {window_min} min). "
+                f"Report: {final_report_url or '<see S3>'}. "
+                f"Click 'Export OCI Tars' or 'Skip' on the eval form."
+            )
+
+            decision = "skip"
+            poll_start = time.time()
+            while datetime.utcnow() < deadline:
+                _heartbeat(conn, rec_id, "Awaiting tar decision")
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT tar_decision FROM aurora_evaluation WHERE id = %s",
+                        (rec_id,),
+                    )
+                    row = cur.fetchone()
+                current = (row[0] if row else None) or "pending"
+                if current in ("export", "skip"):
+                    decision = current
+                    _append_log(conn, rec_id,
+                        f"Tar decision received: {decision} "
+                        f"(after {int(time.time() - poll_start)}s)."
+                    )
+                    break
+                _check_cancelled()
+                time.sleep(5)
+
+            if decision == "export":
+                _update_eval(conn, rec_id, {"oci_export_status": "running"})
+                _append_log(conn, rec_id, "Pushing resolved images to ECR...")
+                try:
+                    ecr_registry = os.environ.get("AURORA_ECR_REGISTRY", "").strip()
+                    ecr_region = os.environ.get("AURORA_ECR_REGION", "").strip()
+                    result = artifact_collector.push_resolved_images_to_ecr(
+                        conn, rec_id,
+                        workdir=cfg["workdir"],
+                        output_dir=cfg["output_dir"],
+                        instances=eval_config.instances,
+                        run_numbers=run_numbers,
+                        ecr_registry=ecr_registry,
+                        ecr_region=ecr_region,
+                        s3_config=s3_config, use_s3=use_s3,
+                        s3_folder=s3_folder, phase=phase,
+                    )
+                    final_status = "failed" if result.get("ecr_all_failed") else "done"
+                    _update_eval(conn, rec_id, {
+                        "oci_export_status": final_status,
+                        "ecr_repository": result.get("ecr_repository") or "",
+                        "ecr_pushed_count": result.get("ecr_pushed_count") or 0,
+                        "ecr_manifest_s3_uri": result.get("ecr_manifest_s3_uri") or "",
+                    })
+                    if final_status == "failed":
+                        _append_log(conn, rec_id,
+                            f"ECR push FAILED: 0 of the resolved instances pushed "
+                            f"successfully. See per-instance errors above."
+                        )
+                    else:
+                        _append_log(conn, rec_id,
+                            f"ECR push complete: {result.get('ecr_pushed_count')} image(s) pushed "
+                            f"to {result.get('ecr_repository')}."
+                        )
+                except Exception as exc:
+                    _update_eval(conn, rec_id, {"oci_export_status": "failed"})
+                    _append_log(conn, rec_id, f"ECR push failed: {exc}")
+                    _logger.exception("ECR push failed for eval=%s", rec_id)
+            else:
+                _update_eval(conn, rec_id, {"oci_export_status": "skipped"})
+                reason = decision if decision == "skip" else "timeout"
+                _append_log(conn, rec_id, f"ECR push skipped ({reason}).")
+
         # ── Finalize ──────────────────────────────────────────────────────
         final_report_path = Path(cfg["output_dir"]) / "final_report.json"
         total = resolved = unresolved = errors = 0
@@ -888,6 +1015,46 @@ def run_evaluation(db_name: str, rec_id: int):
             "dataset_jsonl_url": dataset_jsonl_url,
         })
         _append_log(conn, rec_id, f"Evaluation complete: {resolved}/{total} resolved.")
+
+        try:
+            from odoo import api, SUPERUSER_ID
+            from odoo.modules.registry import Registry as _Registry
+            from odoo.addons.aurora.models import done_repo_sync
+            _registry = _Registry(db_name)
+            with _registry.cursor() as _cr:
+                _env = api.Environment(_cr, SUPERUSER_ID, {})
+                repo_full, branch, token = done_repo_sync.get_config(_env)
+            seen = set()
+            appended = []
+            for inst in eval_config.instances:
+                key = (inst.pr.org.lower(), inst.pr.repo.lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                try:
+                    if done_repo_sync.append_done_repo(
+                        token, repo_full, branch,
+                        inst.pr.org, inst.pr.repo,
+                        commit_suffix=f"eval={rec_id}",
+                    ):
+                        appended.append(f"{inst.pr.org}/{inst.pr.repo}")
+                except Exception as inst_exc:
+                    _logger.warning(
+                        "done_repo append failed for %s/%s: %s",
+                        inst.pr.org, inst.pr.repo, inst_exc,
+                    )
+            if appended:
+                _append_log(
+                    conn, rec_id,
+                    f"auroraScraping done_repo.txt updated: {', '.join(appended)}",
+                )
+        except Exception as exc:
+            _logger.warning("done_repo sync hook failed (non-fatal): %s", exc)
+            try:
+                _append_log(conn, rec_id, f"[warn] done_repo sync failed: {exc}")
+            except Exception:
+                pass
+
         _logger.info("Evaluation %s complete: %d/%d resolved", rec_id, resolved, total)
 
     except EvalCancelled:
@@ -905,7 +1072,7 @@ def run_evaluation(db_name: str, rec_id: int):
         heartbeat_stop.set()
         _cleanup_git_auth(git_askpass_script)
         if tokens:
-            _release_tokens(db_name, pipeline_id)
+            _release_tokens(db_name, lease_key)
         try:
             conn.close()
         except Exception:

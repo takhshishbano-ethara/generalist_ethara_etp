@@ -44,7 +44,7 @@ class TaskForgeAnalyticsController(http.Controller):
             ])
 
             # Live projects
-            live_projects = Project.search_count([('task_forge_status', '=', 'live')])
+            live_projects = Project.search_count(Project._task_forge_live_domain())
 
             # Average AHT
             tasks_with_time = TaskLog.search([
@@ -188,7 +188,9 @@ class TaskForgeAnalyticsController(http.Controller):
             tasker_group = request.env.ref('etp_user_roles.group_tasker')
             active_taskers = Employee.search([
                 ('task_forge_active', '=', True),
-                ('user_id.groups_id', 'in', [tasker_group.id]),
+                # Odoo 19: res.users.groups_id → all_group_ids for the
+                # full (implied-inclusive) membership set.
+                ('user_id.all_group_ids', 'in', [tasker_group.id]),
             ])
 
             inactive = []

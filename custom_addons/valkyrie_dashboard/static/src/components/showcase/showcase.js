@@ -5,7 +5,8 @@ import { useService } from "@web/core/utils/hooks";
 import { Component, useState, onWillStart } from "@odoo/owl";
 
 const DEFAULT_GITHUB_URL =
-    "https://github.com/Ethara-Ai/Valkyrie";
+//    "https://github.com/Ethara-Ai/swefficiency-Kraken";
+    "https://github.com/Ethara-Ai/valkyrie";
 const DEFAULT_DATASET_URL =
     "https://huggingface.co/datasets/ethara/Valkyrie";
 

@@ -27,6 +27,7 @@ def run_qc(
     access_key_id: str = None,
     secret_access_key: str = None,
     qc_system_prompt: str = "",
+    screenshot_blocks: list = None,
 ) -> dict:
     """Run QC: structural checks + LLM alignment review.
 
@@ -60,6 +61,7 @@ def run_qc(
         access_key_id=access_key_id,
         secret_access_key=secret_access_key,
         qc_system_prompt=qc_system_prompt,
+        screenshot_blocks=screenshot_blocks,
     )
 
     # Combine results
@@ -108,11 +110,11 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
     word_count = len(words)
 
     # Word count bounds
-    if word_count > 3500:
+    if word_count > 5000:
         issues.append({
             "severity": "critical",
             "code": "S-WORDCOUNT",
-            "message": f"PRD exceeds 3,500 words ({word_count}). Platform hard cap.",
+            "message": f"PRD exceeds 5,000 words ({word_count}). Platform hard cap.",
         })
     elif word_count < 800:
         issues.append({
@@ -120,20 +122,21 @@ def _run_structural_checks(prd_text: str, category: str) -> list:
             "code": "S-WORDCOUNT",
             "message": f"PRD below 800 words ({word_count}). Insufficient depth.",
         })
-    elif word_count < 2800:
+    elif word_count < 4000:
         issues.append({
             "severity": "medium",
             "code": "S-WORDCOUNT",
-            "message": f"PRD below target range ({word_count}/2800-3500).",
+            "message": f"PRD below target range ({word_count}/4000-5000).",
         })
 
-    # Markdown tables (H16 in QC rubric)
+    # Markdown tables — allowed (scoring rewards structured formatting)
+    # Downgraded from HIGH to informational; no longer triggers not_shippable.
     table_lines = re.findall(r"^\|.*\|.*\|", prd_text, re.MULTILINE)
     if len(table_lines) >= 2:
         issues.append({
-            "severity": "high",
+            "severity": "low",
             "code": "S-TABLES",
-            "message": f"Markdown tables found ({len(table_lines)} lines). Use bullet lists instead.",
+            "message": f"Markdown tables found ({len(table_lines)} lines). Acceptable if well-structured.",
         })
 
     # Non-keyboard characters (H15)
@@ -277,6 +280,7 @@ def _run_llm_alignment_check(
     access_key_id: str = None,
     secret_access_key: str = None,
     qc_system_prompt: str = "",
+    screenshot_blocks: list = None,
 ) -> dict:
     """Call Bedrock to check PRD vs extraction data alignment."""
     from .bedrock_service import generate_prd as _call_bedrock
@@ -296,12 +300,16 @@ def _run_llm_alignment_check(
         f"{extraction_summary}"
     )
 
+    # Build content blocks: screenshots (if available) + text
+    content_blocks = list(screenshot_blocks or [])
+    content_blocks.append({"text": user_message})
+
     try:
         response = _call_bedrock(
             inference_arn=inference_arn,
             region=region,
             system_prompt=effective_prompt,
-            messages=[{"role": "user", "content": user_message}],
+            messages=[{"role": "user", "content": content_blocks}],
             access_key_id=access_key_id,
             secret_access_key=secret_access_key,
         )

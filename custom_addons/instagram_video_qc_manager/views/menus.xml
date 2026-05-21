@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_root_video_qc"
+              name="Video QC"
+              web_icon="instagram_video_qc_manager,static/description/icon.png"
+              sequence="40"/>
+
+    <menuitem id="menu_video_qc_dashboard"
+              name="Dashboard"
+              parent="menu_root_video_qc"
+              action="action_video_dashboard"
+              sequence="5"/>
+
+    <menuitem id="menu_video_qc_tasks_root"
+              name="Tasks"
+              parent="menu_root_video_qc"
+              sequence="10"/>
+
+    <menuitem id="menu_video_qc_tasks"
+              name="All Tasks"
+              parent="menu_video_qc_tasks_root"
+              action="action_video_task"
+              sequence="10"/>
+
+    <menuitem id="menu_video_qc_versions"
+              name="All Versions"
+              parent="menu_video_qc_tasks_root"
+              action="action_video_task_version"
+              sequence="20"/>
+
+    <menuitem id="menu_video_qc_queue_root"
+              name="QC"
+              parent="menu_root_video_qc"
+              sequence="20"/>
+
+    <menuitem id="menu_video_qc_queue"
+              name="QC Queue"
+              parent="menu_video_qc_queue_root"
+              action="action_video_qc_queue"
+              sequence="10"/>
+
+    <menuitem id="menu_video_qc_logs_root"
+              name="Operations"
+              parent="menu_root_video_qc"
+              sequence="30"
+              groups="instagram_video_qc_manager.group_video_manager"/>
+
+    <menuitem id="menu_video_qc_edit_history"
+              name="Edit History"
+              parent="menu_video_qc_logs_root"
+              action="action_video_task_edit_history"
+              sequence="10"/>
+
+    <menuitem id="menu_video_qc_processing_logs"
+              name="Processing Logs"
+              parent="menu_video_qc_logs_root"
+              action="action_video_task_processing_log"
+              sequence="20"/>
+
+</odoo>

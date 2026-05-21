@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!--
+            Vegeta categories - 16 buildable-PRD verticals.
+            Display names and snake_case technical_keys match the canonical
+            list in /etp/vegeta/lambda_extraction/config.py (VEGETA_CATEGORIES).
+            "gated" marks login-gated SaaS verticals where scrape_coverage
+            defaults to marketing_only and Sections 3-7,9,10 of the PRD are
+            predominantly Tier-3 inference from the named reference brands.
+        -->
+
+        <record id="category_public_utility" model="vegeta.category">
+            <field name="name">Public Utility</field>
+            <field name="technical_key">public_utility</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">account, service, bill/invoice, payment, application/request, document</field>
+            <field name="core_flows">account lookup and linking, view and pay a bill, submit an application, track request status</field>
+            <field name="defining_mechanic">citizen self-service with accessibility as a legal floor, multilingual, low-bandwidth fallbacks</field>
+            <field name="signature_routes">/account, /bills, /pay, /apply, /status, /documents</field>
+            <field name="reference_brands">PG&amp;E, Con Edison, National Grid</field>
+        </record>
+
+        <record id="category_news" model="vegeta.category">
+            <field name="name">News</field>
+            <field name="technical_key">news</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">article (workflow status + revisions), section/topic, author, homepage layout, subscription, comment</field>
+            <field name="core_flows">browse by section, search, hit the metered paywall and subscribe, editorial publish workflow, breaking-news realtime</field>
+            <field name="defining_mechanic">editorial CMS plus metered access plus ad slots</field>
+            <field name="signature_routes">/, /section/*, /article/*, /author/*, /subscribe, /account</field>
+            <field name="reference_brands">The New York Times, The Guardian, The Washington Post</field>
+        </record>
+
+        <record id="category_publishing" model="vegeta.category">
+            <field name="name">Publishing</field>
+            <field name="technical_key">publishing</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">post (draft/scheduled/published/archived), author, publication, subscriber, newsletter issue</field>
+            <field name="core_flows">write in a rich editor, schedule and publish, manage subscribers, send a newsletter, reader subscribes to a tier</field>
+            <field name="defining_mechanic">author workspace plus subscription tiers plus email/RSS distribution</field>
+            <field name="signature_routes">/dashboard, /editor, /subscribers, /publish, /p/* or /post/*</field>
+            <field name="reference_brands">Substack, Ghost, Medium</field>
+        </record>
+
+        <record id="category_retail" model="vegeta.category">
+            <field name="name">Retail</field>
+            <field name="technical_key">retail</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">product, variant, cart, order, customer, inventory, return, payment</field>
+            <field name="core_flows">browse and filter the catalog, product detail, add to cart, checkout and pay, track an order, request a return</field>
+            <field name="defining_mechanic">catalog plus checkout plus order lifecycle plus inventory</field>
+            <field name="signature_routes">/, /shop, /product/*, /cart, /checkout, /orders, /returns, /account</field>
+            <field name="reference_brands">Shopify storefronts, Amazon, Allbirds</field>
+        </record>
+
+        <record id="category_services" model="vegeta.category">
+            <field name="name">Services</field>
+            <field name="technical_key">services</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">provider, service, availability slot, appointment, customer, review</field>
+            <field name="core_flows">search and compare providers, view availability, book an appointment, reschedule or cancel, reminders and no-show handling</field>
+            <field name="defining_mechanic">directory plus booking calendar plus appointment lifecycle</field>
+            <field name="signature_routes">/, /search, /provider/*, /book, /appointments, /reviews</field>
+            <field name="reference_brands">Booksy, Zocdoc, Calendly</field>
+        </record>
+
+        <record id="category_erp" model="vegeta.category">
+            <field name="name">ERP</field>
+            <field name="technical_key">erp</field>
+            <field name="gated" eval="True"/>
+            <field name="core_entities">org unit, project, document, KPI/metric, task, integration</field>
+            <field name="core_flows">navigate the multi-module shell, manage a project, edit a doc, view KPI dashboards, run batch operations, configure integrations</field>
+            <field name="defining_mechanic">multi-module shell plus org hierarchy plus granular RBAC plus audit trail</field>
+            <field name="signature_routes">/dashboard, /projects, /documents, /metrics, /settings, /integrations, /admin</field>
+            <field name="reference_brands">NetSuite, SAP S/4HANA, Odoo</field>
+        </record>
+
+        <record id="category_knowledge" model="vegeta.category">
+            <field name="name">Knowledge</field>
+            <field name="technical_key">knowledge</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">course, lesson, enrollment, quiz, question, attempt, certificate</field>
+            <field name="core_flows">browse and enroll, take a lesson, track progress, take a graded quiz, earn a certificate, instructor authoring</field>
+            <field name="defining_mechanic">course/lesson model plus progress tracking plus grading</field>
+            <field name="signature_routes">/, /courses, /course/*, /lesson/*, /quiz/*, /dashboard, /certificates</field>
+            <field name="reference_brands">Coursera, Udemy, Khan Academy</field>
+        </record>
+
+        <record id="category_procurement" model="vegeta.category">
+            <field name="name">Procurement</field>
+            <field name="technical_key">procurement</field>
+            <field name="gated" eval="True"/>
+            <field name="core_entities">supplier, RFQ, bid, contract, approval, purchase order</field>
+            <field name="core_flows">discover suppliers, raise an RFQ, collect multi-party bids, run an approval chain, award and contract</field>
+            <field name="defining_mechanic">RFQ workflow plus multi-party bidding plus approval chains</field>
+            <field name="signature_routes">/suppliers, /rfqs, /rfq/*, /bids, /contracts, /approvals, /purchase-orders</field>
+            <field name="reference_brands">Coupa, SAP Ariba, GEP</field>
+        </record>
+
+        <record id="category_vertical_markets" model="vegeta.category">
+            <field name="name">Vertical Markets</field>
+            <field name="technical_key">vertical_markets</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">listing, host, guest, booking, review, payment, payout, message thread</field>
+            <field name="core_flows">search with map and filters, listing detail, book and pay, host listing management, host calendar and pricing, two-sided reviews</field>
+            <field name="defining_mechanic">two-sided marketplace plus booking lifecycle plus trust and payout mechanics</field>
+            <field name="signature_routes">/, /search, /listing/*, /book, /host, /host/calendar, /host/listings, /messages</field>
+            <field name="reference_brands">Airbnb, Vrbo, Booking.com</field>
+        </record>
+
+        <record id="category_hcm" model="vegeta.category">
+            <field name="name">HCM</field>
+            <field name="technical_key">hcm</field>
+            <field name="gated" eval="True"/>
+            <field name="core_entities">employee, org unit, time-off request, payroll record, onboarding task, approval</field>
+            <field name="core_flows">manage an employee record, view the org chart, request time-off through an approval chain, payroll views, run an onboarding workflow</field>
+            <field name="defining_mechanic">employee record plus approval chains plus onboarding workflows</field>
+            <field name="signature_routes">/employees, /employee/*, /org-chart, /time-off, /payroll, /onboarding, /approvals</field>
+            <field name="reference_brands">Workday, BambooHR, Rippling</field>
+        </record>
+
+        <record id="category_crm" model="vegeta.category">
+            <field name="name">CRM</field>
+            <field name="technical_key">crm</field>
+            <field name="gated" eval="True"/>
+            <field name="core_entities">contact, company, deal, pipeline stage, activity, sequence, report</field>
+            <field name="core_flows">work the pipeline, manage contacts and companies, log activities on a timeline, run sequences, view reports and dashboards</field>
+            <field name="defining_mechanic">relational contact/company/deal model plus pipeline plus activity timeline</field>
+            <field name="signature_routes">/contacts, /companies, /deals, /pipeline, /activities, /sequences, /reports</field>
+            <field name="reference_brands">Salesforce, HubSpot, Pipedrive</field>
+        </record>
+
+        <record id="category_gov_portal" model="vegeta.category">
+            <field name="name">Gov. Portal</field>
+            <field name="technical_key">gov_portal</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">citizen account, service request/case, form submission, document, identity verification, audit record</field>
+            <field name="core_flows">verify identity, submit a form-driven service request, upload documents, track case status, staff case processing</field>
+            <field name="defining_mechanic">form-driven service requests plus case tracking plus identity verification plus audit-grade logging</field>
+            <field name="signature_routes">/account, /verify, /services, /apply, /case/*, /documents, /staff</field>
+            <field name="reference_brands">GOV.UK, USA.gov, Estonia e-Residency</field>
+        </record>
+
+        <record id="category_community" model="vegeta.category">
+            <field name="name">Community</field>
+            <field name="technical_key">community</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">post, comment (threaded), vote, user/reputation, moderation action, notification</field>
+            <field name="core_flows">post and reply in threads, vote, build reputation, work a moderation queue, receive notifications</field>
+            <field name="defining_mechanic">threaded discussion plus voting and reputation plus moderation tooling</field>
+            <field name="signature_routes">/, /r/* or /c/*, /post/*, /user/*, /mod, /messages, /notifications</field>
+            <field name="reference_brands">Reddit, Hacker News, Discourse</field>
+        </record>
+
+        <record id="category_tms" model="vegeta.category">
+            <field name="name">TMS</field>
+            <field name="technical_key">tms</field>
+            <field name="gated" eval="True"/>
+            <field name="core_entities">workspace, project, task, board/view, assignee, due date, dependency, comment</field>
+            <field name="core_flows">create and assign tasks, switch views (kanban/list/calendar), set dependencies and due dates, collaborate via comments</field>
+            <field name="defining_mechanic">tasks and projects across multiple views plus assignees plus dependencies</field>
+            <field name="signature_routes">/workspace/*, /project/*, /task/*, /board, /list, /calendar, /timeline</field>
+            <field name="reference_brands">Asana, Linear, ClickUp</field>
+        </record>
+
+        <record id="category_multimedia" model="vegeta.category">
+            <field name="name">Multimedia</field>
+            <field name="technical_key">multimedia</field>
+            <field name="gated" eval="False"/>
+            <field name="core_entities">media asset, playlist, channel/creator, view history, recommendation, comment</field>
+            <field name="core_flows">browse and discover, play media, build playlists, view history, creator upload workspace</field>
+            <field name="defining_mechanic">media catalog plus player plus recommendations plus creator workspace</field>
+            <field name="signature_routes">/, /browse, /watch/*, /channel/*, /playlist/*, /history, /studio</field>
+            <field name="reference_brands">YouTube, Spotify, Twitch</field>
+        </record>
+
+        <record id="category_ai_platform" model="vegeta.category">
+            <field name="name">AI Platform</field>
+            <field name="technical_key">ai_platform</field>
+            <field name="gated" eval="True"/>
+            <field name="core_entities">model, playground session, API key, usage record (tokens/cost), rate-limit policy, project</field>
+            <field name="core_flows">browse the model catalog, run the playground with parameter controls, manage API keys, view usage dashboards with token and cost metering, set rate limits</field>
+            <field name="defining_mechanic">model catalog plus playground plus API keys plus usage and cost metering</field>
+            <field name="signature_routes">/models, /playground, /api-keys, /usage, /projects, /rate-limits, /docs</field>
+            <field name="reference_brands">OpenAI, Anthropic, Replicate</field>
+        </record>
+    </data>
+</odoo>

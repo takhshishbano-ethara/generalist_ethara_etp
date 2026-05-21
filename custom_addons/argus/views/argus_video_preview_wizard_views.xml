@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Modal-dialog form view for ``argus.video.preview.wizard``.
+
+        Rendered when the operator clicks the "Preview" icon next to
+        either the Input Video URL or the Output Video URL on the
+        Argus task form.  The wizard's ``preview_html`` field already
+        holds the built ``<iframe>`` markup pointing at Instagram's
+        official embed URL — the form just drops it on the page.
+
+        Sanitize note: see the docstring on
+        ``argus.video.preview.wizard`` — the field has
+        ``sanitize=False`` because the default Odoo Html sanitizer
+        strips ``<iframe>`` for XSS reasons.  Since we control the
+        markup locally (built from the validated shortcode), there's
+        no untrusted input to sanitize away.
+    -->
+    <record id="view_argus_video_preview_wizard_form" model="ir.ui.view">
+        <field name="name">argus.video.preview.wizard.form</field>
+        <field name="model">argus.video.preview.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Video Preview" class="o_argus_video_preview">
+                <sheet>
+                    <div class="oe_title">
+                        <h2><field name="title" readonly="1" nolabel="1"/></h2>
+                    </div>
+                    <field name="preview_html"
+                           widget="html"
+                           readonly="1"
+                           nolabel="1"
+                           options="{'safe': true}"/>
+                    <div class="text-muted small mt-3">
+                        <i class="fa fa-link me-1"/>
+                        <field name="video_url"
+                               widget="url"
+                               readonly="1"
+                               nolabel="1"/>
+                    </div>
+                </sheet>
+                <footer>
+                    <button string="Close"
+                            class="btn btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

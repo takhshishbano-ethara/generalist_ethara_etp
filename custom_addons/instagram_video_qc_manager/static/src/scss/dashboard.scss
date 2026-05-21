@@ -1,0 +1,291 @@
+/* Backend kanban + form polish for video QC */
+
+.o_video_qc_kanban,
+.o_video_qc_dashboard,
+.o_video_qc_queue {
+    .o_video_qc_card,
+    .o_dashboard_card,
+    .o_qc_card {
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+        transition: transform .15s ease, box-shadow .15s ease;
+        background: white;
+        &:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+        }
+    }
+    .o_video_qc_thumb,
+    .o_dashboard_thumb {
+        width: 100%; height: 140px;
+        background: linear-gradient(135deg, #ff3478, #6a5cff);
+        display: flex; align-items: center; justify-content: center;
+        overflow: hidden;
+        img { width: 100%; height: 100%; object-fit: cover; }
+    }
+    .o_qc_video video { width: 100%; height: 200px; object-fit: cover; background: #000; }
+    .o_video_qc_body,
+    .o_qc_meta { padding: 10px 12px; }
+    .o_video_qc_meta { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+    .o_video_qc_footer { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+}
+
+.o_video_qc_form {
+    .o_video_qc_inline_player_grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 16px;
+        margin-top: 8px;
+    }
+    .o_video_qc_compare {
+        display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+        h4 { font-size: 12px; color: #6c7280; text-transform: uppercase; letter-spacing: 0.5px; }
+    }
+}
+
+/* ==========================================================================
+   Inline video_preview field widget (used on the task form + dashboard form)
+   ========================================================================== */
+.o_video_preview_field {
+    width: 100%;
+    video {
+        width: 100%; max-width: 720px;
+        max-height: 480px;
+        background: #000;
+        border-radius: 8px;
+        box-shadow: 0 4px 14px rgba(0,0,0,0.10);
+    }
+    &__empty {
+        padding: 12px 14px;
+        background: #f7f8fa;
+        border: 1px dashed #d9dce3;
+        border-radius: 8px;
+        text-align: center;
+    }
+}
+
+/* ==========================================================================
+   Trim cards on the version form: two side-by-side blocks, each one is
+   the explicit "trim record" for a source slot — source link, trim
+   window with duration, crop config, and the rendered trim attachment,
+   all anchored to an inline preview at the top.
+   ========================================================================== */
+.o_video_qc_trim_cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin: 12px 0 18px;
+    @media (max-width: 1000px) {
+        grid-template-columns: 1fr;
+    }
+}
+.o_video_qc_trim_card {
+    background: #fafbfc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px;
+    display: flex; flex-direction: column;
+    gap: 10px;
+    &__header {
+        display: flex; align-items: center; justify-content: space-between;
+        h4 {
+            margin: 0;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #6c7280;
+            i { margin-right: 6px; color: #ff3478; }
+        }
+    }
+    &__meta {
+        display: flex; flex-direction: column; gap: 4px;
+        font-size: 12px;
+        background: white;
+        border: 1px solid #eef0f3;
+        border-radius: 8px;
+        padding: 8px 12px;
+        .meta-row {
+            display: flex; align-items: center; gap: 6px;
+            .label {
+                color: #6c7280;
+                font-weight: 600;
+                min-width: 88px;
+            }
+            .dur { color: #ff3478; font-weight: 600; }
+            > .o_field_widget { flex: 1; }
+        }
+    }
+    .o_video_preview_field video {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #000;
+        border-radius: 8px;
+    }
+}
+
+/* ==========================================================================
+   Kimi K2.5 grammar-check panels on the QC review wizard.
+   Two side-by-side cards: version prompt | reviewer's next-prompt
+   suggestion.  Each card surfaces the score, summary, issue list, and
+   the corrected rewrite — the reviewer reads it in-place before
+   submitting the verdict.
+   ========================================================================== */
+.o_video_qc_grammar_panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-top: 16px;
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr;
+    }
+}
+.o_video_qc_grammar_panel {
+    background: #fafbfc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px 16px;
+    h3 {
+        font-size: 14px;
+        font-weight: 600;
+        margin: 0 0 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        i { color: #6a5cff; }
+    }
+    h5 {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: #6c7280;
+        margin: 12px 0 4px;
+    }
+    .o_video_qc_grammar_input {
+        background: white;
+        border: 1px solid #eef0f3;
+        border-radius: 6px;
+        padding: 6px 10px;
+        font-size: 13px;
+        max-height: 100px;
+        overflow-y: auto;
+    }
+    .badge {
+        font-size: 12px;
+        font-weight: 600;
+        padding: 3px 8px;
+        border-radius: 999px;
+    }
+}
+
+/* ==========================================================================
+   Full-width prompt block used by the task form, dashboard form, and
+   version form's Prompt & QC tab.  Stretches to the sheet width and the
+   textarea grows to ~ 200px so long prompts are comfortable to read.
+   ========================================================================== */
+.o_video_qc_prompt_block {
+    margin: 12px 0 16px;
+    .o_video_qc_prompt_label {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+        color: #6c7280;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 6px;
+    }
+    .o_video_qc_prompt_textarea,
+    .o_video_qc_prompt_textarea textarea,
+    .o_video_qc_prompt_textarea .o_input {
+        width: 100% !important;
+        min-height: 220px;
+        max-height: 600px;
+        resize: vertical;
+        font-size: 14px;
+        line-height: 1.45;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                     Helvetica, Arial, sans-serif;
+        padding: 12px 14px;
+        border-radius: 10px;
+    }
+    .o_video_qc_prompt_actions {
+        margin-top: 10px;
+        display: flex;
+        gap: 8px;
+    }
+}
+
+/* ==========================================================================
+   Version form preview block — the inline player at the top of the
+   video.task.version form. Sits in its own card so it's visually distinct
+   from the metadata groups underneath.
+   ========================================================================== */
+.o_video_qc_version_preview {
+    background: #fafbfc;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 16px;
+    .o_video_preview_field video {
+        width: 100%;
+        max-width: 100%;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #000;
+    }
+    /* Two-up: side-by-side trimmed clips, one per source slot. */
+    &--two-up {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+    }
+    &__col {
+        h5 {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: #6c7280;
+            margin: 0 0 8px;
+        }
+    }
+    @media (max-width: 800px) {
+        &--two-up { grid-template-columns: 1fr; }
+    }
+}
+
+/* ==========================================================================
+   Dashboard FORM view layout: side-by-side trimmed previews + prompt + QC
+   ========================================================================== */
+.o_video_qc_dashboard_form {
+    &__videos {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        margin: 16px 0 24px;
+    }
+    &__col {
+        background: #fafbfc;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 14px 14px 16px;
+        display: flex; flex-direction: column;
+        h5 {
+            font-size: 12px;
+            color: #6c7280;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin: 0 0 8px;
+        }
+        .o_video_preview_field video {
+            max-width: 100%; width: 100%;
+            aspect-ratio: 16 / 9;
+            object-fit: contain;
+            background: #000;
+        }
+    }
+
+    @media (max-width: 800px) {
+        &__videos { grid-template-columns: 1fr; }
+    }
+}

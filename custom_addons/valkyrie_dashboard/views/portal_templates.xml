@@ -163,7 +163,7 @@
                               <h4 class="vk-phase-title">Pass@1 Protocol</h4>
                               <ul class="vk-phase-body">
                                 <li>Each model gets exactly one attempt per vulnerability</li>
-                                <li>No retries — mirrors real-world security patch submission</li>
+                                <li>No retries - mirrors real-world security patch submission</li>
                                 <li>Measures true first-attempt remediation capability</li>
                               </ul>
                             </article>
@@ -399,9 +399,9 @@
                     <section class="vk-section" id="resources" aria-labelledby="vk-resources-label">
                         <p class="vk-section-label" id="vk-resources-label">§08 · Resources</p>
                         <div class="vk-resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-                             <a class="vk-resource" href="https://github.com/Ethara-Ai/Valkyrie" target="_blank" rel="noopener">
+                             <a class="vk-resource" href="https://github.com/Ethara-Ai/valkyrie" target="_blank" rel="noopener">
                                  <p class="vk-res-label vk-mono">GitHub</p>
-                                 <p class="vk-res-title">Trajectories</p>
+                                 <p class="vk-res-title">Harness</p>
                                  <p class="vk-res-url vk-mono">github.com/Ethara-Ai/Valkyrie</p>
                                  <span class="vk-res-arrow" aria-hidden="true">↗</span>
                              </a>

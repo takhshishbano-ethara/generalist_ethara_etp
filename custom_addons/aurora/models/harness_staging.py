@@ -1,6 +1,7 @@
 import ast
 import base64
 import io
+import json
 import logging
 import os
 import zipfile
@@ -8,9 +9,31 @@ import zipfile
 from odoo import api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
 
-from . import harness_staging_executor
-
 _logger = logging.getLogger(__name__)
+
+
+def _s3_key_from_url(url: str, bucket: str) -> str:
+    """Best-effort extraction of an S3 object key from a stored URL.
+
+    Handles two URL shapes produced by ``s3_storage.build_url``:
+      - ``https://<bucket>.s3.<region>.amazonaws.com/<key>`` (AWS virtual-hosted)
+      - ``<endpoint>/<bucket>/<key>`` (custom endpoint, e.g. local MinIO)
+
+    Returns "" when the URL doesn't match either shape or doesn't reference
+    the configured bucket.
+    """
+    if not url or not bucket:
+        return ""
+    marker = f"/{bucket}/"
+    idx = url.find(marker)
+    if idx >= 0:
+        return url[idx + len(marker):].split("?", 1)[0]
+    aws_marker = f"://{bucket}.s3."
+    if aws_marker in url:
+        tail = url.split("/", 3)
+        if len(tail) >= 4:
+            return tail[3].split("?", 1)[0]
+    return ""
 
 STAGING_STAGE_SELECTION = [
     ("draft", "Draft"),
@@ -84,6 +107,19 @@ class AuroraHarnessStaging(models.Model):
 
     harness_file = fields.Binary(string="Harness File", attachment=False)
     harness_filename = fields.Char(string="Filename")
+    harness_original_zip = fields.Binary(
+        string="Original Zip Upload",
+        attachment=False,
+        readonly=True,
+        help="Preserved copy of the original .zip when one was uploaded. "
+             "The user-facing harness_file is then auto-merged into a single "
+             "concatenated .py so the K8s worker (which reads a single file "
+             "from this row) handles both single-.py and zip uploads uniformly.",
+    )
+    harness_original_zip_filename = fields.Char(
+        string="Original Zip Filename",
+        readonly=True,
+    )
     stage = fields.Selection(
         STAGING_STAGE_SELECTION,
         default="draft",
@@ -130,24 +166,27 @@ class AuroraHarnessStaging(models.Model):
              "file and the dataset file, then paste this prompt.",
     )
 
-    # Curated picks preferred over directory-scan fallback.  These are the
-    # best-quality, best-documented reference harnesses per language.  For any
-    # language not listed here, _find_reference_harness() scans the repos
-    # directory for a real existing file.
+    # Curated picks per language, stored as paths relative to
+    # _HARNESS_REPOS_ABSROOT (the in-tree harness repos root, same one used by
+    # registry_wizard._AURORA_HARNESS_REPOS_ROOT). For languages not listed
+    # here, _find_reference_harness() scans the root for a real existing file.
     _AI_REFERENCE_MAP = {
-        "python": "custom_addons/aurora/tools/harness/repos/python/psf/requests.py",
-        "golang": "custom_addons/aurora/tools/harness/repos/golang/istio/istio.py",
+        "python": "python/psf/requests.py",
+        "golang": "golang/istio/istio.py",
     }
 
-    _HARNESS_REPOS_RELROOT = "custom_addons/aurora/tools/harness/repos"
+    _HARNESS_REPOS_ABSROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "tools", "harness", "repos")
+    )
 
     @api.model
     def _find_reference_harness(self, language, org=None, repo=None):
-        """Return a repo-relative path to a real existing reference harness.
+        """Return an absolute path to a real existing reference harness, or False.
 
-        Preference order:
+        Searches only the in-tree harness repos root (_HARNESS_REPOS_ABSROOT),
+        in this preference order:
           1. Exact curated pick from ``_AI_REFERENCE_MAP`` if its file exists.
-          2. ``<lang>/<org>/<repo>.py`` if the user's own repo already has one.
+          2. ``<lang>/<org>/<repo>.py`` if a matching file already exists.
           3. First ``.py`` file in ``<lang>/<org>/`` (same-org heuristic).
           4. First ``.py`` file anywhere under ``<lang>/`` (alphabetical).
           5. ``False`` if no files at all for this language.
@@ -155,36 +194,34 @@ class AuroraHarnessStaging(models.Model):
         if not language:
             return False
 
-        module_dir = os.path.dirname(__file__)
-        repo_root = os.path.abspath(os.path.join(module_dir, "..", "..", ".."))
+        root = self._HARNESS_REPOS_ABSROOT
 
-        curated = self._AI_REFERENCE_MAP.get(language)
-        if curated and os.path.isfile(os.path.join(repo_root, curated)):
-            return curated
+        curated_rel = self._AI_REFERENCE_MAP.get(language)
+        if curated_rel:
+            curated_abs = os.path.join(root, curated_rel)
+            if os.path.isfile(curated_abs):
+                return curated_abs
 
-        lang_dir = os.path.join(repo_root, self._HARNESS_REPOS_RELROOT, language)
+        lang_dir = os.path.join(root, language)
         if not os.path.isdir(lang_dir):
             return False
-
-        def _rel(abs_path):
-            return os.path.relpath(abs_path, repo_root)
 
         if org and repo:
             candidate = os.path.join(lang_dir, org, f"{repo}.py")
             if os.path.isfile(candidate):
-                return _rel(candidate)
+                return candidate
 
         if org:
             org_dir = os.path.join(lang_dir, org)
             if os.path.isdir(org_dir):
                 for name in sorted(os.listdir(org_dir)):
                     if name.endswith(".py") and not name.startswith("_"):
-                        return _rel(os.path.join(org_dir, name))
+                        return os.path.join(org_dir, name)
 
         for dirpath, _dirnames, filenames in sorted(os.walk(lang_dir)):
             for fname in sorted(filenames):
                 if fname.endswith(".py") and not fname.startswith("_"):
-                    return _rel(os.path.join(dirpath, fname))
+                    return os.path.join(dirpath, fname)
 
         return False
 
@@ -197,15 +234,19 @@ class AuroraHarnessStaging(models.Model):
                 continue
             rec.ai_reference_harness = self._find_reference_harness(
                 rec.language, rec.org, rec.repo,
-            ) or f"{self._HARNESS_REPOS_RELROOT}/{rec.language}/"
+            ) or False
             dataset_display = rec.dataset_file or "(select Source Pipeline to auto-fill)"
             class_prefix = rec.repo.title().replace('-', '').replace('_', '')
+            reference_display = rec.ai_reference_harness or (
+                f"(none available — add a sample .py at "
+                f"{self._HARNESS_REPOS_ABSROOT}/{rec.language}/<org>/<repo>.py)"
+            )
             rec.ai_prompt_text = (
                 f"You are writing a new harness (registry file) for the Aurora evaluation pipeline.\n"
                 f"Target repo: {rec.org}/{rec.repo}  (language: {rec.language})\n\n"
                 f"YOU HAVE TWO INPUTS. USE BOTH.\n\n"
                 f"INPUT 1 - Reference harness (a WORKING harness in the same language):\n"
-                f"  Path: {rec.ai_reference_harness}\n"
+                f"  Path: {reference_display}\n"
                 f"  Role: structural template. Copy its class layout, imports,\n"
                 f"        Dockerfile scaffolding, and ALL shell scripts verbatim.\n"
                 f"        The reference is the source of truth for the PATTERN; you only\n"
@@ -297,18 +338,28 @@ class AuroraHarnessStaging(models.Model):
             if fname and not fname.endswith(".py") and not fname.endswith(".zip"):
                 raise ValidationError("Upload a single .py file or a .zip containing multiple .py files.")
             raw = base64.b64decode(rec.harness_file)
-            if fname.endswith(".zip"):
+            # A merged .py produced from a zip upload may exceed the single-
+            # file budget; honor the zip limit in that case.
+            zip_budget = (
+                fname.endswith(".zip")
+                or bool(rec.harness_original_zip)
+            )
+            if zip_budget:
                 if len(raw) > 2_000_000:
-                    raise ValidationError("ZIP file exceeds 2MB limit.")
+                    raise ValidationError("ZIP file (or merged .py from zip) exceeds 2MB limit.")
             else:
                 if len(raw) > 100_000:
                     raise ValidationError("Harness file exceeds 100KB limit.")
 
     def _is_zip_upload(self) -> bool:
-        return bool(self.harness_filename and self.harness_filename.endswith(".zip"))
+        """True when the *original* upload was a zip, even after we collapse
+        it into a merged .py for K8s-worker consumption."""
+        name = self.harness_original_zip_filename or self.harness_filename or ""
+        return name.endswith(".zip")
 
     def _extract_zip_files(self) -> list[tuple[str, bytes]]:
-        raw = base64.b64decode(self.harness_file)
+        blob = self.harness_original_zip or self.harness_file
+        raw = base64.b64decode(blob)
         try:
             zf = zipfile.ZipFile(io.BytesIO(raw))
         except zipfile.BadZipFile as exc:
@@ -329,6 +380,45 @@ class AuroraHarnessStaging(models.Model):
         if not py_files:
             raise UserError("ZIP file contains no .py files (excluding __init__.py).")
         return py_files
+
+    def _merge_zip_to_single_py(self) -> tuple[bytes, str]:
+        """Concat all .py files in the zip into one .py blob.
+
+        Range files (e.g. ``requests_4137_to_3036.py``) each register a
+        distinct ``@Instance.register(org, repo_<range>)`` key, so executing
+        their concatenation in a single module is equivalent to importing
+        them as separate modules — every decorator still fires with its own
+        key.  Duplicate top-level class names would silently shadow each
+        other, so we AST-check for collisions and raise UserError if any
+        are found.
+        """
+        py_files = self._extract_zip_files()
+        seen_classes: dict[str, str] = {}
+        parts: list[str] = [
+            f"# Merged harness registry for {self.org}/{self.repo}\n"
+            f"# Concatenated from {len(py_files)} file(s) in the uploaded zip.\n"
+        ]
+        for fname, content in py_files:
+            source = content.decode("utf-8", errors="replace")
+            try:
+                tree = ast.parse(source)
+            except SyntaxError as exc:
+                raise UserError(f"Python syntax error in {fname}: {exc}") from exc
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    prev = seen_classes.get(node.name)
+                    if prev is not None:
+                        raise UserError(
+                            f"Class name '{node.name}' is defined in both "
+                            f"{prev} and {fname} inside the zip. Each range "
+                            f"file must use distinct class names so they can "
+                            f"coexist in the merged registry."
+                        )
+                    seen_classes[node.name] = fname
+            parts.append(f"# === merged from {fname} ===\n{source}")
+        merged = "\n\n".join(parts).encode("utf-8")
+        repo_safe = (self.repo or "harness").replace("-", "_").lower()
+        return merged, f"{repo_safe}_merged.py"
 
     def _validate_harness_content(self, content: bytes) -> None:
         try:
@@ -446,6 +536,7 @@ class AuroraHarnessStaging(models.Model):
                 if rec._is_zip_upload():
                     for fname, content in rec._extract_zip_files():
                         rec._validate_harness_content(content)
+                    rec._collapse_zip_into_single_py()
                 else:
                     raw = base64.b64decode(rec.harness_file)
                     rec._validate_harness_content(raw)
@@ -462,6 +553,7 @@ class AuroraHarnessStaging(models.Model):
                 if rec._is_zip_upload():
                     for fname, content in rec._extract_zip_files():
                         rec._validate_harness_content(content)
+                    rec._collapse_zip_into_single_py()
                 else:
                     raw = base64.b64decode(rec.harness_file)
                     rec._validate_harness_content(raw)
@@ -469,56 +561,125 @@ class AuroraHarnessStaging(models.Model):
                 rec.sudo().write({"staging_path": path})
         return res
 
+    def _collapse_zip_into_single_py(self) -> None:
+        """Preserve the original zip in a side field, replace harness_file
+        with the AST-checked merged .py blob so the K8s worker (which only
+        reads a single .py from this row) can handle it transparently.
+
+        Idempotent: if ``harness_original_zip`` is already populated the row
+        has been collapsed before — bail out so the re-entry from our own
+        ``sudo().write()`` below doesn't clobber the preserved original."""
+        self.ensure_one()
+        if self.harness_original_zip:
+            return
+        merged_bytes, merged_name = self._merge_zip_to_single_py()
+        self.sudo().write({
+            "harness_original_zip": self.harness_file,
+            "harness_original_zip_filename": self.harness_filename,
+            "harness_file": base64.b64encode(merged_bytes),
+            "harness_filename": merged_name,
+        })
+
     def action_test_harness(self):
+        """Dispatch a K8s test-evaluation for this staging row.
+
+        Reuses aurora.evaluation's production K8s Job dispatcher
+        (``_create_evaluation_job``) — no separate worker entrypoint, no
+        docker.sock in the Odoo pod. The eval Job, on startup, queries this
+        table for any active staging row in stage 'tested'/'evaluating' and
+        hot-loads its harness (see worker/run_evaluation.py:613-650). Setting
+        stage='evaluating' below is the trigger for that auto-load.
+
+        Status is mirrored back to this row by
+        ``aurora.evaluation._cron_promote_finished_test_eval`` (5-min cron)
+        once the eval Job reaches a terminal stage. Success rule: 50%+
+        instances resolved.
+        """
         self.ensure_one()
         self._require_admin(self.env, "execute harness tests")
-        if self.stage == "testing":
-            raise UserError("Test already in progress.")
+        if self.stage in ("testing", "evaluating"):
+            raise UserError("Test already in progress for this staging row.")
         if not self.harness_file:
             raise UserError(
-                "Registry File is required. Upload a .py file or a .zip containing multiple .py files."
+                "Registry File is required. Upload a .py file or a .zip "
+                "containing range .py files."
             )
         if not self.dataset_file:
             raise UserError(
                 "Dataset file is required. Select a Source Pipeline or set it manually."
             )
         from . import dataset_resolver
-        if dataset_resolver.is_remote(self.dataset_file):
-            self.dataset_file = dataset_resolver.resolve_to_local(
-                self.env, self.dataset_file
-            )
-        if not os.path.isfile(self.dataset_file):
-            raise UserError(f"Dataset file not found: {self.dataset_file}")
+        local_path = self.dataset_file
+        if dataset_resolver.is_remote(local_path):
+            local_path = dataset_resolver.resolve_to_local(self.env, local_path)
+        if not os.path.isfile(local_path):
+            raise UserError(f"Dataset file not found: {local_path}")
 
-        if not harness_staging_executor.is_test_slot_available():
+        matching_prs: list[str] = []
+        with open(local_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("org") == self.org and entry.get("repo") == self.repo:
+                    pr_id = f"{self.org}/{self.repo}:pr-{entry.get('number', '')}"
+                    matching_prs.append(pr_id)
+        if not matching_prs:
             raise UserError(
-                "Another staging test is already running on this Odoo server. "
-                "Only one staging test runs at a time to avoid harness registry "
-                "races. Wait for the current test to finish and retry."
+                f"Dataset has no PRs for {self.org}/{self.repo}. "
+                f"Pick a dataset that contains this repository."
             )
+        test_prs = matching_prs[:4]
 
+        # Materialize the harness on disk too, so action_mark_deployed (which
+        # reads from self.staging_path) keeps working unchanged.
         self._ensure_staging_file()
-        self.write({
-            "stage": "testing",
-            "test_result": "idle",
-            "test_log": False,
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        base_dir = ICP.get_param("aurora.output_dir", "/tmp/aurora_output")
+        output_dir = os.path.join(
+            base_dir, "harness_test", f"{self.org}__{self.repo}", str(self.id),
+        )
+
+        evaluation = self.env["aurora.evaluation"].create({
+            "pipeline_id": self.pipeline_id.id if self.pipeline_id else False,
+            "dataset_file": self.dataset_file,
+            "output_dir": output_dir,
+            "instance_limit": len(test_prs),
+            "specific_prs": ",".join(test_prs),
+            "user_id": self.user_id.id,
+            "staging_test_id": self.id,
+            # Keep test-evals on the fast single-arch SDK build path. The
+            # multi-arch constraint exempts staging_test_id rows, and we
+            # don't want the buildx multi-arch QEMU overhead for a 4-PR
+            # dry-run. Also bypass the post-report wait window (0 = no wait).
+            "docker_platform": False,
+            "tar_decision_window_minutes": 0,
         })
 
-        db_name = self.env.cr.dbname
-        uid = self.env.uid
-        rec_id = self.id
+        # stage='evaluating' triggers the worker's auto-load of this row's
+        # harness_file (worker/run_evaluation.py:634).
+        self.write({
+            "stage": "evaluating",
+            "test_result": "idle",
+            "test_log": (
+                f"Dispatched K8s test-eval {evaluation.name} with "
+                f"{len(test_prs)} PR(s): {', '.join(test_prs)}.\n"
+                f"Result will be mirrored back here within ~5 minutes of "
+                f"the eval Job finishing (cron interval)."
+            ),
+        })
 
-        def _submit():
-            try:
-                harness_staging_executor.submit_test_async(db_name, uid, rec_id)
-            except Exception:
-                _logger.exception("Failed to submit staging test for rec=%s", rec_id)
+        evaluation.action_run_evaluation()
 
-        self.env.cr.postcommit.add(_submit)
         return {
             "type": "ir.actions.act_window",
-            "res_model": self._name,
-            "res_id": self.id,
+            "res_model": "aurora.evaluation",
+            "res_id": evaluation.id,
             "view_mode": "form",
             "target": "current",
         }
@@ -603,18 +764,13 @@ class AuroraHarnessStaging(models.Model):
 
     def action_download_reference_harness(self):
         self.ensure_one()
-        if not self.ai_reference_harness:
+        candidate = self.ai_reference_harness
+        if not candidate or not os.path.isfile(candidate):
             raise UserError(
-                "No reference harness is resolved. Pick a Language first."
-            )
-        repo_root = os.path.abspath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "..")
-        )
-        candidate = os.path.join(repo_root, self.ai_reference_harness)
-        if not os.path.isfile(candidate):
-            raise UserError(
-                f"Reference harness file not found at {candidate!r}. "
-                "The path template in `_AI_REFERENCE_MAP` may need adjustment for this language."
+                f"No reference harness available for language {self.language!r}. "
+                f"Drop a sample harness file at "
+                f"{self._HARNESS_REPOS_ABSROOT}/{self.language or '<lang>'}/<org>/<repo>.py "
+                "and reload this record."
             )
         return self._download_local_file(candidate, os.path.basename(candidate))
 
@@ -762,6 +918,59 @@ class AuroraHarnessStaging(models.Model):
             body=body,
             message_type="comment",
             subtype_xmlid="mail.mt_note",
+        )
+
+        try:
+            self._cleanup_test_eval_artifacts()
+        except Exception:
+            _logger.warning(
+                "Test-eval cleanup failed for staging %s (deploy already succeeded)",
+                self.id, exc_info=True,
+            )
+
+    def _cleanup_test_eval_artifacts(self) -> None:
+        """Delete any test-eval rows (and best-effort S3 artifacts) created
+        by ``action_test_harness`` for this staging row. Called after a
+        successful deploy — once the harness is in production, the dry-run
+        artifacts are no longer useful."""
+        self.ensure_one()
+        test_evals = self.env["aurora.evaluation"].sudo().search([
+            ("staging_test_id", "=", self.id),
+        ])
+        if not test_evals:
+            return
+        try:
+            from . import artifact_collector, s3_storage
+            s3_config = artifact_collector.load_s3_config()
+            s3_ok = s3_storage.is_configured(s3_config)
+        except Exception:
+            s3_config, s3_ok = None, False
+
+        deleted_keys: list[str] = []
+        if s3_ok:
+            client = s3_storage._get_client(s3_config)
+            bucket = s3_config.get("bucket")
+            url_attrs = ("final_report_file", "dataset_jsonl_url", "base_dockerfile_s3_uri")
+            for eval_rec in test_evals:
+                for attr in url_attrs:
+                    url = getattr(eval_rec, attr, None) or ""
+                    key = _s3_key_from_url(url, bucket)
+                    if not key:
+                        continue
+                    try:
+                        client.delete_object(Bucket=bucket, Key=key)
+                        deleted_keys.append(key)
+                    except Exception:
+                        _logger.debug(
+                            "S3 delete failed for test-eval %s key=%s",
+                            eval_rec.id, key, exc_info=True,
+                        )
+
+        eval_ids = test_evals.ids
+        test_evals.unlink()
+        _logger.info(
+            "Cleaned up %d test-eval row(s) for staging %s (S3 keys deleted: %d)",
+            len(eval_ids), self.id, len(deleted_keys),
         )
 
     def action_reject(self):

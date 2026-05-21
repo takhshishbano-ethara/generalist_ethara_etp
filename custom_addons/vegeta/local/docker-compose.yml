@@ -1,0 +1,41 @@
+name: vegeta-local
+
+services:
+  vegeta-lambda:
+    build:
+      context: .
+      additional_contexts:
+        lambda: ${VEGETA_LAMBDA_PATH:-../../../../../vegeta/lambda_extraction}
+      dockerfile: Dockerfile
+    image: vegeta-extraction:local
+    container_name: vegeta-lambda
+    ports:
+      - "9000:8080"
+    environment:
+      VEGETA_WEBHOOK_TOKEN: ${VEGETA_WEBHOOK_TOKEN:-${LEVIATHAN_WEBHOOK_TOKEN:-devsecret}}
+      S3_BUCKET: ${S3_BUCKET:-vegeta-local}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniosecret}
+      AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://minio:9000}
+      AWS_REGION: ${S3_REGION:-us-east-1}
+      AWS_LAMBDA_FUNCTION_TIMEOUT: "900"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - minio
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: vegeta-minio
+    ports:
+      - "9001:9000"
+      - "9090:9090"
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minio}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-miniosecret}
+    command: server /data --console-address ":9090"
+    volumes:
+      - ./artifacts:/data
+    restart: unless-stopped

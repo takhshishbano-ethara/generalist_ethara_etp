@@ -146,7 +146,55 @@
                             <button name="action_qc_with_llm" type="object" string="Run QC Review" class="btn-warning mb-3" icon="fa-magic"/>
                             <separator string="QC Results"/>
                             <group>
-                                <field name="qc_llm_feedback" readonly="1" string="Feedback"/>
+                                <field name="qc_llm_prompt_summary" readonly="1" string="Prompt Summary"/>
+                            </group>
+                            <!-- Echoed annotator calls — what the LLM
+                                 thought the annotator picked.  If these
+                                 don't match the actual rubric ratings
+                                 above, the LLM mis-read the input and
+                                 every verdict below is suspect. -->
+                            <group string="Annotator Calls (echoed by LLM)">
+                                <group>
+                                    <field name="qc_llm_annotator_op" readonly="1" string="OP"/>
+                                    <field name="qc_llm_annotator_vq" readonly="1" string="VQ"/>
+                                </group>
+                                <group>
+                                    <field name="qc_llm_annotator_ai" readonly="1" string="AI"/>
+                                    <field name="qc_llm_annotator_if" readonly="1" string="IF"/>
+                                </group>
+                            </group>
+                            <!-- Per-dimension verdict + reason — the
+                                 core of the new QC output.  Each row
+                                 is "Agree" / "Disagree" with a short
+                                 reason when the LLM disagrees with
+                                 the annotator. -->
+                            <group string="Per-dimension Assessment">
+                                <group>
+                                    <field name="qc_llm_if_verdict" readonly="1" string="IF"/>
+                                    <field name="qc_llm_if_reason" readonly="1" nolabel="1"
+                                           invisible="not qc_llm_if_reason"/>
+                                </group>
+                                <group>
+                                    <field name="qc_llm_ai_verdict" readonly="1" string="AI"/>
+                                    <field name="qc_llm_ai_reason" readonly="1" nolabel="1"
+                                           invisible="not qc_llm_ai_reason"/>
+                                </group>
+                                <group>
+                                    <field name="qc_llm_vq_verdict" readonly="1" string="VQ"/>
+                                    <field name="qc_llm_vq_reason" readonly="1" nolabel="1"
+                                           invisible="not qc_llm_vq_reason"/>
+                                </group>
+                                <group>
+                                    <field name="qc_llm_op_verdict" readonly="1" string="OP"/>
+                                    <field name="qc_llm_op_reason" readonly="1" nolabel="1"
+                                           invisible="not qc_llm_op_reason"/>
+                                </group>
+                            </group>
+                            <group>
+                                <field name="qc_llm_feedback" readonly="1" string="Overall Feedback"/>
+                            </group>
+                            <group>
+                                <field name="qc_llm_notes" readonly="1" string="Notes"/>
                             </group>
                             <group>
                                 <field name="qc_llm_raw_response" readonly="1" widget="text" string="Raw LLM Response"/>

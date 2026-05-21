@@ -17,6 +17,11 @@
                        decoration-warning="state == 'promoted'"
                        decoration-danger="state == 'rejected'"
                        decoration-muted="state == 'skipped'"/>
+                <field name="skip_reason" widget="badge" optional="show"
+                       decoration-muted="skip_reason in ('done_exact', 'no_pr_exact')"
+                       decoration-warning="skip_reason in ('done_bare', 'done_fuzzy', 'no_pr_bare', 'no_pr_fuzzy')"
+                       decoration-danger="skip_reason == 'manual'"
+                       invisible="skip_reason == 'none'"/>
                 <field name="stars"/>
                 <field name="quality_score" widget="progressbar"/>
                 <field name="primary_language"/>
@@ -39,9 +44,11 @@
                     <button name="action_enrich" string="Enrich" type="object"
                             class="btn-primary" invisible="state != 'new'"/>
                     <button name="action_promote_to_pipeline" string="Promote to Pipeline" type="object"
-                            class="btn-primary" invisible="state != 'validated'"/>
+                            class="btn-primary" invisible="state != 'validated' or skip_reason != 'none'"/>
                     <button name="action_reject" string="Reject" type="object"
                             class="btn-secondary" invisible="state in ('promoted', 'rejected', 'skipped')"/>
+                    <button name="action_refresh_done_list" string="Refresh Done List" type="object"
+                            class="btn-secondary"/>
                     <field name="state" widget="statusbar" statusbar_visible="new,validated,promoted"/>
                 </header>
                 <sheet>

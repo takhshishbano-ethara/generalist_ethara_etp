@@ -70,7 +70,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("RING_API_URL", "http://localhost:8010")
+    base_url = os.environ.get("RING_API_URL", "http://localhost:8008")
 
     try:
         if args.devices:

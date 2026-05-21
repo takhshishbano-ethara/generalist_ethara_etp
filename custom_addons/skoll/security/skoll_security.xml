@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="module_category_skoll" model="ir.module.category">
+            <field name="name">Skoll</field>
+            <field name="description">Skoll — AI-assisted content generation with JSON rendering</field>
+            <field name="sequence">33</field>
+        </record>
+
+        <record id="res_groups_privilege_skoll" model="res.groups.privilege">
+            <field name="name">Skoll</field>
+            <field name="sequence">33</field>
+            <field name="category_id" ref="module_category_skoll"/>
+        </record>
+
+        <record id="group_skoll_tasker" model="res.groups">
+            <field name="name">Tasker</field>
+            <field name="privilege_id" ref="res_groups_privilege_skoll"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Sees only tasks assigned to them. Can work on tasks and submit content.</field>
+        </record>
+
+        <record id="group_skoll_ql" model="res.groups">
+            <field name="name">Quality Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_skoll"/>
+            <field name="implied_ids" eval="[(4, ref('group_skoll_tasker'))]"/>
+            <field name="comment">Sees all tasks. Manages personas. Cannot access settings.</field>
+        </record>
+
+        <record id="group_skoll_pl" model="res.groups">
+            <field name="name">Project Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_skoll"/>
+            <field name="implied_ids" eval="[(4, ref('group_skoll_ql'))]"/>
+            <field name="comment">Full access: all data, settings, and configuration.</field>
+        </record>
+
+    </data>
+
+    <data noupdate="1">
+
+        <record id="skoll_task_rule_tasker" model="ir.rule">
+            <field name="name">Skoll Task: Tasker sees own</field>
+            <field name="model_id" ref="model_skoll_skoll"/>
+            <field name="groups" eval="[(4, ref('group_skoll_tasker'))]"/>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="skoll_task_rule_ql" model="ir.rule">
+            <field name="name">Skoll Task: QL sees all</field>
+            <field name="model_id" ref="model_skoll_skoll"/>
+            <field name="groups" eval="[(4, ref('group_skoll_ql'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="skoll_task_rule_pl" model="ir.rule">
+            <field name="name">Skoll Task: PL sees all</field>
+            <field name="model_id" ref="model_skoll_skoll"/>
+            <field name="groups" eval="[(4, ref('group_skoll_pl'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="skoll_generation_rule_tasker" model="ir.rule">
+            <field name="name">Skoll Generation: Tasker sees own</field>
+            <field name="model_id" ref="model_skoll_generation"/>
+            <field name="groups" eval="[(4, ref('group_skoll_tasker'))]"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="skoll_generation_rule_ql" model="ir.rule">
+            <field name="name">Skoll Generation: QL sees all</field>
+            <field name="model_id" ref="model_skoll_generation"/>
+            <field name="groups" eval="[(4, ref('group_skoll_ql'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="skoll_generation_rule_pl" model="ir.rule">
+            <field name="name">Skoll Generation: PL sees all</field>
+            <field name="model_id" ref="model_skoll_generation"/>
+            <field name="groups" eval="[(4, ref('group_skoll_pl'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+    </data>
+</odoo>

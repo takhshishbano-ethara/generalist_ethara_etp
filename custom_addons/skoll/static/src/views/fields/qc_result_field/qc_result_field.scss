@@ -1,0 +1,255 @@
+.o_field_skoll_qc_result {
+    width: 100%;
+
+    .skoll-qc-container {
+        background: #1e1e2e;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        padding: 16px 20px;
+        color: #cdd6f4;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        font-size: 0.85em;
+        line-height: 1.6;
+    }
+
+    .skoll-qc-verdict {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding-bottom: 12px;
+        margin-bottom: 14px;
+        border-bottom: 1px solid #313244;
+    }
+
+    .skoll-qc-verdict-badge {
+        padding: 3px 14px;
+        border-radius: 4px;
+        font-weight: 700;
+        font-size: 0.85em;
+        letter-spacing: 0.06em;
+        color: #1e1e2e;
+    }
+
+    .skoll-qc-confidence {
+        color: #6c7086;
+        font-size: 0.85em;
+    }
+
+    .skoll-qc-summary {
+        color: #bac2de;
+        margin-bottom: 16px;
+        font-size: 0.95em;
+        line-height: 1.5;
+        font-family: inherit;
+    }
+
+    .skoll-qc-section-title {
+        font-weight: 700;
+        font-size: 0.8em;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: #89b4fa;
+        margin-top: 14px;
+        margin-bottom: 8px;
+    }
+
+    .skoll-qc-scores {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+        margin-bottom: 10px;
+    }
+
+    .skoll-qc-score-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .skoll-qc-score-label {
+        width: 160px;
+        flex-shrink: 0;
+        color: #a6adc8;
+        font-size: 0.85em;
+    }
+
+    .skoll-qc-score-track {
+        flex: 1;
+        height: 6px;
+        background: #313244;
+        border-radius: 3px;
+        overflow: hidden;
+    }
+
+    .skoll-qc-score-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 0.3s ease;
+    }
+
+    .skoll-qc-score-val {
+        width: 24px;
+        text-align: right;
+        font-weight: 700;
+        font-size: 0.85em;
+    }
+
+    .skoll-qc-issues {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .skoll-qc-issue {
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        padding: 6px 10px;
+        background: #181825;
+        border-radius: 4px;
+        border-left: 3px solid #45475a;
+    }
+
+    .skoll-qc-issue-severity {
+        font-weight: 700;
+        font-size: 0.75em;
+        letter-spacing: 0.04em;
+        flex-shrink: 0;
+    }
+
+    .skoll-qc-issue-cat {
+        color: #89b4fa;
+        font-size: 0.8em;
+        flex-shrink: 0;
+
+        &::after {
+            content: " —";
+            color: #45475a;
+        }
+    }
+
+    .skoll-qc-issue-desc {
+        color: #cdd6f4;
+        font-size: 0.85em;
+    }
+
+    .skoll-qc-issue-loc {
+        color: #6c7086;
+        font-size: 0.75em;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+
+    .skoll-qc-list {
+        list-style: none;
+        padding: 0;
+        margin: 0 0 10px 0;
+
+        li {
+            padding: 4px 0 4px 16px;
+            position: relative;
+            color: #bac2de;
+            font-size: 0.85em;
+
+            &::before {
+                position: absolute;
+                left: 0;
+                font-weight: bold;
+            }
+        }
+    }
+
+    .skoll-qc-strengths li::before {
+        content: "✓";
+        color: #a6e3a1;
+    }
+
+    .skoll-qc-recommendations li::before {
+        content: "→";
+        color: #89b4fa;
+    }
+
+    .skoll-qc-raw {
+        background: #1e1e2e;
+        color: #cdd6f4;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        padding: 16px 18px;
+        font-family: "SFMono-Regular", "Consolas", monospace;
+        font-size: 0.85em;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+
+    .skoll-qc-improve-bar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-top: 16px;
+        padding-top: 14px;
+        border-top: 1px solid #313244;
+    }
+
+    .skoll-improve-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 16px;
+        border: none;
+        border-radius: 5px;
+        background: linear-gradient(135deg, #fab387 0%, #f38ba8 50%, #cba6f7 100%);
+        color: #1e1e2e;
+        font-size: 0.8em;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        &:hover {
+            box-shadow: 0 0 14px rgba(250, 179, 135, 0.4);
+            transform: translateY(-1px);
+        }
+
+        &:active {
+            transform: translateY(0);
+        }
+
+        i {
+            font-size: 1.15em;
+        }
+    }
+
+    .skoll-improve-running {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 16px;
+        font-size: 0.8em;
+        font-weight: 700;
+        color: #fab387;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+
+        i {
+            color: #fab387;
+        }
+    }
+
+    .skoll-qc-empty {
+        padding: 24px;
+        text-align: center;
+        color: #6c7086;
+        font-size: 0.9em;
+        background: #181825;
+        border: 1px dashed #313244;
+        border-radius: 6px;
+
+        i {
+            margin-right: 6px;
+        }
+    }
+}

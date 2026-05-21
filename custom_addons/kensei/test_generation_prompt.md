@@ -24,9 +24,10 @@ For each task, you are given:
 
 1. **`instruction.md`** — The task the agent must perform
 2. **`API_DOCUMENTATION.md`** — Endpoint definitions (NOTE: this has NO response body examples — only method/path/params/status)
-3. **Audit logs** — The actual request/response traffic from running `solve.sh` against the mocked APIs (via `GET /audit/requests` on each API)
-4. **`docker-compose.yaml`** — Defines which APIs are in the environment and their service names/ports
-5. **`task.toml`** — Contains `distractor_skills` (APIs that should NOT be modified)
+3. **CUD audit logs** — The actual POST/PUT/PATCH/DELETE request/response traffic from the agent's run against the mocked APIs
+4. **READ operations summary** — All GET requests the agent made, grouped by service and endpoint with call counts
+5. **`docker-compose.yaml`** — Defines which APIs are in the environment and their service names/ports
+6. **`task.toml`** — Contains `distractor_skills` (APIs that should NOT be touched) and `required_skills` (APIs the task uses)
 
 ---
 
@@ -342,6 +343,67 @@ class TestNegativeCases:
         ...
 ```
 
+### Step 5: Unnecessary READ Operation Tests
+
+You also receive a **READ Operations Summary** showing every GET endpoint the agent called and how many times. Analyze these against the user's task to generate negative tests for unnecessary API calls.
+
+#### What Counts as "Unnecessary"
+
+| Category | Example | Test Pattern |
+|----------|---------|--------------|
+| Wrong API entirely | Task only involves QuickBooks but agent queried Instagram | Assert zero non-audit requests on that API via `/audit/summary` |
+| Wrong endpoint within correct API | Task is about invoices but agent queried all vendors, items, estimates | Assert those specific endpoints have zero hits |
+| Excessive calls to same endpoint | Agent called `GET /customers` 20 times when once was sufficient | Assert call count is within a reasonable bound |
+
+#### How to Determine Which Reads Are Necessary
+
+1. Read the user's task instruction carefully — what information does the agent NEED to retrieve?
+2. A read is **necessary** if it directly serves the task goal (e.g., "find all overdue invoices" requires querying invoices)
+3. A read is **necessary** if it's a prerequisite lookup (e.g., looking up a customer ID before creating an invoice for that customer)
+4. A read is **unnecessary** if the endpoint has NO connection to the task (e.g., querying YouTube videos during an accounting task)
+5. A read is **unnecessary** if it queries a distractor API listed in `task.toml` `distractor_skills`
+
+#### Test Pattern for Unnecessary Reads
+
+Use the `/audit/summary` endpoint at test time to check which endpoints were hit:
+
+```python
+class TestUnnecessaryApiCalls:
+    def test_{service}_no_unnecessary_reads(self):
+        """Agent should only query {service} endpoints relevant to the task."""
+        audit = _get(f"{SERVICE_URL}/audit/summary")
+        unnecessary = []
+        for endpoint, data in audit.get("endpoints", {}).items():
+            method, _, path = endpoint.partition(" ")
+            if method != "GET":
+                continue
+            # Skip infrastructure
+            if any(path.startswith(p) for p in ["/audit", "/health", "/docs", "/openapi"]):
+                continue
+            if path not in EXPECTED_READ_PATHS:
+                unnecessary.append(f"{endpoint} ({data['count']} calls)")
+        assert not unnecessary, f"Unnecessary API reads: {unnecessary}"
+
+    def test_{distractor_service}_not_queried(self):
+        """Distractor API should have zero agent-initiated requests."""
+        audit = _get(f"{DISTRACTOR_URL}/audit/summary")
+        agent_calls = []
+        for endpoint, data in audit.get("endpoints", {}).items():
+            _, _, path = endpoint.partition(" ")
+            if any(path.startswith(p) for p in ["/audit", "/health", "/docs", "/openapi"]):
+                continue
+            agent_calls.append(f"{endpoint} ({data['count']} calls)")
+        assert not agent_calls, f"Agent called distractor API: {agent_calls}"
+```
+
+#### Important Rules
+
+1. **Always exclude infrastructure endpoints** from assertions — `/audit/*`, `/health*`, `/docs`, `/openapi.json` are NOT agent behavior
+2. **Allow reasonable discovery** — If the task says "find invoices for customer X", the agent may need to query the customer list first to get the ID. That's a necessary read.
+3. **Be conservative** — Only flag reads that are CLEARLY unnecessary. When in doubt, don't generate a negative test for it.
+4. **Use `EXPECTED_READ_PATHS`** — Define the set of paths you determined are necessary, then assert everything else is zero. This is more maintainable than listing every unnecessary path.
+5. **Distractor APIs get the strictest check** — If `task.toml` lists an API as a distractor skill, assert it has ZERO non-infrastructure requests.
+
 ---
 
 ## Assertion Style Guide
@@ -430,8 +492,11 @@ Before producing the final `test_outputs.py`, verify:
 - [ ] Set semantics used for multi-item assertions (no index-dependent access)
 - [ ] Non-deterministic fields (timestamps, UUIDs) are existence-checked only
 - [ ] Free-text fields use keyword assertions, not exact string match
-- [ ] At least one negative test per distractor API
+- [ ] At least one negative test per distractor API (from `task.toml` `distractor_skills`)
 - [ ] No negative test on APIs the agent was SUPPOSED to modify
 - [ ] Docstrings on every test class
 - [ ] `_get(url)` helper defined exactly once at top level
 - [ ] Tests are runnable with zero external dependencies beyond stdlib + pytest
+- [ ] Unnecessary-read tests use `/audit/summary` endpoint (not `/audit/requests`)
+- [ ] Infrastructure paths excluded from all read assertions (`/audit/*`, `/health*`, `/docs`, `/openapi*`)
+- [ ] `EXPECTED_READ_PATHS` set defined as a constant before use in read-negative tests

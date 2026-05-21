@@ -98,7 +98,7 @@
   <!-- &#xA7;02 KEY METRICS -->
   <section class="section" id="scale" aria-labelledby="scale-label">
     <p class="section-label" id="scale-label">&#xA7;02 &#xB7; Key metrics</p>
-    <p class="section-desc">Core statistics of the Janus benchmark at scale.</p>
+    <p class="section-desc">Core statistics of the Janus at scale.</p>
     <div class="kpi-row" aria-label="Key metrics">
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Instances</p>
@@ -134,8 +134,8 @@
           <p class="phase-label">Principle 01</p>
           <h4 class="phase-title">Dual-Axis Process Verification</h4>
           <ul class="phase-body">
-            <li><b>S-axis</b> (Strategy): Audits Knowledge Expansion &#x2014; search keywords, reference URLs, expected intermediate answers</li>
-            <li><b>V-axis</b> (Visual Evidence): Audits Visual Expansion &#x2014; tool intent (V_tool) and artifact faithfulness (V_true)</li>
+            <li><b>S-axis</b> (Strategy): Audits Knowledge Expansion - search keywords, reference URLs, expected intermediate answers</li>
+            <li><b>V-axis</b> (Visual Evidence): Audits Visual Expansion - tool intent (V_tool) and artifact faithfulness (V_true)</li>
             <li>Scores = fraction of passed checkpoints on each axis</li>
           </ul>
         </article>
@@ -145,7 +145,7 @@
           <ul class="phase-body">
             <li>Computed via normalized exact match against golden answers</li>
             <li>Supported match types: exact, contains, numeric (with tolerance)</li>
-            <li>Answer standardization eliminates evaluation ambiguity</li>
+            <li>Answer standardization eliminates assessment ambiguity</li>
           </ul>
         </article>
         <article class="phase">
@@ -153,7 +153,7 @@
           <h4 class="phase-title">Efficiency (Overthink Metric)</h4>
           <ul class="phase-body">
             <li>Overthink = max(0, C_agent &#x2212; C_human) / (C_human + 1)</li>
-            <li>Penalizes redundant tool calls relative to human reference trajectory</li>
+            <li>Penalizes redundant tool calls relative to human reference traces</li>
             <li>Reference tool calls per task: 2&#x2013;3 (human baseline)</li>
             <li>Max tool calls allowed: 5&#x2013;7 per instance</li>
           </ul>
@@ -207,7 +207,7 @@
           <li>Process-level verification via dual-axis checkpoints</li>
           <li><b>V-axis</b>: Verifies visual tool intent and intermediate artifact faithfulness</li>
           <li><b>S-axis</b>: Audits search strategy, keywords, and retrieved information correctness</li>
-          <li>Efficiency measured via Overthink metric against human reference trajectories</li>
+          <li>Efficiency measured via Overthink metric against human reference traces</li>
         </ul>
       </article>
     </div>
@@ -231,20 +231,20 @@
 
     <div class="charts" style="grid-template-columns: 1fr;">
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 — Dual-Axis Process Scores by Domain full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 1 - Dual-Axis Process Scores by Domain full size">
           <img class="chart-light" src="/akatsuki_dashboard/static/src/img/charts/17_category_insight_light.png" alt="Bar chart showing V-axis and S-axis process verification scores across task domains for both models" loading="lazy" />
           <img class="chart-dark" src="/akatsuki_dashboard/static/src/img/charts/17_category_insight_dark.png" alt="Bar chart showing V-axis and S-axis process verification scores across task domains for both models" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 &#x2014; Dual-Axis Process Scores (V-axis &amp; S-axis) by Domain</figcaption>
+        <figcaption>Fig. 1 - Dual-Axis Process Scores (V-axis &amp; S-axis) by Domain</figcaption>
       </figure>
       <figure class="chart">
-        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 — Failure Mode Distribution full size">
+        <button type="button" class="chart-trigger" aria-label="Preview Fig. 2 - Failure Mode Distribution full size">
           <img class="chart-light" src="/akatsuki_dashboard/static/src/img/charts/failure_line_light.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Qwen3 VL across seven failure categories" loading="lazy" />
           <img class="chart-dark" src="/akatsuki_dashboard/static/src/img/charts/failure_line_dark.png" alt="Line chart comparing failure mode distribution between Kimi K2.5 and Qwen3 VL across seven failure categories" loading="lazy" />
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 2 &#x2014; Failure Mode Distribution (% of instances)</figcaption>
+        <figcaption>Fig. 2 - Failure Mode Distribution (% of instances)</figcaption>
       </figure>
     </div>
   </section>
@@ -340,9 +340,10 @@
   <section class="section" id="resources" aria-labelledby="resources-label">
     <p class="section-label" id="resources-label">&#xA7;08 &#xB7; Resources</p>
     <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
-      <a class="resource" href="https://github.com/Ethara-Ai/Janus" target="_blank" rel="noopener">
+<!--      <a class="resource" href="https://github.com/Ethara-Ai/Janus" target="_blank" rel="noopener">-->
+      <a class="resource" href="https://github.com/Ethara-Ai/janus" target="_blank" rel="noopener">
         <p class="res-label mono">GitHub</p>
-        <p class="res-title">Trajectories</p>
+        <p class="res-title">Harness</p>
         <p class="res-url mono">github.com/Ethara-Ai/Janus</p>
         <span class="res-arrow" aria-hidden="true">↗</span>
       </a>

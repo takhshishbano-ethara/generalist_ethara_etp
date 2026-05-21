@@ -158,23 +158,6 @@ class TestEvaluationExpanded(TransactionCase):
                 rec.write({field: key})
                 self.assertEqual(getattr(rec, field), key)
 
-    def test_generate_patch_file_100_entries(self):
-        rec = self.env["aurora.evaluation"].create({})
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            for i in range(100):
-                ds.write(json.dumps({"org": "o", "repo": "r", "number": i, "fix_patch": f"d{i}"}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                lines = [l for l in f if l.strip()]
-            self.assertEqual(len(lines), 100)
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
     def test_reset_multiple_times(self):
         rec = self.env["aurora.evaluation"].create({})
         for _ in range(10):

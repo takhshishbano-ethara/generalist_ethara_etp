@@ -1,0 +1,512 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="instagram_video_qc_manager.VideoEditor">
+        <!--
+            Outer wrapper: position: fixed over the whole viewport. All
+            zoomable content lives in the inner __scaled element, which
+            is sized to (100% / zoom) and then transform: scale(zoom),
+            so the inner layout is computed at its natural designed
+            size and visually fitted to the viewport. The zoom CSS
+            variable is set on this root from JS.
+        -->
+        <div class="o_video_qc_editor" t-ref="editorRoot">
+            <div class="o_video_qc_editor__scaled">
+                <!-- =========================================================
+                     HEADER
+                ========================================================= -->
+                <header class="o_video_qc_editor__header">
+                    <div class="o_title">
+                        <span><i class="fa fa-film"/> Video Editor</span>
+                        <span t-if="state.task" class="o_badge"><t t-esc="state.task.name"/></span>
+                        <span t-if="state.version" class="o_badge" style="background:#6a5cff;">
+                            v<t t-esc="state.version.version_no"/>
+                        </span>
+                    </div>
+
+                    <div class="o_source_picker" t-if="state.availableSources.length > 0">
+                        <label>Source:</label>
+                        <select t-on-change="(ev) => this.onSourceKindChange(ev.target.value)">
+                            <option t-foreach="state.availableSources" t-as="s" t-key="s.key"
+                                    t-att-value="s.key"
+                                    t-att-selected="state.sourceKind === s.key ? 'selected' : null">
+                                <t t-esc="s.label"/>
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Stage Aspect: locks the preview frame to a chosen
+                         output aspect ratio so the user sees how the clip
+                         will be framed (e.g. 9:16 for Instagram reels).
+                         The render itself is still controlled by the
+                         Crop tool — this is purely a viewfinder. -->
+                    <div class="o_stage_aspect_picker">
+                        <label>Frame:</label>
+                        <select t-on-change="(ev) => this.onStageAspectChange(ev.target.value)">
+                            <option t-foreach="stageAspectOptions" t-as="a" t-key="a.key"
+                                    t-att-value="a.key"
+                                    t-att-selected="state.stageAspect === a.key ? 'selected' : null">
+                                <t t-esc="a.label"/>
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Zoom controls: − [ NN% ] + ⛶
+                         "%" pill resets to 100%, ⛶ flips back to auto-fit. -->
+                    <div class="o_zoom_controls">
+                        <button class="btn-action zoom-btn"
+                                t-on-click="() => this.zoomOut()"
+                                title="Zoom out">
+                            <i class="fa fa-search-minus"/>
+                        </button>
+                        <button class="btn-action zoom-pct"
+                                t-on-click="() => this.zoomReset()"
+                                title="Click to reset zoom to 100%">
+                            <t t-esc="zoomPct"/>%
+                        </button>
+                        <button class="btn-action zoom-btn"
+                                t-on-click="() => this.zoomIn()"
+                                title="Zoom in">
+                            <i class="fa fa-search-plus"/>
+                        </button>
+                        <button class="btn-action zoom-btn"
+                                t-att-class="state.zoomIsAuto ? 'btn-action zoom-btn active' : 'btn-action zoom-btn'"
+                                t-on-click="() => this.zoomFit()"
+                                title="Fit to screen (auto)">
+                            <i class="fa fa-expand"/>
+                        </button>
+                    </div>
+
+                    <button class="btn-action" t-on-click="() => this.newVersion()">
+                        <i class="fa fa-plus"/> New Version
+                    </button>
+                    <button class="btn-action btn-primary" t-on-click="() => this.saveAndRender()"
+                            t-att-disabled="state.rendering">
+                        <i class="fa fa-cogs"/>
+                        <t t-if="state.rendering">Rendering...</t>
+                        <t t-else="">Save &amp; Render</t>
+                    </button>
+                    <button class="btn-action" t-on-click="() => this.sendToQC()">
+                        <i class="fa fa-check"/> Send to QC
+                    </button>
+                    <button class="btn-action" t-on-click="() => this.close()">
+                        <i class="fa fa-times"/>
+                    </button>
+                </header>
+
+                <!-- =========================================================
+                     BODY
+                ========================================================= -->
+                <div class="o_video_qc_editor__body">
+
+                <!-- LEFT SIDEBAR.  The toolbar shows the ACTIVE SLOT's
+                     crop rectangle and overall filters — the user is
+                     always editing one slot at a time (whichever is in
+                     state.sourceKind).  Switching sources swaps which
+                     slot's config flows in here. -->
+                <aside class="o_video_qc_editor__sidebar">
+                    <div class="o_active_slot_chip">
+                        <i class="fa fa-pencil"/>
+                        <t t-esc="activeSlotLabel"/>
+                    </div>
+                    <EditorToolbar
+                        mode="state.mode"
+                        aspect="state.aspect"
+                        config="activeSlotConfig"
+                        sharedConfig="state.config"
+                        videoEl="videoRef.el"
+                        onModeChange.bind="onModeChange"
+                        onAspectChange.bind="onAspectChange"
+                        onFilterChange.bind="onFilterChange"
+                        onCropInput.bind="onCropInput"
+                        onRotate.bind="onRotate"
+                        onToggleMute.bind="onToggleMute"
+                    />
+                </aside>
+
+                <!-- CENTER STAGE -->
+                <section class="o_video_qc_editor__stage">
+                    <div class="stage-tabs">
+                        <button t-att-class="state.mode === 'trim' ? 'active' : ''"
+                                t-on-click="() => this.onModeChange('trim')">
+                            <i class="fa fa-scissors"/> Trim
+                        </button>
+                        <button t-att-class="state.mode === 'crop' ? 'active' : ''"
+                                t-on-click="() => this.onModeChange('crop')">
+                            <i class="fa fa-crop"/> Crop
+                        </button>
+                        <button t-att-class="state.mode === 'filter' ? 'active' : ''"
+                                t-on-click="() => this.onModeChange('filter')">
+                            <i class="fa fa-sliders"/> Filters
+                        </button>
+                        <button t-att-class="state.mode === 'compare' ? 'active' : ''"
+                                t-on-click="() => this.onModeChange('compare')">
+                            <i class="fa fa-columns"/> Compare
+                        </button>
+                    </div>
+
+                    <!-- Empty state -->
+                    <div class="stage-empty"
+                         t-if="!state.loading and state.availableSources.length === 0">
+                        <i class="fa fa-exclamation-circle"/>
+                        <p>No source video available. Download an Instagram video first
+                           (from the task form), then reopen the editor.</p>
+                    </div>
+
+                    <!-- COMPARE MODE -->
+                    <t t-if="state.mode === 'compare' and state.availableSources.length > 0">
+                        <div class="stage-canvas compare">
+                            <div class="compare-half">
+                                <span class="label">Original</span>
+                                <video t-att-src="sourceUrl" controls="controls" preload="metadata"/>
+                            </div>
+                            <div class="compare-half">
+                                <span class="label">Edited Preview</span>
+                                <video t-if="state.version?.edited_attachment_id"
+                                       t-att-src="editedUrl" controls="controls" preload="metadata"/>
+                                <div t-else="" class="text-muted">No render yet — hit "Save &amp; Render".</div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- TRIM / CROP / FILTER (single-video stage with custom controls) -->
+                    <t t-if="state.mode !== 'compare' and state.availableSources.length > 0">
+                        <div class="stage-canvas" t-ref="stage"
+                             t-att-class="state.mode === 'crop' ? 'stage-canvas crop-mode' : 'stage-canvas'">
+                            <!-- .stage-frame is the viewfinder: it locks
+                                 to the chosen Stage Aspect (or "auto" =
+                                 video's natural ratio).  Everything
+                                 inside is positioned relative to its
+                                 box, so the crop overlay coordinate
+                                 math is unaffected (it uses the
+                                 <video> element's bounding rect). -->
+                            <div class="stage-frame"
+                                 t-att-class="state.stageAspect === 'auto' ? 'stage-frame stage-frame--auto' : 'stage-frame'"
+                                 t-att-style="stageFrameStyle"
+                                 t-att-data-aspect="state.stageAspect">
+                                <video t-ref="video"
+                                       t-att-src="sourceUrl"
+                                       t-att-style="videoFilterStyle"
+                                       preload="metadata"
+                                       playsinline="playsinline"
+                                       t-on-click="() => this.onStageClick()"/>
+
+                                <!-- Crop overlay: visible only in crop mode -->
+                                <div t-ref="cropBox"
+                                     t-if="state.mode === 'crop' and activeSlotConfig.crop"
+                                     class="o_crop_overlay"
+                                     t-att-style="cropOverlayStyle"
+                                     t-on-mousedown="(ev) => this.onCropDragStart(ev)">
+                                    <span class="o_crop_label">
+                                        <t t-esc="activeSlotConfig.crop.w"/> × <t t-esc="activeSlotConfig.crop.h"/>
+                                    </span>
+                                    <!-- 8 resize handles -->
+                                    <span t-foreach="cropResizeCorners" t-as="c" t-key="c"
+                                          t-attf-class="o_crop_handle o_crop_handle_{{c}}"
+                                          t-on-mousedown="(ev) => this.onCropResizeStart(c, ev)"/>
+                                </div>
+                            </div>
+
+                            <div class="video-error" t-if="state.videoError">
+                                <i class="fa fa-exclamation-triangle"/>
+                                <t t-esc="state.videoError"/>
+                            </div>
+                        </div>
+
+                        <!-- PLAYBACK: big play/pause + scrub bar with current/total time -->
+                        <div class="playback">
+                            <button class="play-btn" t-on-click="() => this.togglePlay()">
+                                <i t-attf-class="fa {{state.playing ? 'fa-pause' : 'fa-play'}}"/>
+                            </button>
+                            <span class="time current">
+                                <t t-esc="fmt(state.currentTime)"/>
+                            </span>
+                            <div class="scrub-track"
+                                 t-on-mousedown="(ev) => this.onScrubMouseDown(ev)">
+                                <div class="scrub-fill"
+                                     t-attf-style="width: {{scrubCursorPct}}%;"/>
+                                <div class="scrub-trim-shade"
+                                     t-attf-style="left: {{trimStartPct}}%; width: {{trimEndPct - trimStartPct}}%;"/>
+                                <div class="scrub-cursor"
+                                     t-attf-style="left: {{scrubCursorPct}}%;"/>
+                            </div>
+                            <span class="time total">
+                                <t t-esc="fmt(state.duration)"/>
+                            </span>
+                            <button class="play-btn small"
+                                    t-on-click="() => this.seek(activeSlotConfig.trim.start)"
+                                    title="Jump to trim start">
+                                <i class="fa fa-step-backward"/>
+                            </button>
+                            <button class="play-btn small"
+                                    t-on-click="() => this.seek(activeSlotConfig.trim.end || state.duration)"
+                                    title="Jump to trim end">
+                                <i class="fa fa-step-forward"/>
+                            </button>
+                        </div>
+
+                        <!-- TRIM RANGE STRIP -->
+                        <div class="trim-panel">
+                            <div class="trim-inputs">
+                                <div class="trim-input-group">
+                                    <label>Start</label>
+                                    <input type="number" step="0.1" min="0"
+                                           t-att-max="state.duration"
+                                           t-att-value="activeSlotConfig.trim.start.toFixed(1)"
+                                           t-on-change="(ev) => this.onTrimInputStart(ev)"/>
+                                    <button class="btn-pill" t-on-click="() => this.setStartToCurrent()"
+                                            title="Use current time">
+                                        <i class="fa fa-arrow-up"/> set
+                                    </button>
+                                </div>
+                                <div class="trim-input-group">
+                                    <label>End</label>
+                                    <input type="number" step="0.1" min="0"
+                                           t-att-max="state.duration"
+                                           t-att-value="(activeSlotConfig.trim.end || state.duration).toFixed(1)"
+                                           t-on-change="(ev) => this.onTrimInputEnd(ev)"/>
+                                    <button class="btn-pill" t-on-click="() => this.setEndToCurrent()"
+                                            title="Use current time">
+                                        <i class="fa fa-arrow-up"/> set
+                                    </button>
+                                </div>
+                                <div class="trim-input-group">
+                                    <label>Length</label>
+                                    <span class="trim-length">
+                                        <t t-esc="fmt(trimLength)"/>
+                                    </span>
+                                    <button class="btn-pill" t-on-click="() => this.resetTrim()"
+                                            title="Reset trim">
+                                        <i class="fa fa-undo"/> reset
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- MovieMaker-style trim strip:
+                                 - The full track represents the whole clip.
+                                 - Two semi-transparent "trimmed-away" panels
+                                   dim the regions OUTSIDE the kept window so
+                                   the user sees exactly what will be cut.
+                                 - Pink (start) and violet (end) handles snap
+                                   to the kept window's edges; drag them
+                                   inward to shorten the clip.
+                                 - Inline timecode chips ride along with
+                                   each handle so start/end are always legible.
+                                 - A centred "selected length" badge floats
+                                   above the kept range.
+                                 - Click on bare track to seek the playhead.
+                              -->
+                            <div class="timeline timeline--moviemaker">
+                                <div class="trim-length-badge"
+                                     t-attf-style="left: {{(trimStartPct + trimEndPct) / 2}}%;">
+                                    <i class="fa fa-scissors"/>
+                                    <t t-esc="fmt(trimLength)"/>
+                                </div>
+                                <div class="timeline-track"
+                                     t-on-click="(ev) => this.onTrimTrackClick(ev)">
+                                    <!-- Dimmed regions outside the trim window -->
+                                    <div class="timeline-cutaway left"
+                                         t-attf-style="width: {{trimStartPct}}%;"/>
+                                    <div class="timeline-cutaway right"
+                                         t-attf-style="left: {{trimEndPct}}%; width: {{100 - trimEndPct}}%;"/>
+                                    <!-- The kept range -->
+                                    <div class="timeline-fill"
+                                         t-attf-style="left: {{trimStartPct}}%; width: {{trimEndPct - trimStartPct}}%;"/>
+                                    <!-- Handles -->
+                                    <div class="timeline-handle start"
+                                         t-attf-style="left: calc({{trimStartPct}}% - 8px);"
+                                         t-on-mousedown="(ev) => this.onTrimHandleMouseDown('start', ev)"
+                                         title="Drag to set trim start">
+                                        <span class="grip"/>
+                                        <span class="timecode">
+                                            <t t-esc="fmt(activeSlotConfig.trim.start)"/>
+                                        </span>
+                                    </div>
+                                    <div class="timeline-handle end"
+                                         t-attf-style="left: calc({{trimEndPct}}% - 8px);"
+                                         t-on-mousedown="(ev) => this.onTrimHandleMouseDown('end', ev)"
+                                         title="Drag to set trim end">
+                                        <span class="grip"/>
+                                        <span class="timecode">
+                                            <t t-esc="fmt(activeSlotConfig.trim.end || state.duration)"/>
+                                        </span>
+                                    </div>
+                                    <!-- Playhead cursor -->
+                                    <div class="timeline-cursor"
+                                         t-attf-style="left: {{scrubCursorPct}}%;"/>
+                                </div>
+                                <div class="timeline-legend">
+                                    <span><span class="dot start"/> Drag to set start</span>
+                                    <span><span class="dot end"/> Drag to set end</span>
+                                    <span><span class="dot cursor"/> Playhead</span>
+                                    <span class="hint">Anything outside the highlighted
+                                          range will be cut from the rendered video.</span>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+                </section>
+
+                <!-- RIGHT PANEL: intentionally removed.  Prompt management
+                     and QC review have been moved out of the editor and into
+                     the Dashboard form view (see view_video_task_dashboard_form). -->
+            </div>
+            </div>  <!-- /.o_video_qc_editor__scaled -->
+
+            <!-- LOADING OVERLAY: outside the scaled wrapper so it always
+                 covers the full viewport regardless of zoom level. -->
+            <div class="o_video_qc_loader" t-if="state.loading">
+                <div class="spinner"/>
+                <div class="label">Loading editor...</div>
+            </div>
+        </div>
+    </t>
+
+    <!-- =========================================================
+         TIMELINE (kept for backwards compat — used by external callers)
+    ========================================================= -->
+    <t t-name="instagram_video_qc_manager.EditorTimeline">
+        <div class="timeline-track" t-ref="track" t-on-click="onTrackClick">
+            <div class="timeline-fill"
+                 t-attf-style="left: {{startPct}}%; width: {{endPct - startPct}}%;"/>
+            <div class="timeline-handle start"
+                 t-attf-style="left: calc({{startPct}}% - 6px);"
+                 t-on-mousedown="(ev) => this.onMouseDown('start', ev)"
+                 title="Drag to set trim start"/>
+            <div class="timeline-handle end"
+                 t-attf-style="left: calc({{endPct}}% - 6px);"
+                 t-on-mousedown="(ev) => this.onMouseDown('end', ev)"
+                 title="Drag to set trim end"/>
+            <div class="timeline-cursor" t-attf-style="left: {{cursorPct}}%;"/>
+        </div>
+    </t>
+
+    <!-- =========================================================
+         TOOLBAR
+    ========================================================= -->
+    <t t-name="instagram_video_qc_manager.EditorToolbar">
+        <h4>Tools</h4>
+        <div class="tool-grid">
+            <button t-foreach="modes" t-as="m" t-key="m.key"
+                    t-attf-class="tool-btn {{props.mode === m.key ? 'active' : ''}}"
+                    t-on-click="() => this.props.onModeChange(m.key)">
+                <i t-attf-class="fa {{m.icon}}"/>
+                <t t-esc="m.label"/>
+            </button>
+        </div>
+
+        <!-- TRIM HELP -->
+        <t t-if="props.mode === 'trim'">
+            <h4>Trim</h4>
+            <p class="text-muted small">
+                Drag the pink (start) and violet (end) handles on the bottom strip
+                to define the segment that will be exported. The shaded area on the
+                scrub bar above shows the same range. Clicking the strip seeks the
+                playhead — handles only move when you drag them.
+            </p>
+        </t>
+
+        <!-- CROP -->
+        <t t-if="props.mode === 'crop'">
+            <h4>Aspect Ratio</h4>
+            <div class="aspect-presets">
+                <button t-foreach="aspectPresets" t-as="a" t-key="a"
+                        t-attf-class="{{props.aspect === a ? 'active' : ''}}"
+                        t-on-click="() => this.props.onAspectChange(a)">
+                    <t t-esc="a"/>
+                </button>
+            </div>
+            <h4>Crop Rectangle</h4>
+            <div class="slider-row" t-if="props.config.crop">
+                <label>X</label>
+                <input type="number" step="1" min="0"
+                       t-att-value="props.config.crop.x"
+                       t-on-change="(ev) => this.props.onCropInput('x', ev)"/>
+            </div>
+            <div class="slider-row" t-if="props.config.crop">
+                <label>Y</label>
+                <input type="number" step="1" min="0"
+                       t-att-value="props.config.crop.y"
+                       t-on-change="(ev) => this.props.onCropInput('y', ev)"/>
+            </div>
+            <div class="slider-row" t-if="props.config.crop">
+                <label>Width</label>
+                <input type="number" step="1" min="1"
+                       t-att-value="props.config.crop.w"
+                       t-on-change="(ev) => this.props.onCropInput('w', ev)"/>
+            </div>
+            <div class="slider-row" t-if="props.config.crop">
+                <label>Height</label>
+                <input type="number" step="1" min="1"
+                       t-att-value="props.config.crop.h"
+                       t-on-change="(ev) => this.props.onCropInput('h', ev)"/>
+            </div>
+            <p class="text-muted small">
+                Drag the dashed rectangle to move it. Use the corner / edge
+                handles to resize. Final rendered video contains ONLY the
+                pixels inside this rectangle.
+            </p>
+        </t>
+
+        <!-- FILTERS — shared across both source slots. -->
+        <t t-if="props.mode === 'filter'">
+            <h4>Filters</h4>
+            <div class="slider-row">
+                <label>Brightness</label>
+                <input type="range" min="-0.5" max="0.5" step="0.01"
+                       t-att-value="(props.sharedConfig || props.config).brightness"
+                       t-on-input="(ev) => this.onSlider('brightness', ev)"/>
+                <span><t t-esc="(props.sharedConfig || props.config).brightness.toFixed(2)"/></span>
+            </div>
+            <div class="slider-row">
+                <label>Contrast</label>
+                <input type="range" min="0.5" max="2" step="0.01"
+                       t-att-value="(props.sharedConfig || props.config).contrast"
+                       t-on-input="(ev) => this.onSlider('contrast', ev)"/>
+                <span><t t-esc="(props.sharedConfig || props.config).contrast.toFixed(2)"/></span>
+            </div>
+            <div class="slider-row">
+                <label>Saturation</label>
+                <input type="range" min="0" max="2" step="0.01"
+                       t-att-value="(props.sharedConfig || props.config).saturation"
+                       t-on-input="(ev) => this.onSlider('saturation', ev)"/>
+                <span><t t-esc="(props.sharedConfig || props.config).saturation.toFixed(2)"/></span>
+            </div>
+        </t>
+
+        <h4>Transform</h4>
+        <div class="tool-grid">
+            <button class="tool-btn" t-on-click="() => this.props.onRotate(90)">
+                <i class="fa fa-rotate-right"/> Rotate 90°
+            </button>
+            <button class="tool-btn" t-on-click="() => this.props.onRotate(-90)">
+                <i class="fa fa-rotate-left"/> Rotate -90°
+            </button>
+        </div>
+
+        <h4>Audio</h4>
+        <button t-attf-class="tool-btn {{(props.sharedConfig || props.config).mute ? 'active' : ''}}"
+                t-on-click="() => this.props.onToggleMute()" style="width:100%;">
+            <i t-attf-class="fa {{(props.sharedConfig || props.config).mute ? 'fa-volume-off' : 'fa-volume-up'}}"/>
+            <t t-if="(props.sharedConfig || props.config).mute">Muted</t>
+            <t t-else="">Audio On</t>
+        </button>
+    </t>
+
+    <!-- =========================================================
+         PROMPT PANEL — REMOVED.
+         The prompt + QC review surface now lives in the dashboard form
+         view (see views/video_dashboard_views.xml :: view_video_task_dashboard_form),
+         so the editor no longer carries this template.
+
+         The unused stub below keeps the orphan ``editor_prompt_panel.js``
+         component from blowing up if it gets loaded by the asset glob —
+         it just renders an empty placeholder and never receives data.
+    ========================================================= -->
+    <t t-name="instagram_video_qc_manager.EditorPromptPanel">
+        <div class="o_video_qc_prompt_removed" style="display:none;">
+            <span>prompt-panel-removed</span>
+        </div>
+    </t>
+
+</templates>

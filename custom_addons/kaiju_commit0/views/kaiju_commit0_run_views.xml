@@ -20,6 +20,8 @@
                        decoration-warning="run_status == 'running'"
                        decoration-success="run_status == 'done'"
                        decoration-danger="run_status == 'failed'"/>
+                <field name="error_summary" optional="show"
+                       decoration-danger="run_status == 'failed'"/>
                 <field name="pass_rate" widget="progressbar"/>
                 <field name="cost_usd" string="Cost ($)"/>
                 <field name="duration_seconds" string="Duration (s)" optional="hide"/>
@@ -42,6 +44,13 @@
                             class="btn-danger"
                             invisible="run_status != 'running'"
                             confirm="This will abort the running evaluation. Continue?"/>
+
+                    <button name="action_fetch_all_step_logs" type="object"
+                            string="Fetch Logs from Argo"
+                            class="btn-secondary"
+                            icon="fa-cloud-download"
+                            invisible="not workflow_name"
+                            help="Sync workflow step list from Argo and fetch full pod logs for every step. Use this if logs are missing."/>
                 </header>
 
                 <sheet>
@@ -51,6 +60,7 @@
 
                     <field name="run_status" invisible="1"/>
                     <field name="is_running" invisible="1"/>
+                    <field name="step_count" invisible="1"/>
 
                     <group>
                         <group string="Build Info">
@@ -103,6 +113,84 @@
 
                         <field name="run_log" widget="commit0_terminal"
                                invisible="not run_log"/>
+
+                        <!-- ═══ Error Banner (only when failed) ═══ -->
+                        <div class="alert alert-danger mt-3"
+                             invisible="run_status != 'failed' or not error_summary"
+                             role="alert">
+                            <div class="d-flex align-items-start">
+                                <i class="fa fa-exclamation-triangle fa-lg me-2 mt-1"/>
+                                <div>
+                                    <strong>Run failed.</strong>
+                                    <div class="mt-1">
+                                        <field name="error_summary" readonly="1" nolabel="1"/>
+                                    </div>
+                                    <small class="text-muted">Check the failed step's logs below.</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- ═══ Workflow Steps + Logs (notebook with two views) ═══ -->
+                        <div invisible="run_status == 'pending'">
+                            <h5 class="mt-3 mb-2">
+                                <i class="fa fa-tasks me-2"/>Workflow Steps &amp; Logs
+                                <span class="badge text-bg-secondary ms-2"
+                                      invisible="step_count == 0">
+                                    <field name="step_count" readonly="1" nolabel="1"/> steps
+                                </span>
+                            </h5>
+
+                            <notebook>
+                                <page string="Per-Step" name="per_step">
+                                    <p class="text-muted small">
+                                        Each row is one pipeline pod (run stages + eval + finalize).
+                                        Click a step to view its full pod logs.
+                                    </p>
+                                    <field name="step_ids" readonly="1">
+                                        <list decoration-danger="phase in ('Failed', 'Error')"
+                                              decoration-warning="phase == 'Running'"
+                                              decoration-success="phase == 'Succeeded'"
+                                              decoration-muted="phase in ('Skipped', 'Omitted')">
+                                            <field name="display_name" string="Step"/>
+                                            <field name="phase" widget="badge"
+                                                   decoration-info="phase == 'Pending'"
+                                                   decoration-warning="phase == 'Running'"
+                                                   decoration-success="phase == 'Succeeded'"
+                                                   decoration-danger="phase in ('Failed', 'Error')"
+                                                   decoration-muted="phase in ('Skipped', 'Omitted')"/>
+                                            <field name="started_at" string="Started"/>
+                                            <field name="finished_at" string="Finished"/>
+                                            <field name="duration_seconds" string="Duration (s)"
+                                                   widget="float_time" optional="show"/>
+                                            <field name="log_size_human" string="Log Size"
+                                                   optional="show"/>
+                                            <field name="has_log" widget="boolean_toggle"
+                                                   string="Captured" optional="show" readonly="1"/>
+                                            <field name="log_fetched_at" string="Fetched"
+                                                   optional="hide"/>
+                                            <field name="pod_name" optional="hide"/>
+                                            <field name="template_name" optional="hide"/>
+                                            <field name="message" optional="hide"/>
+                                        </list>
+                                    </field>
+                                </page>
+
+                                <page string="Combined Logs" name="combined_logs">
+                                    <p class="text-muted small">
+                                        All step logs concatenated chronologically with step headers.
+                                        Use <kbd>Ctrl+F</kbd> to search across all stages.
+                                    </p>
+                                    <field name="combined_log_text" widget="commit0_terminal"
+                                           nolabel="1" readonly="1"
+                                           invisible="not combined_log_text"/>
+                                    <div class="alert alert-info" invisible="combined_log_text">
+                                        <i class="fa fa-info-circle me-2"/>
+                                        No logs captured yet. Click
+                                        <b>Fetch Logs from Argo</b> in the header.
+                                    </div>
+                                </page>
+                            </notebook>
+                        </div>
 
                         <div invisible="run_status != 'done'">
                             <h5 class="mt-3 mb-2">Results</h5>

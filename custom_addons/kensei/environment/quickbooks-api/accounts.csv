@@ -1,21 +1,13 @@
 Id,Name,AccountType,AccountSubType,CurrentBalance,Active,Classification,Description
-1,Landscaping Services Revenue,Income,ServiceFeeIncome,0.00,true,Revenue,Revenue from all landscaping services
-2,Material Sales Revenue,Income,SalesOfProductIncome,0.00,true,Revenue,Revenue from material markups
-3,Business Checking,Bank,Checking,47250.00,true,Asset,Primary operating account - First Citizens Bank
-4,Business Savings,Bank,Savings,15000.00,true,Asset,Reserve fund - First Citizens Bank
-5,Accounts Receivable,Accounts Receivable,AccountsReceivable,8150.00,true,Asset,Outstanding customer balances
-6,Accounts Payable,Accounts Payable,AccountsPayable,2025.00,true,Liability,Outstanding vendor balances
-7,Fuel Expense,Expense,Auto,0.00,true,Expense,Fuel for trucks and equipment
-8,Equipment Maintenance,Expense,RepairMaintenance,0.00,true,Expense,Equipment repair and maintenance
-9,Plant Materials & Supplies,Expense,SuppliesMaterials,0.00,true,Expense,Nursery stock and landscaping materials
-10,Insurance Expense,Expense,Insurance,0.00,true,Expense,Business liability and vehicle insurance
-11,Truck Lease Payments,Expense,Auto,0.00,true,Expense,Monthly lease payments on work trucks
-12,Subcontractor Expense,Expense,SubContractors,0.00,true,Expense,Payments to subcontractors
-13,Phone & Communications,Expense,Communication,0.00,true,Expense,Cell phones and internet
-14,Utilities,Expense,Utilities,0.00,true,Expense,Shop electricity and water
-15,Uniform Expense,Expense,OtherBusinessExpenses,0.00,true,Expense,Crew uniforms and safety gear
-16,Payroll Expense,Expense,PayrollExpenses,0.00,true,Expense,Gross payroll for employees
-17,Mulch & Stone Materials,Expense,SuppliesMaterials,0.00,true,Expense,Bulk mulch and stone purchases
-18,Irrigation Supplies,Expense,SuppliesMaterials,0.00,true,Expense,Irrigation parts and materials
-19,Owner Draw,Equity,OwnersEquity,0.00,true,Equity,Owner distributions
-20,Retained Earnings,Equity,RetainedEarnings,52000.00,true,Equity,Accumulated net income
+1,Reimbursement Grant Revenue,Income,NonProfitIncome,5211.92,true,Revenue,Grant or contract funds allocated to Franklin County housing reimbursements
+2,Emergency Housing Reimbursements,Expense,OtherBusinessExpenses,2290.22,true,Expense,Motel and temporary housing reimbursements for tenant relocation cases
+3,Volunteer Travel Reimbursements,Expense,Travel,481.81,true,Expense,Mileage and fuel reimbursements for coalition volunteer support
+4,Food & Essentials Reimbursements,Expense,SuppliesMaterials,305.74,true,Expense,Food and essential supply reimbursements for supported households
+5,Reimbursement Clearing,Bank,Checking,25000.00,true,Asset,Clearing account for approved reimbursement payments
+6,Accounts Receivable,Accounts Receivable,AccountsReceivable,4245.43,true,Asset,Pending reimbursement documentation awaiting review or clarification
+7,Accounts Payable,Accounts Payable,AccountsPayable,4245.43,true,Liability,Outstanding reimbursements not yet approved for payment
+8,Duplicate Review Reserve,Other Current Liability,OtherCurrentLiabilities,1293.28,true,Liability,Held amount for duplicate-flagged uploads and repeated reimbursement trails
+9,Document Reconciliation,Expense,OtherBusinessExpenses,0.00,true,Expense,Administrative review for missing dates and mixed household documents
+10,Retained Earnings,Equity,RetainedEarnings,0.00,true,Equity,Accumulated net assets for the reimbursement workspace
+11,Relocation Transportation Reimbursements,Expense,Travel,624.90,true,Expense,Truck rental and relocation transportation reimbursements
+12,Utility and Deposit Reimbursements,Expense,OtherBusinessExpenses,2230.00,true,Expense,Utility deposit and security deposit reimbursements subject to intake limits

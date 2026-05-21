@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="mail_template_qc_pending" model="mail.template">
+        <field name="name">Video QC: Review Requested</field>
+        <field name="model_id" ref="model_video_task"/>
+        <field name="subject">[QC] {{ object.name }} needs your review</field>
+        <field name="email_from">{{ user.email_formatted }}</field>
+        <field name="email_to">{{ object.qc_user_id.email or '' }}</field>
+        <field name="body_html" type="html">
+            <div>
+                <p>Hi <t t-esc="object.qc_user_id.name"/>,</p>
+                <p>The task <strong><t t-esc="object.name"/></strong> has a new
+                version waiting for your QC review.</p>
+                <p>Latest version: v<t t-esc="object.latest_version_id.version_no"/></p>
+                <p>
+                    <a t-att-href="object.get_base_url() + '/odoo/video.task/' + str(object.id)"
+                       style="background:#ff3478;color:white;padding:8px 14px;border-radius:6px;text-decoration:none;">
+                        Open Task
+                    </a>
+                </p>
+            </div>
+        </field>
+        <field name="auto_delete" eval="True"/>
+    </record>
+
+    <record id="mail_template_qc_done" model="mail.template">
+        <field name="name">Video QC: Review Completed</field>
+        <field name="model_id" ref="model_video_task"/>
+        <field name="subject">[QC {{ object.latest_qc_status }}] {{ object.name }}</field>
+        <field name="email_from">{{ user.email_formatted }}</field>
+        <field name="email_to">{{ object.assigned_to.email or '' }}</field>
+        <field name="body_html" type="html">
+            <div>
+                <p>Hi <t t-esc="object.assigned_to.name"/>,</p>
+                <p>QC has marked your task <strong><t t-esc="object.name"/></strong>
+                as <strong><t t-esc="object.latest_qc_status"/></strong>.</p>
+                <p t-if="object.latest_version_id.qc_comment">
+                    Reviewer comment:
+                    <br/>
+                    <em><t t-esc="object.latest_version_id.qc_comment"/></em>
+                </p>
+            </div>
+        </field>
+        <field name="auto_delete" eval="True"/>
+    </record>
+
+</odoo>

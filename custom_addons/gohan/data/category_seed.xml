@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="cat_crm" model="gohan.category">
+            <field name="name">CRM</field>
+            <field name="code">crm</field>
+        </record>
+        <record id="cat_erp" model="gohan.category">
+            <field name="name">ERP</field>
+            <field name="code">erp</field>
+        </record>
+        <record id="cat_hcm" model="gohan.category">
+            <field name="name">HCM</field>
+            <field name="code">hcm</field>
+        </record>
+        <record id="cat_tms" model="gohan.category">
+            <field name="name">TMS</field>
+            <field name="code">tms</field>
+        </record>
+        <record id="cat_news" model="gohan.category">
+            <field name="name">News</field>
+            <field name="code">news</field>
+        </record>
+        <record id="cat_publishing" model="gohan.category">
+            <field name="name">Publishing</field>
+            <field name="code">publishing</field>
+        </record>
+        <record id="cat_retail" model="gohan.category">
+            <field name="name">Retail</field>
+            <field name="code">retail</field>
+        </record>
+        <record id="cat_services" model="gohan.category">
+            <field name="name">Services</field>
+            <field name="code">services</field>
+        </record>
+        <record id="cat_knowledge" model="gohan.category">
+            <field name="name">Knowledge</field>
+            <field name="code">knowledge</field>
+        </record>
+        <record id="cat_procurement" model="gohan.category">
+            <field name="name">Procurement</field>
+            <field name="code">procurement</field>
+        </record>
+        <record id="cat_vertical_markets" model="gohan.category">
+            <field name="name">Vertical Markets</field>
+            <field name="code">vertical_markets</field>
+        </record>
+        <record id="cat_gov_portal" model="gohan.category">
+            <field name="name">Gov. Portal</field>
+            <field name="code">gov_portal</field>
+        </record>
+        <record id="cat_community" model="gohan.category">
+            <field name="name">Community</field>
+            <field name="code">community</field>
+        </record>
+        <record id="cat_multimedia" model="gohan.category">
+            <field name="name">Multimedia</field>
+            <field name="code">multimedia</field>
+        </record>
+        <record id="cat_ai_platform" model="gohan.category">
+            <field name="name">AI Platform</field>
+            <field name="code">ai_platform</field>
+        </record>
+        <record id="cat_public_utility" model="gohan.category">
+            <field name="name">Public Utility</field>
+            <field name="code">public_utility</field>
+        </record>
+    </data>
+</odoo>

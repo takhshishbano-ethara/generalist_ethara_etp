@@ -37,6 +37,20 @@
                                 <field name="kaiju_argo_verify_tls"/>
                             </div>
                         </setting>
+                        <setting string="Test Connection" help="Probe the configured Argo Server and report what is reachable. Useful for diagnosing RBAC, networking, and token issues without server log access.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <button name="action_test_argo_connection" type="object"
+                                            string="Test Argo Connection"
+                                            class="btn-primary"
+                                            icon="fa-plug"/>
+                                </div>
+                                <div class="row mt8" invisible="not kaiju_connection_diagnostic">
+                                    <field name="kaiju_connection_diagnostic" nolabel="1" readonly="1"
+                                           widget="text" style="font-family: monospace; white-space: pre; font-size: 12px;"/>
+                                </div>
+                            </div>
+                        </setting>
                     </block>
                     <block title="Callbacks">
                         <setting string="Odoo Internal URL" help="In-cluster URL that Argo exit handlers use to call back into Odoo">
@@ -52,6 +66,32 @@
                                 <div class="row mt8">
                                     <label for="kaiju_webhook_token" class="col-lg-3"/>
                                     <field name="kaiju_webhook_token" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="AWS Credentials" help="Used by Odoo to read dataset_entries.json from S3 for pipeline metadata. Leave keys blank if Odoo runs on EC2 with an IAM role granting S3 read access.">
+                        <setting string="AWS Region" help="S3 bucket region (matches the Argo pipeline's S3_REGION)">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_aws_region" class="col-lg-3"/>
+                                    <field name="kaiju_aws_region"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="AWS Access Key ID" help="Leave blank to use EC2 instance profile / IRSA credentials. Required only if Odoo has no instance role.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_aws_access_key_id" class="col-lg-3"/>
+                                    <field name="kaiju_aws_access_key_id"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="AWS Secret Access Key" help="Paired with the access key ID. Stored encrypted via Odoo's standard config parameter mechanism.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="kaiju_aws_secret_access_key" class="col-lg-3"/>
+                                    <field name="kaiju_aws_secret_access_key" password="True"/>
                                 </div>
                             </div>
                         </setting>

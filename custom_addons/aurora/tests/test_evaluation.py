@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
 import os
 import tempfile
@@ -8,7 +9,6 @@ from unittest.mock import patch, MagicMock
 from odoo import fields as odoo_fields
 from odoo.tests.common import TransactionCase, tagged
 from odoo.exceptions import UserError
-
 
 @tagged("post_install", "-at_install")
 class TestAuroraEvaluation(TransactionCase):
@@ -118,105 +118,6 @@ class TestAuroraEvaluation(TransactionCase):
         self.assertFalse(rec.log)
         self.assertFalse(rec.final_report_file)
         self.assertFalse(rec.missing_registries)
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # _generate_patch_file
-    # ═══════════════════════════════════════════════════════════════════════════
-
-    def test_generate_patch_file_basic(self):
-        """Generates patch file from dataset entries."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "diff"}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                data = json.loads(f.readline())
-            self.assertEqual(data["org"], "o")
-            self.assertEqual(data["repo"], "r")
-            self.assertEqual(data["number"], 1)
-            self.assertEqual(data["fix_patch"], "diff")
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_skips_empty_lines(self):
-        """Empty lines are skipped."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            ds.write("\n")
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": ""}) + "\n")
-            ds.write("\n\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                lines = [l for l in f if l.strip()]
-            self.assertEqual(len(lines), 1)
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_missing_fix_patch(self):
-        """Missing fix_patch defaults to empty string."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                data = json.loads(f.readline())
-            self.assertEqual(data["fix_patch"], "")
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_multiple_entries(self):
-        """Multiple entries written correctly."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as ds:
-            for i in range(5):
-                ds.write(json.dumps({"org": "o", "repo": "r", "number": i, "fix_patch": f"d{i}"}) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path) as f:
-                lines = [l for l in f if l.strip()]
-            self.assertEqual(len(lines), 5)
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    def test_generate_patch_file_unicode(self):
-        """Unicode in fix_patch is preserved."""
-        rec = self._create_eval()
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False, encoding="utf-8") as ds:
-            ds.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "日本語パッチ"}, ensure_ascii=False) + "\n")
-            ds_path = ds.name
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as out:
-            out_path = out.name
-        try:
-            rec._generate_patch_file(ds_path, out_path)
-            with open(out_path, encoding="utf-8") as f:
-                data = json.loads(f.readline())
-            self.assertEqual(data["fix_patch"], "日本語パッチ")
-        finally:
-            os.unlink(ds_path)
-            os.unlink(out_path)
-
-    # ═══════════════════════════════════════════════════════════════════════════
-    # action_run_evaluation
-    # ═══════════════════════════════════════════════════════════════════════════
 
     def test_run_only_from_draft(self):
         """Can only start from draft stage."""
@@ -794,3 +695,102 @@ class TestAuroraEvaluation(TransactionCase):
         rec = self._create_eval()
         rec.write({"dataset_jsonl_url": "http://minio:9000/bkt/dataset.jsonl"})
         self.assertEqual(rec.dataset_jsonl_url, "http://minio:9000/bkt/dataset.jsonl")
+
+
+
+@tagged("post_install", "-at_install")
+class TestAuroraEvaluationCustomImport(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.env["ir.config_parameter"].sudo().set_param("aurora.output_dir", "/tmp/aurora_test")
+
+    def _make_jsonl_b64(self, entries=None):
+        if entries is None:
+            entries = [{"org": "myorg", "repo": "myrepo", "number": 1}]
+        content = "\n".join(json.dumps(e) for e in entries)
+        return base64.b64encode(content.encode()).decode()
+
+    def _create_custom_eval(self, **kwargs):
+        vals = {
+            "dataset_source": "custom",
+            "custom_org": "myorg",
+            "custom_repo": "myrepo",
+            "custom_jsonl_file": self._make_jsonl_b64(),
+            "custom_jsonl_filename": "dataset.jsonl",
+            "docker_platform": "linux/amd64,linux/arm64",
+        }
+        vals.update(kwargs)
+        return self.env["aurora.evaluation"].create(vals)
+
+    def test_custom_no_file_raises(self):
+        rec = self.env["aurora.evaluation"].create({
+            "dataset_source": "custom",
+            "custom_org": "myorg",
+            "custom_repo": "myrepo",
+            "docker_platform": "linux/amd64,linux/arm64",
+        })
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    def test_custom_no_org_raises(self):
+        rec = self.env["aurora.evaluation"].create({
+            "dataset_source": "custom",
+            "custom_repo": "myrepo",
+            "custom_jsonl_file": self._make_jsonl_b64(),
+            "custom_jsonl_filename": "dataset.jsonl",
+            "docker_platform": "linux/amd64,linux/arm64",
+        })
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    def test_custom_no_repo_raises(self):
+        rec = self.env["aurora.evaluation"].create({
+            "dataset_source": "custom",
+            "custom_org": "myorg",
+            "custom_jsonl_file": self._make_jsonl_b64(),
+            "custom_jsonl_filename": "dataset.jsonl",
+            "docker_platform": "linux/amd64,linux/arm64",
+        })
+        with self.assertRaises(UserError):
+            rec.action_run_evaluation()
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_sets_stage_to_building_images(self, _submit):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        self.assertEqual(rec.stage, "building_images")
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_sets_dataset_file(self, _submit):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        self.assertTrue(rec.dataset_file)
+        self.assertIn(f"custom_{rec.id}_", rec.dataset_file)
+
+    @patch("odoo.addons.aurora.models.evaluation_executor.submit_evaluation_async")
+    def test_custom_run_s3_not_uploaded_from_backend(self, _submit):
+        rec = self._create_custom_eval()
+        rec.action_run_evaluation()
+        self.assertEqual(rec.s3_run_number, 0)
+        self.assertFalse(rec.dataset_jsonl_url)
+
+    def test_reset_clears_custom_fields(self):
+        rec = self._create_custom_eval()
+        rec.write({"stage": "failed"})
+        rec.action_reset_to_draft()
+        self.assertFalse(rec.custom_jsonl_file)
+        self.assertFalse(rec.custom_jsonl_filename)
+        self.assertEqual(rec.stage, "draft")
+
+    def test_s3_base_uri_uses_custom_org_repo(self):
+        rec = self._create_custom_eval()
+        rec.write({"s3_run_number": 7})
+        self.assertIn("myorg__myrepo", rec.s3_base_uri)
+        self.assertIn("run_7", rec.s3_base_uri)
+        self.assertIn("aurora_phase2", rec.s3_base_uri)
+
+    def test_s3_base_uri_empty_without_run_number(self):
+        rec = self._create_custom_eval()
+        self.assertFalse(rec.s3_base_uri)

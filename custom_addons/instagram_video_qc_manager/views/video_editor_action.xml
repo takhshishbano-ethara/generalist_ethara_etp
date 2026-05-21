@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Client action used by video.task.action_open_editor() to launch the
+        OWL fullscreen editor.  The action itself doesn't carry any view: the
+        actual UI is delivered by the JS bundle (see static/src/js/video_editor).
+    -->
+    <record id="action_video_editor_client" model="ir.actions.client">
+        <field name="name">Video Editor</field>
+        <field name="tag">instagram_video_qc_manager.video_editor</field>
+        <field name="target">fullscreen</field>
+    </record>
+
+</odoo>

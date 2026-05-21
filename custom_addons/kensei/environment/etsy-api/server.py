@@ -17,6 +17,13 @@ def health():
     return {"status": "ok"}
 
 
+# --- User ---
+
+@app.get("/v3/application/users/me")
+def get_current_user():
+    return etsy_data.get_current_user()
+
+
 # --- Shop ---
 
 @app.get("/v3/application/shops/{shop_id}")

@@ -499,74 +499,6 @@ class TestRunEvaluationResolveEntryNumber(TestCase):
         self.assertEqual(_resolve_entry_number({"pr_numbers": ["99"]}), 99)
 
 
-class TestRunEvaluationGeneratePatchFile(TestCase):
-
-    def test_generates_patches(self):
-        import tempfile, json
-        from odoo.addons.aurora.worker.run_evaluation import _generate_patch_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": "diff"}) + "\n")
-            f.write(json.dumps({"org": "o", "repo": "r", "number": 2, "fix_patch": "patch2"}) + "\n")
-            src = f.name
-        out = src + ".patches.jsonl"
-        try:
-            _generate_patch_file(src, out)
-            with open(out) as fp:
-                lines = fp.readlines()
-            self.assertEqual(len(lines), 2)
-            entry = json.loads(lines[0])
-            self.assertEqual(entry["number"], 1)
-            self.assertEqual(entry["fix_patch"], "diff")
-        finally:
-            os.unlink(src)
-            if os.path.exists(out):
-                os.unlink(out)
-
-    def test_skips_entries_without_number(self):
-        import tempfile, json
-        from odoo.addons.aurora.worker.run_evaluation import _generate_patch_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({"org": "o", "repo": "r"}) + "\n")
-            src = f.name
-        out = src + ".patches.jsonl"
-        try:
-            _generate_patch_file(src, out)
-            with open(out) as fp:
-                lines = fp.readlines()
-            self.assertEqual(len(lines), 0)
-        finally:
-            os.unlink(src)
-            if os.path.exists(out):
-                os.unlink(out)
-
-    def test_empty_file(self):
-        import tempfile
-        from odoo.addons.aurora.worker.run_evaluation import _generate_patch_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            src = f.name
-        out = src + ".patches.jsonl"
-        try:
-            _generate_patch_file(src, out)
-            with open(out) as fp:
-                self.assertEqual(fp.read(), "")
-        finally:
-            os.unlink(src)
-            if os.path.exists(out):
-                os.unlink(out)
-
-    def test_creates_output_dir(self):
-        import tempfile, json
-        from odoo.addons.aurora.worker.run_evaluation import _generate_patch_file
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
-            f.write(json.dumps({"org": "o", "repo": "r", "number": 1, "fix_patch": ""}) + "\n")
-            src = f.name
-        with tempfile.TemporaryDirectory() as d:
-            out = os.path.join(d, "subdir", "patches.jsonl")
-            _generate_patch_file(src, out)
-            self.assertTrue(os.path.isfile(out))
-        os.unlink(src)
-
-
 class TestRunEvaluationHeartbeat(TestCase):
 
     def test_updates_last_heartbeat(self):
@@ -655,7 +587,7 @@ class TestRunEvaluationReadEvalConfig(TestCase):
         cursor = MagicMock()
         cursor.fetchone.return_value = (
             "/data.jsonl", "/patches.jsonl", "/repos", "/work",
-            "/output", False, 4, 4, "linux/amd64", 0, "", 1,
+            "/output", False, 4, 4, "linux/amd64", 0, "", 1, None, None,
         )
         conn.cursor.return_value.__enter__ = MagicMock(return_value=cursor)
         conn.cursor.return_value.__exit__ = MagicMock(return_value=False)

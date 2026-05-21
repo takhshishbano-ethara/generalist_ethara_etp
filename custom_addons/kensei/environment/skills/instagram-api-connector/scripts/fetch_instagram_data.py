@@ -69,7 +69,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("INSTAGRAM_API_URL", "http://localhost:8007")
+    base_url = os.environ.get("INSTAGRAM_API_URL", "http://localhost:8003")
 
     try:
         if args.user:

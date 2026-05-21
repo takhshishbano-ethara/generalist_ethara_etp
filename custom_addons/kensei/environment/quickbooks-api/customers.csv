@@ -1,26 +1,14 @@
 Id,DisplayName,GivenName,FamilyName,CompanyName,PrimaryEmailAddr,PrimaryPhone,BillAddr_Line1,BillAddr_City,BillAddr_CountrySubDivisionCode,BillAddr_PostalCode,Balance,Active,Job,Notes
-1,Mark Thompson,Mark,Thompson,,mark.thompson@email.com,(704) 555-0201,892 Elm Street,Charlotte,NC,28205,0.00,true,false,Residential - weekly mowing
-2,Sarah Jenkins,Sarah,Jenkins,,sarah.jenkins@gmail.com,(704) 555-0302,1455 Magnolia Lane,Charlotte,NC,28207,350.00,true,false,Residential - garden design client
-3,Robert & Lisa Chen,Robert,Chen,,rchen@email.com,(704) 555-0418,3201 Oakdale Drive,Charlotte,NC,28210,0.00,true,false,Residential - full service
-4,Patricia Nguyen,Patricia,Nguyen,,pnguyen@outlook.com,(704) 555-0534,567 Willow Creek Ct,Charlotte,NC,28226,175.00,true,false,Residential - bi-weekly mowing
-5,James & Karen Mitchell,James,Mitchell,,jkmitchell@email.com,(704) 555-0645,2890 Pinehurst Blvd,Charlotte,NC,28211,0.00,true,false,Residential - seasonal cleanups
-6,David Washington,David,Washington,,dwash@email.com,(704) 555-0756,4102 Brookshire Lane,Charlotte,NC,28216,0.00,true,false,Residential - tree trimming
-7,Amanda Foster,Amanda,Foster,,afoster@gmail.com,(704) 555-0867,1678 Rosewood Ave,Charlotte,NC,28203,525.00,true,false,Residential - hardscaping project
-8,Oakwood HOA,,,Oakwood Homeowners Association,admin@oakwoodhoa.org,(704) 555-1100,100 Oakwood Commons Blvd,Charlotte,NC,28277,1200.00,true,false,Commercial - common area maintenance
-9,Meridian Office Park,,,Meridian Property Management LLC,facilities@meridianoffice.com,(704) 555-1200,5500 Meridian Parkway,Charlotte,NC,28217,0.00,true,false,Commercial - weekly grounds maintenance
-10,William Carter,William,Carter,,wcarter@email.com,(704) 555-0978,3456 Sunset Hills Drive,Charlotte,NC,28270,0.00,true,false,Residential - irrigation install
-11,Jennifer Martinez,Jennifer,Martinez,,jmartinez@email.com,(704) 555-1089,890 Cypress Hollow Rd,Charlotte,NC,28212,250.00,true,false,Residential - garden design
-12,Thomas & Mary Kelly,Thomas,Kelly,,tkelly@email.com,(704) 555-1190,2345 Heritage Lane,Charlotte,NC,28209,0.00,true,false,Residential - weekly mowing
-13,Lakeside Village HOA,,,Lakeside Village HOA Inc,board@lakesidevillage.org,(704) 555-1300,200 Lakeside Village Drive,Charlotte,NC,28278,950.00,true,false,Commercial - landscape maintenance contract
-14,Michael Brown,Michael,Brown,,mbrown77@gmail.com,(704) 555-1401,4567 Maple Ridge Ct,Charlotte,NC,28213,0.00,true,false,Residential - one-time cleanup
-15,Catherine Shaw,Catherine,Shaw,,cshaw@email.com,(704) 555-1512,1234 Birchwood Lane,Charlotte,NC,28204,0.00,true,false,Residential - mulch and planting
-16,Richard & Joan Palmer,Richard,Palmer,,rpalmer@email.com,(704) 555-1623,6789 Meadowbrook Dr,Charlotte,NC,28227,450.00,true,false,Residential - ongoing maintenance
-17,Uptown Church Campus,,,First Baptist Church of Uptown,office@uptownfbc.org,(704) 555-1700,300 N Tryon Street,Charlotte,NC,28202,0.00,true,false,Commercial - seasonal landscaping
-18,Daniel Harris,Daniel,Harris,,dharris@outlook.com,(704) 555-1834,5432 Stonebridge Way,Charlotte,NC,28269,0.00,true,false,Residential - weekly mowing
-19,Stephanie Coleman,Stephanie,Coleman,,scoleman@email.com,(704) 555-1945,876 Wisteria Court,Charlotte,NC,28208,0.00,true,false,Residential - tree trimming
-20,Brian & Tanya Ross,Brian,Ross,,bross@email.com,(704) 555-2056,2109 Dogwood Lane,Charlotte,NC,28214,0.00,true,false,Residential - spring cleanup
-21,Heritage Square Shopping,,,Heritage Square Management Co,property@heritagesq.com,(704) 555-2100,7000 Heritage Square Blvd,Charlotte,NC,28262,0.00,true,false,Commercial - parking lot landscaping
-22,Nancy Wright,Nancy,Wright,,nwright@gmail.com,(704) 555-2167,3890 Camellia Way,Charlotte,NC,28215,0.00,true,false,Residential - irrigation maintenance
-23,Kevin & Laura Adams,Kevin,Adams,,kadams@email.com,(704) 555-2278,1567 Azalea Drive,Charlotte,NC,28206,800.00,true,false,Residential - patio hardscaping
-24,George Henderson,George,Henderson,,ghenderson@email.com,(704) 555-2389,4321 Cedar Hill Road,Charlotte,NC,28211,0.00,true,false,Residential - bi-weekly mowing
-25,Sandra Phillips,Sandra,Phillips,,sphillips@email.com,(704) 555-2490,2678 Jasmine Circle,Charlotte,NC,28270,0.00,true,false,Residential - seasonal plantings
+1,Maria Holloway,Maria,Holloway,Holloway Family,maria.holloway@example.org,(315) 555-0114,14 Franklin County Housing File,Syracuse,NY,13202,418.22,true,false,Claim FC-2026-014 - Emergency Motel Stay - pending review; motel dates partially mismatch reimbursement form
+2,Daniel Perez,Daniel,Perez,Volunteer Support Team,daniel.perez@example.org,(315) 555-0115,15 Franklin County Volunteer File,Syracuse,NY,13202,0.00,true,false,Claim FC-2026-015 - Volunteer Travel Mileage - matched and mileage total verified
+3,Holloway Household,,,Holloway Family,holloway.household@example.org,(315) 555-0116,16 Franklin County Housing File,Syracuse,NY,13202,152.87,true,false,Claim FC-2026-016 - Food & Essentials - needs clarification; multiple family purchases merged into same PDF
+4,Rachel Turner,Rachel,Turner,Turner Household,rachel.turner@example.org,(315) 555-0117,17 Franklin County Housing File,Syracuse,NY,13202,0.00,true,false,Claim FC-2026-017 - Temporary Housing - matched and ready for reimbursement logging
+5,Coalition Volunteer Group,,,Coalition Volunteer Group,volunteers@example.org,(315) 555-0118,18 Franklin County Volunteer File,Syracuse,NY,13202,204.51,true,false,Claim FC-2026-018 - Fuel Reimbursement - duplicate flagged; potential duplicate upload found in archive folder
+6,Aisha Reed,Aisha,Reed,Reed Household,aisha.reed@example.org,(315) 555-0119,19 Franklin County Housing File,Syracuse,NY,13202,0.00,true,false,Claim FC-2026-019 - Emergency Motel Stay - matched but repeats the 624.00 amount from another housing claim
+7,Brian Cole,Brian,Cole,Cole Household,brian.cole@example.org,(315) 555-0120,20 Franklin County Housing File,Syracuse,NY,13202,624.00,true,false,Claim FC-2026-020 - Temporary Housing - summary total conflicts with receipt total and shares duplicate amount group DUP-624-A
+8,Nadia Brooks,Nadia,Brooks,Brooks Household,nadia.brooks@example.org,(315) 555-0121,21 Franklin County Relocation File,Syracuse,NY,13202,0.00,true,false,Claim FC-2026-021 - Relocation Truck Rental - matched but linked to duplicate truck rental group DUP-TRUCK-312
+9,Omar Singh,Omar,Singh,Singh Household,omar.singh@example.org,(315) 555-0122,22 Franklin County Relocation File,Syracuse,NY,13202,312.45,true,false,Claim FC-2026-022 - Relocation Truck Rental - duplicate expense entry with FC-2026-021
+10,Valdez Household,,,Valdez Household,valdez.household@example.org,(315) 555-0123,23 Franklin County Utility File,Syracuse,NY,13202,950.00,true,false,Claim FC-2026-023 - Utility Deposit - exceeds 750.00 intake limit
+11,Chen-Rivera Household,,,Chen-Rivera Household,chen.rivera@example.org,(315) 555-0124,24 Franklin County Relocation File,Syracuse,NY,13202,1280.00,true,false,Claim FC-2026-024 - Security Deposit - exceeds 1000.00 intake limit and mixes Chen and Rivera household records
+12,Priya Shah,Priya,Shah,Volunteer Support Team,priya.shah@example.org,(315) 555-0125,25 Franklin County Volunteer File,Syracuse,NY,13202,184.20,true,false,Claim FC-2026-025 - Travel Mileage - mileage export total conflicts with reimbursement summary
+13,Holloway Family Intake Alias,,,Holloway Family,holloway.alias@example.org,(315) 555-0126,26 Franklin County Housing File,Syracuse,NY,13202,152.87,true,false,Claim FC-2026-026 - Food & Essentials - duplicate of FC-2026-016 under household alias

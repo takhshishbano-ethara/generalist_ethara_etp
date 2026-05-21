@@ -14,7 +14,7 @@ import sys
 import time
 
 from .instance import Instance
-
+from ..harness_bridge.phase2_docker_build import _ensure_harness_importable
 _logger = logging.getLogger(__name__)
 
 
@@ -40,6 +40,7 @@ def load_staging_harness(file_path: str, org: str, repo: str) -> dict[str, type 
     sys.modules[module_name] = module
 
     try:
+        _ensure_harness_importable()
         spec.loader.exec_module(module)
     except Exception:
         sys.modules.pop(module_name, None)

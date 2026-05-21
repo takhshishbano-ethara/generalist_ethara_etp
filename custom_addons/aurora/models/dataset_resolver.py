@@ -71,7 +71,76 @@ def _get_download_lock(url: str) -> threading.Lock:
         return lock
 
 
+def _parse_s3_url(url: str) -> tuple[str, str] | None:
+    parsed = urlparse(url)
+    scheme = parsed.scheme.lower()
+
+    if scheme == "s3":
+        bucket = parsed.netloc
+        key = parsed.path.lstrip("/")
+        return (bucket, key) if bucket and key else None
+
+    if scheme not in ("http", "https"):
+        return None
+
+    host = parsed.netloc.lower()
+    path = parsed.path.lstrip("/")
+
+    if ".s3" in host and host.split(".", 1)[1].startswith("s3"):
+        bucket = host.split(".", 1)[0]
+        return (bucket, path) if bucket and path else None
+
+    endpoint_override = os.environ.get("AURORA_S3_ENDPOINT", "").strip().lower()
+    if endpoint_override:
+        ep_host = urlparse(endpoint_override).netloc.lower() or endpoint_override.split("://", 1)[-1].split("/", 1)[0]
+        if host == ep_host and "/" in path:
+            bucket, _, key = path.partition("/")
+            return (bucket, key) if bucket and key else None
+
+    return None
+
+
+def _download_s3_boto(bucket: str, key: str, target: str) -> None:
+    from . import s3_storage
+
+    s3_config = {
+        "bucket": bucket,
+        "region": os.environ.get("AURORA_S3_REGION", "").strip() or "us-east-1",
+        "access_key": os.environ.get("AURORA_S3_ACCESS_KEY", "").strip(),
+        "secret_key": os.environ.get("AURORA_S3_SECRET_KEY", "").strip(),
+    }
+    client = s3_storage._get_client(s3_config)
+    part = target + ".part"
+    _logger.info("Aurora dataset_resolver: boto3 download s3://%s/%s -> %s", bucket, key, target)
+    try:
+        client.download_file(bucket, key, part)
+        os.replace(part, target)
+        _logger.info(
+            "Aurora dataset_resolver: downloaded %.1f MB via boto3 to %s",
+            os.path.getsize(target) / (1024 * 1024), target,
+        )
+    except Exception:
+        try:
+            if os.path.exists(part):
+                os.remove(part)
+        except OSError:
+            pass
+        raise
+
+
 def _download_http(url: str, target: str) -> None:
+    s3_ref = _parse_s3_url(url)
+    if s3_ref is not None:
+        bucket, key = s3_ref
+        try:
+            _download_s3_boto(bucket, key, target)
+            return
+        except Exception as exc:
+            _logger.warning(
+                "Aurora dataset_resolver: boto3 fetch failed for s3://%s/%s (%s); "
+                "falling back to unsigned HTTP", bucket, key, exc,
+            )
+
     import requests
 
     part = target + ".part"
@@ -98,17 +167,11 @@ def _download_http(url: str, target: str) -> None:
 
 
 def _download_s3(url: str, target: str) -> None:
-    parsed = urlparse(url)
-    bucket = parsed.netloc
-    key = parsed.path.lstrip("/")
-    if not bucket or not key:
+    s3_ref = _parse_s3_url(url)
+    if s3_ref is None:
         raise ValueError(f"Invalid s3:// URL (missing bucket or key): {url!r}")
-    endpoint_override = os.environ.get("AURORA_S3_ENDPOINT", "").strip()
-    if endpoint_override:
-        https_url = f"{endpoint_override.rstrip('/')}/{bucket}/{key}"
-    else:
-        https_url = f"https://{bucket}.s3.amazonaws.com/{key}"
-    _download_http(https_url, target)
+    bucket, key = s3_ref
+    _download_s3_boto(bucket, key, target)
 
 
 def _get_output_dir(env_or_cr: Any) -> str:

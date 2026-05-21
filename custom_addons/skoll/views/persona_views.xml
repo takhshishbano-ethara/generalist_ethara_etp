@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="skoll_persona_view_list" model="ir.ui.view">
+        <field name="name">skoll.persona.list</field>
+        <field name="model">skoll.persona</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="task_count" string="Tasks"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="skoll_persona_view_form" model="ir.ui.view">
+        <field name="name">skoll.persona.form</field>
+        <field name="model">skoll.persona</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="persona-name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="active" widget="boolean_toggle"/>
+                        </group>
+                        <group>
+                            <field name="task_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Soul" name="soul">
+                            <field name="soul_md" placeholder="Core personality and behaviour..."/>
+                        </page>
+                        <page string="Memory" name="memory">
+                            <field name="memory_md" placeholder="Persistent memory / context..."/>
+                        </page>
+                        <page string="Agents" name="agents">
+                            <field name="agents_md" placeholder="Agent configuration..."/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="skoll_persona_action" model="ir.actions.act_window">
+        <field name="name">Personas</field>
+        <field name="res_model">skoll.persona</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

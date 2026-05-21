@@ -808,9 +808,11 @@ def _unwrap_trajectory_messages(messages):
 
 def _load_dotenv():
     env = os.environ.copy()
-
     root = None
-    conf_path = odoo_config.rcfile
+    try:
+        conf_path = odoo_config.get('config') or getattr(odoo_config, 'rcfile', None)
+    except Exception:
+        conf_path = None
     if conf_path:
         root = os.path.dirname(os.path.abspath(conf_path))
     if not root:
@@ -848,6 +850,7 @@ model_list:
     litellm_params:
       model: moonshot/kimi-k2.6
       api_key: os.environ/MOONSHOT_API_KEY
+      temperature: 1.0
       input_cost_per_token: 0.0000006
       output_cost_per_token: 0.000003
 
@@ -1661,11 +1664,13 @@ class Kensei(models.Model):
 
     def _build_output_artifacts(self):
         self.ensure_one()
+        import re as _re
         from .kensei_sandbox_k8s import S3_BUCKET, S3_KENSEI_PREFIX
 
         icp = self.env["ir.config_parameter"].sudo()
         bucket = icp.get_param("kensei.s3_bucket") or S3_BUCKET
         prefix = icp.get_param("kensei.s3_prefix") or S3_KENSEI_PREFIX
+        region = icp.get_param("kensei.s3_region") or "us-east-1"
         task_id = self.task_id or str(self.id)
 
         media_ext_re = _re.compile(
@@ -1687,6 +1692,42 @@ class Kensei(models.Model):
             "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
         }
 
+        write_tool_names = {"write", "save_file", "create_file", "write_file"}
+        workspace_prefix = "/home/node/.openclaw/"
+
+        def _classify(ext):
+            mime = mime_map.get(ext, "application/octet-stream")
+            if mime.startswith("image"):
+                return mime, "generated_image"
+            if mime.startswith("video") or mime.startswith("audio"):
+                return mime, "media"
+            if mime == "application/pdf":
+                return mime, "document"
+            return mime, "data_export"
+
+        def _add_artifact(path, seen, artifacts):
+            basename = path.rsplit("/", 1)[-1] if "/" in path else path
+            if basename in seen:
+                return
+            seen.add(basename)
+            ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+            mime, artifact_type = _classify(ext)
+            entry = {
+                "filename": basename,
+                "mime_type": mime,
+                "artifact_type": artifact_type,
+                "description": "Agent-generated %s output" % ext.upper(),
+                "container_path": path if path.startswith(workspace_prefix) else "",
+            }
+            if bucket:
+                entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
+                    bucket, prefix, task_id, basename
+                )
+                entry["s3_url"] = "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/%s" % (
+                    bucket, region, prefix, task_id, basename
+                )
+            artifacts.append(entry)
+
         seen = set()
         artifacts = []
         all_turns = self._get_all_turns().sorted("turn_number")
@@ -1694,32 +1735,77 @@ class Kensei(models.Model):
             response_text = t.response or ""
             paths = media_ext_re.findall(response_text)
             for path in paths:
-                basename = path.rsplit("/", 1)[-1] if "/" in path else path
-                if basename in seen:
-                    continue
-                seen.add(basename)
-                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
-                mime = mime_map.get(ext, "application/octet-stream")
-                if mime.startswith("image"):
-                    artifact_type = "generated_image"
-                elif mime.startswith("video") or mime.startswith("audio"):
-                    artifact_type = "media"
-                elif mime == "application/pdf":
-                    artifact_type = "document"
-                else:
-                    artifact_type = "data_export"
+                _add_artifact(path, seen, artifacts)
 
-                entry = {
-                    "filename": basename,
-                    "mime_type": mime,
-                    "artifact_type": artifact_type,
-                    "description": "Agent-generated %s output" % ext.upper(),
-                }
-                if bucket:
-                    entry["source"] = "s3://%s/%s/output/tasks/%s/%s" % (
-                        bucket, prefix, task_id, basename
-                    )
-                artifacts.append(entry)
+            tc_raw = t.tool_calls or ""
+            if tc_raw:
+                try:
+                    tc_list = json.loads(tc_raw) if isinstance(tc_raw, str) else tc_raw
+                    if isinstance(tc_list, list):
+                        for tc in tc_list:
+                            if not isinstance(tc, dict):
+                                continue
+                            name = (tc.get("name") or "").lower()
+                            if name in write_tool_names:
+                                args = tc.get("args") or tc.get("arguments") or tc.get("input") or {}
+                                if isinstance(args, str):
+                                    try:
+                                        args = json.loads(args)
+                                    except (json.JSONDecodeError, TypeError):
+                                        args = {}
+                                fpath = args.get("path") or args.get("file_path") or args.get("filePath") or ""
+                                if fpath and fpath.startswith(workspace_prefix):
+                                    _add_artifact(fpath, seen, artifacts)
+                            result = tc.get("result") or ""
+                            if isinstance(result, str):
+                                for rpath in media_ext_re.findall(result):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+            traj_raw = t.trajectory_messages or ""
+            if traj_raw:
+                try:
+                    traj_msgs = json.loads(traj_raw) if isinstance(traj_raw, str) else traj_raw
+                    if isinstance(traj_msgs, list):
+                        for msg in traj_msgs:
+                            if not isinstance(msg, dict):
+                                continue
+                            inner = msg.get("message", msg)
+                            if not isinstance(inner, dict):
+                                continue
+                            role = inner.get("role", "")
+                            content = inner.get("content")
+                            if role == "assistant" and isinstance(content, list):
+                                for block in content:
+                                    if not isinstance(block, dict):
+                                        continue
+                                    if block.get("type") in ("tool_use", "toolCall"):
+                                        inp = block.get("input") or block.get("arguments") or {}
+                                        if isinstance(inp, str):
+                                            try:
+                                                inp = json.loads(inp)
+                                            except (json.JSONDecodeError, TypeError):
+                                                inp = {}
+                                        bname = (block.get("name") or "").lower()
+                                        if bname in write_tool_names:
+                                            fpath = inp.get("path") or inp.get("file_path") or inp.get("filePath") or ""
+                                            if fpath and fpath.startswith(workspace_prefix):
+                                                _add_artifact(fpath, seen, artifacts)
+                            elif role == "tool" or role == "toolResult":
+                                text = ""
+                                if isinstance(content, str):
+                                    text = content
+                                elif isinstance(content, list):
+                                    text = " ".join(
+                                        b.get("text", "") for b in content
+                                        if isinstance(b, dict) and b.get("type") == "text"
+                                    )
+                                for rpath in media_ext_re.findall(text):
+                                    _add_artifact(rpath, seen, artifacts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
         return artifacts
 
     def action_download_harbor_bundle(self):
@@ -1937,6 +2023,9 @@ class Kensei(models.Model):
         )
         thread.start()
 
+        exported_recs = self.filtered(lambda r: r.initial_prompt)
+        exported_recs.write({"task_status": "Submitted"})
+
         msg = "Exporting %d task(s) to S3." % len(all_uploads)
         if skipped:
             msg += " Skipped %d (no instruction): %s" % (len(skipped), ", ".join(skipped[:5]))
@@ -2142,6 +2231,8 @@ class Kensei(models.Model):
             daemon=True,
         )
         thread.start()
+
+        self.write({"task_status": "Submitted"})
 
         return {
             "type": "ir.actions.client",
@@ -2909,12 +3000,32 @@ class Kensei(models.Model):
         if claude_sandbox.turn_ids:
             return {"skip": True, "reason": "has_turns"}
 
+        input_files = []
+        for sb in task.sandbox_ids:
+            for turn in sb.turn_ids:
+                if not turn.attachments:
+                    continue
+                try:
+                    atts = json.loads(turn.attachments)
+                    if isinstance(atts, list):
+                        for att in atts:
+                            stored_as = att.get("storedAs", "")
+                            if stored_as and stored_as not in {f["storedAs"] for f in input_files}:
+                                input_files.append({
+                                    "storedAs": stored_as,
+                                    "name": att.get("name", stored_as),
+                                    "mimeType": att.get("mimeType", "application/octet-stream"),
+                                })
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
         return {
             "task_id": task_id,
             "sandbox_id": claude_sandbox.id,
             "docker_status": claude_sandbox.docker_status or "stopped",
             "initial_prompt": task.initial_prompt or "",
             "system_prompt": task.system_prompt or "",
+            "input_files": input_files,
         }
 
     @api.model

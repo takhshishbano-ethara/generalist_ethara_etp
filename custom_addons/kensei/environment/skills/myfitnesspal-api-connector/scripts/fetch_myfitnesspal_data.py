@@ -69,7 +69,7 @@ def main():
                         help="Maximum results to return")
 
     args = parser.parse_args()
-    base_url = os.environ.get("MYFITNESSPAL_API_URL", "http://localhost:8006")
+    base_url = os.environ.get("MYFITNESSPAL_API_URL", "http://localhost:8005")
 
     try:
         if args.profile:

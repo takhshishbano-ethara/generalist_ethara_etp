@@ -90,13 +90,30 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     zlib1g \
     ca-certificates \
     curl \
+    unzip \
+    skopeo \
     && install -m 0755 -d /etc/apt/keyrings \
     && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
-    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
+    && arch=$(dpkg --print-architecture) \
+    && echo "deb [arch=${arch} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian bookworm stable" \
        > /etc/apt/sources.list.d/docker.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    # Install AWS CLI v2 from Amazon's official installer.
+    # Debian Bookworm apt ships awscli 2.9.19 (Jan 2023) which predates EKS Pod
+    # Identity support (added in v2.15, Nov 2023). The Pod Identity agent's
+    # credential endpoint at 169.254.170.23 is not in 2.9.19's allowlist, so
+    # `aws ecr get-login-password` fails with "Unsupported host".
+    && case "${arch}" in \
+         amd64) aws_arch=x86_64 ;; \
+         arm64) aws_arch=aarch64 ;; \
+         *) echo "Unsupported arch for AWS CLI v2: ${arch}" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o /tmp/awscliv2.zip \
+    && unzip -q /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install --bin-dir /usr/local/bin --install-dir /usr/local/aws-cli \
+    && rm -rf /tmp/awscliv2.zip /tmp/aws
 
 COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin

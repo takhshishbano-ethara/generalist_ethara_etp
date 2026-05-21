@@ -1,0 +1,47 @@
+{
+    'name': "Skoll",
+    'summary': "AI-assisted content generation with JSON rendering",
+    'description': """
+Skoll — AI-assisted content generation module with Bedrock LLM integration,
+persona system, 3-tier access control, and dark-mode JSON viewer.
+    """,
+    'author': "ETP",
+    'website': "https://www.ethara.com",
+    'category': 'Tools',
+    'version': '19.0.1.0.0',
+    'depends': ['base', 'web', 'hr'],
+    'data': [
+        'security/skoll_security.xml',
+        'security/ir.model.access.csv',
+        'views/persona_views.xml',
+        'views/generation_views.xml',
+        'views/views.xml',
+        'views/res_config_settings_views.xml',
+        'views/templates.xml',
+    ],
+    'demo': [
+        'demo/demo.xml',
+    ],
+    'installable': False,
+    'application': True,
+    'license': 'LGPL-3',
+    'assets': {
+        'web.assets_backend': [
+            'skoll/static/src/views/fields/json_field/json_field.js',
+            'skoll/static/src/views/fields/json_field/json_field.xml',
+            'skoll/static/src/views/fields/json_field/json_field.scss',
+            'skoll/static/src/views/fields/prompt_field/prompt_field.js',
+            'skoll/static/src/views/fields/prompt_field/prompt_field.xml',
+            'skoll/static/src/views/fields/prompt_field/prompt_field.scss',
+            'skoll/static/src/views/fields/markdown_field/markdown_field.js',
+            'skoll/static/src/views/fields/markdown_field/markdown_field.xml',
+            'skoll/static/src/views/fields/markdown_field/markdown_field.scss',
+            'skoll/static/src/views/fields/qc_result_field/qc_result_field.js',
+            'skoll/static/src/views/fields/qc_result_field/qc_result_field.xml',
+            'skoll/static/src/views/fields/qc_result_field/qc_result_field.scss',
+            'skoll/static/src/views/fields/spawn_tree_field/spawn_tree_field.js',
+            'skoll/static/src/views/fields/spawn_tree_field/spawn_tree_field.xml',
+            'skoll/static/src/views/fields/spawn_tree_field/spawn_tree_field.scss',
+        ],
+    },
+}

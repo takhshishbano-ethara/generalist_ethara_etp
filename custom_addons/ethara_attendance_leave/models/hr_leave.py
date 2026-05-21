@@ -63,53 +63,6 @@ class HrLeave(models.Model):
                 leave.medical_cert_required = False
                 leave.medical_cert_deadline = False
 
-    # --- Constraints ---
-    @api.constrains('holiday_status_id', 'employee_id', 'request_date_from')
-    def _check_probation_leave_restrictions(self):
-        """
-        Probation employees:
-        - Cannot take CL at all
-        - Limited to 1 leave request per month total
-        """
-        for leave in self:
-            if not leave.employee_id or leave.state == 'refuse':
-                continue
-
-            emp = leave.employee_id
-            leave_type = leave.holiday_status_id
-
-            if emp.employee_state != 'probation':
-                continue
-
-            # Block CL during probation
-            if leave_type and leave_type.ethara_leave_code == 'cl':
-                raise ValidationError(
-                    'Casual Leave is not available during probation period. '
-                    'Employee: %s' % emp.name
-                )
-
-            # Limit to 1 leave per month during probation
-            if leave.request_date_from:
-                month_start = leave.request_date_from.replace(day=1)
-                if leave.request_date_from.month == 12:
-                    month_end = leave.request_date_from.replace(month=12, day=31)
-                else:
-                    month_end = leave.request_date_from.replace(month=leave.request_date_from.month + 1, day=1) - timedelta(days=1)
-
-                existing_leaves = self.sudo().search_count([
-                    ('employee_id', '=', emp.id),
-                    ('request_date_from', '>=', month_start),
-                    ('request_date_from', '<=', month_end),
-                    ('state', 'not in', ['refuse']),
-                    ('id', '!=', leave.id if leave.id else 0),
-                ])
-                if existing_leaves >= 1:
-                    raise ValidationError(
-                        'Probation employees are limited to 1 leave request per month. '
-                        'Employee: %s already has a leave request for %s.' % (
-                            emp.name, leave.request_date_from.strftime('%B %Y'))
-                    )
-
     @api.constrains('holiday_status_id', 'request_date_from', 'number_of_days')
     def _check_el_advance_notice(self):
         """EL requires 20 days advance notice."""

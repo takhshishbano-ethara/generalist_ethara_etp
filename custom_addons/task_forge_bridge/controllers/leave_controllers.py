@@ -121,33 +121,6 @@ class TaskForgeLeaveController(http.Controller):
 
             leave_type_rec = request.env['hr.leave.type'].sudo().browse(holiday_status_id)
 
-            if employee.employee_state == 'probation':
-                if leave_type_rec and leave_type_rec.ethara_leave_code == 'cl':
-                    return return_Response(
-                        message='Casual Leave is not available during probation period.',
-                        status=400
-                    )
-
-                month_start = start.replace(day=1)
-                if start.month == 12:
-                    month_end = start.replace(month=12, day=31)
-                else:
-                    month_end = start.replace(month=start.month + 1, day=1) - timedelta(days=1)
-
-                existing_month_leaves = Leave.search_count([
-                    ('employee_id', '=', employee.id),
-                    ('request_date_from', '>=', month_start),
-                    ('request_date_from', '<=', month_end),
-                    ('state', 'not in', ['refuse']),
-                ])
-                if existing_month_leaves >= 1:
-                    return return_Response(
-                        message='Probation employees are limited to 1 leave request per month. '
-                                'Employee: %s already has a leave request for %s.' % (
-                                    employee.name, start.strftime('%B %Y')),
-                        status=400
-                    )
-
             if leave_type_rec and leave_type_rec.ethara_leave_code == 'el':
                 advance_notice_days = leave_type_rec.advance_notice_days or 0
                 if advance_notice_days and start:
@@ -171,11 +144,10 @@ class TaskForgeLeaveController(http.Controller):
                     virtual_remaining += data.get('virtual_remaining_leaves', 0)
 
                 if not max_leaves:
-                    return return_Response(
-                        message='You do not have any allocation for %s. '
-                                'Please request an allocation before submitting your leave.' % leave_type_rec.name,
-                        status=400
-                    )
+                    message = ('You do not have any allocation for %s. '
+                               'Please request an allocation before submitting your leave.' % leave_type_rec.name)
+                    message += self._lop_recommendation_suffix(employee, leave_type_rec, start)
+                    return return_Response(message=message, status=400)
 
                 requested_days = 0
                 current = start
@@ -185,12 +157,11 @@ class TaskForgeLeaveController(http.Controller):
                     current += timedelta(days=1)
 
                 if not leave_type_rec.allows_negative and requested_days > virtual_remaining:
-                    return return_Response(
-                        message='Insufficient leave balance for %s. '
-                                'Requested: %g day(s), Available: %g day(s).' % (
-                                    leave_type_rec.name, requested_days, virtual_remaining),
-                        status=400
-                    )
+                    message = ('Insufficient leave balance for %s. '
+                               'Requested: %g day(s), Available: %g day(s).' % (
+                                   leave_type_rec.name, requested_days, virtual_remaining))
+                    message += self._lop_recommendation_suffix(employee, leave_type_rec, start)
+                    return return_Response(message=message, status=400)
 
             # 4. Attempt Creation
             try:
@@ -214,6 +185,25 @@ class TaskForgeLeaveController(http.Controller):
 
         except Exception as e:
             return return_Response(message="An unexpected error occurred", status=400, errors=[str(e)])
+
+    def _lop_recommendation_suffix(self, employee, leave_type_rec, target_date):
+        if not leave_type_rec or leave_type_rec.ethara_leave_code not in ('sl', 'cl', 'el'):
+            return ''
+        LeaveType = request.env['hr.leave.type'].sudo()
+        paid_types = LeaveType.search([('ethara_leave_code', 'in', ('sl', 'cl', 'el'))])
+        total_remaining = 0
+        for lt in paid_types:
+            alloc_data = lt.get_allocation_data(employee, target_date)
+            for _name, data, *_rest in alloc_data.get(employee, []):
+                total_remaining += data.get('virtual_remaining_leaves', 0)
+        if total_remaining > 0:
+            return ''
+        lop_type = LeaveType.search([('ethara_leave_code', '=', 'lop')], limit=1)
+        if not lop_type:
+            return ''
+        return (" All paid leave balances (SL, CL, EL) are exhausted. "
+                "Please apply for '%s' (Loss of Pay) instead." % lop_type.name)
+
     @http.route('/api/v2/taskforge/leaves', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
     def list_leaves(self, **kwargs):

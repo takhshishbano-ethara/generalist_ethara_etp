@@ -115,31 +115,77 @@ def call_kimi(system_prompt, user_content, temperature=0.1, images=None):
 
 
 def parse_json_response(text):
+    """Best-effort JSON extraction from a chat-completion reply.
+
+    Order of attempts:
+    1. Strip whitespace + parse as-is (the strict prompt SHOULD give us
+       a bare JSON object).
+    2. If the model wrapped it in ``` fences (with or without a "json"
+       language tag), unwrap the first fenced block.
+    3. Scan for the first ``{`` that opens a balanced object — this
+       handles preambles like ``Here is the JSON:`` and trailing
+       commentary the model sometimes adds despite the system prompt
+       telling it not to.
+
+    Returns the parsed dict on success, or ``{}`` if nothing parsable
+    was found.
+    """
     if not text:
         return {}
     text = text.strip()
 
-    if '```' in text:
-        if '```json' in text:
-            text = text.split('```json')[-1].split('```')[0]
-        else:
-            parts = text.split('```')
-            if len(parts) > 1:
-                text = parts[1]
-
-    text = text.strip()
-
+    # Pass 1: the strict-prompt happy path — full reply is the object.
     try:
         return json.loads(text)
-    except (json.JSONDecodeError, IndexError):
+    except (json.JSONDecodeError, ValueError):
         pass
 
+    # Pass 2: unwrap a fenced block.  Handles ```json, ```JSON, plain
+    # ``` with no tag, and stray whitespace after the opening fence.
     import re
-    match = re.search(r'\{.*\}', text, re.DOTALL)
-    if match:
+    fence = re.search(
+        r"```(?:json|JSON)?\s*\n?(.*?)```",
+        text,
+        re.DOTALL,
+    )
+    if fence:
+        candidate = fence.group(1).strip()
         try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
+            return json.loads(candidate)
+        except (json.JSONDecodeError, ValueError):
             pass
+
+    # Pass 3: find the first balanced ``{...}`` by walking braces.
+    # ``re.search(r'\{.*\}', text, re.DOTALL)`` from the old impl was
+    # greedy and gobbled trailing commentary INTO the JSON candidate,
+    # then failed.  Manual balancing is safer for nested objects.
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        in_str = False
+        esc = False
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:idx + 1]
+                    try:
+                        return json.loads(candidate)
+                    except (json.JSONDecodeError, ValueError):
+                        break  # try next `{`
+        start = text.find("{", start + 1)
 
     return {}

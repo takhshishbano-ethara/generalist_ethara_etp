@@ -1,0 +1,165 @@
+// ── Task Progress Widget ─────────────────────────────────────────
+// Horizontal step tracker: QC → Claude → GLM → 1P
+
+// Palette tokens (fallback to Odoo CSS vars)
+$_progress-green: #16a34a;
+$_progress-red: #dc2626;
+$_progress-blue: #2563eb;
+$_progress-gray: var(--o-gray-400, #ced4da);
+$_progress-gray-dark: var(--o-gray-600, #6c757d);
+$_progress-gray-light: var(--o-gray-200, #e9ecef);
+
+// ── Container ────────────────────────────────────────────────────
+.o_skoll_progress_widget {
+    padding: 12px 16px;
+    background: var(--o-view-background-color, #fff);
+    border: 1px solid var(--o-border-color, #dee2e6);
+    border-radius: 8px;
+}
+
+// ── Track (horizontal flex row) ──────────────────────────────────
+.o_skoll_progress_track {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+// ── Individual step node ─────────────────────────────────────────
+.o_skoll_progress_step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+    position: relative;
+}
+
+// ── Icon circle ──────────────────────────────────────────────────
+.o_skoll_progress_icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    transition: all 0.25s ease;
+    border: 2px solid $_progress-gray;
+    background: var(--o-view-background-color, #fff);
+    color: $_progress-gray-dark;
+}
+
+// ── Label ────────────────────────────────────────────────────────
+.o_skoll_progress_label {
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    color: $_progress-gray-dark;
+    white-space: nowrap;
+    transition: color 0.25s ease;
+}
+
+// ── "Coming Soon" badge ──────────────────────────────────────────
+.o_skoll_progress_badge {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    color: $_progress-gray-dark;
+    background: $_progress-gray-light;
+    padding: 1px 6px;
+    border-radius: 4px;
+    line-height: 1.4;
+}
+
+// ── Connector line between steps ─────────────────────────────────
+.o_skoll_progress_connector {
+    flex: 1;
+    height: 2px;
+    min-width: 24px;
+    margin: 0 6px;
+    align-self: center;
+    // shift up to align with circle centre (circle 36px + 6px gap → label)
+    margin-bottom: 26px;
+    border-top: 2px dashed $_progress-gray;
+    transition: border-color 0.3s ease;
+
+    &.o_skoll_progress_connector_filled {
+        border-top-style: solid;
+        border-top-color: $_progress-green;
+    }
+}
+
+// ── State: idle (pending / not_started) ──────────────────────────
+.o_skoll_progress_step_idle {
+    .o_skoll_progress_icon {
+        border-color: $_progress-gray;
+        color: $_progress-gray-dark;
+        background: var(--o-view-background-color, #fff);
+    }
+    .o_skoll_progress_label {
+        color: $_progress-gray-dark;
+    }
+}
+
+// ── State: done (passed / completed) ─────────────────────────────
+.o_skoll_progress_step_done {
+    .o_skoll_progress_icon {
+        border-color: $_progress-green;
+        background: $_progress-green;
+        color: #fff;
+    }
+    .o_skoll_progress_label {
+        color: $_progress-green;
+    }
+}
+
+// ── State: failed ────────────────────────────────────────────────
+.o_skoll_progress_step_failed {
+    .o_skoll_progress_icon {
+        border-color: $_progress-red;
+        background: $_progress-red;
+        color: #fff;
+    }
+    .o_skoll_progress_label {
+        color: $_progress-red;
+    }
+}
+
+// ── State: active (in_progress) ──────────────────────────────────
+.o_skoll_progress_step_active {
+    .o_skoll_progress_icon {
+        border-color: $_progress-blue;
+        background: rgba(37, 99, 235, 0.08);
+        color: $_progress-blue;
+        animation: o_skoll_progress_pulse 1.6s ease-in-out infinite;
+    }
+    .o_skoll_progress_label {
+        color: $_progress-blue;
+    }
+}
+
+// ── State: coming_soon (1P) ──────────────────────────────────────
+.o_skoll_progress_step_coming_soon {
+    opacity: 0.55;
+
+    .o_skoll_progress_icon {
+        border-style: dashed;
+        border-color: $_progress-gray;
+        color: $_progress-gray-dark;
+        background: var(--o-view-background-color, #fff);
+    }
+    .o_skoll_progress_label {
+        color: $_progress-gray-dark;
+    }
+}
+
+// ── Pulse keyframes ──────────────────────────────────────────────
+@keyframes o_skoll_progress_pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35);
+    }
+    50% {
+        box-shadow: 0 0 0 6px rgba(37, 99, 235, 0);
+    }
+}

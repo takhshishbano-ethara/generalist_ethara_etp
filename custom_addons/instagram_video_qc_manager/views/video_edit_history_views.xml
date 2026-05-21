@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_video_task_edit_history_list" model="ir.ui.view">
+        <field name="name">video.task.edit.history.list</field>
+        <field name="model">video.task.edit.history</field>
+        <field name="arch" type="xml">
+            <list string="Edit History">
+                <field name="create_date"/>
+                <field name="task_id"/>
+                <field name="version_id"/>
+                <field name="action_type"/>
+                <field name="action_data"/>
+                <field name="created_by"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_video_task_edit_history" model="ir.actions.act_window">
+        <field name="name">Edit History</field>
+        <field name="res_model">video.task.edit.history</field>
+        <field name="view_mode">list</field>
+    </record>
+
+</odoo>

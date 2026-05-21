@@ -142,9 +142,7 @@ _mentions = _coerce_mentions(_load("mentions.csv"))
 
 with open(DATA_DIR / "user.json", encoding="utf-8") as _f:
     _user_raw = json.load(_f)
-    # user.json may be a single user dict or a list of users.
-    # Use the first user as the active account.
-    _user = _user_raw[0] if isinstance(_user_raw, list) else _user_raw
+    _user_list = _user_raw if isinstance(_user_raw, list) else [_user_raw]
 
 # Mutable in-memory stores
 _media_store = deepcopy(_media)
@@ -154,7 +152,9 @@ _media_insights_store = deepcopy(_media_insights)
 _carousel_children_store = deepcopy(_carousel_children)
 _hashtags_store = deepcopy(_hashtags)
 _mentions_store = deepcopy(_mentions)
-_user_store = deepcopy(_user)
+_users_store = {u["id"]: deepcopy(u) for u in _user_list}
+# Keep _user_store as primary account for backward compat (publishing, etc.)
+_user_store = _users_store[_user_list[0]["id"]]
 
 _next_comment_id = 17800001051
 _next_media_id = 17900001029
@@ -166,19 +166,32 @@ _next_container_id = 17920001001
 # ---------------------------------------------------------------------------
 
 def get_user(user_id: str):
-    if user_id != _user_store["id"]:
+    user = _users_store.get(user_id)
+    if not user:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
-    return _user_store
+    return user
 
 
 def update_user(user_id: str, data: dict):
-    if user_id != _user_store["id"]:
+    user = _users_store.get(user_id)
+    if not user:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
     updatable = {"biography", "website", "name"}
     for k, v in data.items():
         if k in updatable:
-            _user_store[k] = v
-    return _user_store
+            user[k] = v
+    return user
+
+
+def search_users(q: str):
+    if not q or not q.strip():
+        return {"error": {"message": "Query parameter 'q' is required", "type": "IGApiException", "code": 100}}
+    q_lower = q.strip().lower()
+    results = []
+    for u in _users_store.values():
+        if q_lower in u.get("username", "").lower() or q_lower in u.get("name", "").lower():
+            results.append(deepcopy(u))
+    return {"data": results}
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +199,7 @@ def update_user(user_id: str, data: dict):
 # ---------------------------------------------------------------------------
 
 def list_user_media(user_id: str, media_type: str = None, limit: int = 25, offset: int = 0):
-    if user_id != _user_store["id"]:
+    if user_id not in _users_store:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
 
     results = [m for m in _media_store if m["user_id"] == user_id]
@@ -369,7 +382,7 @@ def hide_comment(media_id: str, comment_id: str, hide: bool = True):
 # ---------------------------------------------------------------------------
 
 def list_user_stories(user_id: str):
-    if user_id != _user_store["id"]:
+    if user_id not in _users_store:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
 
     results = [s for s in _stories_store if s["user_id"] == user_id]
@@ -390,7 +403,7 @@ def get_story(story_id: str):
 # ---------------------------------------------------------------------------
 
 def get_user_insights(user_id: str, metric: str = None, period: str = "day"):
-    if user_id != _user_store["id"]:
+    if user_id not in _users_store:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
 
     # Aggregate from media insights for the account
@@ -529,7 +542,7 @@ def get_hashtag_recent_media(hashtag_id: str, user_id: str, limit: int = 25):
 # ---------------------------------------------------------------------------
 
 def list_user_mentions(user_id: str, limit: int = 25, offset: int = 0):
-    if user_id != _user_store["id"]:
+    if user_id not in _users_store:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
 
     results = sorted(_mentions_store, key=lambda x: x["timestamp"], reverse=True)
@@ -559,7 +572,7 @@ def create_media_container(user_id: str, image_url: str = None, video_url: str =
                            children: list = None):
     global _next_container_id
 
-    if user_id != _user_store["id"]:
+    if user_id not in _users_store:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
 
     if media_type == "CAROUSEL_ALBUM" and not children:
@@ -584,7 +597,7 @@ def create_media_container(user_id: str, image_url: str = None, video_url: str =
 def publish_media_container(user_id: str, creation_id: str):
     global _next_media_id
 
-    if user_id != _user_store["id"]:
+    if user_id not in _users_store:
         return {"error": {"message": f"User {user_id} not found", "type": "IGApiException", "code": 100}}
 
     # Find the container

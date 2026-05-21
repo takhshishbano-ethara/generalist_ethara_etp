@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Surfaces the four Argus ``ir.config_parameter`` keys under
+        Settings → Argus → Kimi K2.5 Configuration.  Mirrors the
+        task_forge_core settings layout so operators familiar with
+        either module land in the same shape of page.
+    -->
+    <record id="res_config_settings_view_form_argus" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.argus</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Argus" string="Argus" name="argus"
+                     groups="argus.group_argus_manager">
+                    <block title="Kimi K2.5 Configuration"
+                           help="AWS Bedrock credentials Argus uses for the QC Prompt grammar check.">
+                        <setting string="Bedrock connection"
+                                 help="API key, model ARN, and AWS region for the Bedrock Converse call.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="argus_kimi_aws_region" class="col-lg-3"/>
+                                    <field name="argus_kimi_aws_region"
+                                           class="col-lg-3"
+                                           placeholder="us-east-1"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="argus_kimi_api_key" class="col-lg-3"/>
+                                    <field name="argus_kimi_api_key"
+                                           class="col-lg-6"
+                                           password="True"
+                                           placeholder="Bedrock API key"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="argus_kimi_model_arn" class="col-lg-3"/>
+                                    <field name="argus_kimi_model_arn"
+                                           class="col-lg-6"
+                                           placeholder="arn:aws:bedrock:us-east-1:000000000000:inference-profile/..."/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="QC verdict gate"
+                                 help="The minimum grammar score for QC Prompt to auto-approve a task. Default 100 = strict mode: only a perfect score auto-approves.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="argus_grammar_score_threshold" class="col-lg-3"/>
+                                    <field name="argus_grammar_score_threshold"
+                                           class="col-lg-2"
+                                           placeholder="100"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Remote extractor"
+                                 help="Local extractor service URL. Run scripts/local_extractor.py on a residential network and expose it via Tailscale or cloudflared to bypass Instagram cloud-IP bot blocking.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="argus_remote_extractor_url" class="col-lg-3"/>
+                                    <field name="argus_remote_extractor_url"
+                                           class="col-lg-6"
+                                           placeholder="http://laptop.tailnet:8080"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="QC system prompt"
+                                 help="Instructions sent to Kimi as the system prompt for the QC review. Leave blank to use the built-in default. If you customise, you MUST keep the JSON-response contract (score / level / feedback / issues / corrected_text) — see the field help for details.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <field name="argus_qc_system_prompt"
+                                           nolabel="1"
+                                           class="col-lg-12"
+                                           placeholder="Leave blank to use the built-in default. To customise: instruct Kimi to grade the prompt and respond with a JSON object containing score (0-100), level (excellent|good|fair|poor), feedback, issues (list), corrected_text."
+                                           style="min-height: 200px;"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

@@ -13,7 +13,7 @@ class AuroraShowcaseController(http.Controller):
         values = {
             "trajectories_url": ICP.get_param(
                 "aurora_dashboard.trajectories_url", ""
-            ) or "https://github.com/Ethara-Ai/milo-bench-paper/tree/main/trajectories",
+            ) or "https://github.com/Ethara-Ai/milo-bench",
             "dataset_url": ICP.get_param(
                 "aurora_dashboard.dataset_url", ""
             ) or "https://huggingface.co/datasets/ethara/MILO-Bench",

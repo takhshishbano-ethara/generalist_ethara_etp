@@ -4,7 +4,7 @@
 
         <record id="kaiju_config_argo_server_url" model="ir.config_parameter">
             <field name="key">kaiju.argo_server_url</field>
-            <field name="value">https://argo-workflows-server.argo.svc.cluster.local:2746</field>
+            <field name="value">http://argo-workflows-server.argo-workflows.svc.cluster.local:2746</field>
         </record>
 
         <record id="kaiju_config_argo_namespace" model="ir.config_parameter">
@@ -30,6 +30,22 @@
         <record id="kaiju_config_webhook_token" model="ir.config_parameter">
             <field name="key">kaiju.webhook_token</field>
             <field name="value">CHANGE-ME-generate-a-secure-token</field>
+        </record>
+
+        <!-- AWS credentials for S3 metadata fetch (leave blank to use EC2/IRSA instance profile) -->
+        <record id="kaiju_config_aws_region" model="ir.config_parameter">
+            <field name="key">kaiju.aws_region</field>
+            <field name="value">ap-south-1</field>
+        </record>
+
+        <record id="kaiju_config_aws_access_key_id" model="ir.config_parameter">
+            <field name="key">kaiju.aws_access_key_id</field>
+            <field name="value"></field>
+        </record>
+
+        <record id="kaiju_config_aws_secret_access_key" model="ir.config_parameter">
+            <field name="key">kaiju.aws_secret_access_key</field>
+            <field name="value"></field>
         </record>
 
     </data>

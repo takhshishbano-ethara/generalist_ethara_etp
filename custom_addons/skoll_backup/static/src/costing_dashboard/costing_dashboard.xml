@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="skoll.CostingDashboard">
+        <div class="o_skoll_costing">
+            <div class="o_skoll_costing_header">
+                <div class="o_skoll_costing_title_row">
+                    <h2 class="o_skoll_costing_title">Token Usage</h2>
+                    <span class="o_skoll_costing_date_range" t-out="dateRangeLabel"/>
+                </div>
+                <div class="o_skoll_costing_periods">
+                    <t t-foreach="periods" t-as="p" t-key="p.key">
+                        <button t-attf-class="o_skoll_period_btn #{state.period === p.key ? 'active' : ''}"
+                                t-on-click="() => this.onPeriodChange(p.key)">
+                            <t t-out="p.label"/>
+                        </button>
+                    </t>
+                </div>
+            </div>
+
+            <div t-if="state.totals" class="o_skoll_costing_summary">
+                <div class="o_skoll_summary_card">
+                    <div class="o_skoll_summary_icon"><i class="fa fa-comments"/></div>
+                    <div class="o_skoll_summary_label">Sandbox</div>
+                    <div class="o_skoll_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/>
+                    <div class="o_skoll_summary_sub">
+                        <span>Claude: <strong t-out="formatNumber(state.totals.claude_total)"/></span>
+                        <span>Kimi: <strong t-out="formatNumber(state.totals.glm_total)"/></span>
+                        <span>1P: <strong t-out="formatNumber(state.totals.oneP_total)"/></span>
+                    </div>
+                    <div class="o_skoll_summary_badge trajectory">Trajectory</div>
+                </div>
+                <div class="o_skoll_summary_card">
+                    <div class="o_skoll_summary_icon"><i class="fa fa-check-circle"/></div>
+                    <div class="o_skoll_summary_label">Prompt QC</div>
+                    <div class="o_skoll_summary_value bedrock" t-out="formatNumber(state.totals.bedrock_total)"/>
+                    <div class="o_skoll_summary_sub">
+                        <span>In: <strong t-out="formatNumber(state.totals.bedrock_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.bedrock_output)"/></span>
+                    </div>
+                    <div class="o_skoll_summary_badge qc">QC</div>
+                </div>
+                <div class="o_skoll_summary_card">
+                    <div class="o_skoll_summary_icon"><i class="fa fa-shield"/></div>
+                    <div class="o_skoll_summary_label">Traj QC</div>
+                    <div class="o_skoll_summary_value traj-qc" t-out="formatNumber(state.totals.traj_qc_total)"/>
+                    <div class="o_skoll_summary_sub">
+                        <span>In: <strong t-out="formatNumber(state.totals.traj_qc_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.traj_qc_output)"/></span>
+                    </div>
+                    <div class="o_skoll_summary_badge qc">QC</div>
+                </div>
+                <div class="o_skoll_summary_card">
+                    <div class="o_skoll_summary_icon"><i class="fa fa-magic"/></div>
+                    <div class="o_skoll_summary_label">Task Desc</div>
+                    <div class="o_skoll_summary_value taskdesc" t-out="formatNumber(state.totals.taskdesc_total)"/>
+                    <div class="o_skoll_summary_sub">
+                        <span>In: <strong t-out="formatNumber(state.totals.taskdesc_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.taskdesc_output)"/></span>
+                    </div>
+                    <div class="o_skoll_summary_badge ai">AI</div>
+                </div>
+                <div class="o_skoll_summary_card">
+                    <div class="o_skoll_summary_icon"><i class="fa fa-star"/></div>
+                    <div class="o_skoll_summary_label">Golden Gen</div>
+                    <div class="o_skoll_summary_value golden" t-out="formatNumber(state.totals.golden_total)"/>
+                    <div class="o_skoll_summary_sub">
+                        <span>In: <strong t-out="formatNumber(state.totals.golden_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.golden_output)"/></span>
+                    </div>
+                    <div class="o_skoll_summary_badge ai">AI</div>
+                </div>
+                <div class="o_skoll_summary_card grand">
+                    <div class="o_skoll_summary_icon"><i class="fa fa-tachometer"/></div>
+                    <div class="o_skoll_summary_label">Total Tokens</div>
+                    <div class="o_skoll_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
+                    <div class="o_skoll_summary_sub">
+                        <span>Sandbox: <strong t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0))"/></span>
+                        <span>Bedrock: <strong t-out="formatNumber((state.totals.bedrock_total || 0) + (state.totals.traj_qc_total || 0) + (state.totals.taskdesc_total || 0) + (state.totals.golden_total || 0))"/></span>
+                    </div>
+                </div>
+            </div>
+
+            <div t-if="state.loading" class="o_skoll_costing_loading">
+                <i class="fa fa-spinner fa-spin fa-2x"/>
+            </div>
+
+            <div t-elif="state.rows.length === 0" class="o_skoll_costing_empty">
+                <i class="fa fa-bar-chart fa-3x mb-3"/>
+                <p>No token usage data for this period.</p>
+            </div>
+
+            <div t-else="" class="o_skoll_costing_table_wrap">
+                <table class="o_skoll_costing_table">
+                    <thead>
+                        <tr class="o_skoll_col_group_row">
+                            <th class="col-employee" rowspan="2" t-on-click="() => this.onSort('employee_name')">
+                                Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
+                            </th>
+                            <th class="col-group-header col-group-claude" colspan="3">Claude</th>
+                            <th class="col-group-header col-group-glm" colspan="3">Kimi</th>
+                            <th class="col-group-header col-group-oneP" colspan="3">1P</th>
+                            <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
+                            <th class="col-group-header col-group-traj-qc" colspan="3">Traj QC</th>
+                            <th class="col-group-header col-group-taskdesc" colspan="3">Task Desc</th>
+                            <th class="col-group-header col-group-golden" colspan="3">Golden</th>
+                            <th class="col-grand" rowspan="2" t-on-click="() => this.onSort('grand_total')">
+                                Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
+                            </th>
+                        </tr>
+                        <tr>
+                            <th class="col-num col-claude" t-on-click="() => this.onSort('claude_input')">In</th>
+                            <th class="col-num col-claude" t-on-click="() => this.onSort('claude_output')">Out</th>
+                            <th class="col-num col-claude col-subtotal" t-on-click="() => this.onSort('claude_total')">Σ</th>
+
+                            <th class="col-num col-glm" t-on-click="() => this.onSort('glm_input')">In</th>
+                            <th class="col-num col-glm" t-on-click="() => this.onSort('glm_output')">Out</th>
+                            <th class="col-num col-glm col-subtotal" t-on-click="() => this.onSort('glm_total')">Σ</th>
+
+                            <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_input')">In</th>
+                            <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_output')">Out</th>
+                            <th class="col-num col-oneP col-subtotal" t-on-click="() => this.onSort('oneP_total')">Σ</th>
+
+                            <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_input')">In</th>
+                            <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_output')">Out</th>
+                            <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('bedrock_total')">Σ</th>
+
+                            <th class="col-num col-traj-qc" t-on-click="() => this.onSort('traj_qc_input')">In</th>
+                            <th class="col-num col-traj-qc" t-on-click="() => this.onSort('traj_qc_output')">Out</th>
+                            <th class="col-num col-traj-qc col-subtotal" t-on-click="() => this.onSort('traj_qc_total')">Σ</th>
+
+                            <th class="col-num col-taskdesc" t-on-click="() => this.onSort('taskdesc_input')">In</th>
+                            <th class="col-num col-taskdesc" t-on-click="() => this.onSort('taskdesc_output')">Out</th>
+                            <th class="col-num col-taskdesc col-subtotal" t-on-click="() => this.onSort('taskdesc_total')">Σ</th>
+
+                            <th class="col-num col-golden" t-on-click="() => this.onSort('golden_input')">In</th>
+                            <th class="col-num col-golden" t-on-click="() => this.onSort('golden_output')">Out</th>
+                            <th class="col-num col-golden col-subtotal" t-on-click="() => this.onSort('golden_total')">Σ</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="sortedRows" t-as="row" t-key="row.employee_id">
+                            <tr class="o_skoll_emp_row" t-on-click="() => this.onToggleEmployee(row.employee_id)">
+                                <td class="col-employee">
+                                    <i t-attf-class="fa #{isExpanded(row.employee_id) ? 'fa-caret-down' : 'fa-caret-right'} me-2 o_skoll_caret"/>
+                                    <i class="fa fa-user-circle me-2"/>
+                                    <t t-out="row.employee_name"/>
+                                    <span t-if="row.tasks and row.tasks.length" class="ms-2 text-muted small">
+                                        (<t t-out="row.tasks.length"/> task<t t-if="row.tasks.length !== 1">s</t>)
+                                    </span>
+                                </td>
+                                <td class="col-num col-claude" t-out="formatNumber(row.claude_input)"/>
+                                <td class="col-num col-claude" t-out="formatNumber(row.claude_output)"/>
+                                <td class="col-num col-claude col-subtotal" t-out="formatNumber(row.claude_total)"/>
+
+                                <td class="col-num col-glm" t-out="formatNumber(row.glm_input)"/>
+                                <td class="col-num col-glm" t-out="formatNumber(row.glm_output)"/>
+                                <td class="col-num col-glm col-subtotal" t-out="formatNumber(row.glm_total)"/>
+
+                                <td class="col-num col-oneP" t-out="formatNumber(row.oneP_input)"/>
+                                <td class="col-num col-oneP" t-out="formatNumber(row.oneP_output)"/>
+                                <td class="col-num col-oneP col-subtotal" t-out="formatNumber(row.oneP_total)"/>
+
+                                <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_input)"/>
+                                <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_output)"/>
+                                <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.bedrock_total)"/>
+
+                                <td class="col-num col-traj-qc" t-out="formatNumber(row.traj_qc_input)"/>
+                                <td class="col-num col-traj-qc" t-out="formatNumber(row.traj_qc_output)"/>
+                                <td class="col-num col-traj-qc col-subtotal" t-out="formatNumber(row.traj_qc_total)"/>
+
+                                <td class="col-num col-taskdesc" t-out="formatNumber(row.taskdesc_input)"/>
+                                <td class="col-num col-taskdesc" t-out="formatNumber(row.taskdesc_output)"/>
+                                <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(row.taskdesc_total)"/>
+
+                                <td class="col-num col-golden" t-out="formatNumber(row.golden_input)"/>
+                                <td class="col-num col-golden" t-out="formatNumber(row.golden_output)"/>
+                                <td class="col-num col-golden col-subtotal" t-out="formatNumber(row.golden_total)"/>
+
+                                <td class="col-num col-grand" t-out="formatNumber(row.grand_total)"/>
+                            </tr>
+                            <t t-if="isExpanded(row.employee_id)">
+                                <t t-foreach="row.tasks" t-as="task" t-key="task.task_id">
+                                    <tr class="o_skoll_task_row">
+                                        <td class="col-employee o_skoll_task_cell">
+                                            <span class="o_skoll_task_indent"/>
+                                            <i class="fa fa-file-text-o me-2 text-muted"/>
+                                            <t t-out="task.task_name"/>
+                                            <span class="ms-2 text-muted small">#<t t-out="task.task_id"/></span>
+                                        </td>
+                                        <td class="col-num col-claude" t-out="formatNumber(task.claude_input)"/>
+                                        <td class="col-num col-claude" t-out="formatNumber(task.claude_output)"/>
+                                        <td class="col-num col-claude col-subtotal" t-out="formatNumber(task.claude_total)"/>
+
+                                        <td class="col-num col-glm" t-out="formatNumber(task.glm_input)"/>
+                                        <td class="col-num col-glm" t-out="formatNumber(task.glm_output)"/>
+                                        <td class="col-num col-glm col-subtotal" t-out="formatNumber(task.glm_total)"/>
+
+                                        <td class="col-num col-oneP" t-out="formatNumber(task.oneP_input)"/>
+                                        <td class="col-num col-oneP" t-out="formatNumber(task.oneP_output)"/>
+                                        <td class="col-num col-oneP col-subtotal" t-out="formatNumber(task.oneP_total)"/>
+
+                                        <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_input)"/>
+                                        <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_output)"/>
+                                        <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(task.bedrock_total)"/>
+
+                                        <td class="col-num col-traj-qc" t-out="formatNumber(task.traj_qc_input)"/>
+                                        <td class="col-num col-traj-qc" t-out="formatNumber(task.traj_qc_output)"/>
+                                        <td class="col-num col-traj-qc col-subtotal" t-out="formatNumber(task.traj_qc_total)"/>
+
+                                        <td class="col-num col-taskdesc" t-out="formatNumber(task.taskdesc_input)"/>
+                                        <td class="col-num col-taskdesc" t-out="formatNumber(task.taskdesc_output)"/>
+                                        <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(task.taskdesc_total)"/>
+
+                                        <td class="col-num col-golden" t-out="formatNumber(task.golden_input)"/>
+                                        <td class="col-num col-golden" t-out="formatNumber(task.golden_output)"/>
+                                        <td class="col-num col-golden col-subtotal" t-out="formatNumber(task.golden_total)"/>
+
+                                        <td class="col-num col-grand" t-out="formatNumber(task.grand_total)"/>
+                                    </tr>
+                                </t>
+                            </t>
+                        </t>
+                    </tbody>
+                    <tfoot t-if="state.totals">
+                        <tr>
+                            <td class="col-employee"><strong>Totals</strong></td>
+                            <td class="col-num col-claude" t-out="formatNumber(state.totals.claude_input)"/>
+                            <td class="col-num col-claude" t-out="formatNumber(state.totals.claude_output)"/>
+                            <td class="col-num col-claude col-subtotal" t-out="formatNumber(state.totals.claude_total)"/>
+
+                            <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_input)"/>
+                            <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_output)"/>
+                            <td class="col-num col-glm col-subtotal" t-out="formatNumber(state.totals.glm_total)"/>
+
+                            <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_input)"/>
+                            <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_output)"/>
+                            <td class="col-num col-oneP col-subtotal" t-out="formatNumber(state.totals.oneP_total)"/>
+
+                            <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_input)"/>
+                            <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_output)"/>
+                            <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.bedrock_total)"/>
+
+                            <td class="col-num col-traj-qc" t-out="formatNumber(state.totals.traj_qc_input)"/>
+                            <td class="col-num col-traj-qc" t-out="formatNumber(state.totals.traj_qc_output)"/>
+                            <td class="col-num col-traj-qc col-subtotal" t-out="formatNumber(state.totals.traj_qc_total)"/>
+
+                            <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.taskdesc_input)"/>
+                            <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.taskdesc_output)"/>
+                            <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(state.totals.taskdesc_total)"/>
+
+                            <td class="col-num col-golden" t-out="formatNumber(state.totals.golden_input)"/>
+                            <td class="col-num col-golden" t-out="formatNumber(state.totals.golden_output)"/>
+                            <td class="col-num col-golden col-subtotal" t-out="formatNumber(state.totals.golden_total)"/>
+
+                            <td class="col-num col-grand" t-out="formatNumber(state.totals.grand_total)"/>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </t>
+</templates>

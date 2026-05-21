@@ -109,7 +109,8 @@
                                                     <t t-if="media.type === 'image'">
                                                         <img t-att-src="media.url" t-att-alt="media.alt"
                                                              class="o_kensei_media_img"
-                                                             loading="lazy"/>
+                                                             loading="lazy"
+                                                             t-on-error="(ev) => this.onMediaImgError(ev, media)"/>
                                                     </t>
                                                     <t t-elif="media.type === 'video'">
                                                         <video t-att-src="media.url" controls="controls"
@@ -122,13 +123,28 @@
                                                                preload="metadata"/>
                                                     </t>
                                                     <t t-elif="media.type === 'document'">
-                                                        <a t-att-href="media.url" target="_blank"
+                                                        <a t-att-href="(media.s3Url and media.s3Ready) ? media.s3Url : media.url" target="_blank"
                                                            t-att-download="media.alt"
                                                            class="o_kensei_media_document">
-                                                            <i class="fa fa-file-pdf-o me-2"/>
+                                                            <t t-if="media.alt and media.alt.endsWith('.pdf')"><i class="fa fa-file-pdf-o me-2"/></t>
+                                                            <t t-elif="media.alt and (media.alt.endsWith('.md') or media.alt.endsWith('.txt'))"><i class="fa fa-file-text-o me-2"/></t>
+                                                            <t t-elif="media.alt and (media.alt.endsWith('.json') or media.alt.endsWith('.csv'))"><i class="fa fa-file-code-o me-2"/></t>
+                                                            <t t-elif="media.alt and (media.alt.endsWith('.doc') or media.alt.endsWith('.docx'))"><i class="fa fa-file-word-o me-2"/></t>
+                                                            <t t-else=""><i class="fa fa-file-o me-2"/></t>
                                                             <span t-out="media.alt"/>
                                                             <i class="fa fa-download ms-2"/>
                                                         </a>
+                                                    </t>
+                                                    <t t-if="media.s3Url and media.s3Ready">
+                                                        <a t-att-href="media.s3Url" target="_blank"
+                                                           rel="noopener" class="o_kensei_s3_link">
+                                                            <i class="fa fa-cloud me-1"/>S3
+                                                        </a>
+                                                    </t>
+                                                    <t t-elif="media.s3Url and !media.s3Ready">
+                                                        <span class="o_kensei_s3_link o_kensei_s3_uploading">
+                                                            <i class="fa fa-spinner fa-spin me-1"/>S3
+                                                        </span>
                                                     </t>
                                                 </div>
                                             </t>
