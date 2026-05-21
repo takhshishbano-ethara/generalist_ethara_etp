@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Project form: Internal/External classification field -->
+    <record id="edit_project_classification" model="ir.ui.view">
+        <field name="name">project.project.form.classification</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.edit_project"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='partner_id']" position="before">
+                <field name="project_classification" widget="radio" options="{'horizontal': true}"/>
+                <field name="connected_table"/>
+            </xpath>
+            <xpath expr="//page[@name='settings']" position="after">
+                <page name="api_mappings" string="API Mappings"
+                      invisible="project_classification != 'external'">
+                    <field name="api_map_ids">
+                        <list editable="bottom">
+                            <field name="table_name"/>
+                            <field name="field_name"/>
+                            <field name="api_prefix"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Restrict the base Project app to internal projects only -->
+    <record id="project.open_view_project_all" model="ir.actions.act_window">
+        <field name="domain">[("is_template", "=", False), ("project_classification", "=", "internal")]</field>
+    </record>
+    <record id="project.open_view_project_all_group_stage" model="ir.actions.act_window">
+        <field name="domain">[("is_template", "=", False), ("project_classification", "=", "internal")]</field>
+    </record>
+    <record id="project.open_view_project_all_config" model="ir.actions.act_window">
+        <field name="domain">[("is_template", "=", False), ("project_classification", "=", "internal")]</field>
+    </record>
+    <record id="project.open_view_project_all_config_group_stage" model="ir.actions.act_window">
+        <field name="domain">[("is_template", "=", False), ("project_classification", "=", "internal")]</field>
+    </record>
+
+    <!-- Restrict the Tasks menus to tasks of internal projects -->
+    <!-- (private tasks with no project remain visible) -->
+    <record id="project.action_view_task" model="ir.actions.act_window">
+        <field name="domain">[('project_id', '!=', False), ('has_template_ancestor', '=', False), ('project_id.project_classification', '=', 'internal')]</field>
+    </record>
+    <record id="project.action_view_my_task" model="ir.actions.act_window">
+        <field name="domain">['&amp;', '&amp;', ('user_ids', 'in', uid), ('has_template_ancestor', '=', False), '|', ('project_id', '=', False), ('project_id.project_classification', '=', 'internal')]</field>
+    </record>
+    <record id="project.action_view_all_task" model="ir.actions.act_window">
+        <field name="domain">['&amp;', ('has_template_ancestor', '=', False), '|', ('project_id', '=', False), ('project_id.project_classification', '=', 'internal')]</field>
+    </record>
+
+</odoo>

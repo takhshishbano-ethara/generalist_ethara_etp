@@ -874,12 +874,15 @@ class Kensei2SandboxK8s(models.AbstractModel):
             k8s_image = k8s.get("image", "")
             if not k8s_image:
                 svc_name = svc.get("name", entry)
+                mock_prefix = self._get_config_param(
+                    "kensei2.mock_image_prefix", "kensei2-mock-"
+                )
                 if registry_prefix:
-                    k8s_image = "%s/kensei2-mock-%s:%s" % (
-                        registry_prefix.rstrip("/"), svc_name, image_tag
+                    k8s_image = "%s/%s%s:%s" % (
+                        registry_prefix.rstrip("/"), mock_prefix, svc_name, image_tag
                     )
                 else:
-                    k8s_image = "kensei2-mock-%s:%s" % (svc_name, image_tag)
+                    k8s_image = "%s%s:%s" % (mock_prefix, svc_name, image_tag)
             port = svc.get("port", 0)
             default_start_cmd = (
                 "uvicorn server:app --host 0.0.0.0 --port %d" % port
@@ -1704,7 +1707,24 @@ class Kensei2SandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_service(namespace=NAMESPACE, body=svc)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                try:
+                    existing = core_v1.read_namespaced_service(
+                        name=name, namespace=NAMESPACE
+                    )
+                    expected_selector = {
+                        "task-id": str(sandbox_record.id),
+                        "component": "sandbox",
+                    }
+                    if existing.spec.selector != expected_selector:
+                        core_v1.replace_namespaced_service(
+                            name=name, namespace=NAMESPACE, body=svc
+                        )
+                except ApiException as e2:
+                    if e2.status != 404:
+                        raise
+                    raise e
+            else:
                 raise
 
     def _ensure_ws_router(self, core_v1, apps_v1, networking_v1, ws_host, nginx_image):
@@ -2037,6 +2057,7 @@ class Kensei2SandboxK8s(models.AbstractModel):
             return "stopped"
 
         _load_k8s_config()
+        core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
         name = _resource_name(sandbox_record)
 
@@ -2054,6 +2075,13 @@ class Kensei2SandboxK8s(models.AbstractModel):
                     if elapsed > 300:
                         return "error"
                 return "stopped"
+            raise
+
+        try:
+            core_v1.read_namespaced_service(name=name, namespace=NAMESPACE)
+        except ApiException as e:
+            if e.status == 404:
+                return "error"
             raise
 
         status = dep.status

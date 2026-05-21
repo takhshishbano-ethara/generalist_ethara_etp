@@ -43,11 +43,18 @@
         <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
     </record>
 
+    <!-- TPM -->
+    <record id="group_tpm" model="res.groups">
+        <field name="name">TPM</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+    </record>
+
     <!-- CTO -->
     <record id="group_cto" model="res.groups">
         <field name="name">CTO</field>
         <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
-        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_project_lead'))]"/>
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_tpm'))]"/>
     </record>
 
     <!-- HR Admin -->

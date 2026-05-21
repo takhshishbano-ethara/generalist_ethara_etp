@@ -19,6 +19,12 @@
                   sequence="90"
                   groups="crowley.group_crowley_manager"/>
 
+        <menuitem id="menu_crowley_import"
+                  name="Import Generations"
+                  parent="menu_crowley_config"
+                  action="action_crowley_import_wizard"
+                  sequence="5"/>
+
         <menuitem id="menu_crowley_settings"
                   name="Settings"
                   parent="menu_crowley_config"

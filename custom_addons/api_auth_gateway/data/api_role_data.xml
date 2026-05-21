@@ -8,6 +8,12 @@
             <field name="user_type">CTO</field>
         </record>
 
+        <record id="role_tpm_technical" model="api.role">
+            <field name="name">TPM</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">TPM</field>
+        </record>
+
         <record id="role_pl_technical" model="api.role">
             <field name="name">PL</field>
             <field name="project_type">technical</field>

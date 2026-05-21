@@ -511,7 +511,8 @@ class DashboardController(http.Controller):
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),
                     'date_end': safe_get_value(p, 'date', 'date'),
-                    'aht_time': aht_time
+                    'aht_time': aht_time,
+                    'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in p.api_map_ids]
                 })
             return return_Response(
                 message="Success",

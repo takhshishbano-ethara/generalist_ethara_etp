@@ -31,6 +31,7 @@ class TaskForgeRoleManagementController(http.Controller):
             ResUsers = request.env['res.users'].sudo()
 
             cto_ids = [ref('api_auth_gateway.role_cto_technical').id]
+            tpm_ids = [ref('api_auth_gateway.role_tpm_technical').id]
             pl_ids = [
                 ref('api_auth_gateway.role_pl_technical').id,
                 ref('api_auth_gateway.role_pl_stem').id,
@@ -52,6 +53,7 @@ class TaskForgeRoleManagementController(http.Controller):
             qr_count = request.env['hr.employee'].sudo().search_count([('user_id.user_role', 'in', qr_ids), ('task_forge_active', '=', True)])
             tasker_count = request.env['hr.employee'].sudo().search_count([('user_id.user_role', 'in', tasker_ids), ('task_forge_active', '=', True)])
             cto_count = request.env['hr.employee'].sudo().search_count([('user_id.user_role', 'in', cto_ids), ('task_forge_active', '=', True)])
+            tpm_count = request.env['hr.employee'].sudo().search_count([('user_id.user_role', 'in', tpm_ids), ('task_forge_active', '=', True)])
 
             return return_Response(
                 message="Success",
@@ -59,6 +61,7 @@ class TaskForgeRoleManagementController(http.Controller):
                 data={
                     'total_employee': total_employee,
                     'cto_count': cto_count,
+                    'tpm_count': tpm_count,
                     'pl_count': pl_count,
                     'qr_count': qr_count,
                     'tasker_count': tasker_count,
@@ -139,6 +142,7 @@ class TaskForgeRoleManagementController(http.Controller):
         ref = request.env.ref
         role_map = {
             ref('api_auth_gateway.role_cto_technical').id: 'cto',
+            ref('api_auth_gateway.role_tpm_technical').id: 'tpm',
             ref('api_auth_gateway.role_pl_technical').id: 'pl',
             ref('api_auth_gateway.role_pl_stem').id: 'pl',
             ref('api_auth_gateway.role_pl_non_stem').id: 'pl',
@@ -194,12 +198,14 @@ class TaskForgeRoleManagementController(http.Controller):
                 return return_Response(message="Employee already has this role", status=400)
 
             target_user.sudo().write({'user_role': new_role_id})
-            if jdata.get('pl_id') or jdata.get('qr_id'):
+            if jdata.get('pl_id') or jdata.get('qr_id') or jdata.get('tpm_id'):
                 emp_vals = {}
                 if jdata.get('pl_id'):
                     emp_vals['task_forge_pl_id'] = int(jdata['pl_id'])
                 if jdata.get('qr_id'):
                     emp_vals['task_forge_qr_id'] = int(jdata['qr_id'])
+                if jdata.get('tpm_id'):
+                    emp_vals['task_forge_tpm_id'] = int(jdata['tpm_id'])
                 if emp_vals:
                     target_emp.sudo().write(emp_vals)
             Project = request.env['project.project'].sudo()

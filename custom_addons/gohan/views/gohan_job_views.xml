@@ -145,8 +145,6 @@
                 <field name="site_name"/>
                 <field name="category_id"/>
                 <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state == 'extracted'" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
-                <field name="score_display"/>
-                <field name="grade"/>
                 <field name="qc_verdict"/>
                 <field name="user_id" widget="many2one_avatar_user"/>
                 <field name="create_date"/>
@@ -165,8 +163,6 @@
                 <field name="site_name"/>
                 <field name="category_id"/>
                 <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state == 'extracted'" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
-                <field name="score_display"/>
-                <field name="grade"/>
                 <field name="qc_verdict"/>
                 <field name="create_date"/>
             </list>
@@ -326,7 +322,7 @@
                     <group>
                         <group>
                             <!-- URL: tasker always readonly; admin always editable -->
-                            <field name="url" widget="url" readonly="not is_admin"/>
+                            <field name="url" widget="url" readonly="not is_admin and id"/>
                             <field name="site_name" readonly="1"/>
                             <!-- Category: editable for both admin and tasker at all times -->
                             <field name="category_id"/>
@@ -601,7 +597,7 @@
         <field name="res_model">gohan.job</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="gohan_job_view_search"/>
-        <field name="context">{'search_default_my_tasks': 1, 'create': False}</field>
+        <field name="context">{'search_default_my_tasks': 1, 'default_user_id': uid}</field>
     </record>
 
     <!-- Bind tasker list view -->

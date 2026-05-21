@@ -10,6 +10,7 @@
                 <page string="Task Forge" name="task_forge">
                     <group>
                         <group string="Hierarchy">
+                            <field name="task_forge_tpm_id"/>
                             <field name="task_forge_pl_id"/>
                             <field name="task_forge_qr_id"/>
                         </group>

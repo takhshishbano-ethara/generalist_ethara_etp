@@ -33,4 +33,12 @@
         <field name="domain_force">[(1, '=', 1)]</field>
     </record>
 
+    <!-- Allocation: TPM sees their PLs' teams -->
+    <record id="tf_allocation_rule_tpm" model="ir.rule">
+        <field name="name">Task Forge Allocation: TPM sees PLs teams</field>
+        <field name="model_id" ref="model_task_forge_allocation"/>
+        <field name="groups" eval="[(4, ref('etp_user_roles.group_tpm'))]"/>
+        <field name="domain_force">['|', '|', ('employee_id.task_forge_pl_id.task_forge_tpm_id.user_id', '=', user.id), ('employee_id.task_forge_tpm_id.user_id', '=', user.id), ('employee_id.user_id', '=', user.id)]</field>
+    </record>
+
 </odoo>
