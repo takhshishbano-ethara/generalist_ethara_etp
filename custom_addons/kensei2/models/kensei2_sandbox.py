@@ -531,12 +531,14 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
 
         try:
             history = ws_client.fetch_history(limit=1000)
-            if history:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    env["kensei2.sandbox"].auto_process_save_trajectory(
-                        sandbox_id, turn_id, history,
-                    )
+            if history and isinstance(history, list):
+                history = _filter_trajectory_messages(history)
+                if history:
+                    with Registry(db_name).cursor() as cr:
+                        env = api.Environment(cr, SUPERUSER_ID, {})
+                        env["kensei2.sandbox"].auto_process_save_trajectory(
+                            sandbox_id, turn_id, history,
+                        )
         except Exception as e:
             _logger.warning(
                 "[BATCH] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
@@ -930,12 +932,14 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
 
         try:
             history = ws_client.fetch_history(limit=1000)
-            if history:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    env["kensei2.sandbox"].auto_process_save_trajectory(
-                        sandbox_id, turn_id, history,
-                    )
+            if history and isinstance(history, list):
+                history = _filter_trajectory_messages(history)
+                if history:
+                    with Registry(db_name).cursor() as cr:
+                        env = api.Environment(cr, SUPERUSER_ID, {})
+                        env["kensei2.sandbox"].auto_process_save_trajectory(
+                            sandbox_id, turn_id, history,
+                        )
         except Exception as e:
             _logger.warning(
                 "[BATCH-PROMPT] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
@@ -1193,6 +1197,44 @@ def _batch_notify(env, task, channel, payload):
         partners = task.user_id.partner_id
     for partner in partners:
         env["bus.bus"]._sendone(partner, channel, payload)
+
+
+_VALID_CHAT_ROLES = {"user", "assistant", "tool", "toolResult", "system"}
+_HEARTBEAT_STRINGS = {"HEARTBEAT_OK", "HEARTBEAT", "PONG"}
+
+
+def _filter_trajectory_messages(messages):
+    filtered = []
+    dropped = 0
+    for msg in messages:
+        if isinstance(msg, str):
+            if msg.strip() in _HEARTBEAT_STRINGS:
+                dropped += 1
+                continue
+            dropped += 1
+            continue
+
+        if not isinstance(msg, dict):
+            dropped += 1
+            continue
+
+        inner = msg.get("message", msg) if isinstance(msg.get("message"), dict) else msg
+        role = inner.get("role", "")
+
+        if role not in _VALID_CHAT_ROLES:
+            text = str(inner.get("content", "") or inner.get("text", "") or "")
+            if any(hb in text for hb in _HEARTBEAT_STRINGS) or not role:
+                dropped += 1
+                continue
+
+        filtered.append(msg)
+
+    if dropped:
+        _logger.info(
+            "[BATCH] Filtered %d non-chat messages from trajectory (kept %d)",
+            dropped, len(filtered),
+        )
+    return filtered
 
 
 def _unwrap_trajectory_messages(messages):
