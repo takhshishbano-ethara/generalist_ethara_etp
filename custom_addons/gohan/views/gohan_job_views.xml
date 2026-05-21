@@ -360,26 +360,26 @@
                         <page string="PRD" invisible="not prd_text">
                             <!-- Action buttons: only on done state -->
                             <div class="mb-2" invisible="state != 'done'">
-                                <button name="action_save_prd_edit" type="object"
-                                        string="Save Edits" class="btn btn-sm btn-primary me-1"/>
                                 <button name="action_regenerate_with_qc_feedback" type="object"
                                         string="Regenerate PRD" class="btn btn-sm btn-warning me-1"
                                         confirm="Regenerate PRD using QC feedback? Current PRD will be replaced."/>
                             </div>
 
-                            <!-- PRD rich text: editable only in done -->
-                            <field name="prd_text_html" widget="html"
-                                   readonly="state != 'done'"/>
+                            <!-- Formatted PRD: read-only, rendered from the Markdown below -->
+                            <separator string="PRD (Formatted)"/>
+                            <field name="prd_text_html" widget="html" readonly="1" nolabel="1"/>
 
-                            <!-- Raw text: visible to both done and submitted for reference -->
-                            <separator string="PRD (Raw Text)"/>
-                            <field name="prd_text" readonly="1"/>
+                            <!-- Markdown PRD: the editable source. Edit here and Save;
+                                 the formatted view above re-renders from it. -->
+                            <separator string="PRD (Markdown - editable)"/>
+                            <field name="prd_text" readonly="state != 'done'" nolabel="1"
+                                   placeholder="Markdown PRD source."/>
                         </page>
 
                         <!-- ============================== -->
                         <!-- TAB 2: Quality                 -->
                         <!-- ============================== -->
-                        <page string="Quality" invisible="not score_report_json and not qc_report">
+                        <page string="Quality" invisible="not qc_report">
                             <!-- Action buttons: both admin and tasker on done -->
                             <div class="mb-3" invisible="state != 'done'">
                                 <button name="action_rerun_qc" type="object"
@@ -399,13 +399,9 @@
                                 <strong>NOT SHIPPABLE</strong> -- Review the issues below and regenerate or edit.
                             </div>
 
-                            <!-- Score Breakdown -->
-                            <field name="score_report_html" readonly="1" nolabel="1"
-                                   invisible="not score_report_json"/>
-
-                            <!-- QC Report -->
-                            <separator string="QC Report" invisible="not qc_report"/>
-                            <field name="qc_report" readonly="1" invisible="not qc_report"/>
+                            <!-- QC Report (markdown rendered to HTML) -->
+                            <field name="qc_report_html" readonly="1" nolabel="1"
+                                   invisible="not qc_report"/>
                         </page>
 
                         <!-- ============================== -->

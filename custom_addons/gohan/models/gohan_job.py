@@ -126,6 +126,28 @@ def _resize_image_for_bedrock(img_bytes: bytes, fmt: str) -> bytes:
         return img_bytes
 
 
+def _svg_to_png(svg_bytes: bytes, output_width: int = 256) -> bytes | None:
+    """Rasterize SVG bytes to PNG bytes.
+
+    Returns ``None`` when conversion is unavailable (``cairosvg`` not
+    installed) or fails (malformed SVG). ``cairosvg`` is an OPTIONAL
+    dependency: it is deliberately NOT listed in the manifest's
+    ``external_dependencies`` so a missing install degrades gracefully
+    (icon kept as .svg) instead of blocking the whole module from loading.
+    """
+    if not svg_bytes:
+        return None
+    try:
+        import cairosvg
+    except ImportError:
+        return None
+    try:
+        return cairosvg.svg2png(bytestring=svg_bytes, output_width=output_width)
+    except Exception as exc:
+        _logger.warning("[gohan] SVG->PNG conversion failed: %s", exc)
+        return None
+
+
 class GohanJob(models.Model):
     _name = "gohan.job"
     _description = "Gohan Pipeline Task"
@@ -236,7 +258,13 @@ class GohanJob(models.Model):
         ),
     )
     prd_text = fields.Text(string="PRD Document")
-    prd_text_html = fields.Html(string="PRD Editor", sanitize=False)
+    prd_text_html = fields.Html(
+        string="PRD (Formatted)",
+        compute="_compute_prd_text_html",
+        sanitize=False,
+        help="Read-only formatted view of the PRD, rendered from the "
+             "editable Markdown. Edit the Markdown to change it.",
+    )
     prd_prompt = fields.Text(string="PRD Prompt (Extracted Data)")
     qc_report = fields.Text(string="QC Report")
     score_report_json = fields.Json(string="Score Report")
@@ -320,6 +348,12 @@ class GohanJob(models.Model):
     score_report_html = fields.Html(
         string="Score Report (HTML)", compute="_compute_score_report_html",
         sanitize=False,
+    )
+    qc_report_html = fields.Html(
+        string="QC Report (HTML)",
+        compute="_compute_qc_report_html",
+        sanitize=False,
+        help="Markdown-rendered view of the QC report for the Quality tab.",
     )
     stage_progress_html = fields.Html(
         string="Stage Progress", compute="_compute_stage_progress",
@@ -454,6 +488,23 @@ class GohanJob(models.Model):
         prompt = ICP.get_param("gohan.prd_system_prompt", "")
         return prompt.strip() if prompt else ""
 
+    @staticmethod
+    def _extract_runnable_prompt(content):
+        """Return the runnable prompt body from a prompt-doc file.
+
+        A QC / PRD prompt file may be a full human-readable document that
+        wraps the runnable prompt in ``## ---BEGIN PROMPT---`` / ``## ---END
+        PROMPT---`` markers, with operator notes outside them. Only the text
+        between the markers is sent to the model. When the markers are
+        absent the whole (stripped) content is treated as the prompt.
+        """
+        begin = "## ---BEGIN PROMPT---"
+        end = "## ---END PROMPT---"
+        if begin in content and end in content:
+            body = content.split(begin, 1)[1].split(end, 1)[0]
+            return body.strip()
+        return content.strip()
+
     @api.model
     def _get_qc_system_prompt(self):
         """Read the QC system prompt from the bundled file (file is the
@@ -461,8 +512,9 @@ class GohanJob(models.Model):
         built-in default.
 
         Priority order:
-          1. ``prompts/qc_v1.md`` — the active QC reviewer prompt (v1).
-             Edit this file to update the QC prompt.
+          1. ``prompts/qc_v1.md`` — the QC reviewer document. Only the text
+             between the ``## ---BEGIN PROMPT---`` / ``## ---END PROMPT---``
+             markers is used; operator notes outside them are stripped.
           2. ``gohan.qc_system_prompt`` sysparam — Settings UI override.
           3. ``DEFAULT_QC_SYSTEM_PROMPT`` — built-in last-resort fallback.
         """
@@ -471,8 +523,9 @@ class GohanJob(models.Model):
             p = prompts_dir / fname
             if p.exists():
                 content = p.read_text(encoding="utf-8")
-                if content.strip():
-                    return content.strip()
+                runnable = self._extract_runnable_prompt(content)
+                if runnable:
+                    return runnable
         ICP = self.env["ir.config_parameter"].sudo()
         prompt = ICP.get_param("gohan.qc_system_prompt", "")
         if prompt and prompt.strip():
@@ -647,6 +700,30 @@ class GohanJob(models.Model):
             html += '</div>'
 
             rec.score_report_html = html
+
+    @api.depends("qc_report")
+    def _compute_qc_report_html(self):
+        """Render the markdown QC report as HTML for the Quality tab."""
+        from markupsafe import Markup
+        for rec in self:
+            if rec.qc_report:
+                rec.qc_report_html = Markup(
+                    '<div class="gohan-qc-report">'
+                    + _markdown_to_html(rec.qc_report)
+                    + '</div>'
+                )
+            else:
+                rec.qc_report_html = False
+
+    @api.depends("prd_text")
+    def _compute_prd_text_html(self):
+        """Render the editable Markdown PRD as the read-only formatted view."""
+        from markupsafe import Markup
+        for rec in self:
+            if rec.prd_text:
+                rec.prd_text_html = Markup(_markdown_to_html(rec.prd_text))
+            else:
+                rec.prd_text_html = False
 
     @api.depends("prd_prompt")
     def _compute_prd_prompt_html(self):
@@ -1699,7 +1776,6 @@ class GohanJob(models.Model):
                 "grade": False,
                 "qc_verdict": False,
                 "prd_text": False,
-                "prd_text_html": False,
                 "qc_report": False,
                 "score_report_json": False,
                 "prd_url": False,
@@ -1742,7 +1818,6 @@ class GohanJob(models.Model):
             "grade": False,
             "qc_verdict": False,
             "prd_text": False,
-            "prd_text_html": False,
             "prd_prompt": False,
             "qc_report": False,
             "score_report_json": False,
@@ -1829,7 +1904,6 @@ class GohanJob(models.Model):
                 "grade": False,
                 "qc_verdict": False,
                 "prd_text": False,
-                "prd_text_html": False,
                 "qc_report": False,
                 "score_report_json": False,
                 "prd_url": False,
@@ -1867,8 +1941,7 @@ class GohanJob(models.Model):
                     "grade": False,
                     "qc_verdict": False,
                     "prd_text": False,
-                    "prd_text_html": False,
-                    "prd_prompt": False,
+                        "prd_prompt": False,
                     "qc_report": False,
                     "score_report_json": False,
                     "prd_url": False,
@@ -1948,7 +2021,6 @@ class GohanJob(models.Model):
                 "grade": False,
                 "qc_verdict": False,
                 "prd_text": False,
-                "prd_text_html": False,
                 "prd_prompt": False,
                 "qc_report": False,
                 "score_report_json": False,
@@ -1968,7 +2040,6 @@ class GohanJob(models.Model):
                 "grade": False,
                 "qc_verdict": False,
                 "prd_text": False,
-                "prd_text_html": False,
                 "qc_report": False,
                 "score_report_json": False,
                 "prd_url": False,
@@ -2027,7 +2098,6 @@ class GohanJob(models.Model):
             "grade": False,
             "qc_verdict": False,
             "prd_text": False,
-            "prd_text_html": False,
             "qc_report": False,
             "score_report_json": False,
             "prd_url": False,
@@ -2284,28 +2354,6 @@ class GohanJob(models.Model):
             )
         )
 
-    def action_save_prd_edit(self):
-        """Save manual PRD edits from the HTML editor back to prd_text."""
-        self.ensure_one()
-        if not self.prd_text_html:
-            raise UserError("No PRD content to save.")
-        import re
-        html_content = self.prd_text_html
-        text = html_content
-        text = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n', text)
-        text = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n', text)
-        text = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n', text)
-        text = re.sub(r'<h4[^>]*>(.*?)</h4>', r'#### \1\n', text)
-        text = re.sub(r'<li[^>]*>(.*?)</li>', r'- \1\n', text)
-        text = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', text)
-        text = re.sub(r'<br\s*/?>', '\n', text)
-        text = re.sub(r'<strong>(.*?)</strong>', r'**\1**', text)
-        text = re.sub(r'<em>(.*?)</em>', r'*\1*', text)
-        text = re.sub(r'<code>(.*?)</code>', r'`\1`', text)
-        text = re.sub(r'<[^>]+>', '', text)
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        self.prd_text = text.strip()
-
     def action_rerun_qc(self):
         """Re-run only QC validation (after manual PRD edits)."""
         self.ensure_one()
@@ -2500,6 +2548,17 @@ class GohanJob(models.Model):
                             rel_path = "/".join(parts[idx:])
                         else:
                             rel_path = f"assets/{parts[-1]}"
+                        # SVG icons ship in the deliverable as PNG, not SVG.
+                        if rel_path.lower().endswith(".svg"):
+                            png = _svg_to_png(data)
+                            if png is not None:
+                                data = png
+                                rel_path = rel_path[:-4] + ".png"
+                            else:
+                                download_errors.append(
+                                    f"{key}: SVG->PNG conversion unavailable "
+                                    f"(install cairosvg) -- kept as .svg"
+                                )
                         zf.writestr(rel_path, data)
                     except Exception as e:
                         download_errors.append(f"{key}: {e}")
@@ -3392,7 +3451,6 @@ class GohanJob(models.Model):
                 record.write({
                     "state": "done",
                     "prd_text": best_prd_text,
-                    "prd_text_html": _markdown_to_html(best_prd_text),
                     "score": best_score,
                     "grade": best_grade,
                     "score_report_json": best_score_report,
@@ -4377,8 +4435,21 @@ def _markdown_to_html(md_text: str) -> str:
             cells = [c.strip() for c in stripped.split("|")[1:-1]]
             if all(set(c) <= set("- :") for c in cells):
                 continue
-            row = "".join(f"<td>{c}</td>" for c in cells)
+            row = ""
+            for c in cells:
+                c = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', c)
+                c = re.sub(r'`(.*?)`', r'<code>\1</code>', c)
+                row += f"<td>{c}</td>"
             html_lines.append(f"<tr>{row}</tr>")
+        elif set(stripped) == {"-"} and len(stripped) >= 3:
+            # Horizontal rule (`---`, `----`, ...).
+            if in_list:
+                html_lines.append("</ul>")
+                in_list = False
+            if in_table:
+                html_lines.append("</table>")
+                in_table = False
+            html_lines.append("<hr/>")
         elif not stripped:
             if in_list:
                 html_lines.append("</ul>")
