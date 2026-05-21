@@ -109,7 +109,8 @@
                                                     <t t-if="media.type === 'image'">
                                                         <img t-att-src="media.url" t-att-alt="media.alt"
                                                              class="o_kensei_media_img"
-                                                             loading="lazy"/>
+                                                             loading="lazy"
+                                                             t-on-error="(ev) => this.onMediaImgError(ev, media)"/>
                                                     </t>
                                                     <t t-elif="media.type === 'video'">
                                                         <video t-att-src="media.url" controls="controls"
@@ -122,7 +123,7 @@
                                                                preload="metadata"/>
                                                     </t>
                                                     <t t-elif="media.type === 'document'">
-                                                        <a t-att-href="media.url" target="_blank"
+                                                        <a t-att-href="(media.s3Url and media.s3Ready) ? media.s3Url : media.url" target="_blank"
                                                            t-att-download="media.alt"
                                                            class="o_kensei_media_document">
                                                             <t t-if="media.alt and media.alt.endsWith('.pdf')"><i class="fa fa-file-pdf-o me-2"/></t>
