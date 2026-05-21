@@ -71,6 +71,6 @@ class ResUsers(models.Model):
             if not target_group:
                 continue
             commands = [(4, target_group.id)]
-            if other_group and other_group.id in user.groups_id.ids:
+            if other_group and other_group.id in user.group_ids.ids:
                 commands.append((3, other_group.id))
-            user.sudo().write({"groups_id": commands})
+            user.sudo().write({"group_ids": commands})

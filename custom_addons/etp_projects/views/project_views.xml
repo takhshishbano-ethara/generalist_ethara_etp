@@ -9,6 +9,7 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='partner_id']" position="before">
                 <field name="project_classification" widget="radio" options="{'horizontal': true}"/>
+                <field name="connected_table"/>
             </xpath>
             <xpath expr="//page[@name='settings']" position="after">
                 <page name="api_mappings" string="API Mappings"

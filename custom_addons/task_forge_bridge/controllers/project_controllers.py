@@ -367,7 +367,8 @@ class TaskForgeProjectController(http.Controller):
                     'total_team_size': len(set(team_member_ids)),
                     'team_role_message': team_role_message,
                     'task_progress': task_progress,
-                    'daily_throughput': daily_throughput
+                    'daily_throughput': daily_throughput,
+                    'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in project.api_map_ids]
                 }
             )
         except Exception as e:

@@ -13,6 +13,7 @@ from .main import (
     LIST_MAX_LIMIT,
     _coerce_int,
     _iso,
+    _job_scope_domain,
     _require_leviathan_user,
 )
 
@@ -87,6 +88,26 @@ def _build_task_view_domain(env, params):
         else:
             domain.append(("user_id.name", "ilike", assigned_tasker))
 
+    status = (params.get("status") or "").strip()
+    if status:
+        valid_states = dict(env["leviathan.job"]._fields["state"].selection)
+        requested = [s.strip() for s in status.split(",") if s.strip()]
+        invalid = [s for s in requested if s not in valid_states]
+        if invalid:
+            return None, return_Response(
+                message=(
+                    f"Invalid status {invalid}. "
+                    f"Allowed: {', '.join(valid_states)}."
+                ),
+                status=400,
+            )
+        if requested:
+            domain.append(("state", "in", requested))
+
+    urls_added = (params.get("urls_added") or "").strip()
+    if urls_added in [1, '1']:
+        domain.append(("url", "!=", False))
+
     search = (params.get("search") or "").strip()
     if search:
         domain += [
@@ -141,6 +162,8 @@ class LeviathanTaskViewController(http.Controller):
         domain, error = _build_task_view_domain(env, params)
         if error is not None:
             return error
+
+        domain = _job_scope_domain() + domain
 
         page = max(1, _coerce_int(params.get("page"), 1))
         limit = _coerce_int(params.get("limit"), LIST_DEFAULT_LIMIT)
