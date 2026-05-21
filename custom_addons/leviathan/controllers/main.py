@@ -296,7 +296,14 @@ class LeviathanController(http.Controller):
                 callback_snapshot["artifacts"] = sorted(callback_snapshot["artifacts"].keys())
             write_vals["lambda_callback_json"] = callback_snapshot
 
-            write_vals["state"] = "generating"
+            # auto_continue (default True: Run All / batch / retry / rerun) ->
+            # cascade straight into PRD generation, as before. When False
+            # (staged manual run) the job parks at 'extracted' and waits for
+            # the Generate button — this is the single decision point that
+            # severs the extraction->generation auto-link.
+            auto = record.auto_continue
+            next_state = "generating" if auto else "extracted"
+            write_vals["state"] = next_state
             record.write(write_vals)
 
             # Extraction handoff complete. This INFO line is the boundary
@@ -306,11 +313,11 @@ class LeviathanController(http.Controller):
             _logger.info(
                 "[leviathan][job=%s] extraction COMPLETE after %.0fs "
                 "(partial=%s) — prd_prompt=%dB screenshots=%d assets=%d "
-                "artifacts_pending=%s -> state=generating",
+                "artifacts_pending=%s -> state=%s (auto_continue=%s)",
                 record.name, _age, is_partial,
                 len(prd_prompt or ""),
                 len(screenshot_keys or []), len(asset_keys or []),
-                artifacts_pending,
+                artifacts_pending, next_state, auto,
             )
 
             # Notify browser of state change
@@ -318,7 +325,7 @@ class LeviathanController(http.Controller):
                 request.env["bus.bus"]._sendone(
                     "leviathan_job_updates",
                     "leviathan/job_state",
-                    {"id": record.id, "state": "generating"},
+                    {"id": record.id, "state": next_state},
                 )
             except Exception:
                 pass
@@ -333,32 +340,32 @@ class LeviathanController(http.Controller):
 
             def _deferred():
                 from ..models.leviathan_job import _submit_bg
-                # postcommit fired: the `generating` state is now committed
-                # and visible. If a job is stuck in `generating` and this
-                # line never appears in the log for its id, the webhook
-                # transaction rolled back before postcommit ran.
                 _logger.info(
                     "[leviathan][job=%s] webhook postcommit fired — "
-                    "scheduling PRD generation on background pool",
-                    record_id,
+                    "scheduling background work (auto_continue=%s)",
+                    record_id, auto,
                 )
-                # 1) Artifacts upload to S3 — async, must not block webhook
+                # Artifacts upload always runs — it is housekeeping, not a
+                # pipeline stage, so it happens in both auto and staged modes.
                 if artifacts_for_bg:
                     _submit_bg(
                         f"artifacts-upload[job={record_id}]",
                         record._upload_artifacts_bg,
                         db_name, record_id, artifacts_for_bg, s3_config,
                     )
-                # 2) PRD generation — runs concurrently with the upload
-                _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    record._run_prd_generation_bg, db_name, record_id,
-                )
+                # PRD generation auto-fires ONLY in auto_continue mode. Staged
+                # jobs stop at 'extracted' and are advanced by the Generate
+                # button (action_stage_generate).
+                if auto:
+                    _submit_bg(
+                        f"prd-gen[job={record_id}]",
+                        record._run_prd_generation_bg, db_name, record_id,
+                    )
 
             request.env.cr.postcommit.add(_deferred)
 
             return Response(
-                json.dumps({"status": "success", "next_step": "generating"}),
+                json.dumps({"status": "success", "next_step": next_state}),
                 status=200,
                 content_type="application/json",
             )
