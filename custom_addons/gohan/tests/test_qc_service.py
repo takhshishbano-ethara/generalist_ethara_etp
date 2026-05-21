@@ -8,7 +8,9 @@ from ..services.qc_service import (
     DEFAULT_QC_SYSTEM_PROMPT,
     _build_report,
     _parse_llm_issues,
+    _parse_qc_verdict,
     _run_structural_checks,
+    _strip_code_fence,
     _summarize_extraction,
     run_qc,
 )
@@ -85,33 +87,59 @@ class TestQcStructuralChecks(TransactionCase):
 @tagged("post_install", "-at_install", "gohan")
 class TestQcLlmParser(TransactionCase):
 
-    def test_parses_all_severities(self):
+    def test_parses_fail_rows_from_check_table(self):
         response = (
-            "VERDICT: NOT SHIPPABLE\n"
-            "ISSUES:\n"
-            "- [CRITICAL] Color #ABCDEF is fabricated.\n"
-            "- [HIGH] Missing Inter font from PRD.\n"
-            "- [MEDIUM] Page count mismatch.\n"
-            "- [LOW] Polish required.\n"
+            "VERDICT: FAIL\n\n"
+            "CHECK TABLE:\n"
+            "| ID | Check | Status | Evidence |\n"
+            "|----|-------|--------|----------|\n"
+            "| A1 | No arrow glyph | FAIL | found 'a -> b' |\n"
+            "| B5 | Word count band | PASS | 1200 words |\n"
+            "| D3 | Target users bullets | FAIL | only one bullet |\n"
+            "| G8 | Real-time | N/A | omitted |\n"
         )
         issues = _parse_llm_issues(response)
-        self.assertEqual(len(issues), 4)
-        severities = [i["severity"] for i in issues]
-        self.assertEqual(severities, ["critical", "high", "medium", "low"])
+        # Only the two FAIL rows become issues; PASS / N/A / header skipped.
+        self.assertEqual(sorted(i["code"] for i in issues), ["QC-A1", "QC-D3"])
 
-    def test_parser_skips_non_issue_lines(self):
+    def test_critical_vs_soft_severity(self):
         response = (
-            "VERDICT: SHIPPABLE\n"
-            "ALIGNMENT SUMMARY: All good.\n"
-            "ISSUES: None.\n"
+            "CHECK TABLE:\n"
+            "| A1 | Arrow | FAIL | x |\n"
+            "| D3 | Bullets | FAIL | x |\n"
         )
-        issues = _parse_llm_issues(response)
-        self.assertEqual(issues, [])
+        sev = {i["code"]: i["severity"] for i in _parse_llm_issues(response)}
+        self.assertEqual(sev["QC-A1"], "critical")  # A-class auto-fail
+        self.assertEqual(sev["QC-D3"], "medium")    # soft warning
 
-    def test_parser_emits_severity_code(self):
-        response = "- [CRITICAL] test"
-        issues = _parse_llm_issues(response)
-        self.assertEqual(issues[0]["code"], "LLM-C")
+    def test_parser_skips_header_pass_and_alignment_rows(self):
+        response = (
+            "| ID | Check | Status | Evidence |\n"
+            "|----|-------|--------|----------|\n"
+            "| A1 | Arrow | PASS | no match |\n"
+        )
+        self.assertEqual(_parse_llm_issues(response), [])
+
+    def test_verdict_pass(self):
+        self.assertEqual(_parse_qc_verdict("VERDICT: PASS\n\nSUMMARY:"), "shippable")
+
+    def test_verdict_fail(self):
+        self.assertEqual(
+            _parse_qc_verdict("VERDICT: FAIL\n\nSUMMARY:"), "not_shippable"
+        )
+
+    def test_verdict_missing(self):
+        self.assertEqual(_parse_qc_verdict("no verdict line here"), "")
+
+    def test_strip_code_fence_unwraps(self):
+        wrapped = "```\nVERDICT: PASS\nCHECK TABLE:\n```"
+        self.assertEqual(
+            _strip_code_fence(wrapped), "VERDICT: PASS\nCHECK TABLE:"
+        )
+
+    def test_strip_code_fence_passthrough(self):
+        plain = "VERDICT: PASS\nno fence here"
+        self.assertEqual(_strip_code_fence(plain), plain)
 
 
 @tagged("post_install", "-at_install", "gohan")
@@ -200,9 +228,10 @@ class TestRunQc(TransactionCase):
 
     def test_run_qc_shippable_path(self):
         response = (
-            "VERDICT: SHIPPABLE\n"
-            "ALIGNMENT SUMMARY: PRD reflects extraction data.\n"
-            "ISSUES: None.\n"
+            "VERDICT: PASS\n\n"
+            "SUMMARY:\n- Soft warnings: 0\n\n"
+            "CHECK TABLE:\n"
+            "| A1 | No arrow glyph | PASS | no match |\n"
         )
         with self._patch_llm(response):
             result = run_qc(
@@ -217,11 +246,11 @@ class TestRunQc(TransactionCase):
         self.assertEqual(result["verdict"], "shippable")
         self.assertEqual(result["issues_critical"], 0)
 
-    def test_run_qc_critical_forces_not_shippable(self):
+    def test_run_qc_fail_verdict_not_shippable(self):
         response = (
-            "VERDICT: NOT SHIPPABLE\n"
-            "ISSUES:\n"
-            "- [CRITICAL] Hex #ABCDEF fabricated.\n"
+            "VERDICT: FAIL\n\n"
+            "CHECK TABLE:\n"
+            "| A1 | No arrow glyph | FAIL | found 'a -> b' |\n"
         )
         with self._patch_llm(response):
             result = run_qc(
@@ -258,7 +287,7 @@ class TestRunQc(TransactionCase):
 
         def _fake(inference_arn, region, system_prompt, messages, **_):
             captured["system_prompt"] = system_prompt
-            return "VERDICT: SHIPPABLE\nISSUES: None.\n"
+            return "VERDICT: PASS\n\nCHECK TABLE:\n| A1 | Arrow | PASS | ok |\n"
 
         with patch(
             "odoo.addons.gohan.services.bedrock_service.generate_prd",
@@ -281,7 +310,7 @@ class TestRunQc(TransactionCase):
 
         def _fake(inference_arn, region, system_prompt, messages, **_):
             captured["system_prompt"] = system_prompt
-            return "VERDICT: SHIPPABLE\nISSUES: None.\n"
+            return "VERDICT: PASS\n\nCHECK TABLE:\n| A1 | Arrow | PASS | ok |\n"
 
         with patch(
             "odoo.addons.gohan.services.bedrock_service.generate_prd",
