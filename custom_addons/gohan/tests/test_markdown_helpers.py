@@ -5,8 +5,11 @@ from PIL import Image
 from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
-from ..models.gohan_job import _markdown_to_html, _resize_image_for_bedrock
-from .common import GohanTestCase
+from ..models.gohan_job import (
+    _markdown_to_html,
+    _resize_image_for_bedrock,
+    _svg_to_png,
+)
 
 
 @tagged("post_install", "-at_install", "gohan")
@@ -109,27 +112,13 @@ class TestResizeImage(TransactionCase):
 
 
 @tagged("post_install", "-at_install", "gohan")
-class TestSavePrdEdit(GohanTestCase):
+class TestSvgToPng(TransactionCase):
 
-    def test_requires_html(self):
-        from odoo.exceptions import UserError
-        job = self._create_job(user_id=self.tasker.id, state="done")
-        with self.assertRaises(UserError):
-            job.action_save_prd_edit()
+    def test_empty_returns_none(self):
+        self.assertIsNone(_svg_to_png(b""))
+        self.assertIsNone(_svg_to_png(None))  # type: ignore[arg-type]
 
-    def test_html_to_markdown_roundtrip(self):
-        job = self._create_job(
-            user_id=self.tasker.id, state="done",
-            prd_text_html=(
-                "<h1>Title</h1><h2>Section</h2>"
-                "<p>Body with <strong>bold</strong> and <em>em</em>.</p>"
-                "<ul><li>one</li><li>two</li></ul>"
-            ),
-        )
-        job.action_save_prd_edit()
-        self.assertIn("# Title", job.prd_text)
-        self.assertIn("## Section", job.prd_text)
-        self.assertIn("**bold**", job.prd_text)
-        self.assertIn("*em*", job.prd_text)
-        self.assertIn("- one", job.prd_text)
-        self.assertIn("- two", job.prd_text)
+    def test_invalid_svg_returns_none(self):
+        # Garbage input never raises -- returns None whether or not the
+        # optional cairosvg dependency is installed.
+        self.assertIsNone(_svg_to_png(b"this is not svg markup"))

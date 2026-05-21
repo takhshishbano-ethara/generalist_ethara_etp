@@ -141,7 +141,7 @@ One bullet per decision. **Frontend-only stack.** Apply the **Free and open-sour
 
 #### Performance Targets
 
-Lighthouse floors, LCP, CLS, INP, bundle ceilings in kB gzipped, frame-rate target. Targets sit **inside** the Good band per Web Vitals thresholds (INP 200ms Good ceiling; aim well inside at 100ms p75). **No backend SLAs** -- API p95, DB query p95 are out of scope.
+Lighthouse 95+ floors (Performance, Accessibility, SEO), LCP, CLS, INP, bundle ceilings in kB gzipped, frame-rate target. Targets sit **inside** the Good band per Web Vitals thresholds (INP 200ms Good ceiling; aim well inside at 100ms p75). **No backend SLAs** -- API p95, DB query p95 are out of scope.
 
 ### 4. Site Architecture & Page Specifications
 
@@ -230,7 +230,7 @@ Up to 80 words. Global motion physics: default duration band + named cubic-bezie
 Up to 470 words (including H3 sub-section headings). **Up to 7 H3 sub-sections; fewer if any are not in scope.** Sub-sections that don't apply (Checkout & Billing UI for non-commerce products, Admin UI Surfaces for products without org-level admin) are **omitted entirely** -- no heading, no placeholder. This section defines UI behavior over fixtures and mock state. **No "Backend" heading or sub-heading anywhere in the PRD** -- the whole document is a frontend spec.
 
 #### User Roles (UI gating)
-Up to 50 words. One numbered bullet per role (2-4 roles, from optional roles extraction when present, otherwise inferred from the screenshots and category). Form: `1. **RoleName:** which screens, nav regions, and primary UI actions they see`. Role-gating is purely a UI / nav contract; the rebuild does not enforce server-side authorization.
+Up to 50 words. One numbered bullet per role (3-4 roles, from optional roles extraction when present, otherwise inferred from the screenshots and category; at least 3 roles so the Section 6 role-gated Main UI Flow can use a role the other two flows do not see). Form: `1. **RoleName:** which screens, nav regions, and primary UI actions they see`. Role-gating is purely a UI / nav contract; the rebuild does not enforce server-side authorization.
 
 #### Session UI Shell
 Up to 60 words. UI behavior for auth: which screens (login, signup, reset, SSO button row inferred from the screenshots or optional auth extraction as a visual affordance), session representation in the UI (mock user switcher, `localStorage` token-string shape at a high level, session-timeout banner copy and trigger). Short-form if minimal: `Session: mock user in localStorage; no signup (private invitation only).` **Do not name a real auth provider.**
@@ -254,7 +254,7 @@ Up to 100 words. **3 mandatory UI flows** (Create / dominant lifecycle / role-ga
 #### Checkout & Billing UI
 Include this sub-section **only if Phase 0 K found commerce signal** (cart, payment form, plan picker, invoice viewer, pricing surfaces visible in the screenshots). If the product is sales-led, free, internal, or otherwise has no in-app commerce, **omit this sub-section entirely** -- no `#### Checkout & Billing UI` heading, no body. Do not emit a `not in scope` placeholder line.
 
-When included, up to 30 words: cart -> review -> mock payment form -> confirmation. **No real payment provider mandated.** Real-world payment partners (Stripe, etc.) visible in the screenshots appear in Main UI Flows only as "what the original product talked to."
+When included, up to 30 words: cart, review, mock payment form, confirmation. **No real payment provider mandated.** Real-world payment partners (Stripe, etc.) visible in the screenshots appear in Main UI Flows only as "what the original product talked to."
 
 #### Admin UI Surfaces
 Include this sub-section **only if the product has organization-level admin pages** (user invitation/management, custom field settings, audit log, workspace defaults, billing-as-admin -- evident from the screenshots and source URL). If the product is a consumer app or single-user tool with only user-self-service settings, **omit this sub-section entirely** -- no `#### Admin UI Surfaces` heading, no body. Do not emit a `not in scope` or `limited to self-service` placeholder.
@@ -294,7 +294,7 @@ The page list (Section 4.2) and UI flows (Section 6 Main UI Flows) **must surfac
 - Article reading view with estimated read time
 - Author profile and publication branding
 - Newsletter signup with subscriber list view
-- Publish flow (draft -> preview -> publish, with schedule option)
+- Publish flow (draft to preview to publish, with schedule option)
 
 ### 4. Retail -- Transaction
 - Product browse with filter (category, price, availability)
@@ -478,7 +478,7 @@ Real third-party integration partners that the **original product** talked to (G
 ## OUTPUT CHARACTER RULES (non-negotiable)
 
 - **No markdown tables in the PRD output.** The substitution and emphasis tables above live in this prompt, not in emitted PRDs.
-- **ASCII only.** Arrow-step paragraphs use `->`; compact bullet chains use `>`. The Unicode arrow `→` (U+2192) is **forbidden anywhere in output**. No em-dashes (`—`), no en-dashes (`–`), no smart quotes, no ellipsis character, no decorative or mathematical Unicode (no `≤`, `≥`, `×`), no emoji, no box-drawing, no zero-width chars, no non-breaking spaces. Write `<=`, `>=`, and dimension `x` as ASCII.
+- **ASCII only.** The `->` arrow-step separator is used ONLY inside the Section 6 Sign-up / Sign-in UI Flow and Main UI Flows sub-sections; everywhere else (Key Interactions, page lists, prose, breadcrumbs) use commas or the word `to`, never `->`. Compact bullet chains use `>`. The Unicode arrow `→` (U+2192) is **forbidden anywhere in output**. No em-dashes (`—`), no en-dashes (`–`), no smart quotes, no ellipsis character, no decorative or mathematical Unicode (no `≤`, `≥`, `×`), no emoji, no box-drawing, no zero-width chars, no non-breaking spaces. Write `<=`, `>=`, and dimension `x` as ASCII.
 - **No double-dash (` -- `) in the PRD output prose.** When you need a clause separator, use a period, comma, semicolon, or colon. Double-dash is a markdown-em-dash workaround and reads as noise; use real punctuation. (This prompt itself uses ` -- ` for instructions to the model, but the emitted PRD must not.)
 - **No keyboard shortcuts in the PRD output.** Never write `Cmd-K`, `Ctrl-K`, `Cmd-/`, `Cmd-Enter`, `Alt-S`, or any hotkey notation as the trigger or label for a feature. Refer to triggers as buttons, icons, or links by their visible label. `Escape` may appear once per modal as an accessibility-baseline dismiss key; it is never the primary feature trigger.
 - **Hex codes always in backticks**: `` `#FAFAFA` ``. Uppercase six-digit.

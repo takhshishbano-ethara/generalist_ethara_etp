@@ -29,7 +29,7 @@ def run_qc(
     qc_system_prompt: str = "",
     screenshot_blocks: list = None,
 ) -> dict:
-    """Run QC: structural checks + LLM alignment review.
+    """Run QC: deterministic structural checks + the v2 compliance QC review.
 
     Args:
         prd_text: The generated PRD markdown.
@@ -49,7 +49,7 @@ def run_qc(
     # Phase 1: Fast structural checks (no LLM)
     structural_issues = _run_structural_checks(prd_text, category)
 
-    # Phase 2: LLM alignment review (PRD vs extraction data)
+    # Phase 2: v2 compliance QC review (PRD-only LLM pass)
     llm_result = _run_llm_alignment_check(
         prd_text=prd_text,
         extraction_data=extraction_data,
@@ -64,15 +64,21 @@ def run_qc(
         screenshot_blocks=screenshot_blocks,
     )
 
-    # Combine results
-    all_issues = structural_issues + llm_result.get("issues", [])
+    # Verdict comes from the v2 QC's own VERDICT: PASS|FAIL line -- the QC
+    # prompt computes it via its documented verdict policy. Cross-checked
+    # against the parsed CHECK TABLE and fail-closed: not_shippable unless
+    # the verdict says PASS *and* no critical-class FAIL row was parsed.
+    llm_issues = llm_result.get("issues", [])
+    llm_verdict = llm_result.get("verdict") or ""
+    has_critical_issue = any(i["severity"] == "critical" for i in llm_issues)
+    if llm_verdict == "shippable" and not has_critical_issue:
+        verdict = "shippable"
+    else:
+        verdict = "not_shippable"
 
-    # Determine verdict
-    has_critical = any(i["severity"] == "critical" for i in all_issues)
-    has_high = any(i["severity"] == "high" for i in all_issues)
-    verdict = "not_shippable" if (has_critical or has_high) else "shippable"
-
-    # Build report
+    # Build report. The structural checks still run as a deterministic
+    # backstop and appear in their own report section; the verdict and the
+    # issue counts come from the v2 compliance QC review.
     report = _build_report(
         verdict=verdict,
         url=url,
@@ -80,11 +86,11 @@ def run_qc(
         prd_text=prd_text,
         structural_issues=structural_issues,
         llm_report=llm_result.get("report", ""),
-        all_issues=all_issues,
+        all_issues=llm_issues,
     )
 
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    for issue in all_issues:
+    for issue in llm_issues:
         sev = issue["severity"]
         if sev in counts:
             counts[sev] += 1
@@ -306,12 +312,19 @@ def _run_llm_alignment_check(
                 "code": "LLM-FAIL",
                 "message": f"QC LLM evaluation failed: {exc}. Defaulting to NOT SHIPPABLE.",
             }],
+            "verdict": "not_shippable",
         }
 
-    # Parse the LLM response
-    issues = _parse_llm_issues(response)
+    # The model sometimes wraps its whole response in a Markdown code fence
+    # (echoing the prompt's output-format template); unwrap it so the report
+    # renders as real Markdown (headings, tables) in the Quality tab.
+    response = _strip_code_fence(response)
 
-    return {"report": response, "issues": issues}
+    # Parse the v2 QC report: the CHECK TABLE FAIL rows + the VERDICT line.
+    issues = _parse_llm_issues(response)
+    verdict = _parse_qc_verdict(response)
+
+    return {"report": response, "issues": issues, "verdict": verdict}
 
 
 def _summarize_extraction(extraction_data: dict, site_discovery: dict) -> str:
@@ -399,42 +412,130 @@ def _summarize_extraction(extraction_data: dict, site_discovery: dict) -> str:
     return "\n".join(parts)
 
 
+# Check IDs whose FAIL is a critical (auto-FAIL) violation per the v2 QC
+# verdict policy: every A/B/C/H-class check and M1/M2/M3, plus these named
+# hard-rule checks. Every other FAIL is a soft warning.
+_QC_CRITICAL_NAMED = frozenset({
+    "M1", "M2", "M3",
+    "E2", "F3", "F4", "G4", "G5", "I2", "I4",
+    "J2", "J5", "J6", "J7", "K2", "L4", "L6", "L7",
+})
+
+
+def _qc_check_is_critical(check_id: str) -> bool:
+    """True if a FAIL on this v2 check ID auto-fails the PRD.
+
+    Per the v2 QC verdict policy: any A/B/C/H-class check, M1/M2/M3, and the
+    named hard-rule checks (E2, F3, F4, G4, G5, I2, I4, J2, J5, J6, J7, K2,
+    L4, L6, L7). Everything else is a soft warning.
+    """
+    cid = (check_id or "").strip().upper()
+    if not cid:
+        return False
+    # B6 (per-section word budgets) is explicitly "warning-class, not
+    # auto-FAIL" in the v2 spec, despite being B-class -- treat it as soft.
+    if cid == "B6":
+        return False
+    if cid[0] in ("A", "B", "C", "H"):
+        return True
+    return cid in _QC_CRITICAL_NAMED
+
+
+def _strip_code_fence(text: str) -> str:
+    """Unwrap a single Markdown code fence wrapping the whole text.
+
+    The QC model sometimes echoes the prompt's output-format ``` fence and
+    emits its whole report inside it. Unwrapping keeps the report as plain
+    Markdown so it renders (headings, tables) instead of one code block.
+    """
+    t = (text or "").strip()
+    if not t.startswith("```"):
+        return t
+    nl = t.find("\n")
+    if nl == -1:
+        return t
+    t = t[nl + 1:]
+    if t.rstrip().endswith("```"):
+        t = t.rstrip()[:-3]
+    return t.strip()
+
+
+def _parse_qc_verdict(response: str) -> str:
+    """Parse the v2 QC ``VERDICT: PASS | FAIL`` line.
+
+    Uses the LAST ``VERDICT:`` line: the QC model sometimes emits a first
+    verdict then a corrected one, and the last is its final answer.
+    Returns ``"shippable"`` for PASS, ``"not_shippable"`` for FAIL, or ``""``
+    when no verdict line is present (the caller treats that as fail-closed).
+    """
+    matches = re.findall(r"(?im)^\s*VERDICT:\s*(PASS|FAIL)\b", response or "")
+    if not matches:
+        return ""
+    return "shippable" if matches[-1].upper() == "PASS" else "not_shippable"
+
+
 def _parse_llm_issues(response: str) -> list:
-    """Parse issues from LLM alignment check response."""
-    issues = []
-    severity_map = {
-        "CRITICAL": "critical",
-        "HIGH": "high",
-        "MEDIUM": "medium",
-        "LOW": "low",
-    }
+    """Parse the v2 QC CHECK TABLE into the list of FAIL issues.
 
-    for line in response.split("\n"):
+    The QC model sometimes emits the CHECK TABLE more than once -- a first
+    pass plus a "corrected" re-emission. To reflect the model's FINAL
+    answer (and never duplicate an issue), each check ID is resolved to its
+    LAST occurrence in the response; only rows whose final status is FAIL
+    become issues. This dedupes and drops rows the model later retracted.
+
+    Table rows look like ``| A1 | check description | FAIL | evidence |``.
+    Severity is ``critical`` for v2 critical-class checks and ``medium``
+    for soft-warning checks (see ``_qc_check_is_critical``).
+    """
+    # check_id (upper) -> (status, raw_id, check_name, evidence); last wins.
+    by_id = {}
+    order = []
+    for line in (response or "").split("\n"):
         line = line.strip()
-        # Accept both the legacy alignment-QC form ("- [SEV] ...") and the
-        # v1 QC reviewer prompt's bolded form ("- **[SEV] Line ~N ...").
-        if not (line.startswith("- [") or line.startswith("- **[")):
+        if not (line.startswith("|") and line.endswith("|")):
             continue
-        for sev_label, sev_key in severity_map.items():
-            if f"[{sev_label}]" in line:
-                # Strip the leading bullet, optional bold markers, and the
-                # severity tag -- leaving the finding text as the message.
-                msg = re.sub(
-                    r"^-\s*\*{0,2}\[" + sev_label + r"\]\*{0,2}\s*", "", line
-                )
-                issues.append({
-                    "severity": sev_key,
-                    "code": f"LLM-{sev_label[:1]}",
-                    "message": msg,
-                })
-                break
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 4:
+            continue
+        check_id, check_name, status = cells[0], cells[1], cells[2]
+        evidence = "|".join(cells[3:]).strip()
+        status = status.upper()
+        # Skip the header row ("Status") and the alignment row ("------").
+        if status not in ("PASS", "FAIL", "N/A"):
+            continue
+        cid = check_id.strip().upper()
+        if cid not in by_id:
+            order.append(cid)
+        by_id[cid] = (status, check_id, check_name, evidence)
 
+    issues = []
+    for cid in order:
+        status, check_id, check_name, evidence = by_id[cid]
+        if status != "FAIL":
+            continue
+        critical = _qc_check_is_critical(check_id)
+        issues.append({
+            "severity": "critical" if critical else "medium",
+            "code": f"QC-{check_id}",
+            "check": check_name,
+            "evidence": evidence,
+            "message": f"{check_name}: {evidence}".strip(" :"),
+        })
     return issues
 
 
 # =============================================================================
 # REPORT BUILDER
 # =============================================================================
+
+_SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+_SEV_LABEL = {
+    "critical": "BLOCKING - CRITICAL",
+    "high": "BLOCKING - HIGH",
+    "medium": "SOFT WARNING",
+    "low": "SOFT WARNING",
+}
+
 
 def _build_report(
     verdict: str,
@@ -445,67 +546,75 @@ def _build_report(
     llm_report: str,
     all_issues: list,
 ) -> str:
-    """Build the QC_Report.md content."""
+    """Build the QC report.
+
+    Leads with an "Issues to Fix" section -- one plainly-explained block per
+    failing check, blocking issues first -- so a tasker sees exactly what to
+    fix without scanning the full ~90-row check table. The complete QC
+    review is kept below for reference.
+    """
     word_count = len(prd_text.split())
     verdict_str = "SHIPPABLE" if verdict == "shippable" else "NOT SHIPPABLE"
 
+    # Structural findings and the v2 QC findings are disjoint (different
+    # checkers); show them together so nothing is missed.
+    issues = list(structural_issues or []) + list(all_issues or [])
     counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-    for issue in all_issues:
-        sev = issue["severity"]
+    for issue in issues:
+        sev = issue.get("severity")
         if sev in counts:
             counts[sev] += 1
     total = sum(counts.values())
+    blocking = counts["critical"] + counts["high"]
+    soft = counts["medium"] + counts["low"]
 
-    report = f"""# QC Report (Automated - Mode B)
+    report = "# QC Report\n\n"
+    report += f"**Verdict:** {verdict_str}\n"
+    report += f"**PRD word count:** {word_count}\n"
+    report += f"**Source URL:** {url}\n"
+    report += f"**Category:** {category}\n\n"
+    report += "---\n\n"
 
-**Verdict:** {verdict_str}
-**Source URL:** {url}
-**Category:** {category}
-**PRD word count:** {word_count}
-**Review mode:** Automated (structural + LLM alignment, no browser)
-
-## Issue Counts
-
-| Severity | Count |
-|---|---|
-| Critical | {counts['critical']} |
-| High | {counts['high']} |
-| Medium | {counts['medium']} |
-| Low | {counts['low']} |
-| **Total** | **{total}** |
-
----
-
-## Structural Checks
-
-"""
-    if structural_issues:
-        for issue in structural_issues:
-            report += f"- **[{issue['code']}]** {issue['message']}\n"
+    # --- Issues to Fix: the section the tasker acts on ---
+    report += "## Issues to Fix\n\n"
+    if issues:
+        report += (
+            f"This PRD has **{blocking} blocking issue(s)** and "
+            f"**{soft} soft warning(s)**. Blocking issues must be fixed "
+            f"before the PRD can ship; soft warnings are recommended. "
+            f"Each issue below names the check, what is wrong, and "
+            f"(where given) how to fix it.\n\n"
+        )
+        ordered = sorted(issues, key=lambda i: _SEV_RANK.get(i.get("severity"), 9))
+        for n, issue in enumerate(ordered, 1):
+            sev = issue.get("severity", "medium")
+            label = _SEV_LABEL.get(sev, "ISSUE")
+            code = issue.get("code", "") or ""
+            check = issue.get("check") or ""
+            detail = issue.get("evidence") or issue.get("message") or ""
+            heading = f"### {n}. [{label}] {code}".rstrip()
+            if check and check.lower() not in code.lower():
+                heading += f" - {check}"
+            report += heading + "\n\n"
+            report += f"{detail}\n\n"
     else:
-        report += "_All structural checks passed._\n"
+        report += "No issues found. The PRD passed every QC check.\n\n"
 
-    report += f"""
----
+    report += "---\n\n"
 
-## LLM Alignment Review
+    # --- Issue counts ---
+    report += "## Issue Counts\n\n"
+    report += "| Severity | Count |\n|---|---|\n"
+    report += f"| Critical | {counts['critical']} |\n"
+    report += f"| High | {counts['high']} |\n"
+    report += f"| Medium | {counts['medium']} |\n"
+    report += f"| Low | {counts['low']} |\n"
+    report += f"| Total | {total} |\n\n"
+    report += "---\n\n"
 
-{llm_report}
-
----
-
-## Issues Detail
-
-"""
-    if all_issues:
-        for severity in ["critical", "high", "medium", "low"]:
-            sev_issues = [i for i in all_issues if i["severity"] == severity]
-            if sev_issues:
-                report += f"### {severity.capitalize()} Issues\n\n"
-                for issue in sev_issues:
-                    report += f"- **[{issue['code']}]** {issue['message']}\n"
-                report += "\n"
-    else:
-        report += "_No issues found. PRD aligns with extraction data._\n"
+    # --- Full QC review (raw v2 output) for reference ---
+    report += "## Full QC Review\n\n"
+    report += "The complete check-by-check QC output is below for reference.\n\n"
+    report += (llm_report or "(no QC review output)") + "\n"
 
     return report
