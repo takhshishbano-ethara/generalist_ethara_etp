@@ -129,7 +129,8 @@ class KaijuCallbackController(http.Controller):
 
         from odoo import fields as odoo_fields
 
-        s3_log_prefix = data.get("s3_log_prefix", "")
+        # Prefer s3_log_uri (full s3://bucket/prefix/) over s3_log_prefix (key-only)
+        s3_log_prefix = data.get("s3_log_uri") or data.get("s3_log_prefix") or ""
 
         if status == "success":
             build.write(
@@ -220,7 +221,7 @@ class KaijuCallbackController(http.Controller):
 
         from odoo import fields as odoo_fields
 
-        s3_log_prefix = data.get("s3_log_prefix", "")
+        s3_log_prefix = data.get("s3_log_uri") or data.get("s3_log_prefix") or ""
 
         if status == "success":
             run.write(
