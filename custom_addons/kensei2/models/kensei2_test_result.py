@@ -25,6 +25,7 @@ class Kensei2TestResult(models.Model):
     model_used = fields.Char(string="LLM Used for Generation")
     status = fields.Selection(
         [
+            ("pending", "Pending Execution"),
             ("generating", "Generating"),
             ("running", "Running"),
             ("passed", "Passed"),

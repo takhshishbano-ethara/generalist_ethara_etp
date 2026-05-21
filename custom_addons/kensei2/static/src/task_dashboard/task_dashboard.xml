@@ -39,24 +39,86 @@
             <t t-if="this.taskId">
 
                 <div class="o_kensei2_batch_controls">
-                    <div class="o_kensei2_batch_prompt_section">
+                    <div class="o_kensei2_batch_prompt_section"
+                         t-on-dragover="onAttachmentDragOver"
+                         t-on-dragleave="onAttachmentDragLeave"
+                         t-on-drop="onAttachmentDrop"
+                         t-attf-class="o_kensei2_batch_prompt_section #{state.dragOver ? 'o_kensei2_drag_over' : ''}">
                         <textarea class="form-control o_kensei2_batch_prompt_input"
                                   rows="3"
                                   placeholder="Enter the prompt to send to all pods..."
                                   t-att-value="state.batchPrompt"
                                   t-on-input="onBatchPromptInput"
-                                  t-att-disabled="this.isBatchActive"/>
+                                  t-att-disabled="this.batchStatus === 'running' || this.batchStatus === 'stopping'"/>
+
+                        <t t-if="state.pendingAttachments.length > 0">
+                            <div class="o_kensei2_batch_attachments">
+                                <t t-foreach="state.pendingAttachments" t-as="att" t-key="att.id">
+                                    <div class="o_kensei2_batch_att_item">
+                                        <t t-if="att.isImage and att.previewUrl">
+                                            <img t-att-src="att.previewUrl"
+                                                 class="o_kensei2_batch_att_thumb"
+                                                 t-att-alt="att.name"/>
+                                        </t>
+                                        <t t-elif="att.isVideo and att.previewUrl">
+                                            <video t-att-src="att.previewUrl"
+                                                   class="o_kensei2_batch_att_thumb" muted="true"/>
+                                        </t>
+                                        <t t-else="">
+                                            <div class="o_kensei2_batch_att_icon">
+                                                <i class="fa fa-file-o"/>
+                                            </div>
+                                        </t>
+                                        <div class="o_kensei2_batch_att_info">
+                                            <span class="o_kensei2_batch_att_name" t-out="att.name"/>
+                                            <span class="o_kensei2_batch_att_size"
+                                                  t-out="this.formatFileSize(att.size)"/>
+                                        </div>
+                                        <button class="o_kensei2_batch_att_remove"
+                                                t-on-click="() => this.onRemoveAttachment(att_index)"
+                                                t-att-disabled="this.batchStatus === 'running' || this.batchStatus === 'stopping'"
+                                                title="Remove">
+                                            <i class="fa fa-times"/>
+                                        </button>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+
+                        <t t-if="state.attachmentError">
+                            <div class="o_kensei2_batch_att_error">
+                                <i class="fa fa-exclamation-circle me-1"/>
+                                <t t-out="state.attachmentError"/>
+                            </div>
+                        </t>
+
                         <div class="o_kensei2_batch_actions">
+                            <button class="o_kensei2_btn_batch_attach"
+                                    t-on-click="onAttachmentPick"
+                                    t-att-disabled="this.batchStatus === 'running' || this.batchStatus === 'stopping'"
+                                    title="Attach files">
+                                <i class="fa fa-paperclip me-1"/>
+                                Attach
+                                <t t-if="state.pendingAttachments.length > 0">
+                                    (<t t-out="state.pendingAttachments.length"/>)
+                                </t>
+                            </button>
                             <button t-attf-class="o_kensei2_btn_batch_start #{!this.canStartBatch ? 'disabled' : ''}"
                                     t-on-click="onStartBatch"
                                     t-att-disabled="!this.canStartBatch">
-                                <t t-if="state.batchStarting">
-                                    <i class="fa fa-spinner fa-spin me-1"/>Starting...
+                                <t t-if="this.batchStatus === 'starting'">
+                                    <i class="fa fa-spinner fa-spin me-1"/>Deploying...
                                 </t>
                                 <t t-else="">
                                     <i class="fa fa-play me-1"/>
                                     Start Batch (<t t-out="this.totalPods"/> pods)
                                 </t>
+                            </button>
+                            <button t-attf-class="o_kensei2_btn_batch_send #{!this.canSendPrompt ? 'disabled' : ''}"
+                                    t-on-click="onSendBatchPrompt"
+                                    t-att-disabled="!this.canSendPrompt">
+                                <i class="fa fa-paper-plane me-1"/>
+                                Send Prompt
                             </button>
                             <button t-attf-class="o_kensei2_btn_batch_stop #{!this.canStopBatch ? 'disabled' : ''}"
                                     t-on-click="onStopBatch"
