@@ -170,13 +170,24 @@ def _build_prestop_script(task_id, persona_name, s3_bucket=None, s3_prefix=None)
     ) % {"session": session_path, "browser": browser_path}
 
 
-def _build_openclaw_config(gateway_token, env, model_type="claude"):
+def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=None, ws_router_host=""):
     aws_bearer = (env.get("KENSEI2_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
     aws_region = (env.get("KENSEI2_AWS_REGION") or env.get("AWS_REGION", "ap-south-1")).strip()
     bedrock_arn = (env.get("KENSEI2_BEDROCK_MODEL_ARN") or env.get("BEDROCK_MODEL_ARN", "")).strip()
     litellm_key = (env.get("KENSEI2_LITELLM_MASTER_KEY") or env.get("LITELLM_MASTER_KEY", "")).strip()
     if not litellm_key:
         litellm_key = "sk-kensei2-%s" % secrets.token_hex(8)
+
+    _base_path = ""
+    _public_ws_url = ""
+    if sandbox_id and ws_router_host and "/" in ws_router_host:
+        _hostname, _path_part = ws_router_host.split("/", 1)
+        _prefix = "/" + _path_part.strip("/")
+        _base_path = "%s/sandbox/%s" % (_prefix, sandbox_id)
+        _public_ws_url = "wss://%s%s/sandbox/%s/" % (_hostname, _prefix, sandbox_id)
+    elif sandbox_id and ws_router_host:
+        _base_path = "/sandbox/%s" % sandbox_id
+        _public_ws_url = "wss://%s/sandbox/%s/" % (ws_router_host, sandbox_id)
 
     config_dict = {
         "gateway": {
@@ -201,6 +212,8 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
                     "http://0.0.0.0:18789",
                 ],
                 "dangerouslyDisableDeviceAuth": True,
+                **({"basePath": _base_path, "publicWsUrl": _public_ws_url}
+                   if _base_path else {}),
             },
             "http": {
                 "endpoints": {
@@ -381,8 +394,11 @@ class Kensei2SandboxK8s(models.AbstractModel):
             sandbox_record,
         )
 
+        kensei2_ws_host = self._get_config_param("kensei2.ws_router_host", "")
         openclaw_config = _build_openclaw_config(
-            gateway_token, env, sandbox_record.model_type
+            gateway_token, env, sandbox_record.model_type,
+            sandbox_id=sandbox_record.id,
+            ws_router_host=kensei2_ws_host,
         )
         self._create_openclaw_config_configmap(
             core_v1,
@@ -431,7 +447,6 @@ class Kensei2SandboxK8s(models.AbstractModel):
         self._create_service(core_v1, sandbox_record, labels, name)
 
         networking_v1 = client.NetworkingV1Api()
-        kensei2_ws_host = self._get_config_param("kensei2.ws_router_host", "")
         nginx_image = self._get_config_param("kensei2.nginx_image", "nginx:alpine")
         self._ensure_ws_router(
             core_v1, apps_v1, networking_v1, kensei2_ws_host, nginx_image
