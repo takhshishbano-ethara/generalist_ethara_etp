@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_etp_external_project_api_map_user,etp.external.project.api.map.user,model_etp_external_project_api_map,,1,1,1,1
+access_etp_external_project_api_map_manager,etp.external.project.api.map.manager,model_etp_external_project_api_map,,1,1,1,1

@@ -3,4 +3,5 @@ access_quality_lead_task,quality lead task access,project.model_project_task,etp
 access_quality_reviewer_task,quality reviewer task access,project.model_project_task,etp_user_roles.group_quality_reviewer,1,1,0,0
 access_delivery_manager_task,delivery manager task access,project.model_project_task,etp_user_roles.group_delivery_manager,1,1,1,0
 access_project_lead_task,project lead task access,project.model_project_task,etp_user_roles.group_project_lead,1,1,1,0
+access_tpm_task,tpm task access,project.model_project_task,etp_user_roles.group_tpm,1,1,1,0
 access_cto_task,cto task access,project.model_project_task,etp_user_roles.group_cto,1,1,1,0

@@ -89,6 +89,8 @@ class Project(models.Model):
     response_config_ids = fields.One2many('project.response.config', 'project_id', string='Response Configurations')
 
     is_timer_enabled = fields.Boolean(string='Timer Enabled', default=False)
+    assigned_team_ids = fields.Many2many('res.users', 'project_project_res_users_assigned_team_rel',
+                                         string='Assigned Team')
 
     _TASKER_ACTIVE_TASK_STATES = ('in_progress', 'ack', 'escalated')
 

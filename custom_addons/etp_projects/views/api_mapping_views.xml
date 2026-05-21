@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- List view -->
+    <record id="view_external_project_api_map_list" model="ir.ui.view">
+        <field name="name">etp.external.project.api.map.list</field>
+        <field name="model">etp.external.project.api.map</field>
+        <field name="arch" type="xml">
+            <list string="API Mappings" editable="bottom">
+                <field name="project_id"/>
+                <field name="table_name"/>
+                <field name="field_name"/>
+                <field name="api_prefix"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="view_external_project_api_map_form" model="ir.ui.view">
+        <field name="name">etp.external.project.api.map.form</field>
+        <field name="model">etp.external.project.api.map</field>
+        <field name="arch" type="xml">
+            <form string="API Mapping">
+                <sheet>
+                    <group>
+                        <field name="project_id"/>
+                        <field name="table_name"/>
+                        <field name="field_name"/>
+                        <field name="api_prefix"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Search view -->
+    <record id="view_external_project_api_map_search" model="ir.ui.view">
+        <field name="name">etp.external.project.api.map.search</field>
+        <field name="model">etp.external.project.api.map</field>
+        <field name="arch" type="xml">
+            <search string="API Mappings">
+                <field name="project_id"/>
+                <field name="table_name"/>
+                <field name="field_name"/>
+                <field name="api_prefix"/>
+                <group>
+                    <filter name="group_project" string="External Project"
+                            context="{'group_by': 'project_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_external_project_api_map" model="ir.actions.act_window">
+        <field name="name">API Mappings</field>
+        <field name="res_model">etp.external.project.api.map</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_external_project_api_map_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create an API mapping
+            </p>
+            <p>
+                Connect an external project to a table name and field, and
+                define the API prefix for that mapping.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menu under the External Projects app -->
+    <menuitem id="menu_external_project_api_map"
+              name="API Mappings"
+              parent="menu_external_project_root"
+              action="action_external_project_api_map"
+              sequence="2"/>
+
+</odoo>

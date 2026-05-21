@@ -15,6 +15,11 @@ class HrEmployee(models.Model):
         string='Task Forge QR',
         help='Quality Reviewer this person reports to in Task Forge hierarchy',
     )
+    task_forge_tpm_id = fields.Many2one(
+        'hr.employee',
+        string='Task Forge TPM',
+        help='Technical Program Manager this Project Lead reports to in Task Forge hierarchy',
+    )
     tf_allocation_status = fields.Selection(
         [('allocated', 'Allocated'), ('unallocated', 'Unallocated')],
         string='Allocation Status',
@@ -59,6 +64,8 @@ class HrEmployee(models.Model):
             return 'tasker'
         if user.has_group('etp_user_roles.group_cto') or user.user_role.id == self.env.ref('api_auth_gateway.role_cto_technical').id:
             return 'admin'
+        if user.has_group('etp_user_roles.group_tpm') or user.user_role.id == self.env.ref('api_auth_gateway.role_tpm_technical').id:
+            return 'tpm'
         if user.has_group('etp_user_roles.group_project_lead') or user.user_role.id in [self.env.ref('api_auth_gateway.role_pl_technical').id, self.env.ref('api_auth_gateway.role_pl_stem').id, self.env.ref('api_auth_gateway.role_pl_non_stem').id]:
             return 'pl'
         if user.has_group('etp_user_roles.group_quality_reviewer') or user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id]:
@@ -74,6 +81,15 @@ class HrEmployee(models.Model):
         Employee = self.env['hr.employee'].sudo()
         if role == 'admin':
             return Employee.search([('task_forge_active', '=', True)]).ids
+        elif role == 'tpm':
+            pl_ids = Employee.search([('task_forge_tpm_id', '=', self.id)]).ids
+            return Employee.search([
+                '|', '|',
+                ('task_forge_tpm_id', '=', self.id),
+                ('task_forge_pl_id', 'in', pl_ids),
+                ('id', '=', self.id),
+                ('task_forge_active', '=', True),
+            ]).ids
         elif role == 'pl':
             return Employee.search([
                 '|',
@@ -97,6 +113,15 @@ class HrEmployee(models.Model):
         Employee = self.env['hr.employee'].sudo()
         if role == 'admin':
             return Employee.search([('task_forge_active', '=', False)]).ids
+        elif role == 'tpm':
+            pl_ids = Employee.search([('task_forge_tpm_id', '=', self.id)]).ids
+            return Employee.search([
+                '|', '|',
+                ('task_forge_tpm_id', '=', self.id),
+                ('task_forge_pl_id', 'in', pl_ids),
+                ('id', '=', self.id),
+                ('task_forge_active', '=', False),
+            ]).ids
         elif role == 'pl':
             return Employee.search([
                 '|',

@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- External projects kanban: clear on_create so the kanban "New"
+         button uses quick-create/form and respects the action context
+         (default_project_classification: external). -->
+    <record id="view_external_project_kanban" model="ir.ui.view">
+        <field name="name">project.project.kanban.external</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project.view_project_kanban"/>
+        <field name="mode">primary</field>
+        <field name="arch" type="xml">
+            <xpath expr="//kanban" position="attributes">
+                <attribute name="on_create"></attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- External Projects action -->
+    <record id="action_external_project" model="ir.actions.act_window">
+        <field name="name">External Projects</field>
+        <field name="res_model">project.project</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="view_id" ref="view_external_project_kanban"/>
+        <field name="search_view_id" ref="project.view_project_project_filter"/>
+        <field name="domain">[('is_template', '=', False), ('project_classification', '=', 'external')]</field>
+        <field name="context">{'display_milestone_deadline': True, 'default_project_classification': 'external'}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create an external project
+            </p>
+            <p>
+                External projects are managed separately from internal projects.
+            </p>
+        </field>
+    </record>
+
+    <!-- Standalone External Projects app -->
+    <menuitem id="menu_external_project_root"
+              name="External Projects"
+              web_icon="etp_projects,static/description/icon.png"
+              groups="project.group_project_manager,project.group_project_user"
+              sequence="71"/>
+    <menuitem id="menu_external_project"
+              name="Projects"
+              parent="menu_external_project_root"
+              action="action_external_project"
+              sequence="1"/>
+
+</odoo>
