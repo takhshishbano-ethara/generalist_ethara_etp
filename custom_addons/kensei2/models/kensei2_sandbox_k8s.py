@@ -874,12 +874,15 @@ class Kensei2SandboxK8s(models.AbstractModel):
             k8s_image = k8s.get("image", "")
             if not k8s_image:
                 svc_name = svc.get("name", entry)
+                mock_prefix = self._get_config_param(
+                    "kensei2.mock_image_prefix", "kensei2-mock-"
+                )
                 if registry_prefix:
-                    k8s_image = "%s/kensei2-mock-%s:%s" % (
-                        registry_prefix.rstrip("/"), svc_name, image_tag
+                    k8s_image = "%s/%s%s:%s" % (
+                        registry_prefix.rstrip("/"), mock_prefix, svc_name, image_tag
                     )
                 else:
-                    k8s_image = "kensei2-mock-%s:%s" % (svc_name, image_tag)
+                    k8s_image = "%s%s:%s" % (mock_prefix, svc_name, image_tag)
             port = svc.get("port", 0)
             default_start_cmd = (
                 "uvicorn server:app --host 0.0.0.0 --port %d" % port
