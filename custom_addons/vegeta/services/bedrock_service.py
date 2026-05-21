@@ -19,7 +19,9 @@ from botocore.exceptions import ClientError, ReadTimeoutError
 _logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
-DEFAULT_TIMEOUT = 600
+# Read timeout kept well under the K8s Job activeDeadlineSeconds so a hung
+# Bedrock call surfaces a catchable RuntimeError instead of a silent stall.
+DEFAULT_TIMEOUT = 300
 DEFAULT_TEMPERATURE = 0.7
 
 
@@ -81,7 +83,7 @@ def _call_bedrock_bearer(
     )
 
     last_exc = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             with httpx.Client(timeout=httpx.Timeout(connect=30, read=DEFAULT_TIMEOUT, write=30, pool=30)) as client:
                 resp = client.post(endpoint, json=payload, headers=headers)
@@ -105,7 +107,7 @@ def _call_bedrock_bearer(
             # Retryable server errors
             if resp.status_code in (429, 500, 502, 503, 529):
                 _logger.warning(
-                    "Bedrock bearer API [%d] (attempt %d/3): %s",
+                    "Bedrock bearer API [%d] (attempt %d/2): %s",
                     resp.status_code, attempt + 1, resp.text[:200],
                 )
                 last_exc = RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:200]}")
@@ -115,7 +117,7 @@ def _call_bedrock_bearer(
             raise RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:500]}")
 
         except httpx.TimeoutException as exc:
-            _logger.warning("Bedrock bearer timeout (attempt %d/3): %s", attempt + 1, exc)
+            _logger.warning("Bedrock bearer timeout (attempt %d/2): %s", attempt + 1, exc)
             last_exc = RuntimeError(f"Bedrock timeout: {exc}")
             time.sleep(min(random.random() * (2 ** attempt), 8.0))
             continue
@@ -134,7 +136,7 @@ def _get_bedrock_client(region: str, access_key_id: str = "", secret_access_key:
         "config": BotoConfig(
             read_timeout=DEFAULT_TIMEOUT,
             connect_timeout=30,
-            retries={"max_attempts": 3, "mode": "adaptive"},
+            retries={"max_attempts": 2, "mode": "adaptive"},
         ),
     }
     if access_key_id and secret_access_key:

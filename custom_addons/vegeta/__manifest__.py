@@ -1,6 +1,6 @@
 {
     "name": "Vegeta",
-    "version": "19.0.2.3.0",
+    "version": "19.0.2.4.0",
     "category": "Tools",
     "summary": "Vegeta — Automated PRD Generation Pipeline (async-Lambda, 250-concurrent)",
     "description": (
@@ -13,7 +13,12 @@
         "or PRD-gen failure (not missing screenshots). Skip re-extraction when "
         "a PRD prompt already exists. New 'discarded' terminal state + Discard "
         "button. Robust self-recovering thread pool. Full transparency: raw "
-        "Lambda callback + LLM trace per job. Watchdog 'started' ping."
+        "Lambda callback + LLM trace per job. Watchdog 'started' ping.\n\n"
+        "v19.0.2.4.0: PRD generation runs in a dedicated Kubernetes Job per "
+        "job (ported from the aurora addon) so the work survives Odoo "
+        "worker/pod recycling and concurrent jobs scale across pods. "
+        "Cron-driven dispatch + reconcile, with an in-process fallback for "
+        "local single-process development."
     ),
     "author": "Ethara",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],

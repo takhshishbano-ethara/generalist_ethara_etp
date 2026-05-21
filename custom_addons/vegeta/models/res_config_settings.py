@@ -83,10 +83,6 @@ class ResConfigSettings(models.TransientModel):
         string="Bedrock Secret Access Key",
         config_parameter="vegeta.bedrock_secret_access_key",
     )
-    vegeta_max_llm_attempts = fields.Integer(
-        string="Max LLM Attempts",
-        config_parameter="vegeta.max_llm_attempts",
-    )
 
     # -- S3 --
     vegeta_s3_bucket = fields.Char(
