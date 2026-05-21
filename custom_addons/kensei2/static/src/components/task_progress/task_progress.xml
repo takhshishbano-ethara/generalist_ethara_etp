@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kensei2.TaskProgressWidget">
+        <div class="o_kensei2_progress_widget">
+            <div class="o_kensei2_progress_track">
+                <t t-foreach="steps" t-as="step" t-key="step.key">
+
+                    <!-- Connector line before this step (skip first) -->
+                    <t t-if="step_index > 0">
+                        <div t-att-class="connectorClass(connectors[step_index - 1])"/>
+                    </t>
+
+                    <!-- Step node -->
+                    <div t-att-class="stepClass(step)"
+                         t-att-title="step.comingSoon ? 'Coming Soon' : step.label">
+                        <div class="o_kensei2_progress_icon">
+                            <i t-attf-class="fa #{step.icon}"/>
+                        </div>
+                        <span class="o_kensei2_progress_label">
+                            <t t-out="step.label"/>
+                        </span>
+                        <span t-if="step.comingSoon"
+                              class="o_kensei2_progress_badge">Coming Soon</span>
+                    </div>
+
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

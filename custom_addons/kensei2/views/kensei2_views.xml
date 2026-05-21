@@ -1,0 +1,426 @@
+<odoo>
+  <data>
+    <record model="ir.ui.view" id="kensei2_kensei2_list">
+      <field name="name">kensei2.kensei2.list</field>
+      <field name="model">kensei2.kensei2</field>
+      <field name="arch" type="xml">
+        <list>
+          <field name="task_id"/>
+          <field name="persona_id"/>
+          <field name="employee_ids" widget="many2many_tags"/>
+          <field name="task_status"/>
+          <field name="qc_status" widget="badge"
+                 decoration-success="qc_status == 'passed'"
+                 decoration-danger="qc_status == 'failed'"
+                 decoration-muted="qc_status == 'pending'"/>
+          <field name="auto_process_status" widget="badge" string="Auto"
+                 decoration-success="auto_process_status == 'done'"
+                 decoration-danger="auto_process_status == 'failed'"
+                 decoration-info="auto_process_status == 'processing'"
+                 decoration-warning="auto_process_status == 'queued'"
+                 decoration-muted="auto_process_status == 'none'"
+                 optional="show"/>
+          <field name="batch_status" widget="badge" string="Batch"
+                 decoration-success="batch_status == 'done'"
+                 decoration-danger="batch_status == 'error'"
+                 decoration-info="batch_status in ('starting', 'running', 'stopping')"
+                 decoration-muted="batch_status == 'idle'"
+                 optional="show"/>
+          <field name="claude_status" widget="badge" string="Claude"
+                 decoration-success="claude_status == 'running'"
+                 decoration-danger="claude_status == 'error'"
+                 decoration-info="claude_status == 'starting'"
+                 decoration-muted="claude_status == 'stopped'"
+                 optional="hide"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="kensei2_kensei2_form">
+      <field name="name">kensei2.kensei2.form</field>
+      <field name="model">kensei2.kensei2</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <div class="oe_button_box" name="button_box">
+              <button class="oe_stat_button" name="action_generate_golden_trajectory"
+                      type="object" icon="fa-magic"
+                      string="Generate Golden"
+                      invisible="not is_ql_or_pl"
+                      confirm="This will call the LLM to generate golden trajectories. Continue?"/>
+              <button class="oe_stat_button" name="action_export_to_harbor"
+                      type="object" icon="fa-cloud-upload"
+                      string="Export to S3"
+                      invisible="not is_ql_or_pl"
+                      confirm="Export this task in Harbor format to S3? This will upload instruction, metadata, and environment files."/>
+            </div>
+            <group>
+              <group string="Task Details">
+                <field name="is_kensei2_admin" invisible="1"/>
+                <field name="is_ql_or_pl" invisible="1"/>
+                <field name="task_id" readonly="not is_kensei2_admin"/>
+                <field name="persona_id" readonly="not is_kensei2_admin" options="{'no_open': True}"/>
+                <field name="task_status"/>
+                <field name="qc_status" widget="badge" readonly="not is_kensei2_admin"
+                       decoration-success="qc_status == 'passed'"
+                       decoration-danger="qc_status == 'failed'"
+                       decoration-muted="qc_status == 'pending'"/>
+                <field name="auto_process_status" widget="badge" readonly="1"
+                       decoration-success="auto_process_status == 'done'"
+                       decoration-danger="auto_process_status == 'failed'"
+                       decoration-info="auto_process_status == 'processing'"
+                       decoration-warning="auto_process_status == 'queued'"
+                       decoration-muted="auto_process_status == 'none'"/>
+                <field name="auto_process_error" readonly="1"
+                       invisible="auto_process_status != 'failed'"/>
+              </group>
+              <group string="Classification">
+                <field name="l1_classification" domain="[('parent_id', '=', False)]"/>
+                <field name="l2_classification" domain="[('parent_id', '=', l1_classification)]" readonly="not l1_classification"/>
+              </group>
+              <group string="Assignment">
+                <field name="employee_ids" widget="many2many_tags" readonly="not is_kensei2_admin"/>
+                <field name="employee_id" invisible="1"/>
+                <field name="user_id" readonly="not is_kensei2_admin"/>
+                <field name="email"/>
+                <field name="password" string="Google Password"/>
+                <field name="gog_auth" string="GOG Auth"/>
+                <field name="outlook_username"/>
+                <field name="outlook_password"/>
+                <field name="eventbrite_username"/>
+                <field name="eventbrite_password"/>
+                <field name="strava_username"/>
+                <field name="strava_password"/>
+                <field name="oura_username"/>
+                <field name="oura_password"/>
+                <field name="instagram_username"/>
+                <field name="instagram_password"/>
+                <field name="facebook_username"/>
+                <field name="facebook_password"/>
+                <field name="threads_username"/>
+                <field name="threads_password"/>
+              </group>
+            </group>
+
+            <field name="system_prompt" invisible="1"/>
+            <div class="w-100 mb-3">
+              <label for="seed_prompt" string="Prompt" class="fw-bold mb-1"/>
+              <field name="seed_prompt" widget="kensei2_markdown" readonly="1"/>
+            </div>
+            <div class="d-flex gap-3 w-100 mb-3 o_kensei2_md_row">
+              <div class="flex-fill" style="min-width: 0; flex: 1;">
+                <label for="agent_md" string="Agent MD" class="fw-bold mb-1"/>
+                <field name="agent_md" widget="kensei2_markdown" readonly="1" class="o_kensei2_md_scroll"/>
+              </div>
+              <div class="flex-fill" style="min-width: 0; flex: 1;">
+                <label for="soul_md" string="Soul MD" class="fw-bold mb-1"/>
+                <field name="soul_md" widget="kensei2_markdown" readonly="1" class="o_kensei2_md_scroll"/>
+              </div>
+              <div class="flex-fill" style="min-width: 0; flex: 1;">
+                <label for="memory_md" string="Memory MD" class="fw-bold mb-1"/>
+                <field name="memory_md" widget="kensei2_markdown" readonly="1" class="o_kensei2_md_scroll"/>
+              </div>
+            </div>
+
+            <field name="sandbox_ids" invisible="1"/>
+            <field name="claude_session_status" invisible="1"/>
+            <field name="batch_status" invisible="1"/>
+            <field name="batch_prompt" invisible="1"/>
+            <field name="batch_error" invisible="1"/>
+            <field name="batch_started_at" invisible="1"/>
+            <field name="batch_completed_at" invisible="1"/>
+
+            <widget name="kensei2_task_dashboard"/>
+
+            <group string="Trajectories" colspan="2">
+              <separator string="Claude 4.7 Trajectory" colspan="2"/>
+              <field name="claude_trajectory" widget="kensei2_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
+              <separator string="GPT-5.5 Trajectory" colspan="2"/>
+              <field name="gpt_trajectory" widget="kensei2_json" nolabel="1" placeholder="GPT-5.5 Trajectory" colspan="2"/>
+              <separator string="Golden Trajectory" colspan="2"/>
+              <field name="golden_trajectory" widget="text" nolabel="1" placeholder="Paste or generate golden trajectory JSON here..." colspan="2"/>
+            </group>
+            <field name="onePA_trajectory" invisible="1"/>
+            <field name="onePB_trajectory" invisible="1"/>
+            <field name="onePC_trajectory" invisible="1"/>
+            <field name="onePD_trajectory" invisible="1"/>
+            <field name="golden_status" invisible="1"/>
+            <field name="golden_error" invisible="1"/>
+            <field name="golden_started_at" invisible="1"/>
+            <field name="rubrics" invisible="1"/>
+            <field name="test_weights" invisible="1"/>
+            <field name="test_weights_status" invisible="1"/>
+            <field name="test_weights_error" invisible="1"/>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="kensei2_kensei2_action_window">
+      <field name="name">Kensei2 Tasks</field>
+      <field name="res_model">kensei2.kensei2</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei2_kensei2_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2_kensei2_form')})]"/>
+    </record>
+
+    <record model="ir.actions.server" id="kensei2_action_auto_process">
+      <field name="name">Auto Process Selected</field>
+      <field name="model_id" ref="model_kensei2_kensei2"/>
+      <field name="binding_model_id" eval="False"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+action = records.action_publish_auto_process()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei2_action_export_harbor">
+      <field name="name">Export to S3 (Harbor)</field>
+      <field name="model_id" ref="model_kensei2_kensei2"/>
+      <field name="binding_model_id" ref="model_kensei2_kensei2"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+records.action_mass_export_to_harbor()
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei2_action_download_harbor">
+      <field name="name">Download All from S3 (Harbor)</field>
+      <field name="model_id" ref="model_kensei2_kensei2"/>
+      <field name="binding_model_id" ref="model_kensei2_kensei2"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+action = records[0].action_download_harbor_bundle() if records else env["kensei2.kensei2"].action_download_harbor_bundle()
+      </field>
+    </record>
+
+    <!-- Server Actions: Mass-assign Kensei2 roles from res.users list -->
+    <record model="ir.actions.server" id="kensei2_action_assign_tasker">
+      <field name="name">Assign Kensei2 Tasker Role</field>
+      <field name="model_id" ref="base.model_res_users"/>
+      <field name="binding_model_id" ref="base.model_res_users"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+tasker_group = env.ref('kensei2.group_kensei2_tasker')
+ql_group = env.ref('kensei2.group_kensei2_ql')
+pl_group = env.ref('kensei2.group_kensei2_pl')
+for user in records:
+    user.write({'group_ids': [(3, ql_group.id), (3, pl_group.id), (4, tasker_group.id)]})
+      </field>
+    </record>
+
+    <record model="ir.actions.server" id="kensei2_action_assign_ql">
+      <field name="name">Assign Kensei2 Quality Lead Role</field>
+      <field name="model_id" ref="base.model_res_users"/>
+      <field name="binding_model_id" ref="base.model_res_users"/>
+      <field name="binding_view_types">list</field>
+      <field name="state">code</field>
+      <field name="code">
+ql_group = env.ref('kensei2.group_kensei2_ql')
+pl_group = env.ref('kensei2.group_kensei2_pl')
+for user in records:
+    user.write({'group_ids': [(3, pl_group.id), (4, ql_group.id)]})
+      </field>
+    </record>
+
+    <!-- ============ Turn Views ============ -->
+
+    <record model="ir.ui.view" id="kensei2_turn_list">
+      <field name="name">kensei2.turn.list</field>
+      <field name="model">kensei2.turn</field>
+      <field name="arch" type="xml">
+         <list default_order="turn_number asc, id asc">
+          <field name="sandbox_id"/>
+          <field name="kensei2_id"/>
+          <field name="employee_ids" widget="many2many_tags"/>
+          <field name="turn_number"/>
+          <field name="turn_status" widget="badge"
+                 decoration-success="turn_status == 'Completed'"
+                 decoration-warning="turn_status == 'Pending'"/>
+          <field name="prompt_timestamp"/>
+          <field name="response_timestamp"/>
+          <field name="prompt"/>
+          <field name="response"/>
+          <field name="model_name"/>
+          <field name="tool_names"/>
+          <field name="tool_calls" optional="hide" widget="text"/>
+          <field name="qc_severity" optional="hide" widget="badge"
+                 decoration-danger="qc_severity == 'critical'"
+                 decoration-warning="qc_severity in ('high', 'medium')"
+                 decoration-success="qc_severity == 'low'"
+                 invisible="1"/>
+          <field name="qc_dismiss_reason" optional="hide" invisible="1"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="kensei2_turn_form">
+      <field name="name">kensei2.turn.form</field>
+      <field name="model">kensei2.turn</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <group>
+              <group>
+                <field name="sandbox_id"/>
+                <field name="kensei2_id"/>
+                <field name="employee_ids" widget="many2many_tags"/>
+                <field name="turn_number"/>
+                <field name="turn_status"/>
+                <field name="model_name"/>
+                <field name="prompt_timestamp"/>
+                <field name="response_timestamp"/>
+              </group>
+            </group>
+            <notebook>
+              <page string="Prompt">
+                <field name="prompt" nolabel="1"/>
+              </page>
+              <page string="Response">
+                <field name="response" nolabel="1"/>
+              </page>
+              <page string="Tool Calls">
+                <group>
+                  <field name="tool_names"/>
+                </group>
+                <field name="tool_calls" nolabel="1" widget="text"/>
+              </page>
+              <page string="Raw Events">
+                <field name="raw_events" nolabel="1" widget="text"/>
+              </page>
+              <page string="Trajectory">
+                <field name="trajectory_messages" nolabel="1" widget="text"/>
+              </page>
+              <page string="QC" invisible="1">
+                <group>
+                  <field name="qc_severity"/>
+                  <field name="qc_dismiss_reason"/>
+                </group>
+                <field name="qc_response" nolabel="1" widget="text"/>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="kensei2_turn_action_window">
+      <field name="name">Turns</field>
+      <field name="res_model">kensei2.turn</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei2_turn_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2_turn_form')})]"/>
+    </record>
+
+    <!-- ============ Sandbox Views (Admin) ============ -->
+
+    <record model="ir.ui.view" id="kensei2_sandbox_list">
+      <field name="name">kensei2.sandbox.list</field>
+      <field name="model">kensei2.sandbox</field>
+      <field name="arch" type="xml">
+        <list default_order="kensei2_id desc, model_type, variant_index">
+          <field name="kensei2_id"/>
+          <field name="employee_ids" widget="many2many_tags"/>
+          <field name="model_type"/>
+          <field name="variant_index"/>
+          <field name="docker_status" widget="badge"
+                 decoration-success="docker_status == 'running'"
+                 decoration-danger="docker_status == 'error'"
+                 decoration-info="docker_status == 'starting'"
+                 decoration-muted="docker_status == 'stopped'"/>
+          <field name="docker_dashboard_url" widget="url"/>
+          <field name="docker_port"/>
+          <field name="session_status"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="kensei2_sandbox_form">
+      <field name="name">kensei2.sandbox.form</field>
+      <field name="model">kensei2.sandbox</field>
+      <field name="arch" type="xml">
+        <form>
+          <header>
+            <button name="action_generate_tests" type="object"
+                    string="Generate Tests" icon="fa-flask"
+                    class="oe_highlight"
+                    invisible="docker_status != 'running'"
+                    confirm="Generate pytest tests from mock API audit logs?"/>
+          </header>
+          <sheet>
+            <group>
+              <group string="Sandbox Info">
+                <field name="kensei2_id"/>
+                <field name="employee_ids" widget="many2many_tags"/>
+                <field name="model_type"/>
+                <field name="variant_index"/>
+                <field name="session_status"/>
+              </group>
+              <group string="Docker Status">
+                <field name="docker_status" widget="badge"
+                       decoration-success="docker_status == 'running'"
+                       decoration-danger="docker_status == 'error'"
+                       decoration-info="docker_status == 'starting'"
+                       decoration-muted="docker_status == 'stopped'"/>
+                <field name="docker_port"/>
+                <field name="docker_compose_project"/>
+                <field name="docker_error"/>
+              </group>
+            </group>
+            <group string="Container Links">
+              <field name="docker_dashboard_url" widget="url"/>
+              <field name="docker_ws_url" widget="url"/>
+              <field name="docker_gateway_token"/>
+            </group>
+            <notebook invisible="not context.get('uid')">
+              <page string="API Request Logs" groups="kensei2.group_kensei2_pl">
+                <field name="api_request_ids" nolabel="1" readonly="1">
+                  <list default_order="request_time desc">
+                    <field name="request_time"/>
+                    <field name="service_name"/>
+                    <field name="method"/>
+                    <field name="path"/>
+                    <field name="status_code" decoration-success="status_code &lt; 400" decoration-danger="status_code &gt;= 400"/>
+                    <field name="duration_ms"/>
+                  </list>
+                </field>
+              </page>
+              <page string="Test Results">
+                <field name="test_result_ids" nolabel="1" readonly="1">
+                  <list default_order="create_date desc">
+                    <field name="model_used"/>
+                    <field name="status" widget="badge"
+                      decoration-success="status == 'passed'"
+                      decoration-danger="status in ('failed', 'error')"
+                      decoration-info="status in ('generating', 'running')"/>
+                    <field name="tests_total"/>
+                    <field name="tests_passed"/>
+                    <field name="tests_failed"/>
+                    <field name="tests_errored"/>
+                    <field name="create_date"/>
+                  </list>
+                </field>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="kensei2_sandbox_action_window">
+      <field name="name">Sandboxes</field>
+      <field name="res_model">kensei2.sandbox</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei2_sandbox_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2_sandbox_form')})]"/>
+    </record>
+
+  </data>
+</odoo>

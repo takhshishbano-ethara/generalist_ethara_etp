@@ -1,0 +1,49 @@
+<odoo>
+  <data>
+    <record model="ir.ui.view" id="kensei2_domain_list">
+      <field name="name">kensei2.domain.list</field>
+      <field name="model">kensei2.domain</field>
+      <field name="arch" type="xml">
+        <list>
+          <field name="name"/>
+          <field name="parent_id"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="kensei2_domain_form">
+      <field name="name">kensei2.domain.form</field>
+      <field name="model">kensei2.domain</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+              <group>
+                  <group>
+                      <field name="name"/>
+                      <field name="parent_id"/>
+                  </group>
+              </group>
+              <notebook>
+                  <page string="Sub-domains">
+                      <field name="child_ids">
+                          <list editable="bottom">
+                              <field name="name"/>
+                          </list>
+                      </field>
+                  </page>
+              </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="domain_action_window">
+      <field name="name">Domains</field>
+      <field name="res_model">kensei2.domain</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei2_domain_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2_domain_form')})]"/>
+    </record>
+  </data>
+</odoo>

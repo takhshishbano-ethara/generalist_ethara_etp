@@ -1,0 +1,580 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "kensei2-multimodal-trajectory-v1",
+  "title": "Kensei2 Multimodal Trajectory",
+  "description": "Schema for OpenClaw multimodal RL data collection trajectories. Validates structure, required metadata, message format, and multimodal asset declarations.",
+  "type": "object",
+  "required": ["schema_version", "meta_info", "messages"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Schema version identifier. Bump on breaking changes."
+    },
+    "meta_info": {
+      "type": "object",
+      "required": [
+        "task_type",
+        "task_description",
+        "task_completion_status",
+        "system_prompt",
+        "platform",
+        "multimodal_metadata",
+        "input_files",
+        "output_artifacts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "task_type": {
+          "type": "string",
+          "description": "Taxonomy slug in format: l1_category__l2_subcategory (double underscore separator). Derived from L1/L2 display names by lowercasing, replacing spaces and punctuation with underscores.",
+          "pattern": "^[a-z][a-z0-9_]*__[a-z][a-z0-9_]*$"
+        },
+        "task_description": {
+          "type": "string",
+          "description": "Full natural language description of the task including what the agent must accomplish and why multimodal input is necessary.",
+          "minLength": 50
+        },
+        "task_completion_status": {
+          "type": "string",
+          "enum": ["success", "partial", "failure"],
+          "description": "Whether the trajectory demonstrates successful task completion."
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "The full system prompt given to the agent. Must define available tools and behavioral constraints.",
+          "minLength": 200
+        },
+        "platform": {
+          "type": "string",
+          "description": "Operating system or platform the task targets.",
+          "examples": ["macOS", "linux", "windows", "web"]
+        },
+        "multimodal_metadata": {
+          "type": "object",
+          "required": [
+            "modality_tags",
+            "taxonomy_l1",
+            "taxonomy_l2",
+            "media_necessity",
+            "cross_modal_reasoning",
+            "input_modalities",
+            "output_modalities",
+            "asset_realism_notes"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "modality_tags": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["upload_image", "api_image", "pdf", "audio", "video", "screenshot", "generated_image"]
+              },
+              "minItems": 1,
+              "uniqueItems": true,
+              "description": "Explicit tags for how multimodal content enters the trajectory."
+            },
+            "taxonomy_l1": {
+              "type": "string",
+              "enum": [
+                "Commerce & Product",
+                "Property & Space",
+                "Health & Wellness",
+                "Creative & Media",
+                "Operations & QA",
+                "Visual Learning",
+                "Small Business & Personal Docs"
+              ],
+              "description": "Top-level taxonomy category from the Kensei2 spec."
+            },
+            "taxonomy_l2": {
+              "type": "string",
+              "description": "Second-level taxonomy subcategory. Must correspond to a valid L2 under the chosen L1.",
+              "enum": [
+                "Product Listing QA",
+                "Visual Shopping/Comparison",
+                "Brand/Packaging Audit",
+                "Real Estate Listing Review",
+                "Interior Design/Renovation",
+                "Nutrition/Meal Logging",
+                "Skin/Symptom Triage",
+                "Social Media Content Audit",
+                "Design/Portfolio Review",
+                "Video Thumbnail Optimization",
+                "UI/UX Screenshot Audit",
+                "Security Camera Review",
+                "Document/Receipt Processing",
+                "Inventory Visual Audit",
+                "Homework/Problem Solving",
+                "Lab/Fieldwork Documentation",
+                "Textbook/Lecture Comprehension",
+                "Invoice/Receipt Management",
+                "Inventory & Catalog",
+                "Document Generation from Visual Input"
+              ]
+            },
+            "media_necessity": {
+              "type": "string",
+              "description": "Explicit justification for why the media is NECESSARY (not decorative). Must explain why text-only input would be insufficient.",
+              "minLength": 30
+            },
+            "cross_modal_reasoning": {
+              "type": "object",
+              "required": ["percentage", "modalities_fused", "description"],
+              "additionalProperties": false,
+              "description": "Structured representation of how different modalities are reconciled or compared during the trajectory. Spec requires ≥50% of tasks to fuse ≥2 modalities.",
+              "properties": {
+                "percentage": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 100,
+                  "description": "Estimated percentage of task steps that require cross-modal reasoning (fusing information from ≥2 modalities)."
+                },
+                "modalities_fused": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": ["text", "image", "video", "audio", "pdf", "screenshot", "api_response"]
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true,
+                  "description": "Which modalities are fused/compared during reasoning."
+                },
+                "description": {
+                  "type": "string",
+                  "minLength": 20,
+                  "description": "Free-text explanation of what cross-modal reasoning occurs."
+                }
+              }
+            },
+            "input_modalities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[a-z]+/[a-z0-9.+-]+$"
+              },
+              "minItems": 1,
+              "description": "MIME types of input media (e.g., image/heic, application/pdf, image/png)."
+            },
+            "output_modalities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["text", "image", "file", "audio", "code"]
+              },
+              "minItems": 1,
+              "description": "Types of output the agent produces."
+            },
+            "asset_realism_notes": {
+              "type": "string",
+              "description": "Notes on why the assets look realistic (messy filenames, mixed formats, natural imperfections like blur or bad lighting).",
+              "minLength": 20
+            }
+          }
+        },
+        "input_files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/InputFile"
+          },
+          "minItems": 1,
+          "description": "Manifest of all files provided to the agent at task start."
+        },
+        "environment": {
+          "$ref": "#/$defs/Environment",
+          "description": "Execution environment specification for reproducibility. Optional — omit for tasks that don't require a specific runtime."
+        },
+        "output_artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/OutputArtifact"
+          },
+          "description": "Manifest of artifacts produced by the agent (generated images, CSVs, PDFs, reports, etc.). Empty array if task produces no file artifacts."
+        },
+        "_extensions": {
+          "type": "object",
+          "description": "Arbitrary vendor or project extensions. No schema validation applied to contents.",
+          "additionalProperties": true
+        }
+      }
+    },
+    "messages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Message"
+      },
+      "minItems": 2,
+      "prefixItems": [
+        {
+          "type": "object",
+          "properties": {
+            "message": {
+              "type": "object",
+              "properties": {
+                "role": { "const": "user" }
+              },
+              "required": ["role"]
+            }
+          },
+          "required": ["message"]
+        }
+      ],
+      "description": "Ordered conversation messages forming the trajectory. First message MUST be a user prompt. Minimum: a user prompt and an assistant response."
+    },
+    "_extensions": {
+      "type": "object",
+      "description": "Top-level arbitrary vendor or project extensions. No schema validation applied to contents.",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "InputFile": {
+      "type": "object",
+      "required": ["ref_id", "filename", "mime_type", "role", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "ref_id": {
+          "type": "string",
+          "description": "Stable identifier for this input file, referenced by source_ref in media content blocks to link manifest entries to inline usages.",
+          "pattern": "^[a-zA-Z0-9_-]+$",
+          "minLength": 1
+        },
+        "filename": {
+          "type": "string",
+          "description": "Realistic filename as it would appear on the user's device (e.g., IMG_3847.HEIC, scan_receipt_pg2.pdf).",
+          "minLength": 1
+        },
+        "mime_type": {
+          "type": "string",
+          "pattern": "^[a-z]+/[a-z0-9.+-]+$",
+          "description": "MIME type of the file. Must match the actual data encoding."
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "File size in bytes. Optional but recommended for realism."
+        },
+        "role": {
+          "type": "string",
+          "enum": ["primary_reference", "supplementary", "context", "comparison_target"],
+          "description": "The role this file plays in the task."
+        },
+        "description": {
+          "type": "string",
+          "description": "What this file contains and why it's needed for the task.",
+          "minLength": 10
+        },
+        "source": {
+          "type": "string",
+          "description": "S3 URI or HTTPS URL where the input file is stored.",
+          "pattern": "^(s3://[a-z0-9][a-z0-9.-]+/.+|https://[a-z0-9][-a-z0-9.]+\\.[a-z]{2,}/.+)$"
+        }
+      }
+    },
+    "OutputArtifact": {
+      "type": "object",
+      "required": ["filename", "mime_type", "artifact_type", "description"],
+      "additionalProperties": false,
+      "properties": {
+        "filename": {
+          "type": "string",
+          "description": "Expected output filename (e.g., solutions.md, catalog.pdf, etsy_listings.csv).",
+          "minLength": 1
+        },
+        "mime_type": {
+          "type": "string",
+          "pattern": "^[a-z]+/[a-z0-9.+-]+$",
+          "description": "MIME type of the output artifact."
+        },
+        "source": {
+          "type": "string",
+          "description": "S3 URI or HTTPS URL where the generated artifact is stored.",
+          "pattern": "^(s3://[a-z0-9][a-z0-9.-]+/.+|https://[a-z0-9][-a-z0-9.]+\\.[a-z]{2,}/.+)$"
+        },
+        "artifact_type": {
+          "type": "string",
+          "enum": ["generated_image", "report", "data_export", "code", "document", "media", "other"],
+          "description": "Classification of the output artifact type."
+        },
+        "description": {
+          "type": "string",
+          "description": "What this artifact contains and how it relates to the task outcome.",
+          "minLength": 10
+        }
+      }
+    },
+    "Environment": {
+      "type": "object",
+      "required": ["runtime", "image", "os", "pre_installed", "network_access", "filesystem_state"],
+      "additionalProperties": false,
+      "properties": {
+        "runtime": {
+          "type": "string",
+          "enum": ["docker", "vm", "bare_metal", "cloud_function"],
+          "description": "Type of execution environment."
+        },
+        "image": {
+          "type": "string",
+          "description": "Container image or VM image identifier.",
+          "minLength": 1
+        },
+        "os": {
+          "type": "string",
+          "description": "Operating system and version.",
+          "examples": ["Ubuntu 22.04", "Debian 12", "Alpine 3.19"]
+        },
+        "pre_installed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Software packages pre-installed in the environment."
+        },
+        "network_access": {
+          "type": "boolean",
+          "description": "Whether the agent has outbound network access."
+        },
+        "filesystem_state": {
+          "type": "object",
+          "required": ["working_directory", "provided_files"],
+          "additionalProperties": false,
+          "properties": {
+            "working_directory": {
+              "type": "string",
+              "description": "Absolute path to the agent's working directory.",
+              "pattern": "^/"
+            },
+            "provided_files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Absolute paths to files placed in the environment before task starts."
+            }
+          }
+        },
+        "resource_limits": {
+          "type": "object",
+          "properties": {
+            "max_runtime_minutes": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum execution time in minutes."
+            },
+            "max_memory_mb": {
+              "type": "integer",
+              "minimum": 128,
+              "description": "Maximum memory allocation in MB."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "Message": {
+      "type": "object",
+      "required": ["type", "id", "turn_index", "timestamp", "message"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "message"
+        },
+        "id": {
+          "type": "string",
+          "description": "Unique message identifier. Any non-empty string (UUID, nanoid, sequential, etc.).",
+          "minLength": 1
+        },
+        "turn_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Zero-based sequential position in the conversation. Monotonically increasing; no gaps allowed."
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "ISO 8601 timestamp of when the message was created."
+        },
+        "message": {
+          "type": "object",
+          "required": ["role", "content"],
+          "properties": {
+            "role": {
+              "type": "string",
+              "enum": ["user", "assistant", "toolResult"]
+            },
+            "content": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ContentBlock"
+              },
+              "minItems": 1
+            },
+            "toolCallId": {
+              "type": "string",
+              "description": "Required for toolResult messages. References the tool call this is responding to."
+            },
+            "toolName": {
+              "type": "string",
+              "description": "Name of the tool that produced this result. Required for toolResult messages."
+            },
+            "isError": {
+              "type": "boolean",
+              "description": "Whether this tool result represents an error. Required for toolResult messages."
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": { "role": { "const": "toolResult" } }
+              },
+              "then": {
+                "required": ["role", "content", "toolCallId", "toolName", "isError"]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ContentBlock": {
+      "oneOf": [
+        { "$ref": "#/$defs/TextBlock" },
+        { "$ref": "#/$defs/ImageBlock" },
+        { "$ref": "#/$defs/VideoBlock" },
+        { "$ref": "#/$defs/AudioBlock" },
+        { "$ref": "#/$defs/ThinkingBlock" },
+        { "$ref": "#/$defs/ToolCallBlock" }
+      ]
+    },
+    "TextBlock": {
+      "type": "object",
+      "required": ["type", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "text" },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "ImageBlock": {
+      "type": "object",
+      "required": ["type", "mimeType", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "image" },
+        "mimeType": {
+          "type": "string",
+          "pattern": "^image/[a-z0-9.+-]+$",
+          "description": "MIME type of the image. Must match the actual encoding of the referenced asset."
+        },
+        "source": {
+          "type": "string",
+          "description": "S3 URI or HTTPS URL referencing the image asset.",
+          "pattern": "^(s3://[a-z0-9][a-z0-9.-]+/.+|https://[a-z0-9][-a-z0-9.]+\\.[a-z]{2,}/.+)$",
+          "minLength": 15
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "References an InputFile.ref_id from meta_info.input_files, linking this inline usage to the manifest entry.",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        }
+      }
+    },
+    "VideoBlock": {
+      "type": "object",
+      "required": ["type", "mimeType", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "video" },
+        "mimeType": {
+          "type": "string",
+          "pattern": "^video/[a-z0-9.+-]+$",
+          "description": "MIME type of the video (e.g., video/mp4, video/webm)."
+        },
+        "source": {
+          "type": "string",
+          "description": "S3 URI or HTTPS URL referencing the video asset.",
+          "pattern": "^(s3://[a-z0-9][a-z0-9.-]+/.+|https://[a-z0-9][-a-z0-9.]+\\.[a-z]{2,}/.+)$",
+          "minLength": 15
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "References an InputFile.ref_id from meta_info.input_files, linking this inline usage to the manifest entry.",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Duration of the video in seconds."
+        }
+      }
+    },
+    "AudioBlock": {
+      "type": "object",
+      "required": ["type", "mimeType", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "audio" },
+        "mimeType": {
+          "type": "string",
+          "pattern": "^audio/[a-z0-9.+-]+$",
+          "description": "MIME type of the audio (e.g., audio/mpeg, audio/wav, audio/ogg)."
+        },
+        "source": {
+          "type": "string",
+          "description": "S3 URI or HTTPS URL referencing the audio asset.",
+          "pattern": "^(s3://[a-z0-9][a-z0-9.-]+/.+|https://[a-z0-9][-a-z0-9.]+\\.[a-z]{2,}/.+)$",
+          "minLength": 15
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "References an InputFile.ref_id from meta_info.input_files, linking this inline usage to the manifest entry.",
+          "pattern": "^[a-zA-Z0-9_-]+$"
+        },
+        "duration_seconds": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Duration of the audio in seconds."
+        }
+      }
+    },
+    "ThinkingBlock": {
+      "type": "object",
+      "required": ["type", "thinking"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "thinking" },
+        "thinking": {
+          "type": "string",
+          "description": "Internal reasoning/chain-of-thought from the assistant.",
+          "minLength": 1
+        },
+        "thinkingSignature": {
+          "type": "string",
+          "description": "Cryptographic signature of thinking content (optional, for verification)."
+        }
+      }
+    },
+    "ToolCallBlock": {
+      "type": "object",
+      "required": ["type", "id", "name", "arguments"],
+      "additionalProperties": false,
+      "properties": {
+        "type": { "const": "toolCall" },
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this tool invocation.",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the tool being called. Must match a tool defined in the system_prompt.",
+          "minLength": 1
+        },
+        "arguments": {
+          "type": "object",
+          "description": "Arguments passed to the tool. Structure varies by tool."
+        }
+      }
+    }
+  }
+}

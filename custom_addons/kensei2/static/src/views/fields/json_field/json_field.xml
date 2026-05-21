@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="kensei2.JsonField">
+        <div class="o_field_kensei2_json o_field_widget" t-ref="root" t-att-class="{'o_field_kensei2_json_readonly': props.readonly}">
+            <t t-if="hasEntries">
+                <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
+                    <div class="kensei2-json-entry">
+                            <div class="kensei2-json-entry-header"
+                                 t-att-class="{'kensei2-json-entry-header--expanded': isEntryExpanded(entry.index)}"
+                                 t-on-click="() => this.onToggleEntry(entry.index)">
+                                <span class="kensei2-json-session-label">
+                                    <i t-attf-class="fa fa-chevron-#{isEntryExpanded(entry.index) ? 'down' : 'right'} kensei2-json-chevron"/>
+                                    Session <t t-esc="entry.index + 1"/>
+                                    <t t-if="entry.timestamp">
+                                        <span class="kensei2-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
+                                    </t>
+                                    <t t-if="entry.hasTokens">
+                                        <span class="kensei2-json-tokens ms-2 text-muted small">
+                                            In: <t t-esc="formatNumber(entry.tokensIn)"/>
+                                             | Out: <t t-esc="formatNumber(entry.tokensOut)"/>
+                                             | Total: <t t-esc="formatNumber(entry.tokensTotal)"/>
+                                        </span>
+                                    </t>
+                                    <t t-if="entry.deleted">
+                                        <span class="badge bg-danger ms-2">Deleted — QC Failed</span>
+                                    </t>
+                                </span>
+                                <div class="kensei2-json-entry-actions" t-on-click.stop="">
+                                    <t t-set="hasQcResult" t-value="state.qcResults[entry.index] || entry.qcResult"/>
+                                    <t t-set="isQcCollapsed" t-value="state.qcCollapsed[entry.index]"/>
+                                    <t t-if="!isGoldenField and hasQcResult and isQcCollapsed">
+                                        <button class="kensei2-json-qc-btn kensei2-json-qc-btn-show"
+                                                t-on-click="() => this.onShowQc(entry.index)"
+                                                title="Show QC result">
+                                            <i t-attf-class="fa #{severityIcon((hasQcResult).severity)}"/> QC
+                                        </button>
+                                    </t>
+                                    <t t-if="!entry.deleted and isEditable and state.editingIndex !== entry.index">
+                                        <t t-if="isQlOrPl">
+                                            <button class="kensei2-json-regen-btn"
+                                                    t-att-disabled="isAnyActionRunning"
+                                                    t-on-click="() => this.onGenerateTaskDesc(entry.index)"
+                                                    title="Regenerate task description from this trajectory (QL/PL only).">
+                                                <t t-if="state.taskDescGenerating === entry.index">
+                                                    <i class="fa fa-spinner fa-spin"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <i class="fa fa-refresh"/>
+                                                </t>
+                                            </button>
+                                        </t>
+                                        <button class="kensei2-json-copy-btn"
+                                                t-on-click="() => this.onCopyEntry(entry.index)"
+                                                title="Copy trajectory JSON to clipboard">
+                                            <i class="fa fa-copy"/>
+                                        </button>
+                                        <button class="kensei2-json-edit-btn"
+                                                t-att-disabled="isAnyActionRunning"
+                                                t-on-click="() => this.onEditEntry(entry.index)"
+                                                title="Edit this trajectory">
+                                            <i class="fa fa-pencil"/>
+                                        </button>
+                                        <t t-if="isKensei2Admin">
+                                            <button class="kensei2-json-delete-btn"
+                                                    t-att-disabled="isAnyActionRunning"
+                                                    t-on-click="() => this.onDeleteEntry(entry.index)"
+                                                    title="Delete this trajectory session (QL/PL only).">
+                                                <i class="fa fa-trash"/>
+                                            </button>
+                                        </t>
+                                    </t>
+                                </div>
+                            </div>
+
+                            <t t-if="isEntryExpanded(entry.index)">
+                            <t t-set="qc" t-value="state.qcResults[entry.index] || entry.qcResult"/>
+                            <t t-if="qc and !state.qcCollapsed[entry.index]">
+                                <div t-attf-class="kensei2-qc-result kensei2-qc-#{qc.severity}">
+                                    <div class="kensei2-qc-header">
+                                        <span class="kensei2-qc-badge">
+                                            <i t-attf-class="fa #{severityIcon(qc.severity)}"/>
+                                            <t t-esc="qc.severity.toUpperCase()"/>
+                                        </span>
+                                        <span class="kensei2-qc-summary" t-esc="qc.summary"/>
+                                        <div class="kensei2-qc-header-actions">
+                                            <span class="kensei2-qc-stats">
+                                                <span class="text-success" t-if="qc.total_passes"><t t-esc="qc.total_passes"/> pass</span>
+                                                <span class="text-warning" t-if="qc.total_warns"><t t-esc="qc.total_warns"/> warn</span>
+                                                <span class="text-danger" t-if="qc.total_fails"><t t-esc="qc.total_fails"/> fail</span>
+                                            </span>
+                                            <button class="kensei2-qc-toggle-btn"
+                                                    t-on-click="() => this.onToggleQcChecks(entry.index)">
+                                                <i t-attf-class="fa #{state.qcExpandedChecks[entry.index] ? 'fa-chevron-up' : 'fa-chevron-down'}"/>
+                                            </button>
+                                            <button class="kensei2-qc-dismiss-btn"
+                                                    t-on-click="() => this.onDismissQc(entry.index)"
+                                                    title="Collapse QC result">
+                                                <i class="fa fa-chevron-up"/>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <t t-if="state.qcExpandedChecks[entry.index] and qc.checks and qc.checks.length">
+                                        <div class="kensei2-qc-checks">
+                                            <t t-foreach="qc.checks" t-as="check" t-key="check.check">
+                                                <div t-attf-class="kensei2-qc-check kensei2-qc-#{check.verdict ? check.verdict.toLowerCase() : 'pass'}">
+                                                    <span class="kensei2-qc-check-num" t-esc="check.check"/>
+                                                    <span class="kensei2-qc-check-name" t-esc="check.name"/>
+                                                    <span t-attf-class="kensei2-qc-check-verdict badge bg-#{check.verdict === 'PASS' ? 'success' : check.verdict === 'WARN' ? 'warning' : 'danger'}"
+                                                          t-esc="check.verdict"/>
+                                                    <t t-if="check.reason">
+                                                        <div class="kensei2-qc-check-reason" t-esc="check.reason"/>
+                                                    </t>
+                                                    <t t-if="check.fix">
+                                                        <div class="kensei2-qc-check-fix">
+                                                            <i class="fa fa-lightbulb-o"/> <t t-esc="check.fix"/>
+                                                        </div>
+                                                    </t>
+                                                </div>
+                                            </t>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+
+                            <t t-if="state.editingIndex === entry.index">
+                                <div class="kensei2-json-edit-container">
+                                    <textarea class="kensei2-json-edit-textarea"
+                                              t-ref="editTextarea"
+                                              t-att-value="state.editBuffer"
+                                              t-on-input="onEditInput"
+                                              spellcheck="false"/>
+                                    <t t-if="state.editError">
+                                        <div class="kensei2-json-edit-error">
+                                            <i class="fa fa-exclamation-circle"/> <t t-esc="state.editError"/>
+                                        </div>
+                                    </t>
+                                    <div class="kensei2-json-edit-actions">
+                                        <button class="btn btn-sm btn-primary" t-on-click="onSaveEntry">
+                                            <i class="fa fa-check"/> Save
+                                        </button>
+                                        <button class="btn btn-sm btn-secondary" t-on-click="onCancelEdit">
+                                            Cancel
+                                        </button>
+                                    </div>
+                                </div>
+                            </t>
+                            <t t-elif="entry.deleted">
+                                <div class="kensei2-json-deleted-notice p-3 text-muted">
+                                    <i class="fa fa-trash-o me-1"/>
+                                    Trajectory removed: <t t-esc="entry.deletedReason || 'QC failed'"/>
+                                </div>
+                            </t>
+                            <t t-elif="entry.html">
+                                <div class="kensei2-json-entry-body" t-out="entry.html"/>
+                            </t>
+                            </t>
+                    </div>
+                    <t t-if="!entry_last">
+                        <hr class="kensei2-json-divider"/>
+                    </t>
+                </t>
+            </t>
+            <t t-else="">
+                <div class="text-muted p-3">No trajectory data</div>
+            </t>
+        </div>
+    </t>
+
+</templates>

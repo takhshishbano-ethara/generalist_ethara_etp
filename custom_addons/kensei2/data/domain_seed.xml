@@ -1,0 +1,73 @@
+<odoo>
+  <data noupdate="1">
+    <record id="domain_l1_small_business" model="kensei2.domain">
+      <field name="name">Small Business &amp; Personal Docs</field>
+    </record>
+    <record id="domain_l2_document_generation_visual_input" model="kensei2.domain">
+      <field name="name">Document Generation from Visual Input</field>
+      <field name="parent_id" ref="domain_l1_small_business"/>
+    </record>
+    <record id="domain_l2_inventory_catalog" model="kensei2.domain">
+      <field name="name">Inventory &amp; Catalog</field>
+      <field name="parent_id" ref="domain_l1_small_business"/>
+    </record>
+    <record id="domain_l1_creative_media" model="kensei2.domain">
+      <field name="name">Creative &amp; Media</field>
+    </record>
+    <record id="domain_l2_social_media_content_audit" model="kensei2.domain">
+      <field name="name">Social Media Content Audit</field>
+      <field name="parent_id" ref="domain_l1_creative_media"/>
+    </record>
+    <record id="domain_l2_design_portfolio_review" model="kensei2.domain">
+      <field name="name">Design / Portfolio Review</field>
+      <field name="parent_id" ref="domain_l1_creative_media"/>
+    </record>
+    <record id="domain_l1_commerce_product" model="kensei2.domain">
+      <field name="name">Commerce &amp; Product</field>
+    </record>
+    <record id="domain_l2_visual_shopping_comparison" model="kensei2.domain">
+      <field name="name">Visual Shopping / Comparison</field>
+      <field name="parent_id" ref="domain_l1_commerce_product"/>
+    </record>
+    <record id="domain_l1_property_space" model="kensei2.domain">
+      <field name="name">Property &amp; Space</field>
+    </record>
+    <record id="domain_l2_interior_design_renovation" model="kensei2.domain">
+      <field name="name">Interior Design / Renovation</field>
+      <field name="parent_id" ref="domain_l1_property_space"/>
+    </record>
+    <record id="domain_l2_real_estate_listing_review" model="kensei2.domain">
+      <field name="name">Real Estate Listing Review</field>
+      <field name="parent_id" ref="domain_l1_property_space"/>
+    </record>
+    <record id="domain_l1_health_wellness" model="kensei2.domain">
+      <field name="name">Health &amp; Wellness</field>
+    </record>
+    <record id="domain_l2_skin_symptom_triage" model="kensei2.domain">
+      <field name="name">Skin / Symptom Triage</field>
+      <field name="parent_id" ref="domain_l1_health_wellness"/>
+    </record>
+    <record id="domain_l1_visual_learning" model="kensei2.domain">
+      <field name="name">Visual Learning</field>
+    </record>
+    <record id="domain_l2_homework_problem_solving" model="kensei2.domain">
+      <field name="name">Homework / Problem Solving</field>
+      <field name="parent_id" ref="domain_l1_visual_learning"/>
+    </record>
+    <record id="domain_l2_textbook_lecture_comprehension" model="kensei2.domain">
+      <field name="name">Textbook / Lecture Comprehension</field>
+      <field name="parent_id" ref="domain_l1_visual_learning"/>
+    </record>
+    <record id="domain_l1_operations_qa" model="kensei2.domain">
+      <field name="name">Operations &amp; QA</field>
+    </record>
+    <record id="domain_l2_security_camera_review" model="kensei2.domain">
+      <field name="name">Security Camera Review</field>
+      <field name="parent_id" ref="domain_l1_operations_qa"/>
+    </record>
+    <record id="domain_l2_ui_ux_screenshot_audit" model="kensei2.domain">
+      <field name="name">UI / UX Screenshot Audit</field>
+      <field name="parent_id" ref="domain_l1_operations_qa"/>
+    </record>
+  </data>
+</odoo>

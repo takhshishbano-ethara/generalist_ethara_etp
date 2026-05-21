@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kensei2-sandbox
+  namespace: kensei2
+---
+# Odoo pod needs full access to kensei2 namespace resources
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kensei2-full-access
+  namespace: kensei2
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "pods/exec", "services", "configmaps", "secrets"]
+    verbs: ["create", "get", "update", "patch", "delete", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["create", "get", "update", "patch", "delete", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["create", "get", "update", "patch", "delete", "list", "watch"]
+---
+# Bind to default SA (used by Odoo pod)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kensei2-default-binding
+  namespace: kensei2
+subjects:
+  - kind: ServiceAccount
+    name: default
+    namespace: kensei2
+roleRef:
+  kind: Role
+  name: kensei2-full-access
+  apiGroup: rbac.authorization.k8s.io
+---
+# Bind to kensei2-sandbox SA (used by sandbox pods)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kensei2-sandbox-binding
+  namespace: kensei2
+subjects:
+  - kind: ServiceAccount
+    name: kensei2-sandbox
+    namespace: kensei2
+roleRef:
+  kind: Role
+  name: kensei2-full-access
+  apiGroup: rbac.authorization.k8s.io

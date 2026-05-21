@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="ir_cron_kensei2_reconcile_sandboxes" model="ir.cron">
+            <field name="name">Kensei2: Reconcile Sandbox Status</field>
+            <field name="model_id" ref="model_kensei2_kensei2"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_reconcile_sandboxes()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_kensei2_check_batch" model="ir.cron">
+            <field name="name">Kensei2: Check Stuck Batch Runs</field>
+            <field name="model_id" ref="model_kensei2_kensei2"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_check_batch()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+</odoo>

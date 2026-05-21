@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <!-- Module Category -->
+        <record id="module_category_kensei2" model="ir.module.category">
+            <field name="name">Kensei2</field>
+            <field name="description">Kensei2 — Multimodal LLM task management with sandbox environments</field>
+            <field name="sequence">32</field>
+        </record>
+
+        <!-- Privilege (Odoo 19 pattern) -->
+        <record id="res_groups_privilege_kensei2" model="res.groups.privilege">
+            <field name="name">Kensei2</field>
+            <field name="sequence">32</field>
+            <field name="category_id" ref="module_category_kensei2"/>
+        </record>
+
+        <!-- ===== Groups (Three-Tier Independent Hierarchy) ===== -->
+        <!-- These share a privilege_id, making them exclusive radio buttons in user form. -->
+        <!-- Odoo assigns exactly ONE level per user. Higher levels imply all lower ones. -->
+
+        <!-- Tasker: sees only own tasks, basic CRUD -->
+        <record id="group_kensei2_tasker" model="res.groups">
+            <field name="name">Tasker</field>
+            <field name="privilege_id" ref="res_groups_privilege_kensei2"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Sees only tasks assigned to them. Can work on tasks, chat with sandboxes, and submit trajectories.</field>
+        </record>
+
+        <!-- Quality Lead: sees all tasks, manages personas/domains, NO costing -->
+        <record id="group_kensei2_ql" model="res.groups">
+            <field name="name">Quality Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_kensei2"/>
+            <field name="implied_ids" eval="[(4, ref('group_kensei2_tasker'))]"/>
+            <field name="comment">Sees all tasks, turns, and sandboxes. Manages personas and domains. Cannot access costing dashboard.</field>
+        </record>
+
+        <!-- Project Lead: full access including costing + settings -->
+        <record id="group_kensei2_pl" model="res.groups">
+            <field name="name">Project Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_kensei2"/>
+            <field name="implied_ids" eval="[(4, ref('group_kensei2_ql'))]"/>
+            <field name="comment">Full access: all data, costing dashboard, settings, and configuration.</field>
+        </record>
+
+    </data>
+
+    <data noupdate="1">
+
+        <!-- ===== Record Rules: Kensei2 Task ===== -->
+        <record id="kensei2_task_rule_tasker" model="ir.rule">
+            <field name="name">Kensei2 Task: Tasker sees own</field>
+            <field name="model_id" ref="model_kensei2_kensei2"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_tasker'))]"/>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="kensei2_task_rule_ql" model="ir.rule">
+            <field name="name">Kensei2 Task: QL sees all</field>
+            <field name="model_id" ref="model_kensei2_kensei2"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_ql'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="kensei2_task_rule_pl" model="ir.rule">
+            <field name="name">Kensei2 Task: PL sees all</field>
+            <field name="model_id" ref="model_kensei2_kensei2"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_pl'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- ===== Record Rules: Kensei2 Turn ===== -->
+        <record id="kensei2_turn_rule_tasker" model="ir.rule">
+            <field name="name">Kensei2 Turn: Tasker sees own</field>
+            <field name="model_id" ref="model_kensei2_turn"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_tasker'))]"/>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="kensei2_turn_rule_ql" model="ir.rule">
+            <field name="name">Kensei2 Turn: QL sees all</field>
+            <field name="model_id" ref="model_kensei2_turn"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_ql'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="kensei2_turn_rule_pl" model="ir.rule">
+            <field name="name">Kensei2 Turn: PL sees all</field>
+            <field name="model_id" ref="model_kensei2_turn"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_pl'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- ===== Record Rules: Kensei2 Sandbox ===== -->
+        <record id="kensei2_sandbox_rule_tasker" model="ir.rule">
+            <field name="name">Kensei2 Sandbox: Tasker sees own</field>
+            <field name="model_id" ref="model_kensei2_sandbox"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_tasker'))]"/>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
+        </record>
+
+        <record id="kensei2_sandbox_rule_ql" model="ir.rule">
+            <field name="name">Kensei2 Sandbox: QL sees all</field>
+            <field name="model_id" ref="model_kensei2_sandbox"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_ql'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <record id="kensei2_sandbox_rule_pl" model="ir.rule">
+            <field name="name">Kensei2 Sandbox: PL sees all</field>
+            <field name="model_id" ref="model_kensei2_sandbox"/>
+            <field name="groups" eval="[(4, ref('group_kensei2_pl'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+    </data>
+</odoo>

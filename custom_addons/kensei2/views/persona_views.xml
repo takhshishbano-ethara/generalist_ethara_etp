@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+    <record model="ir.ui.view" id="kensei2_persona_list">
+      <field name="name">kensei2.persona.list</field>
+      <field name="model">kensei2.persona</field>
+      <field name="arch" type="xml">
+        <list>
+          <field name="name"/>
+          <field name="task_count"/>
+          <field name="active" column_invisible="True"/>
+        </list>
+      </field>
+    </record>
+
+    <record model="ir.ui.view" id="kensei2_persona_form">
+      <field name="name">kensei2.persona.form</field>
+      <field name="model">kensei2.persona</field>
+      <field name="arch" type="xml">
+        <form>
+          <sheet>
+            <div class="oe_title">
+              <label for="name"/>
+              <h1><field name="name" placeholder="e.g. marcus" readonly="not is_kensei2_admin"/></h1>
+            </div>
+            <field name="is_kensei2_admin" invisible="1"/>
+            <div class="d-flex gap-3 w-100 mb-3 o_kensei2_md_row">
+              <div class="flex-fill" style="min-width: 0; flex: 1;">
+                <label for="soul_md" string="SOUL.md" class="fw-bold mb-1"/>
+                <field name="soul_md" widget="kensei2_markdown" readonly="1" class="o_kensei2_md_scroll"/>
+              </div>
+              <div class="flex-fill" style="min-width: 0; flex: 1;">
+                <label for="memory_md" string="MEMORY.md" class="fw-bold mb-1"/>
+                <field name="memory_md" widget="kensei2_markdown" readonly="1" class="o_kensei2_md_scroll"/>
+              </div>
+              <div class="flex-fill" style="min-width: 0; flex: 1;">
+                <label for="agents_md" string="AGENTS.md" class="fw-bold mb-1"/>
+                <field name="agents_md" widget="kensei2_markdown" readonly="1" class="o_kensei2_md_scroll"/>
+              </div>
+            </div>
+            <notebook>
+              <page string="LiteLLM Config">
+                <field name="litellm_config_yaml" widget="text"
+                       placeholder="Optional per-persona litellm_config.yaml. Leave empty to use global default." readonly="not is_kensei2_admin"/>
+              </page>
+              <page string="Docker Compose">
+                <field name="docker_compose_yaml" widget="text"
+                       placeholder="Optional per-persona docker-compose.yml. Leave empty to use bundled default." readonly="not is_kensei2_admin"/>
+              </page>
+            </notebook>
+          </sheet>
+        </form>
+      </field>
+    </record>
+
+    <record model="ir.actions.act_window" id="kensei2_persona_action_window">
+      <field name="name">Personas</field>
+      <field name="res_model">kensei2.persona</field>
+      <field name="view_mode">list,form</field>
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei2_persona_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2_persona_form')})]"/>
+    </record>
+
+  </data>
+</odoo>

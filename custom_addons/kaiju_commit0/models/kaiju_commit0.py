@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
-from datetime import datetime, timezone, timedelta
+from datetime import datetime
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
@@ -17,21 +17,6 @@ HF_BASE_URL = "https://huggingface.co/datasets"
 FORK_ORG = "Zahgon"
 GITHUB_BASE_URL = "https://github.com"
 
-
-def _parse_argo_dt(value):
-    """Parse an Argo RFC3339 timestamp into a naive UTC datetime suitable
-    for an Odoo Datetime field. Returns False on empty / invalid input."""
-    if not value:
-        return False
-    try:
-        # Argo emits e.g. '2026-05-14T06:16:53Z' or '...+00:00'
-        text = value.replace("Z", "+00:00") if value.endswith("Z") else value
-        dt = datetime.fromisoformat(text)
-        if dt.tzinfo is not None:
-            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
-    except (ValueError, TypeError):
-        return False
 
 class KaijuCommit0(models.Model):
     _name = "kaiju.commit0"
@@ -96,7 +81,9 @@ class KaijuCommit0(models.Model):
         for any non-pending record, which is the desired behavior for existing builds.
         """
         for rec in self:
-            if rec.workflow_name or (rec.build_status and rec.build_status != "pending"):
+            if rec.workflow_name or (
+                rec.build_status and rec.build_status != "pending"
+            ):
                 rec.current_phase = "build"
             else:
                 rec.current_phase = "config"
@@ -137,12 +124,18 @@ class KaijuCommit0(models.Model):
 
     image_uri = fields.Char(string="Image URI", readonly=True)
     s3_dataset_uri = fields.Char(string="Dataset S3 URI", readonly=True)
+    s3_log_prefix = fields.Char(
+        string="S3 Log Prefix",
+        readonly=True,
+        help="S3 key prefix where workflow step logs are stored "
+        "(e.g. kaiju_logs/RepoName/123/). Set by the Argo exit-hook callback.",
+    )
     dataset_file = fields.Binary(
         string="Dataset (dataset_entries.json)",
         readonly=True,
         attachment=True,
         help="Cached copy of dataset_entries.json downloaded from S3 on metadata fetch. "
-             "Click to view/download in Odoo without needing S3 access.",
+        "Click to view/download in Odoo without needing S3 access.",
     )
     dataset_filename = fields.Char(
         string="Dataset Filename",
@@ -165,7 +158,7 @@ class KaijuCommit0(models.Model):
         readonly=True,
         copy=False,
         help="Number of times the submit cron has tried to launch this build. "
-             "Capped at 3 — beyond this the build is marked failed permanently.",
+        "Capped at 3 — beyond this the build is marked failed permanently.",
     )
     submit_error = fields.Char(
         string="Last Submit Error",
@@ -196,31 +189,49 @@ class KaijuCommit0(models.Model):
 
     # ── Pipeline metadata (extracted from S3 dataset_entries.json on completion) ─
 
-    instance_id = fields.Char(string="Instance ID", readonly=True,
-        help="Stable identifier from dataset_entries.json (e.g. 'go-version_go')")
-    forked_repo = fields.Char(string="Forked Repo", readonly=True,
-        help="Forked repository name (org/name) from dataset_entries.json")
-    base_commit = fields.Char(string="Base Commit", readonly=True,
-        help="Stubbed code commit SHA — starting point for the agent")
-    reference_commit = fields.Char(string="Reference Commit", readonly=True,
-        help="Original code commit SHA — ground truth for evaluation")
+    instance_id = fields.Char(
+        string="Instance ID",
+        readonly=True,
+        help="Stable identifier from dataset_entries.json (e.g. 'go-version_go')",
+    )
+    forked_repo = fields.Char(
+        string="Forked Repo",
+        readonly=True,
+        help="Forked repository name (org/name) from dataset_entries.json",
+    )
+    base_commit = fields.Char(
+        string="Base Commit",
+        readonly=True,
+        help="Stubbed code commit SHA — starting point for the agent",
+    )
+    reference_commit = fields.Char(
+        string="Reference Commit",
+        readonly=True,
+        help="Original code commit SHA — ground truth for evaluation",
+    )
     metadata_fetched_at = fields.Datetime(string="Metadata Fetched At", readonly=True)
     metadata_error = fields.Char(string="Metadata Fetch Error", readonly=True)
 
     # ── Derived URLs (no DB column, all computed from repo_name/language) ────
 
-    original_repo_url = fields.Char(string="Source Repo",
-        compute="_compute_pipeline_urls", store=False)
-    forked_repo_url = fields.Char(string="Forked Repo URL",
-        compute="_compute_pipeline_urls", store=False)
-    hf_dataset_url = fields.Char(string="HuggingFace Dataset",
-        compute="_compute_pipeline_urls", store=False)
-    test_ids_url = fields.Char(string="Test IDs (GitHub)",
-        compute="_compute_pipeline_urls", store=False)
-    setup_sh_url = fields.Char(string="setup.sh (S3)",
-        compute="_compute_artifact_urls", store=False)
-    dockerfile_url = fields.Char(string="Dockerfile (S3)",
-        compute="_compute_artifact_urls", store=False)
+    original_repo_url = fields.Char(
+        string="Source Repo", compute="_compute_pipeline_urls", store=False
+    )
+    forked_repo_url = fields.Char(
+        string="Forked Repo URL", compute="_compute_pipeline_urls", store=False
+    )
+    hf_dataset_url = fields.Char(
+        string="HuggingFace Dataset", compute="_compute_pipeline_urls", store=False
+    )
+    test_ids_url = fields.Char(
+        string="Test IDs (GitHub)", compute="_compute_pipeline_urls", store=False
+    )
+    setup_sh_url = fields.Char(
+        string="setup.sh (S3)", compute="_compute_artifact_urls", store=False
+    )
+    dockerfile_url = fields.Char(
+        string="Dockerfile (S3)", compute="_compute_artifact_urls", store=False
+    )
 
     # ── Runs ─────────────────────────────────────────────────────────────────
 
@@ -264,8 +275,13 @@ class KaijuCommit0(models.Model):
             else:
                 rec.error_summary = False
 
-    @api.depends("step_ids.log_text", "step_ids.display_name",
-                 "step_ids.phase", "step_ids.started_at", "step_ids.finished_at")
+    @api.depends(
+        "step_ids.log_text",
+        "step_ids.display_name",
+        "step_ids.phase",
+        "step_ids.started_at",
+        "step_ids.finished_at",
+    )
     def _compute_combined_log_text(self):
         """Concatenate all step logs chronologically with separators."""
         for rec in self:
@@ -289,8 +305,8 @@ class KaijuCommit0(models.Model):
                         f"finished {step.finished_at.strftime('%H:%M:%S')}"
                     )
                 header = " ".join(header_bits)
-                separator = "─" * 6 + " " + header + " " + "─" * max(
-                    6, 100 - len(header) - 14
+                separator = (
+                    "─" * 6 + " " + header + " " + "─" * max(6, 100 - len(header) - 14)
                 )
                 body = step.log_text or "(no log captured)"
                 parts.append(f"{separator}\n{body}")
@@ -408,7 +424,9 @@ class KaijuCommit0(models.Model):
                     else:
                         parsed = None
                 if parsed is not None:
-                    rec.dataset_json_text = json.dumps(parsed, indent=2, ensure_ascii=False)
+                    rec.dataset_json_text = json.dumps(
+                        parsed, indent=2, ensure_ascii=False
+                    )
                 else:
                     # Not valid JSON — show raw decoded text.
                     rec.dataset_json_text = text
@@ -488,7 +506,9 @@ class KaijuCommit0(models.Model):
         if not self.repo_name:
             raise UserError("Repository name is required.")
         if "/" not in self.repo_name:
-            raise UserError("Repository must be in 'owner/repo' format (e.g. 'Zahgon/gson').")
+            raise UserError(
+                "Repository must be in 'owner/repo' format (e.g. 'Zahgon/gson')."
+            )
         if not self.language:
             raise UserError("Language is required.")
         if self.build_status == "done":
@@ -605,6 +625,7 @@ class KaijuCommit0(models.Model):
                 "image_uri": False,
                 "s3_dataset_uri": False,
                 "workflow_name": False,
+                "s3_log_prefix": False,
                 "instance_id": False,
                 "forked_repo": False,
                 "base_commit": False,
@@ -613,8 +634,6 @@ class KaijuCommit0(models.Model):
                 "metadata_error": False,
             }
         )
-
-    # ── Cron: Poll Argo for running builds ───────────────────────────────────
 
     # ── Cron: Submit pending builds to Argo (Phase 1) ───────────────
 
@@ -659,283 +678,239 @@ class KaijuCommit0(models.Model):
                 submitted += 1
             except UserError as e:
                 # Bad config — don't retry, mark terminal failed.
-                build.write({
-                    "submit_attempts": build.submit_attempts + 1,
-                    "submit_error": str(e)[:255],
-                    "build_status": "failed",
-                    "build_end": fields.Datetime.now(),
-                    "build_log": self._append_log(
-                        build.build_log,
-                        f"Submit failed (permanent — bad config): {e}",
-                    ),
-                })
+                build.write(
+                    {
+                        "submit_attempts": build.submit_attempts + 1,
+                        "submit_error": str(e)[:255],
+                        "build_status": "failed",
+                        "build_end": fields.Datetime.now(),
+                        "build_log": self._append_log(
+                            build.build_log,
+                            f"Submit failed (permanent — bad config): {e}",
+                        ),
+                    }
+                )
                 permanent_fail += 1
                 _logger.warning(
                     "[kaiju.commit0] submit_pending: PERMANENT fail build %s: %s",
-                    build.name, e,
+                    build.name,
+                    e,
                 )
             except Exception as e:  # noqa: BLE001 — transient, retry budgeted
                 attempts = build.submit_attempts + 1
                 if attempts >= self.SUBMIT_MAX_ATTEMPTS:
-                    build.write({
-                        "submit_attempts": attempts,
-                        "submit_error": str(e)[:255],
-                        "build_status": "failed",
-                        "build_end": fields.Datetime.now(),
-                        "build_log": self._append_log(
-                            build.build_log,
-                            f"Submit failed (exhausted {self.SUBMIT_MAX_ATTEMPTS} attempts): {e}",
-                        ),
-                    })
+                    build.write(
+                        {
+                            "submit_attempts": attempts,
+                            "submit_error": str(e)[:255],
+                            "build_status": "failed",
+                            "build_end": fields.Datetime.now(),
+                            "build_log": self._append_log(
+                                build.build_log,
+                                f"Submit failed (exhausted {self.SUBMIT_MAX_ATTEMPTS} attempts): {e}",
+                            ),
+                        }
+                    )
                     permanent_fail += 1
                     _logger.warning(
                         "[kaiju.commit0] submit_pending: EXHAUSTED build %s (%s attempts): %s",
-                        build.name, attempts, e,
+                        build.name,
+                        attempts,
+                        e,
                     )
                 else:
-                    build.write({
-                        "submit_attempts": attempts,
-                        "submit_error": str(e)[:255],
-                    })
+                    build.write(
+                        {
+                            "submit_attempts": attempts,
+                            "submit_error": str(e)[:255],
+                        }
+                    )
                     transient_fail += 1
                     _logger.warning(
                         "[kaiju.commit0] submit_pending: TRANSIENT fail build %s (attempt %s/%s): %s",
-                        build.name, attempts, self.SUBMIT_MAX_ATTEMPTS, e,
+                        build.name,
+                        attempts,
+                        self.SUBMIT_MAX_ATTEMPTS,
+                        e,
                     )
         elapsed = (fields.Datetime.now() - start_ts).total_seconds()
         _logger.info(
             "[kaiju.commit0] submit_pending: done batch=%s submitted=%s permanent_fail=%s transient_fail=%s elapsed=%.2fs",
-            len(pending), submitted, permanent_fail, transient_fail, elapsed,
+            len(pending),
+            submitted,
+            permanent_fail,
+            transient_fail,
+            elapsed,
         )
 
-    # ── Cron: Poll Argo for running builds ───────────────────────────────────
+    # ── S3 Log Sync (exit-hook based) ───────────────────────────────
 
-    POLL_RUNNING_LIMIT = 20
-    POLL_TERMINAL_INCOMPLETE_LIMIT = 10
+    def action_sync_logs(self):
+        """Download step log files from S3 for one or more builds.
 
-    @api.model
-    def _cron_poll_build_status(self):
-        """Called by ir.cron every 60s to update running builds from Argo.
-
-        Bounded per tick (POLL_RUNNING_LIMIT + POLL_TERMINAL_INCOMPLETE_LIMIT)
-        so a large backlog can't stack ticks. Ordered by build_end asc so the
-        builds closest to Argo pod GC (5 min) are polled first.
+        Works on single record (form button) and multi-record (list
+        Action menu).  Silently skips records without *s3_log_prefix*.
         """
-        start_ts = fields.Datetime.now()
-        running_builds = self.search(
-            [("build_status", "=", "running"), ("workflow_name", "!=", False)],
-            order="build_start asc, create_date asc",
-            limit=self.POLL_RUNNING_LIMIT,
-        )
-        # Defense in depth: also re-poll terminal builds that have no step records
-        # yet OR have steps without logs. Catches the race where callback finalizes
-        # status before _sync_steps runs (and before pod GC at 5min destroys pods).
-        # Pure SQL via stored has_log + polish OR to include zero-step builds.
-        recent_cutoff = fields.Datetime.now() - timedelta(minutes=10)
-        terminal_incomplete = self.search([
-                ("build_status", "in", ("done", "failed")),
-                ("workflow_name", "!=", False),
-                ("build_end", ">=", recent_cutoff),
-                "|",
-                ("step_ids", "=", False),
-                ("step_ids.has_log", "=", False),
-            ],
-            order="build_end asc, create_date asc",
-            limit=self.POLL_TERMINAL_INCOMPLETE_LIMIT,
-        )
-        all_builds = running_builds | terminal_incomplete
-        if not all_builds:
-            return
-        _logger.info(
-            "[kaiju.commit0] poll_build: tick running=%s terminal_incomplete=%s",
-            len(running_builds), len(terminal_incomplete),
-        )
-
-        argo = self.env["kaiju.argo.client"]
-        for build in all_builds:
-            try:
-                status = argo.get_workflow_status(build.workflow_name)
-            except RuntimeError as e:
-                _logger.warning(
-                    "Failed to poll build %s (workflow %s): %s",
-                    build.name,
-                    build.workflow_name,
-                    e,
-                )
-                continue
-
-            phase = status.get("phase", "")
-            progress = status.get("progress", "")
-            previous_status = build.build_status
-
-            # Sync per-step records on every poll so the UI updates progressively
-            try:
-                build._sync_steps()
-            except Exception as e:
-                _logger.warning(
-                    "Failed to sync steps for build %s: %s", build.name, e
-                )
-
-            # Incrementally persist logs for any finished step that doesn't
-            # yet have logs cached. This ensures logs land in Postgres well
-            # before Argo's pod GC (default 5min) deletes the source pods.
-            try:
-                build._persist_step_logs_incremental()
-            except Exception as e:
-                _logger.warning(
-                    "Incremental log persist failed for build %s: %s", build.name, e
-                )
-
-            # Skip status write if already in terminal state (callback won the race).
-            # We still want to run _sync_steps/_persist_step_logs (above) for back-fill,
-            # but we MUST NOT overwrite the callback-set build_end / image_uri.
-            if build.build_status in ("done", "failed"):
-                pass  # callback already finalized; back-fill steps/logs only
-            elif phase in ("Succeeded",):
-                build.write(
-                    {
-                        "build_status": "done",
-                        "build_end": fields.Datetime.now(),
-                        "build_log": self._append_log(
-                            build.build_log, f"Workflow completed. Progress: {progress}"
-                        ),
-                    }
-                )
-            elif phase in ("Failed", "Error"):
-                message = status.get("message", "Unknown error")
-                build.write(
-                    {
-                        "build_status": "failed",
-                        "build_end": fields.Datetime.now(),
-                        "build_log": self._append_log(
-                            build.build_log, f"Workflow failed: {phase} — {message}"
-                        ),
-                    }
-                )
-            elif phase in ("Running", "Pending", ""):
-                build.write(
-                    {
-                        "build_log": self._append_log(
-                            build.build_log,
-                            f"Status: {phase or 'Pending'} ({progress})",
-                        ),
-                    }
-                )
-
-            # On running → terminal transition, persist all step logs once
-            # so they survive Argo pod garbage collection.
-            if (
-                previous_status == "running"
-                and build.build_status in ("done", "failed")
-            ):
-                try:
-                    build._persist_step_logs()
-                except Exception as e:
-                    _logger.warning(
-                        "Failed to persist step logs for build %s: %s",
-                        build.name,
-                        e,
-                    )
-                # Also pull rich metadata from S3 once on completion
-                try:
-                    build._fetch_pipeline_metadata()
-                except Exception as e:
-                    _logger.warning(
-                        "Failed to fetch pipeline metadata for build %s: %s",
-                        build.name,
-                        e,
-                    )
-        elapsed = (fields.Datetime.now() - start_ts).total_seconds()
-        _logger.info(
-            "[kaiju.commit0] poll_build: done processed=%s elapsed=%.2fs",
-            len(all_builds), elapsed,
-        )
-
-    # ── Step Sync & Log Persistence ─────────────────────────────────
-
-    def _sync_steps(self):
-        """Fetch workflow nodes from Argo and upsert step records."""
-        self.ensure_one()
-        if not self.workflow_name:
-            return
-        argo = self.env["kaiju.argo.client"]
-        nodes = argo.list_workflow_nodes(self.workflow_name)
-        if not nodes:
-            return
-        Step = self.env["kaiju.commit0.workflow.step"]
-        existing = {s.node_id: s for s in self.step_ids}
-        for node in nodes:
-            node_id = node.get("id") or ""
-            if not node_id:
-                continue
-            vals = {
-                "display_name": node.get("displayName") or node.get("name") or node_id,
-                "pod_name": node.get("podName") or node_id,
-                "template_name": node.get("templateName") or "",
-                "node_type": node.get("type") or "Pod",
-                "phase": node.get("phase") or "Pending",
-                "message": node.get("message") or "",
-                "started_at": _parse_argo_dt(node.get("startedAt")),
-                "finished_at": _parse_argo_dt(node.get("finishedAt")),
-            }
-            if node_id in existing:
-                existing[node_id].write(vals)
-            else:
-                vals["node_id"] = node_id
-                vals["build_id"] = self.id
-                Step.create(vals)
-
-    def _persist_step_logs(self):
-        """Fetch and persist logs for every Pod-type step. Called once on
-        running → terminal transition so logs survive Argo pod GC."""
-        self.ensure_one()
-        for step in self.step_ids:
-            if step.node_type != "Pod" or not step.pod_name:
-                continue
-            step.action_fetch_logs()
-
-    def _persist_step_logs_incremental(self):
-        """Fetch logs ONLY for steps that have finished but don't yet have logs.
-
-        Called on every cron poll to capture step logs as soon as each pod
-        completes — well before Argo's pod garbage collection (typically 5min)
-        kicks in. Idempotent: skips steps that already have log_text.
-        """
-        self.ensure_one()
-        terminal_phases = ("Succeeded", "Failed", "Error")
-        for step in self.step_ids:
-            if step.node_type != "Pod" or not step.pod_name:
-                continue
-            if step.phase not in terminal_phases:
-                continue
-            if step.has_log:
-                continue  # already captured — don't re-fetch
-            try:
-                step.action_fetch_logs()
-            except Exception as e:
-                _logger.warning(
-                    "Incremental log fetch failed for step %s (pod=%s): %s",
-                    step.display_name or step.node_id,
-                    step.pod_name,
-                    e,
-                )
-
-    def action_fetch_all_step_logs(self):
-        """Manual trigger: sync step list from Argo, then fetch logs for each step.
-
-        Use this when auto-persist on completion didn't fire (e.g. workflow
-        already finished before the module was upgraded), or to refresh
-        logs while the workflow is still running."""
-        self.ensure_one()
-        if not self.workflow_name:
+        eligible = self.filtered(lambda r: r.s3_log_prefix)
+        if not eligible:
             from odoo.exceptions import UserError
-            raise UserError("No workflow has been submitted for this build yet.")
-        try:
-            self._sync_steps()
-        except Exception as e:
-            _logger.warning("action_fetch_all_step_logs: _sync_steps failed: %s", e)
-        self.step_ids.action_fetch_logs()
+
+            raise UserError(
+                "None of the selected builds have an S3 log prefix yet. "
+                "Logs are uploaded by the Argo exit hook on workflow completion."
+            )
+        for rec in eligible:
+            rec._fetch_logs_from_s3()
         return {"type": "ir.actions.client", "tag": "reload"}
+
+    def action_sync_all_logs(self):
+        """Sync logs for every terminal build that has an S3 log prefix.
+
+        Intended as a bulk convenience action from the list-view header.
+        """
+        eligible = self.search(
+            [
+                ("s3_log_prefix", "!=", False),
+                ("build_status", "in", ["done", "failed"]),
+            ]
+        )
+        if not eligible:
+            from odoo.exceptions import UserError
+
+            raise UserError("No completed builds need log syncing.")
+        for rec in eligible:
+            rec._fetch_logs_from_s3()
+        return {"type": "ir.actions.client", "tag": "reload"}
+
+    def _fetch_logs_from_s3(self):
+        """Download step logs from S3 using the exit-hook convention.
+
+        Requires:
+            self.s3_log_prefix   e.g. ``s3://bucket/kaiju_logs/Repo/42/``
+            step.log_file        e.g. ``clone-repo.log``  (relative to prefix)
+
+        Falls back to manifest.json in the prefix to discover steps when
+        the callback's ``steps[]`` payload was lost.
+        """
+        self.ensure_one()
+        if not self.s3_log_prefix or not self.s3_log_prefix.startswith("s3://"):
+            return
+
+        try:
+            import boto3
+        except ImportError:
+            _logger.error(
+                "boto3 missing in Odoo venv — cannot fetch S3 logs for %s",
+                self.name,
+            )
+            return
+
+        # Parse s3://bucket/prefix
+        rest = self.s3_log_prefix[5:]
+        if "/" not in rest:
+            _logger.warning(
+                "Malformed s3_log_prefix for %s: %s",
+                self.name,
+                self.s3_log_prefix,
+            )
+            return
+        bucket, prefix = rest.split("/", 1)
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        region = ICP.get_param("kaiju.aws_region", "ap-south-1")
+        access_key = ICP.get_param("kaiju.aws_access_key_id", "") or None
+        secret_key = ICP.get_param("kaiju.aws_secret_access_key", "") or None
+
+        client_kwargs = {"region_name": region}
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+        except Exception as e:
+            _logger.error("Failed to create S3 client for %s: %s", self.name, e)
+            return
+
+        # If no steps exist yet, try manifest.json as fallback
+        if not self.step_ids:
+            self._discover_steps_from_manifest(s3, bucket, prefix)
+
+        fetched = 0
+        failed = 0
+        for step in self.step_ids:
+            if not step.log_file:
+                continue
+            key = prefix + step.log_file
+            try:
+                obj = s3.get_object(Bucket=bucket, Key=key)
+                log_content = obj["Body"].read().decode("utf-8", errors="replace")
+                step.write(
+                    {
+                        "log_text": log_content,
+                        "log_fetched_at": fields.Datetime.now(),
+                    }
+                )
+                fetched += 1
+            except Exception as e:
+                _logger.warning(
+                    "S3 log fetch failed for step %s (key=%s): %s",
+                    step.display_name or step.node_id,
+                    key,
+                    e,
+                )
+                failed += 1
+
+        _logger.info(
+            "S3 log sync for %s: fetched=%d failed=%d total_steps=%d",
+            self.name,
+            fetched,
+            failed,
+            len(self.step_ids),
+        )
+
+    def _discover_steps_from_manifest(self, s3, bucket, prefix):
+        """Read manifest.json from S3 and create step records.
+
+        Used as a fallback when the callback's ``steps[]`` payload was
+        lost (network error, Odoo downtime, etc.).
+        """
+        import json
+
+        manifest_key = prefix + "manifest.json"
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=manifest_key)
+            manifest = json.loads(obj["Body"].read())
+        except Exception as e:
+            _logger.info(
+                "No manifest.json for %s at s3://%s/%s: %s",
+                self.name,
+                bucket,
+                manifest_key,
+                e,
+            )
+            return
+
+        steps_data = manifest.get("steps", [])
+        if not steps_data:
+            return
+
+        Step = self.env["kaiju.commit0.workflow.step"]
+        for entry in steps_data:
+            order = entry.get("order", 0)
+            Step.create(
+                {
+                    "build_id": self.id,
+                    "node_id": f"manifest-{order}",
+                    "display_name": entry.get("name", f"step-{order}"),
+                    "phase": entry.get("phase", "Succeeded"),
+                    "log_file": entry.get("log_file", ""),
+                    "step_order": order,
+                    "node_type": "Pod",
+                }
+            )
 
     # ── Pipeline Metadata (S3 dataset_entries.json) ─────────────────────
 
@@ -964,7 +939,8 @@ class KaijuCommit0(models.Model):
         except ImportError:
             self.metadata_error = "boto3 not installed in Odoo venv"
             _logger.error(
-                "boto3 missing in Odoo venv — cannot fetch S3 metadata for %s", self.name
+                "boto3 missing in Odoo venv — cannot fetch S3 metadata for %s",
+                self.name,
             )
             return
 
@@ -982,6 +958,7 @@ class KaijuCommit0(models.Model):
 
         try:
             import boto3
+
             client_kwargs = {"region_name": region}
             if access_key and secret_key:
                 client_kwargs["aws_access_key_id"] = access_key
@@ -995,6 +972,7 @@ class KaijuCommit0(models.Model):
             return
 
         import json
+
         try:
             data = json.loads(payload)
         except json.JSONDecodeError as e:
@@ -1009,7 +987,9 @@ class KaijuCommit0(models.Model):
             if not isinstance(entry, dict):
                 continue
             entry_repo = entry.get("original_repo") or entry.get("repo") or ""
-            if self.repo_name and (self.repo_name in entry_repo or entry_repo in self.repo_name):
+            if self.repo_name and (
+                self.repo_name in entry_repo or entry_repo in self.repo_name
+            ):
                 matched = entry
                 break
             if repo_short and repo_short in entry_repo:
@@ -1027,25 +1007,30 @@ class KaijuCommit0(models.Model):
         # Cache the raw dataset file as a binary attachment so users can
         # view/download it inside Odoo without needing S3 access.
         import base64
+
         dataset_filename = key.rsplit("/", 1)[-1] if key else "dataset_entries.json"
         try:
             dataset_b64 = base64.b64encode(payload)
         except Exception as e:
             _logger.warning(
-                "Failed to base64-encode dataset payload for build %s: %s", self.name, e,
+                "Failed to base64-encode dataset payload for build %s: %s",
+                self.name,
+                e,
             )
             dataset_b64 = False
 
-        self.write({
-            "instance_id": matched.get("instance_id") or "",
-            "forked_repo": matched.get("repo") or "",
-            "base_commit": matched.get("base_commit") or "",
-            "reference_commit": matched.get("reference_commit") or "",
-            "metadata_fetched_at": fields.Datetime.now(),
-            "metadata_error": False,
-            "dataset_file": dataset_b64,
-            "dataset_filename": dataset_filename,
-        })
+        self.write(
+            {
+                "instance_id": matched.get("instance_id") or "",
+                "forked_repo": matched.get("repo") or "",
+                "base_commit": matched.get("base_commit") or "",
+                "reference_commit": matched.get("reference_commit") or "",
+                "metadata_fetched_at": fields.Datetime.now(),
+                "metadata_error": False,
+                "dataset_file": dataset_b64,
+                "dataset_filename": dataset_filename,
+            }
+        )
         _logger.info(
             "Fetched pipeline metadata for build %s: instance=%s base=%s ref=%s",
             self.name,
