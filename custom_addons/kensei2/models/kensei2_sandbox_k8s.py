@@ -45,6 +45,17 @@ S3_KENSEI2_PREFIX = "Kensei2"
 
 TERMINATION_GRACE_PERIOD = 300
 
+# A sandbox whose Deployment exists but has never reached an Available
+# replica for longer than this is treated as wedged (crash-loop,
+# unpullable image, unschedulable node, OOM) and reported as "error"
+# instead of spinning at "starting" forever. Kept well above the
+# legitimate startup budget — image pulls + the openclaw startup probe
+# (~300s) + the litellm/postgres sidecars + batch retry waves — so a
+# slow-but-healthy start is never misreported.
+SANDBOX_START_DEADLINE = int(
+    os.getenv("KENSEI2_SANDBOX_START_DEADLINE", "1200")
+)
+
 WS_ROUTER_NGINX_CONF = """\
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -2103,6 +2114,22 @@ class Kensei2SandboxK8s(models.AbstractModel):
         if status.available_replicas and status.available_replicas >= 1:
             return "running"
         if status.replicas and status.replicas > 0:
+            # Deployment has pods but none are Available yet. Healthy
+            # startup legitimately takes minutes, so this is normally
+            # just "starting". But if the sandbox has been "starting"
+            # far past the startup budget the pod is wedged and will
+            # never become Available on its own — report "error" so the
+            # retry/UI path can act instead of spinning forever.
+            # (Mirrors the 404-branch timeout escape hatch above.)
+            if (
+                sandbox_record.docker_status == "starting"
+                and sandbox_record.write_date
+            ):
+                elapsed = (
+                    fields.Datetime.now() - sandbox_record.write_date
+                ).total_seconds()
+                if elapsed > SANDBOX_START_DEADLINE:
+                    return "error"
             return "starting"
         return "stopped"
 

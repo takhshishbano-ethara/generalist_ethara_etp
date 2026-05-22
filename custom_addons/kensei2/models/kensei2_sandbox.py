@@ -3,6 +3,7 @@ import json
 import logging
 import mimetypes
 import os
+import random
 import re
 import secrets
 import shutil
@@ -78,6 +79,86 @@ _SANDBOX_POOL = ThreadPoolExecutor(
 )
 _SANDBOX_STARTING = set()
 _SANDBOX_LOCK = threading.Lock()
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Serialization-conflict retry helpers
+#
+# Postgres raises SQLSTATE 40001 ("could not serialize access due to
+# concurrent update") whenever two transactions modify the same row under
+# REPEATABLE READ isolation (Odoo's default). All background sandbox
+# writers should funnel through these helpers so they cooperate
+# gracefully instead of crashing the worker.
+# ──────────────────────────────────────────────────────────────────────
+
+_SERIALIZATION_RETRY_ATTEMPTS = int(os.getenv("KENSEI2_SERIALIZE_RETRY", "5"))
+_SERIALIZATION_RETRY_BASE_DELAY = float(
+    os.getenv("KENSEI2_SERIALIZE_DELAY", "0.15")
+)
+
+
+def _is_serialization_error(exc):
+    """Return True if `exc` is (or wraps) a Postgres 40001 conflict."""
+    if exc is None:
+        return False
+    pgcode = getattr(exc, "pgcode", None)
+    if pgcode == "40001":
+        return True
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None and cause is not exc and _is_serialization_error(cause):
+        return True
+    msg = str(exc).lower()
+    return (
+        "could not serialize access" in msg
+        or "serialization failure" in msg
+    )
+
+
+def _retry_with_cursor(
+    db_name,
+    fn,
+    *,
+    label="",
+    max_attempts=None,
+    base_delay=None,
+):
+    """Run `fn(env)` in a fresh Registry cursor, retrying on serialization conflicts.
+
+    The cursor auto-commits on clean exit; on a 40001 it rolls back and we
+    retry with jittered exponential back-off. The jitter is important: two
+    writers that collide once will, without it, re-collide in lockstep on
+    every retry. Other exceptions propagate normally.
+    """
+    if max_attempts is None:
+        max_attempts = _SERIALIZATION_RETRY_ATTEMPTS
+    if base_delay is None:
+        base_delay = _SERIALIZATION_RETRY_BASE_DELAY
+
+    last_exc = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                return fn(env)
+        except Exception as exc:
+            last_exc = exc
+            if _is_serialization_error(exc) and attempt < max_attempts:
+                # Equal-jitter back-off: half fixed, half random.
+                window = base_delay * (2 ** (attempt - 1))
+                delay = window / 2 + random.uniform(0, window / 2)
+                _logger.warning(
+                    "[SERIALIZE-RETRY] %s — conflict on attempt %d/%d, "
+                    "retrying in %.2fs",
+                    label or "anonymous",
+                    attempt,
+                    max_attempts,
+                    delay,
+                )
+                time.sleep(delay)
+                continue
+            raise
+    if last_exc is not None:
+        raise last_exc
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
@@ -326,9 +407,60 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
             _SANDBOX_STARTING.discard(sandbox_id)
 
 
+def _reconcile_one_sandbox(env, sandbox_id, status):
+    """Apply a pre-probed k8s status to a single sandbox row.
+
+    `status` is probed by the caller OUTSIDE this transaction (see
+    `_cron_reconcile`): the slow k8s API call must not run inside the
+    write transaction, or it widens the row-lock window and invites
+    SQLSTATE 40001 serialization conflicts against batch-deploy workers.
+
+    Runs inside a fresh per-sandbox transaction so a conflict on this row
+    never poisons the reconciliation of its siblings.
+    """
+    sandbox = env["kensei2.sandbox"].browse(sandbox_id)
+    if not sandbox.exists():
+        return
+    # Re-read inside this transaction — another writer may have moved the
+    # row since `status` was probed. Bail if it is no longer ours to
+    # reconcile, or already matches the probed status.
+    if sandbox.docker_status not in ("starting", "running"):
+        return
+    if status == sandbox.docker_status:
+        return
+
+    update_vals = {"docker_status": status}
+    if status == "running" and not sandbox.docker_port:
+        update_vals["docker_port"] = 18789
+    if status == "error":
+        update_vals["docker_error"] = "Sandbox deployment not found after timeout"
+    sandbox.write(update_vals)
+
+    if status in ("running", "error"):
+        partners = env["res.partner"]
+        for emp in sandbox.employee_ids:
+            p = emp.user_id.partner_id
+            if p:
+                partners |= p
+        if not partners:
+            p = sandbox.kensei2_id.user_id.partner_id
+            if p:
+                partners = p
+        for partner in partners:
+            env["bus.bus"]._sendone(
+                partner,
+                "kensei2/sandbox_ready",
+                {
+                    "sandbox_id": sandbox.id,
+                    "docker_status": status,
+                    "error": sandbox.docker_error or "",
+                    "model_type": sandbox.model_type,
+                },
+            )
+
+
 def _batch_restart_pod(db_name, sandbox_id, mode):
-    with Registry(db_name).cursor() as cr:
-        env = api.Environment(cr, SUPERUSER_ID, {})
+    def _do(env):
         sandbox = env["kensei2.sandbox"].browse(sandbox_id)
         if not sandbox.exists():
             return
@@ -340,6 +472,10 @@ def _batch_restart_pod(db_name, sandbox_id, mode):
             "docker_status": "starting",
             "docker_error": False,
         })
+
+    _retry_with_cursor(
+        db_name, _do, label="restart_pod sandbox=%s" % sandbox_id
+    )
 
 
 def _batch_deploy_pod(db_name, sandbox_id, mode):
@@ -5184,6 +5320,26 @@ class Kensei2Sandbox(models.Model):
 
     @api.model
     def _cron_reconcile(self):
+        """Periodic k8s sandbox status reconciliation.
+
+        Conflict-avoidance design — the cron used to lose SQLSTATE 40001
+        ("could not serialize access") races against batch-deploy workers
+        writing the same sandbox rows:
+
+        1. Ownership partition — sandboxes whose task is mid-batch are
+           skipped, because the batch worker is their authoritative
+           writer. This is *per-task*: unrelated sandboxes (single
+           starts, leftovers from finished runs) are still reconciled, so
+           the safety net keeps working. It is NOT a global kill-switch
+           (an earlier version skipped the whole cron whenever any batch
+           ran anywhere, which stranded healthy pods at "starting").
+        2. The slow k8s status probe runs OUTSIDE any write transaction;
+           only the resulting one-row write is transactional, keeping the
+           row-lock window down to milliseconds.
+        3. Each write goes through `_retry_with_cursor` in its own short
+           transaction, so a residual conflict is retried with jittered
+           back-off and never aborts its siblings.
+        """
         mode = (
             self.env["ir.config_parameter"]
             .sudo()
@@ -5193,54 +5349,46 @@ class Kensei2Sandbox(models.Model):
         if mode != "k8s":
             return
 
-        sandboxes = self.sudo().search(
-            [("docker_status", "in", ["starting", "running"])]
+        # Ownership partition: leave batch-owned sandboxes to their
+        # batch-deploy workers (avoids the cron-vs-worker write race).
+        batch_active_states = ("starting", "ready", "running", "stopping")
+        active_task_ids = (
+            self.env["kensei2.kensei2"]
+            .sudo()
+            .search([("batch_status", "in", batch_active_states)])
+            .ids
         )
-        if not sandboxes:
+        domain = [("docker_status", "in", ["starting", "running"])]
+        if active_task_ids:
+            domain.append(("kensei2_id", "not in", active_task_ids))
+
+        sandbox_ids = self.sudo().search(domain).ids
+        if not sandbox_ids:
             return
 
         k8s = self.env["kensei2.sandbox.k8s"]
-        for sandbox in sandboxes:
+        db_name = self.env.cr.dbname
+        for sid in sandbox_ids:
+            # Probe k8s OUTSIDE the write transaction so the slow API
+            # call cannot widen the row-lock window.
             try:
-                status = k8s.get_sandbox_status(sandbox)
-                if status != sandbox.docker_status:
-                    update_vals = {"docker_status": status}
-                    if status == "running" and not sandbox.docker_port:
-                        update_vals["docker_port"] = 18789
-                    sandbox.write(update_vals)
-                    if status == "error":
-                        sandbox.write(
-                            {
-                                "docker_error": "Sandbox deployment not found after timeout",
-                            }
-                        )
-                    # Notify UI of status change
-                    if status in ("running", "error"):
-                        partners = self.env["res.partner"]
-                        for emp in sandbox.employee_ids:
-                            p = emp.user_id.partner_id
-                            if p:
-                                partners |= p
-                        if not partners:
-                            p = sandbox.kensei2_id.user_id.partner_id
-                            if p:
-                                partners = p
-                        for partner in partners:
-                            self.env["bus.bus"]._sendone(
-                                partner,
-                                "kensei2/sandbox_ready",
-                                {
-                                    "sandbox_id": sandbox.id,
-                                    "docker_status": status,
-                                    "error": sandbox.docker_error or "",
-                                    "model_type": sandbox.model_type,
-                                },
-                            )
+                status = k8s.get_sandbox_status(self.browse(sid))
             except Exception as e:
                 _logger.error(
-                    "Reconciliation error for sandbox %s: %s",
-                    sandbox.id,
-                    e,
+                    "[CRON] k8s status probe failed for sandbox %s: %s", sid, e
+                )
+                continue
+            try:
+                _retry_with_cursor(
+                    db_name,
+                    lambda env, _sid=sid, _st=status: _reconcile_one_sandbox(
+                        env, _sid, _st
+                    ),
+                    label="cron_reconcile sandbox=%s" % sid,
+                )
+            except Exception as e:
+                _logger.error(
+                    "[CRON] Reconciliation error for sandbox %s: %s", sid, e
                 )
 
     # ── Auto-process XML-RPC methods (called by consumer) ─────────────

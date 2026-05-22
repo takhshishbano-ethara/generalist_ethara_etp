@@ -399,6 +399,7 @@ for user in records:
                   </list>
                 </field>
               </page>
+
               <page string="Connection / WebSocket Errors" name="connection_errors">
                 <div class="alert alert-danger d-flex align-items-center mb-3" role="alert"
                      invisible="docker_status != 'error'">
