@@ -817,7 +817,9 @@ def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_pa
         _logger.exception("[BATCH] Failed to set stopping status for task %s", task_id)
 
     stop_futures = {}
-    for sid in sandbox_ids:
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
         fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
         stop_futures[fut] = sid
 
@@ -1218,7 +1220,9 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         _logger.exception("[BATCH-PROMPT] Failed to set stopping status for task %s", task_id)
 
     stop_futures = {}
-    for sid in sandbox_ids:
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
         fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
         stop_futures[fut] = sid
 
@@ -1281,7 +1285,9 @@ def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id)
     from concurrent.futures import as_completed
 
     stop_futures = {}
-    for sid in sandbox_ids:
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
         fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
         stop_futures[fut] = sid
 
