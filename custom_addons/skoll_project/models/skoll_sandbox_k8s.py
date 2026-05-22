@@ -787,10 +787,14 @@ class SkollSandboxK8s(models.AbstractModel):
                 command=[
                     "sh",
                     "-c",
-                    "which gog && cp $(which gog) /gog-bin/gog && "
-                    "chmod +x /gog-bin/gog && "
-                    "ls -la /gog-bin/ || "
-                    "echo '[skoll] gog binary not found in image, skipping'",
+                    "if which gog >/dev/null 2>&1; then "
+                    "  cp $(which gog) /gog-bin/gog && chmod +x /gog-bin/gog; "
+                    "else "
+                    "  echo '[skoll] gog not in image, downloading v0.12.0...' && "
+                    "  curl -fsSL 'https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz' "
+                    "  | tar -xz -C /gog-bin gog && chmod +x /gog-bin/gog; "
+                    "fi && "
+                    "ls -la /gog-bin/",
                 ],
                 volume_mounts=[
                     client.V1VolumeMount(
