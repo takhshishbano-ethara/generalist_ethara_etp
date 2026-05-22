@@ -368,7 +368,9 @@ class TaskForgeProjectController(http.Controller):
                     'team_role_message': team_role_message,
                     'task_progress': task_progress,
                     'daily_throughput': daily_throughput,
-                    'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in project.api_map_ids]
+                    'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in project.api_map_ids],
+                    'category_url': project.category_url if project.category_url else "",
+                    'tasker_url': project.tasker_url if project.tasker_url else "",
                 }
             )
         except Exception as e:

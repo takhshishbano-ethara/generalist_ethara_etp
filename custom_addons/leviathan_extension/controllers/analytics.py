@@ -809,7 +809,7 @@ class LeviathanAnalyticsController(http.Controller):
                 "status_chart": _build_status_chart(env, scope, filters),
                 "completion_heatmap": _build_heatmap(env, scope, filters),
                 "qc_leaderboard": _build_qc_leaderboard(env, filters),
-                "completion_timeline": _build_timeline(env, scope, filters),
+                "completion_timeline": _build_timeline(env, scope, filters)
             },
         }
         _dashboard_cache_set(cache_key, data)
