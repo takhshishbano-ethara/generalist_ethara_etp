@@ -282,8 +282,6 @@ class SSEConnectionManager:
     # ------------------------------------------------------------------
 
     async def _handshake(self, conn: _SandboxConnection, ws):
-        """Wait for connect.challenge, send auth, wait for success."""
-        # Step 1: wait for connect.challenge
         deadline = time.monotonic() + 15
         while True:
             remaining = deadline - time.monotonic()
@@ -301,7 +299,6 @@ class SSEConnectionManager:
                 logger.debug("SSE sandbox %s: received connect.challenge", conn.sandbox_id)
                 break
 
-        # Step 2: send connect request
         connect_msg = {
             "type": "req",
             "id": self._next_id(conn),
@@ -310,7 +307,7 @@ class SSEConnectionManager:
                 "minProtocol": 3,
                 "maxProtocol": 4,
                 "client": {
-                    "id": "gateway-client",
+                    "id": "openclaw-control-ui",
                     "version": "1.0",
                     "platform": "server",
                     "mode": "backend",
