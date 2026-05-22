@@ -561,6 +561,11 @@ def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
                     sandbox = env["kensei2.sandbox"].browse(sandbox_id)
                     if not sandbox.exists():
                         return False, "Sandbox disappeared", pod_attempt - 1
+                    if sandbox.docker_status == "running":
+                        _logger.info("[BATCH] Sandbox %s already running in DB (attempt %d)", sandbox_id, pod_attempt)
+                        return True, "", pod_attempt - 1
+                    if sandbox.docker_status == "error":
+                        break
                     k8s_status = env["kensei2.sandbox.k8s"].get_sandbox_status(sandbox)
                     if k8s_status == "running":
                         sandbox.write({"docker_status": "running", "docker_port": 18789})

@@ -3193,6 +3193,37 @@ class Kensei2(models.Model):
     @api.model
     def _cron_reconcile_sandboxes(self):
         self.env["kensei2.sandbox"]._cron_reconcile()
+        self._reconcile_batch_status()
+
+    @api.model
+    def _reconcile_batch_status(self):
+        tasks = self.sudo().search([("batch_status", "=", "starting")])
+        for task in tasks:
+            sandboxes = task.sandbox_ids
+            if not sandboxes:
+                continue
+            still_starting = sandboxes.filtered(
+                lambda s: s.docker_status == "starting"
+            )
+            if still_starting:
+                continue
+            running = sandboxes.filtered(lambda s: s.docker_status == "running")
+            if running:
+                task.write({"batch_status": "ready"})
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s → ready (%d running, %d total)",
+                    task.id, len(running), len(sandboxes),
+                )
+            else:
+                task.write({
+                    "batch_status": "error",
+                    "batch_error": "All sandboxes failed to deploy.",
+                    "batch_completed_at": fields.Datetime.now(),
+                })
+                _logger.warning(
+                    "[BATCH-RECONCILE] task=%s → error (0 running, %d total)",
+                    task.id, len(sandboxes),
+                )
 
     # ── Auto-process (RabbitMQ batch processing) ──────────────────────
 
