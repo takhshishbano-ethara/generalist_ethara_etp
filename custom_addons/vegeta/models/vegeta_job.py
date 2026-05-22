@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import random
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
@@ -31,6 +32,7 @@ def _submit_bg(label, fn, *args, **kwargs):
     - If the pool is gone (process recycling), runs inline as a last resort so
       the job is never silently dropped. The watchdog cron is the final backstop.
     """
+    qsize = -1
     try:
         qsize = _POOL._work_queue.qsize()
         if qsize > _PRD_POOL_SIZE:
@@ -42,11 +44,32 @@ def _submit_bg(label, fn, *args, **kwargs):
     except Exception:
         pass
 
+    # Submit-time marker: lets you measure pool queue-wait by diffing this
+    # timestamp against the "started" line _guarded() emits below. A large
+    # gap = the job sat waiting for a free worker (pool too small / backlog).
+    submitted_at = time.monotonic()
+    _logger.info(
+        "[vegeta] _submit_bg: queued '%s' on pool[pid=%d] "
+        "(queue_depth=%d, workers=%d)",
+        label, os.getpid(), qsize, _PRD_POOL_SIZE,
+    )
+
     def _guarded():
+        wait_s = time.monotonic() - submitted_at
+        _logger.info(
+            "[vegeta] bg task '%s' STARTED (pool queue-wait=%.1fs)",
+            label, wait_s,
+        )
+        t0 = time.monotonic()
         try:
             return fn(*args, **kwargs)
         except Exception:
             _logger.exception("[vegeta] background task '%s' crashed", label)
+        finally:
+            _logger.info(
+                "[vegeta] bg task '%s' FINISHED (ran %.1fs, queue-wait %.1fs)",
+                label, time.monotonic() - t0, wait_s,
+            )
 
     try:
         return _POOL.submit(_guarded)
@@ -56,6 +79,189 @@ def _submit_bg(label, fn, *args, **kwargs):
         )
         _guarded()
         return None
+
+
+_HEARTBEAT_INTERVAL_S = int(os.environ.get("VEGETA_HEARTBEAT_INTERVAL_S", "60"))
+_HEARTBEAT_MODE = os.environ.get("VEGETA_HEARTBEAT_MODE", "aggregator").lower()
+
+
+class _HeartbeatManager:
+    """Process-wide shared heartbeat pulser.
+
+    Replaces the per-job daemon-thread pattern that burned one thread AND
+    one DB cursor every 60s for every active job. With 50 PRD workers
+    running we were spawning 50 heartbeat threads competing for cursors
+    against the workers themselves — the cursor pool (db_maxconn) was
+    being drained by heartbeats alone, leaving real Odoo requests waiting.
+
+    Design:
+      * ONE daemon thread per Python process, lazily started on first
+        register() call. Idle-exits when the registry empties; respawns
+        on the next register(). No idle thread between batches.
+      * Registry: ``set[(db_name, record_id)]``. register() / unregister()
+        are O(1) under a single Lock. Multi-tenant safe (db_name keyed).
+      * Every interval (VEGETA_HEARTBEAT_INTERVAL_S, default 60s), the
+        thread snapshots the registry, groups by db_name, and for each
+        group issues ONE batched UPDATE filtered by state IN
+        ('extracting','generating','scoring'). Terminal jobs never get
+        pinged even if a worker forgot to unregister.
+      * Self-heal: outer try/except in the loop. Any error (DB drop,
+        registry corruption) is logged and the next tick continues.
+        The thread MUST NOT die — the watchdog cron is the secondary
+        safety net for jobs that go quiet.
+      * Backward-compat: jobs running under the legacy per-job daemon
+        at deploy time keep their own daemons and drain naturally. New
+        jobs route through the manager unless VEGETA_HEARTBEAT_MODE=per_job.
+    """
+
+    __slots__ = ("_active", "_lock", "_interval", "_stop_event", "_thread")
+
+    def __init__(self, interval=_HEARTBEAT_INTERVAL_S):
+        self._active: set[tuple[str, int]] = set()
+        self._lock = threading.Lock()
+        self._interval = max(5, int(interval))
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def register(self, db_name, record_id):
+        if not record_id or not db_name:
+            return
+        with self._lock:
+            self._active.add((db_name, record_id))
+            self._ensure_thread_locked()
+
+    def unregister(self, db_name, record_id):
+        if not record_id or not db_name:
+            return
+        with self._lock:
+            self._active.discard((db_name, record_id))
+
+    def _ensure_thread_locked(self):
+        # Called with self._lock held. Lazy-start the thread on the first
+        # registration; respawn if a prior thread idle-exited.
+        t = self._thread
+        if t is not None and t.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="vegeta-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop_event.wait(self._interval):
+            try:
+                # Snapshot under lock; idle-exit if empty.
+                with self._lock:
+                    if not self._active:
+                        self._thread = None
+                        return
+                    groups: dict[str, list[int]] = {}
+                    for db_name, rid in self._active:
+                        groups.setdefault(db_name, []).append(rid)
+
+                for db_name, ids in groups.items():
+                    try:
+                        self._bulk_pulse(db_name, ids)
+                    except Exception:
+                        _logger.debug(
+                            "[vegeta] heartbeat pulse failed for db=%s "
+                            "ids=%s (will retry next tick)",
+                            db_name, ids, exc_info=True,
+                        )
+            except Exception:
+                # Catch-all so a bad tick never kills the thread.
+                # Watchdog cron is the real safety net.
+                _logger.exception(
+                    "[vegeta] heartbeat manager tick crashed; continuing",
+                )
+
+    def _bulk_pulse(self, db_name, record_ids):
+        registry = Registry(db_name)
+        with registry.cursor() as cr:
+            cr.execute(
+                "UPDATE vegeta_job "
+                "SET last_heartbeat = (now() AT TIME ZONE 'UTC') "
+                "WHERE id = ANY(%s) "
+                "  AND state IN ('extracting', 'generating', 'scoring')",
+                (list(record_ids),),
+            )
+            pulsed = cr.rowcount
+            cr.commit()
+        # registered != pulsed means some registered jobs are already in a
+        # terminal state — a worker finished but did not unregister, or the
+        # job was cancelled out from under a live worker. Harmless (terminal
+        # rows are filtered by the WHERE clause) but worth seeing in the log.
+        _logger.info(
+            "[vegeta] heartbeat pulse: db=%s registered=%d pulsed=%d",
+            db_name, len(record_ids), pulsed,
+        )
+
+
+_HEARTBEAT_MGR = _HeartbeatManager()
+
+
+class _HeartbeatTicker:
+    """Backward-compat facade so call sites don't change.
+
+    By default (VEGETA_HEARTBEAT_MODE=aggregator) this is a thin wrapper
+    that register/unregisters the job with the shared _HEARTBEAT_MGR. If
+    operations needs to roll back to per-job daemons (e.g. for debugging
+    the aggregator under load), set VEGETA_HEARTBEAT_MODE=per_job and
+    redeploy — the call sites stay identical.
+    """
+
+    __slots__ = ("_model", "_db_name", "_record_id", "_interval",
+                 "_mode", "_stop_event", "_thread")
+
+    def __init__(self, model, db_name, record_id, interval=_HEARTBEAT_INTERVAL_S):
+        self._model = model
+        self._db_name = db_name
+        self._record_id = record_id
+        self._interval = interval
+        self._mode = _HEARTBEAT_MODE
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def __enter__(self):
+        if self._mode == "per_job":
+            self._thread = threading.Thread(
+                target=self._run_legacy,
+                name=f"vegeta-hb[job={self._record_id}]",
+                daemon=True,
+            )
+            self._thread.start()
+        else:
+            _HEARTBEAT_MGR.register(self._db_name, self._record_id)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._mode == "per_job":
+            self._stop_event.set()
+            if self._thread is not None:
+                self._thread.join(timeout=2)
+        else:
+            _HEARTBEAT_MGR.unregister(self._db_name, self._record_id)
+        return False  # never swallow exceptions
+
+    def _run_legacy(self):
+        # Old per-job daemon body kept for the VEGETA_HEARTBEAT_MODE=per_job
+        # rollback switch. Pulses last_heartbeat every interval via a
+        # short-lived cursor.
+        while not self._stop_event.wait(self._interval):
+            try:
+                self._model._write_with_cursor(
+                    self._db_name,
+                    self._record_id,
+                    {"last_heartbeat": fields.Datetime.now()},
+                )
+            except Exception:
+                _logger.debug(
+                    "[vegeta][job=%s] heartbeat pulse failed (will retry)",
+                    self._record_id, exc_info=True,
+                )
 
 
 # Bedrock Claude rejects images where either dimension exceeds 8000 px with:
@@ -129,8 +335,18 @@ class VegetaJob(models.Model):
             ("not_assigned", "Not Assigned"),
             ("draft", "Draft"),
             ("extracting", "Extracting"),
+            # Parked: extraction finished, waiting for a human to start PRD
+            # generation (staged/manual mode only — auto_continue jobs never
+            # park here, they cascade straight to `generating`).
+            ("extracted", "Extracted"),
             ("generating", "Generating PRD"),
+            # Parked: PRD generated, waiting for a human to run Score.
+            ("generated", "Generated"),
             ("scoring", "Scoring"),
+            # Parked: rubric score recorded, waiting for a human to run QC.
+            ("scored", "Scored"),
+            # Running: QC (Bedrock) in progress in the staged/manual flow.
+            ("qc_running", "QC Running"),
             ("done", "Done"),
             ("submitted", "Submitted"),
             ("failed", "Failed"),
@@ -255,6 +471,17 @@ class VegetaJob(models.Model):
         copy=False,
         help="True when this job was started by a batch concurrent run. "
              "On completion the job is auto-released to 'not_assigned' so taskers can claim it.",
+    )
+    auto_continue = fields.Boolean(
+        string="Auto-Continue Pipeline",
+        default=True,
+        copy=False,
+        help="When True (Run All / batch / retry / rerun), the pipeline "
+             "cascades automatically: extraction -> generation -> scoring -> "
+             "QC -> done with no human input. When False (staged manual run), "
+             "the job parks after each stage and waits for the matching stage "
+             "button. Checked only at the extraction->generation handoff in "
+             "the webhook; manual jobs never enter the fused auto pipeline.",
     )
 
     user_id = fields.Many2one(
@@ -1009,7 +1236,7 @@ class VegetaJob(models.Model):
                 "error_message": False,
             }
             # Mark pipeline interruption for in-progress tasks
-            if task.state in ("extracting", "generating", "scoring"):
+            if task.state in ("extracting", "generating", "scoring", "qc_running"):
                 vals["cancel_requested"] = True
             task.write(vals)
 
@@ -1099,6 +1326,72 @@ class VegetaJob(models.Model):
             "state": "extracting",
             "error_message": False,
             "cancel_requested": False,
+            "auto_continue": True,
+            "started_at": fields.Datetime.now(),
+            "completed_at": False,
+            "duration_seconds": False,
+            "last_heartbeat": fields.Datetime.now(),
+        })
+        self._trigger_extraction()
+
+    def action_stage_extract(self):
+        """Staged manual run: extract only, then park at 'extracted'.
+
+        Same preconditions as action_run (the Run All path) but sets
+        auto_continue=False, so the webhook parks the job after extraction
+        instead of cascading into PRD generation. The tasker then advances
+        one stage at a time via the Generate / Score / QC buttons.
+        """
+        self.ensure_one()
+        if self.state not in ("draft", "not_assigned"):
+            raise UserError("Can only run tasks in Draft or Not Assigned state.")
+        if not self.url:
+            raise UserError("Please enter a website URL before running.")
+
+        if self.state == "not_assigned" or not self.user_id:
+            self.write({"user_id": self.env.uid, "state": "draft"})
+
+        max_jobs = int(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("vegeta.max_jobs_per_user", "5")
+        )
+        if max_jobs > 0:
+            running_states = ("extracting", "generating", "scoring", "qc_running")
+            running_count = self.sudo().search_count([
+                ("user_id", "=", self.user_id.id),
+                ("state", "in", running_states),
+                ("id", "!=", self.id),
+            ])
+            if running_count >= max_jobs:
+                raise UserError(
+                    f"Too many tasks running ({running_count}). "
+                    f"Wait for current tasks to complete."
+                )
+
+        sp_name = f"vegeta_stage_extract_{self.id}"
+        self.env.cr.execute(f"SAVEPOINT {sp_name}")
+        try:
+            self.env.cr.execute(
+                "SELECT id FROM vegeta_job WHERE id = %s FOR UPDATE NOWAIT",
+                [self.id],
+            )
+        except Exception:
+            self.env.cr.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+            raise UserError("Task is being modified by another session. Try again.")
+
+        self.env.cr.execute(
+            "SELECT state FROM vegeta_job WHERE id = %s", [self.id]
+        )
+        row = self.env.cr.fetchone()
+        if not row or row[0] not in ("draft", "not_assigned"):
+            raise UserError("Task is no longer available to run.")
+
+        self.write({
+            "state": "extracting",
+            "error_message": False,
+            "cancel_requested": False,
+            "auto_continue": False,
             "started_at": fields.Datetime.now(),
             "completed_at": False,
             "duration_seconds": False,
@@ -1107,18 +1400,102 @@ class VegetaJob(models.Model):
         self._trigger_extraction()
 
     def action_cancel(self):
-        """Stop a running task (extracting / generating / scoring) and return it
-        to Draft so the tasker can re-run. Signals background threads to stop."""
+        """Stop a running or parked task and return it to Draft.
+
+        Running states (extracting / generating / scoring / qc_running) also
+        set cancel_requested so background threads bail at their next check.
+        Parked staged states (extracted / generated / scored) have no running
+        thread — here Cancel is the Reset that walks a one-shot-forward staged
+        job back to Draft.
+        """
         self.ensure_one()
-        if self.state not in ("extracting", "generating", "scoring"):
-            raise UserError("Cancel is only available while a task is running.")
+        running = ("extracting", "generating", "scoring", "qc_running")
+        parked = ("extracted", "generated", "scored")
+        if self.state not in running + parked:
+            raise UserError(
+                "Cancel is only available while a task is running or staged."
+            )
         self.write({
             "state": "draft",
-            "cancel_requested": True,
+            "cancel_requested": self.state in running,
             "error_message": False,
         })
         _logger.info("[vegeta][job=%s] cancelled by %s", self.name, self.env.user.name)
         self._notify_state_change("draft")
+
+    def action_stage_generate(self):
+        """Staged manual run: generate the PRD, then park at 'generated'."""
+        self.ensure_one()
+        if self.state != "extracted":
+            raise UserError(
+                "Generate is only available after extraction (Extracted state)."
+            )
+        if not self.prd_prompt:
+            raise UserError("No extraction data available for PRD generation.")
+        self.write({
+            "state": "generating",
+            "error_message": False,
+            "cancel_requested": False,
+            "completed_at": False,
+            "last_heartbeat": fields.Datetime.now(),
+            "started_processing_at": False,
+        })
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"prd-gen-stage[job={record_id}]",
+                self._run_generate_only_bg, db_name, record_id,
+            )
+        )
+
+    def action_stage_score(self):
+        """Staged manual run: score the PRD with the rubric, park at 'scored'.
+
+        Synchronous — score_prd is pure-Python regex (no Bedrock), so it runs
+        inline in the request rather than on the background pool.
+        """
+        self.ensure_one()
+        if self.state != "generated":
+            raise UserError(
+                "Score is only available after PRD generation (Generated state)."
+            )
+        if not self.prd_text:
+            raise UserError("No PRD text available to score.")
+        from ..services.scoring_service import score_prd
+        category = (
+            self.category_id.name if self.category_id else "Normal Website"
+        )
+        report = score_prd(prd_text=self.prd_text, category=category)
+        self.write({
+            "state": "scored",
+            "score": report["total_score"],
+            "grade": report["grade"],
+            "score_report_json": report,
+        })
+        self._notify_state_change("scored")
+
+    def action_stage_qc(self):
+        """Staged manual run: run QC, then complete the job (Done)."""
+        self.ensure_one()
+        if self.state != "scored":
+            raise UserError("QC is only available after scoring (Scored state).")
+        if not self.prd_text:
+            raise UserError("No PRD text available for QC.")
+        self.write({
+            "state": "qc_running",
+            "error_message": False,
+            "cancel_requested": False,
+            "last_heartbeat": fields.Datetime.now(),
+        })
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"qc-stage[job={record_id}]",
+                self._run_qc_stage_bg, db_name, record_id,
+            )
+        )
 
     def action_run_batch_concurrent(self):
         """Server action: fire all selected jobs in parallel via async Lambda invoke.
@@ -1343,7 +1720,7 @@ class VegetaJob(models.Model):
             "completed_at": fields.Datetime.now(),
         }
         # Signal any running background thread to stop at its next check.
-        if self.state in ("extracting", "generating", "scoring"):
+        if self.state in ("extracting", "generating", "scoring", "qc_running"):
             vals["cancel_requested"] = True
         self.write(vals)
         _logger.info(
@@ -1798,6 +2175,11 @@ class VegetaJob(models.Model):
         """Background: re-run only QC on existing PRD text."""
         from ..services.qc_service import run_qc
 
+        _qc_only_t0 = time.monotonic()
+        _logger.info(
+            "[vegeta][job=%s] QC-RERUN worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
         try:
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1882,9 +2264,17 @@ class VegetaJob(models.Model):
                 "qc_verdict": qc_result["verdict"],
                 "qc_report": qc_result["report"],
             })
+            _logger.info(
+                "[vegeta][job=%s] QC-RERUN complete in %.1fs — verdict=%s",
+                record_id, time.monotonic() - _qc_only_t0,
+                qc_result["verdict"],
+            )
 
         except Exception as exc:
-            _logger.exception("QC rerun failed for job %s", record_id)
+            _logger.exception(
+                "[vegeta][job=%s] QC-RERUN failed after %.1fs",
+                record_id, time.monotonic() - _qc_only_t0,
+            )
             self._write_with_cursor(db_name, record_id, {
                 "state": "done",
                 # Fail-closed: a QC error must not leave qc_verdict blank, or the
@@ -1893,6 +2283,310 @@ class VegetaJob(models.Model):
                 "qc_verdict": "not_shippable",
                 "qc_report": f"QC rerun error: {exc}",
                 "error_message": f"QC failed: {exc}",
+            })
+
+    def _run_generate_only_bg(self, db_name, record_id):
+        """Background (staged): generate the PRD + upload, park at 'generated'.
+
+        Mirrors the generation half of the fused pipeline (config/validation +
+        Bedrock generation + S3 upload) but stops before scoring and QC.
+        Wrapped in _HeartbeatTicker so a long Bedrock call keeps last_heartbeat
+        fresh against the watchdog.
+        """
+        from ..services.bedrock_service import generate_prd
+        from ..services.s3_service import upload_prd_to_s3
+
+        _t0 = time.monotonic()
+        _logger.info(
+            "[vegeta][job=%s] GENERATE-STAGE worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
+        llm_trace = None
+        try:
+            with _HeartbeatTicker(self, db_name, record_id, interval=60):
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if not record.exists():
+                        return
+
+                    ICP = env["ir.config_parameter"].sudo()
+                    config = {
+                        "inference_arn": ICP.get_param("vegeta.bedrock_inference_arn"),
+                        "region": ICP.get_param("vegeta.bedrock_region") or "us-east-1",
+                        "bedrock_access_key": ICP.get_param("vegeta.bedrock_access_key_id"),
+                        "bedrock_secret_key": ICP.get_param("vegeta.bedrock_secret_access_key"),
+                        "s3_bucket": ICP.get_param("vegeta.s3_bucket"),
+                        "s3_key_id": ICP.get_param("vegeta.s3_access_key_id"),
+                        "s3_secret": ICP.get_param("vegeta.s3_secret_access_key"),
+                        "s3_region": ICP.get_param("vegeta.s3_region"),
+                        "s3_folder": ICP.get_param("vegeta.s3_folder") or "vegeta",
+                        "cdn_url": ICP.get_param("vegeta.s3_cdn_url"),
+                        "s3_endpoint_url": ICP.get_param("vegeta.s3_endpoint_url") or "",
+                    }
+                    job_data = {
+                        "name": record.name,
+                        "prd_prompt": record.prd_prompt,
+                        "category_name": record.category_id.name if record.category_id else "Normal Website",
+                        "url": record.url,
+                        "site_discovery_json": record.site_discovery_json,
+                        "screenshot_keys": record.screenshot_keys or [],
+                    }
+                    prd_system_prompt = record._get_prd_system_prompt()
+
+                    if not config["inference_arn"]:
+                        record.write({
+                            "state": "failed",
+                            "error_message": "Bedrock inference ARN not configured",
+                            "completed_at": fields.Datetime.now(),
+                        })
+                        cr.commit()
+                        return
+                    if not job_data["prd_prompt"]:
+                        record.write({
+                            "state": "failed",
+                            "error_message": "No extraction data available for PRD generation",
+                            "completed_at": fields.Datetime.now(),
+                        })
+                        cr.commit()
+                        return
+
+                    record.write({
+                        "started_processing_at": fields.Datetime.now(),
+                        "last_heartbeat": fields.Datetime.now(),
+                    })
+                    cr.commit()
+
+                screenshot_blocks = []
+                if job_data["screenshot_keys"] and config["s3_bucket"]:
+                    from ..services.s3_service import download_file_from_s3
+                    import base64 as b64
+                    MAX_SCREENSHOTS = 5
+                    MAX_IMG_BYTES = 3_500_000
+                    total_bytes = 0
+                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                        try:
+                            img_bytes = download_file_from_s3(
+                                key=key, bucket=config["s3_bucket"],
+                                access_key_id=config["s3_key_id"],
+                                secret_key=config["s3_secret"],
+                                region=config["s3_region"],
+                                endpoint_url=config["s3_endpoint_url"],
+                            )
+                            if len(img_bytes) > MAX_IMG_BYTES:
+                                continue
+                            ext = key.rsplit(".", 1)[-1].lower()
+                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
+                            total_bytes += len(img_bytes)
+                            if total_bytes > 20_000_000:
+                                break
+                            screenshot_blocks.append({
+                                "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
+                            })
+                        except Exception:
+                            pass
+
+                content_blocks = list(screenshot_blocks)
+                content_blocks.append({"text": (
+                    f"Below is the extracted website data. "
+                    f"Write the complete PRD following all rules.\n\n"
+                    f"---\n\n{job_data['prd_prompt']}"
+                )})
+                messages = [{"role": "user", "content": content_blocks}]
+
+                llm_trace = {
+                    "prd_system_prompt": prd_system_prompt,
+                    "extraction_prompt": job_data["prd_prompt"],
+                    "screenshots_attached": len(screenshot_blocks),
+                    "attempts": [],
+                    "qc": {},
+                }
+
+                if self._is_cancelled(db_name, record_id):
+                    self._write_with_cursor(db_name, record_id, {
+                        "state": "draft",
+                        "error_message": "Cancelled during generation",
+                        "completed_at": fields.Datetime.now(),
+                    })
+                    return
+
+                best_prd_text = generate_prd(
+                    inference_arn=config["inference_arn"],
+                    region=config["region"],
+                    system_prompt=prd_system_prompt,
+                    messages=messages,
+                    access_key_id=config["bedrock_access_key"],
+                    secret_access_key=config["bedrock_secret_key"],
+                )
+                llm_trace["attempts"].append({
+                    "attempt": 1,
+                    "prd_text": best_prd_text,
+                })
+
+                prd_url = upload_prd_to_s3(
+                    prd_text=best_prd_text,
+                    job_name=job_data["name"],
+                    bucket=config["s3_bucket"],
+                    access_key_id=config["s3_key_id"],
+                    secret_key=config["s3_secret"],
+                    region=config["s3_region"],
+                    endpoint_url=config["s3_endpoint_url"],
+                    folder=config["s3_folder"],
+                    cdn_url=config["cdn_url"],
+                )
+
+                self._write_with_cursor(db_name, record_id, {
+                    "state": "generated",
+                    "prd_text": best_prd_text,
+                    "prd_text_html": _markdown_to_html(best_prd_text),
+                    "prd_url": prd_url,
+                    "llm_attempts": 1,
+                    "llm_trace_json": llm_trace,
+                    "last_heartbeat": fields.Datetime.now(),
+                })
+                _logger.info(
+                    "[vegeta][job=%s] GENERATE-STAGE complete in %.1fs — "
+                    "parked at 'generated' (%d chars)",
+                    record_id, time.monotonic() - _t0, len(best_prd_text or ""),
+                )
+
+        except Exception as exc:
+            _logger.exception(
+                "[vegeta][job=%s] GENERATE-STAGE failed after %.1fs",
+                record_id, time.monotonic() - _t0,
+            )
+            try:
+                fail_vals = {
+                    "state": "failed",
+                    "error_message": str(exc)[:500],
+                    "completed_at": fields.Datetime.now(),
+                }
+                if llm_trace:
+                    fail_vals["llm_trace_json"] = llm_trace
+                self._write_with_cursor(db_name, record_id, fail_vals)
+            except Exception:
+                _logger.error("[vegeta][job=%s] failed to mark as failed", record_id)
+
+    def _run_qc_stage_bg(self, db_name, record_id):
+        """Background (staged): run QC on the existing PRD, then complete (Done).
+
+        Same QC logic as _run_qc_only_bg, but as the terminal stage of a staged
+        run it stamps completed_at + duration_seconds.
+        """
+        from ..services.qc_service import run_qc
+
+        _t0 = time.monotonic()
+        _logger.info(
+            "[vegeta][job=%s] QC-STAGE worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
+        try:
+            with _HeartbeatTicker(self, db_name, record_id, interval=60):
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if not record.exists():
+                        return
+
+                    ICP = env["ir.config_parameter"].sudo()
+                    config = {
+                        "inference_arn": ICP.get_param("vegeta.bedrock_inference_arn"),
+                        "region": ICP.get_param("vegeta.bedrock_region") or "us-east-1",
+                        "bedrock_access_key": ICP.get_param("vegeta.bedrock_access_key_id"),
+                        "bedrock_secret_key": ICP.get_param("vegeta.bedrock_secret_access_key"),
+                        "s3_bucket": ICP.get_param("vegeta.s3_bucket"),
+                        "s3_key_id": ICP.get_param("vegeta.s3_access_key_id"),
+                        "s3_secret": ICP.get_param("vegeta.s3_secret_access_key"),
+                        "s3_region": ICP.get_param("vegeta.s3_region"),
+                        "s3_endpoint_url": ICP.get_param("vegeta.s3_endpoint_url") or "",
+                    }
+                    job_data = {
+                        "prd_text": record.prd_text,
+                        "category_name": record.category_id.name if record.category_id else "Normal Website",
+                        "url": record.url,
+                        "site_discovery_json": record.site_discovery_json,
+                        "screenshot_keys": record.screenshot_keys or [],
+                        "started_at": record.started_at,
+                    }
+                    qc_prompt = record._get_qc_system_prompt()
+
+                extraction_artifacts = {}
+                if job_data["site_discovery_json"]:
+                    extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
+
+                screenshot_blocks = []
+                if job_data["screenshot_keys"] and config["s3_bucket"]:
+                    from ..services.s3_service import download_file_from_s3
+                    import base64 as b64
+                    MAX_SCREENSHOTS = 5
+                    MAX_IMG_BYTES = 3_500_000
+                    total_bytes = 0
+                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                        try:
+                            img_bytes = download_file_from_s3(
+                                key=key, bucket=config["s3_bucket"],
+                                access_key_id=config["s3_key_id"],
+                                secret_key=config["s3_secret"],
+                                region=config["s3_region"],
+                                endpoint_url=config["s3_endpoint_url"],
+                            )
+                            if len(img_bytes) > MAX_IMG_BYTES:
+                                continue
+                            ext = key.rsplit(".", 1)[-1].lower()
+                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
+                            total_bytes += len(img_bytes)
+                            if total_bytes > 20_000_000:
+                                break
+                            screenshot_blocks.append({
+                                "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
+                            })
+                        except Exception:
+                            pass
+
+                qc_result = run_qc(
+                    prd_text=job_data["prd_text"],
+                    extraction_data=extraction_artifacts,
+                    site_discovery=job_data["site_discovery_json"] or {},
+                    url=job_data["url"],
+                    category=job_data["category_name"],
+                    inference_arn=config["inference_arn"],
+                    region=config["region"],
+                    access_key_id=config["bedrock_access_key"],
+                    secret_access_key=config["bedrock_secret_key"],
+                    qc_system_prompt=qc_prompt,
+                    screenshot_blocks=screenshot_blocks,
+                )
+
+                started = job_data["started_at"]
+                duration = (
+                    (fields.Datetime.now() - started).total_seconds()
+                    if started else 0
+                )
+                self._write_with_cursor(db_name, record_id, {
+                    "state": "done",
+                    "qc_verdict": qc_result["verdict"],
+                    "qc_report": qc_result["report"],
+                    "completed_at": fields.Datetime.now(),
+                    "duration_seconds": duration,
+                })
+                _logger.info(
+                    "[vegeta][job=%s] QC-STAGE complete in %.1fs — verdict=%s",
+                    record_id, time.monotonic() - _t0, qc_result["verdict"],
+                )
+
+        except Exception as exc:
+            _logger.exception(
+                "[vegeta][job=%s] QC-STAGE failed after %.1fs",
+                record_id, time.monotonic() - _t0,
+            )
+            self._write_with_cursor(db_name, record_id, {
+                "state": "done",
+                "qc_verdict": "not_shippable",
+                "qc_report": f"QC stage error: {exc}",
+                "error_message": f"QC failed: {exc}",
+                "completed_at": fields.Datetime.now(),
             })
 
     def action_download_zip(self):
@@ -2112,11 +2806,21 @@ class VegetaJob(models.Model):
 
             if not result.get("success"):
                 error_msg = result.get("error", "Extraction Lambda invoke failed")
+                _logger.error(
+                    "[vegeta][job=%s] extraction Lambda invoke REJECTED by "
+                    "AWS — marking failed: %s", record_id, error_msg[:300],
+                )
                 self._write_with_cursor(db_name, record_id, {
                     "state": "failed",
                     "error_message": error_msg[:500],
                     "completed_at": fields.Datetime.now(),
                 })
+            else:
+                _logger.info(
+                    "[vegeta][job=%s] extraction Lambda invoke ACCEPTED by "
+                    "AWS (request_id=%s) — awaiting callback",
+                    record_id, result.get("request_id", ""),
+                )
 
         except Exception as exc:
             _logger.exception(
@@ -2136,13 +2840,38 @@ class VegetaJob(models.Model):
     # ------------------------------------------------------------------
 
     def _run_prd_generation_bg(self, db_name, record_id):
+        """Background: generate PRD via Bedrock, score, QC.
+
+        Thin wrapper — registers the job with the shared heartbeat manager
+        for the full lifetime of the run, then delegates to the impl.
+        """
+        with _HeartbeatTicker(self, db_name, record_id, interval=60):
+            self._run_prd_generation_bg_impl(db_name, record_id)
+
+    def _run_prd_generation_bg_impl(self, db_name, record_id):
         """Background: generate PRD via Bedrock, score, iterate, QC."""
         from ..services.bedrock_service import generate_prd
         from ..services.scoring_service import score_prd
         from ..services.s3_service import upload_prd_to_s3
 
+        # Wall-clock anchor for the whole PRD-gen pipeline. Every phase log
+        # below reports `+Ns` elapsed from here, so a stuck job's last log
+        # line tells you exactly which phase it hung in.
+        _t0 = time.monotonic()
+
+        def _elapsed():
+            return time.monotonic() - _t0
+
+        _logger.info(
+            "[vegeta][job=%s] PRD-GEN worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
         try:
             # === PHASE 1: Read config and extraction data ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 1 (+%.1fs): reading config + "
+                "extraction data", record_id, _elapsed(),
+            )
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
@@ -2208,6 +2937,10 @@ class VegetaJob(models.Model):
                 cr.commit()
 
             # === PHASE 2: LLM generation ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): downloading screenshots "
+                "+ building Bedrock request", record_id, _elapsed(),
+            )
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
             screenshot_blocks = []
@@ -2290,6 +3023,12 @@ class VegetaJob(models.Model):
             # Single generation: regeneration is a separate QC-feedback action,
             # so the old 3x score-improvement loop only wasted Bedrock tokens.
             # generate_prd retries internally; a hard failure raises to PHASE 4.
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): calling Bedrock for PRD "
+                "generation (%d screenshot(s))",
+                record_id, _elapsed(), len(screenshot_blocks),
+            )
+            _bedrock_t0 = time.monotonic()
             prd_text = generate_prd(
                 inference_arn=config["inference_arn"],
                 region=config["region"],
@@ -2297,6 +3036,12 @@ class VegetaJob(models.Model):
                 messages=messages,
                 access_key_id=config["bedrock_access_key"],
                 secret_access_key=config["bedrock_secret_key"],
+            )
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): Bedrock PRD returned in "
+                "%.1fs — %d chars",
+                record_id, _elapsed(), time.monotonic() - _bedrock_t0,
+                len(prd_text or ""),
             )
 
             score_report = score_prd(
@@ -2342,6 +3087,10 @@ class VegetaJob(models.Model):
             )
 
             # === PHASE 3: QC ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 3 (+%.1fs): starting QC",
+                record_id, _elapsed(),
+            )
             # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
             # call; without this pulse the gap from the last PRD-gen attempt
             # to PHASE 4's final write was fully unmonitored — long QC calls
@@ -2390,6 +3139,10 @@ class VegetaJob(models.Model):
             }
 
             # === PHASE 4: Write final results ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 4 (+%.1fs): writing final results",
+                record_id, _elapsed(),
+            )
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
@@ -2437,8 +3190,16 @@ class VegetaJob(models.Model):
 
                 cr.commit()
 
+            _logger.info(
+                "[vegeta][job=%s] PRD-GEN PIPELINE COMPLETE in %.1fs — "
+                "score=%s qc=%s", record_id, _elapsed(), best_score, qc_verdict,
+            )
+
         except Exception as exc:
-            _logger.exception("[vegeta][job=%s] PRD generation failed", record_id)
+            _logger.exception(
+                "[vegeta][job=%s] PRD generation FAILED at +%.1fs: %s",
+                record_id, _elapsed(), exc,
+            )
             try:
                 fail_vals = {
                     "state": "failed",
@@ -2463,6 +3224,14 @@ class VegetaJob(models.Model):
             env = api.Environment(cr, SUPERUSER_ID, {})
             record = env[self._name].browse(record_id)
             if record.exists():
+                if "state" in vals:
+                    # Every background state transition flows through here —
+                    # log it so a job's full state history is reconstructable
+                    # from grep alone.
+                    _logger.info(
+                        "[vegeta][job=%s] state %s -> %s (bg write)",
+                        record_id, record.state, vals["state"],
+                    )
                 record.write(vals)
                 if "state" in vals:
                     try:
@@ -2473,6 +3242,12 @@ class VegetaJob(models.Model):
                         )
                     except Exception:
                         pass
+            else:
+                _logger.warning(
+                    "[vegeta][job=%s] _write_with_cursor: record no longer "
+                    "exists — write of %s dropped",
+                    record_id, sorted(vals.keys()),
+                )
             cr.commit()
 
     def _build_feedback(self, score_report):
@@ -2505,6 +3280,54 @@ class VegetaJob(models.Model):
     # Cron: Watchdog
     # ------------------------------------------------------------------
 
+    def _watchdog_restage(self):
+        """Re-dispatch the stuck stage of a staged (auto_continue=False) job.
+
+        generating -> re-run _run_generate_only_bg; qc_running -> re-run
+        _run_qc_stage_bg. The job keeps auto_continue=False so it re-parks
+        after the stage instead of cascading. This preserves the per-stage
+        gating the tasker chose, rather than failing the job outright.
+        """
+        self.ensure_one()
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        if self.state == "generating":
+            self.write({
+                "score": False,
+                "grade": False,
+                "qc_verdict": False,
+                "prd_text": False,
+                "prd_text_html": False,
+                "qc_report": False,
+                "score_report_json": False,
+                "prd_url": False,
+                "llm_attempts": 0,
+                "llm_trace_json": False,
+                "error_message": False,
+                "cancel_requested": False,
+                "completed_at": False,
+                "last_heartbeat": fields.Datetime.now(),
+                "started_processing_at": False,
+            })
+            self.env.cr.postcommit.add(
+                lambda: _submit_bg(
+                    f"prd-gen-stage[job={record_id}](wd-auto-retry)",
+                    self._run_generate_only_bg, db_name, record_id,
+                )
+            )
+        else:
+            self.write({
+                "error_message": False,
+                "cancel_requested": False,
+                "last_heartbeat": fields.Datetime.now(),
+            })
+            self.env.cr.postcommit.add(
+                lambda: _submit_bg(
+                    f"qc-stage[job={record_id}](wd-auto-retry)",
+                    self._run_qc_stage_bg, db_name, record_id,
+                )
+            )
+
     def _cron_watchdog_stuck_jobs(self):
         """Recover tasks stuck in intermediate states beyond timeout thresholds."""
         self.env.cr.execute("SELECT pg_try_advisory_lock(987654321)")
@@ -2521,6 +3344,20 @@ class VegetaJob(models.Model):
         )
 
         try:
+            # System-state heartbeat: one line per cron tick with the live
+            # count of jobs in each running state — the cheapest way to watch
+            # a backlog build. If `generating` climbs tick over tick while
+            # `done` stays flat, the PRD pool is not draining.
+            counts = {}
+            for st in ("extracting", "generating", "scoring", "qc_running"):
+                counts[st] = self.search_count([("state", "=", st)])
+            _logger.info(
+                "[vegeta] watchdog tick: extracting=%d generating=%d "
+                "scoring=%d qc_running=%d (thresholds: extract>%dmin generate>%dmin)",
+                counts["extracting"], counts["generating"], counts["scoring"],
+                counts["qc_running"], extracting_threshold, generating_threshold,
+            )
+
             stale_extracting = self.search([
                 ("state", "=", "extracting"),
                 (
@@ -2545,7 +3382,7 @@ class VegetaJob(models.Model):
             # Without this guard, a 150-job batch on a 50-worker pool
             # false-fails the 20-30 tail jobs that are simply queued.
             stale_generating = self.search([
-                ("state", "in", ("generating", "scoring")),
+                ("state", "in", ("generating", "scoring", "qc_running")),
                 ("started_processing_at", "!=", False),
                 (
                     "last_heartbeat",
@@ -2556,13 +3393,47 @@ class VegetaJob(models.Model):
             for job in stale_generating:
                 _logger.warning(
                     "[vegeta][job=%s] watchdog: stuck in %s >%dmin "
-                    "(started_processing_at=%s, last_heartbeat=%s) — marking failed",
+                    "(started_processing_at=%s, last_heartbeat=%s)",
                     job.name, job.state, generating_threshold,
                     job.started_processing_at, job.last_heartbeat,
                 )
-                job._mark_failed(
-                    f"Watchdog: {job.state} timed out "
-                    f"(no progress for {generating_threshold}+ minutes)"
+                # Staged manual jobs stay in manual mode through recovery:
+                # re-run only the stuck stage and re-park, instead of failing
+                # (which would discard the per-stage gating the tasker chose).
+                if not job.auto_continue and job.state in ("generating", "qc_running"):
+                    job._watchdog_restage()
+                else:
+                    job._mark_failed(
+                        f"Watchdog: {job.state} timed out "
+                        f"(no progress for {generating_threshold}+ minutes)"
+                    )
+
+            # Orphan diagnostic (logging only, no recovery). Jobs in
+            # generating/scoring with started_processing_at unset were NEVER
+            # picked up by a PRD worker — they sit in an in-process
+            # ThreadPoolExecutor queue. The recovery query above deliberately
+            # SKIPS them to avoid false-failing a legitimate backlog, but that
+            # same guard means a job whose pool process was recycled while
+            # queued is never recovered. Surface them: anything here past the
+            # generating threshold is almost certainly orphaned.
+            orphaned = self.search([
+                ("state", "in", ("generating", "scoring")),
+                ("started_processing_at", "=", False),
+                (
+                    "last_heartbeat",
+                    "<",
+                    fields.Datetime.now() - timedelta(minutes=generating_threshold),
+                ),
+            ])
+            if orphaned:
+                _logger.error(
+                    "[vegeta] watchdog: %d job(s) ORPHANED in generating/"
+                    "scoring with started_processing_at unset for >%dmin — "
+                    "their PRD worker was never reached (pool process likely "
+                    "recycled). The watchdog CANNOT auto-recover these; they "
+                    "need a manual Retry/reset. Job names: %s",
+                    len(orphaned), generating_threshold,
+                    orphaned.mapped("name"),
                 )
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(987654321)")

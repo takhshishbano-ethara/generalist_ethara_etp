@@ -148,6 +148,7 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
+    @api.depends("vegeta_prd_prompt_filename", "vegeta_qc_prompt_filename")
     def _compute_vegeta_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = ICP.get_param("vegeta.prd_system_prompt", "")
