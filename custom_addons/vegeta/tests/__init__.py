@@ -4,6 +4,7 @@ from . import test_qc_service
 from . import test_extraction_service
 from . import test_vegeta_job_model
 from . import test_vegeta_job_actions
+from . import test_staged_pipeline
 from . import test_vegeta_job_compute
 from . import test_prd_generation
 from . import test_controller_webhook
