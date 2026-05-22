@@ -198,25 +198,20 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
     if not litellm_key:
         litellm_key = "sk-kensei2-%s" % secrets.token_hex(8)
 
-    # basePath tells the OpenClaw Control UI which URL prefix it is mounted
-    # under, so it can resolve assets AND derive its own WebSocket URL when
-    # served behind the ws-router reverse proxy. It must be the FULL public
-    # prefix the browser uses to reach this pod's gateway — i.e. it includes
-    # the per-sandbox "/sandbox/<id>" segment, because the dashboard URL is
-    # https://<host><prefix>/sandbox/<id>/ and the WS URL is the same path
-    # with a wss:// scheme. A prefix-only value would make the Control UI
-    # build wss://<host><prefix>/ and miss the pod.
-    #
-    # Do NOT add a "publicWsUrl" key here: it is not in the OpenClaw config
-    # schema, and the schema is validated in strict mode — one unknown key
-    # rejects the whole config and crashes the gateway (the "Pod crash fix").
-    _base_path = ""
-    if sandbox_id and ws_router_host and "/" in ws_router_host:
-        _, _path_part = ws_router_host.split("/", 1)
-        _prefix = "/" + _path_part.strip("/")
-        _base_path = "%s/sandbox/%s" % (_prefix, sandbox_id)
-    elif sandbox_id and ws_router_host:
-        _base_path = "/sandbox/%s" % sandbox_id
+    # NOTE on controlUi below: it intentionally has neither "publicWsUrl"
+    # nor "basePath".
+    #   - "publicWsUrl" is NOT in the OpenClaw config schema. The schema is
+    #     validated in strict mode, so one unknown key rejects the whole
+    #     config and crash-loops the gateway pod (this was the "Pod crash
+    #     fix"). Never add it back.
+    #   - "basePath" tells the gateway it is served under a URL prefix. But
+    #     WS_ROUTER_NGINX_CONF strips "/sandbox/<id>" before the request
+    #     reaches the gateway, so the gateway already serves at "/". Setting
+    #     basePath here would make it serve the Control UI under a prefix
+    #     nginx never delivers -> 404. Do not add it without first verifying
+    #     against the ws-router routing.
+    # The dashboard "Could not connect (1006)" error is the Control UI
+    # dialing the wrong WS URL client-side, not a gateway config problem.
 
     config_dict = {
         "gateway": {

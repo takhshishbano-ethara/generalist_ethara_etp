@@ -1725,6 +1725,8 @@ class Kensei2Sandbox(models.Model):
         "docker_port", "docker_gateway_token", "docker_status", "docker_compose_project"
     )
     def _compute_dashboard_url(self):
+        import urllib.parse
+
         for rec in self:
             if rec.docker_status != "running" or not rec.docker_gateway_token:
                 rec.docker_dashboard_url = False
@@ -1739,10 +1741,21 @@ class Kensei2Sandbox(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
-                        ws_host,
-                        rec.id,
-                        rec.docker_gateway_token,
+                    # The Control UI cannot derive its own WebSocket URL when
+                    # served behind the ws-router prefix: the gateway runs
+                    # with no basePath (see kensei2_sandbox_k8s.py). Without
+                    # help it dials the wrong target and the dashboard fails
+                    # with "disconnected (1006)". Pass the WS endpoint
+                    # explicitly via ?gatewayUrl= so the UI dials it verbatim.
+                    ws_url = "wss://%s/sandbox/%s/" % (ws_host, rec.id)
+                    rec.docker_dashboard_url = (
+                        "https://%s/sandbox/%s/?gatewayUrl=%s#token=%s"
+                        % (
+                            ws_host,
+                            rec.id,
+                            urllib.parse.quote(ws_url, safe=""),
+                            rec.docker_gateway_token,
+                        )
                     )
                 else:
                     svc_name = "kensei2-sandbox-%s" % rec.id
