@@ -75,13 +75,16 @@ def _call_bedrock_bearer(
     }
 
     _logger.info(
-        "Calling Bedrock Converse (bearer): model=%s, region=%s, messages=%d, max_tokens=%d",
+        "[vegeta] Calling Bedrock Converse (bearer): model=%s, region=%s, messages=%d, max_tokens=%d",
         inference_arn,
         region,
         len(messages),
         max_tokens,
     )
 
+    # Anchor for the Bedrock round-trip — the success/failure lines below
+    # report elapsed from here. A bearer call with no follow-up line is hung.
+    _bedrock_t0 = time.monotonic()
     last_exc = None
     for attempt in range(2):
         try:
@@ -91,7 +94,8 @@ def _call_bedrock_bearer(
             if resp.status_code == 200:
                 data = resp.json()
                 _logger.info(
-                    "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+                    "[vegeta] Bedrock response (bearer) in %.1fs: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+                    time.monotonic() - _bedrock_t0,
                     data.get("usage", {}).get("inputTokens", 0),
                     data.get("usage", {}).get("outputTokens", 0),
                     data.get("stopReason", "unknown"),
@@ -194,13 +198,17 @@ def generate_prd(
             bedrock_messages.append({"role": msg["role"], "content": [{"text": str(content)}]})
 
     _logger.info(
-        "Calling Bedrock Converse: model=%s, region=%s, messages=%d, max_tokens=%d",
+        "[vegeta] Calling Bedrock Converse: model=%s, region=%s, messages=%d, max_tokens=%d",
         inference_arn,
         region,
         len(messages),
         max_tokens,
     )
 
+    # Anchor for the Bedrock round-trip. This SigV4 path is the single longest
+    # external call in PRD generation — the "Bedrock response" line reports
+    # elapsed; its absence for a job means the call is still hung here.
+    _bedrock_t0 = time.monotonic()
     try:
         response = client.converse(
             modelId=inference_arn,
@@ -213,7 +221,8 @@ def generate_prd(
         )
 
         _logger.info(
-            "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+            "[vegeta] Bedrock response in %.1fs: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+            time.monotonic() - _bedrock_t0,
             response.get("usage", {}).get("inputTokens", 0),
             response.get("usage", {}).get("outputTokens", 0),
             response.get("stopReason", "unknown"),
@@ -222,17 +231,26 @@ def generate_prd(
         return response["output"]["message"]["content"][0]["text"]
 
     except ReadTimeoutError as exc:
-        _logger.error("Bedrock API timeout after %ds: %s", DEFAULT_TIMEOUT, exc)
+        _logger.error(
+            "[vegeta] Bedrock API timeout after %ds (waited %.1fs): %s",
+            DEFAULT_TIMEOUT, time.monotonic() - _bedrock_t0, exc,
+        )
         raise RuntimeError(
             f"Bedrock API timeout after {DEFAULT_TIMEOUT}s: {exc}"
         ) from exc
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code", "unknown")
         error_msg = exc.response.get("Error", {}).get("Message", str(exc))
-        _logger.error("Bedrock API error [%s]: %s", error_code, error_msg)
+        _logger.error(
+            "[vegeta] Bedrock API error [%s] after %.1fs: %s",
+            error_code, time.monotonic() - _bedrock_t0, error_msg,
+        )
         raise RuntimeError(
             f"Bedrock API error [{error_code}]: {error_msg}"
         ) from exc
     except Exception as exc:
-        _logger.error("Bedrock API call failed: %s", exc)
+        _logger.error(
+            "[vegeta] Bedrock API call failed after %.1fs: %s",
+            time.monotonic() - _bedrock_t0, exc, exc_info=True,
+        )
         raise RuntimeError(f"Bedrock API call failed: {exc}") from exc
