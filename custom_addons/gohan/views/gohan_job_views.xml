@@ -144,7 +144,7 @@
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state == 'extracted'" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
+                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state in ('extracted','generated','scored')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
                 <field name="qc_verdict"/>
                 <field name="user_id" widget="many2one_avatar_user"/>
                 <field name="create_date"/>
@@ -162,7 +162,7 @@
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state == 'extracted'" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
+                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-warning="state in ('extracted','generated','scored')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
                 <field name="qc_verdict"/>
                 <field name="create_date"/>
             </list>
@@ -204,10 +204,26 @@
                             help="Spec-compliant trigger: POST /run with X-Api-Key. Configure gohan.lambda_api_url + gohan.lambda_api_key first. Hidden when the task already has pipeline data — use Rerun Pipeline instead."/>
 
                     <!-- EXTRACTED: manual review gate — tasker triggers PRD generation -->
+                    <!-- "Generate PRD" runs the whole rest (generate→score→QC→done). -->
                     <button name="action_generate_prd" type="object"
                             string="Generate PRD" class="oe_highlight"
                             invisible="state != 'extracted'"
                             help="Review the extraction assets in the Extraction Review tab, then generate the PRD from the ticked assets."/>
+
+                    <!-- Staged run: step through Generate → Score → Run QC one
+                         stage at a time, each pausing for review. -->
+                    <button name="action_stage_generate" type="object"
+                            string="Generate" class="btn-primary"
+                            invisible="state != 'extracted'"
+                            help="Staged run: generate the PRD only, then pause at 'Generated' for you to Score."/>
+                    <button name="action_stage_score" type="object"
+                            string="Score" class="oe_highlight"
+                            invisible="state != 'generated'"
+                            help="Score the generated PRD against the rubric, then pause at 'Scored'."/>
+                    <button name="action_stage_qc" type="object"
+                            string="Run QC" class="oe_highlight"
+                            invisible="state != 'scored'"
+                            help="Run QC on the scored PRD, then complete the job."/>
 
                     <!-- DONE: Primary actions -->
                     <button name="action_download_zip" type="object"
@@ -234,11 +250,11 @@
                             invisible="state == 'discarded'"
                             confirm="Discard this task as unusable? Terminal — but it can be brought back via Assign."/>
 
-                    <!-- CANCEL: only while running (extracting / generating / scoring) -->
+                    <!-- CANCEL / RESET: while running OR parked mid-staged-run -->
                     <button name="action_cancel" type="object"
-                            string="Cancel"
-                            invisible="state not in ('extracting','generating','scoring')"
-                            confirm="Stop this running task and return it to Draft?"/>
+                            string="Cancel / Reset"
+                            invisible="state not in ('extracting','generating','scoring','generated','scored')"
+                            confirm="Stop this task and return it to Draft?"/>
 
                     <!-- ASSIGN: bring a discarded task back as a Draft -->
                     <button name="action_reopen" type="object"
@@ -250,7 +266,7 @@
                             invisible="not is_admin or state not in ('draft', 'done', 'failed')"
                             confirm="Release this task back to the unassigned pool?"/>
 
-                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,extracted,generating,scoring,done,submitted"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,extracted,generating,generated,scoring,scored,done,submitted"/>
                 </header>
 
                 <!-- Pipeline progress (timing indicator) -->
