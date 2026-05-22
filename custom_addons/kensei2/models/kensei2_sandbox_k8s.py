@@ -198,16 +198,25 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
     if not litellm_key:
         litellm_key = "sk-kensei2-%s" % secrets.token_hex(8)
 
+    # basePath tells the OpenClaw Control UI which URL prefix it is mounted
+    # under, so it can resolve assets AND derive its own WebSocket URL when
+    # served behind the ws-router reverse proxy. It must be the FULL public
+    # prefix the browser uses to reach this pod's gateway — i.e. it includes
+    # the per-sandbox "/sandbox/<id>" segment, because the dashboard URL is
+    # https://<host><prefix>/sandbox/<id>/ and the WS URL is the same path
+    # with a wss:// scheme. A prefix-only value would make the Control UI
+    # build wss://<host><prefix>/ and miss the pod.
+    #
+    # Do NOT add a "publicWsUrl" key here: it is not in the OpenClaw config
+    # schema, and the schema is validated in strict mode — one unknown key
+    # rejects the whole config and crashes the gateway (the "Pod crash fix").
     _base_path = ""
-    _public_ws_url = ""
     if sandbox_id and ws_router_host and "/" in ws_router_host:
-        _hostname, _path_part = ws_router_host.split("/", 1)
+        _, _path_part = ws_router_host.split("/", 1)
         _prefix = "/" + _path_part.strip("/")
         _base_path = "%s/sandbox/%s" % (_prefix, sandbox_id)
-        _public_ws_url = "wss://%s%s/sandbox/%s/" % (_hostname, _prefix, sandbox_id)
     elif sandbox_id and ws_router_host:
         _base_path = "/sandbox/%s" % sandbox_id
-        _public_ws_url = "wss://%s/sandbox/%s/" % (ws_router_host, sandbox_id)
 
     config_dict = {
         "gateway": {
@@ -232,6 +241,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
                     "http://0.0.0.0:18789",
                 ],
                 "dangerouslyDisableDeviceAuth": True,
+                **({"basePath": _base_path} if _base_path else {}),
             },
             "http": {
                 "endpoints": {
