@@ -5336,26 +5336,6 @@ class Kensei2Sandbox(models.Model):
 
     @api.model
     def _cron_reconcile(self):
-        """Periodic k8s sandbox status reconciliation.
-
-        Conflict-avoidance design — the cron used to lose SQLSTATE 40001
-        ("could not serialize access") races against batch-deploy workers
-        writing the same sandbox rows:
-
-        1. Ownership partition — sandboxes whose task is mid-batch are
-           skipped, because the batch worker is their authoritative
-           writer. This is *per-task*: unrelated sandboxes (single
-           starts, leftovers from finished runs) are still reconciled, so
-           the safety net keeps working. It is NOT a global kill-switch
-           (an earlier version skipped the whole cron whenever any batch
-           ran anywhere, which stranded healthy pods at "starting").
-        2. The slow k8s status probe runs OUTSIDE any write transaction;
-           only the resulting one-row write is transactional, keeping the
-           row-lock window down to milliseconds.
-        3. Each write goes through `_retry_with_cursor` in its own short
-           transaction, so a residual conflict is retried with jittered
-           back-off and never aborts its siblings.
-        """
         mode = (
             self.env["ir.config_parameter"]
             .sudo()
@@ -5365,20 +5345,11 @@ class Kensei2Sandbox(models.Model):
         if mode != "k8s":
             return
 
-        # Ownership partition: leave batch-owned sandboxes to their
-        # batch-deploy workers (avoids the cron-vs-worker write race).
-        batch_active_states = ("starting", "ready", "running", "stopping")
-        active_task_ids = (
-            self.env["kensei2.kensei2"]
-            .sudo()
-            .search([("batch_status", "in", batch_active_states)])
+        sandbox_ids = (
+            self.sudo()
+            .search([("docker_status", "in", ["starting", "running"])])
             .ids
         )
-        domain = [("docker_status", "in", ["starting", "running"])]
-        if active_task_ids:
-            domain.append(("kensei2_id", "not in", active_task_ids))
-
-        sandbox_ids = self.sudo().search(domain).ids
         if not sandbox_ids:
             return
 
