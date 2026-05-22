@@ -72,7 +72,6 @@ class OpenClawClient:
         self._tool_calls: list = []
         self._response_future = None  # asyncio.Future[OpenClawResponse]
         self._stop_event = None  # asyncio.Event
-        self._last_session_id = None  # set from chat.send RPC response
 
     # ------------------------------------------------------------------
     # ID generation
@@ -126,7 +125,8 @@ class OpenClawClient:
         loop = self._require_loop()
 
         fut = asyncio.run_coroutine_threadsafe(self._async_send_message(text, attachments), loop)
-        fut.result(timeout=30)
+        # Wait briefly for the send to complete (network write)
+        fut.result(timeout=10)
 
     def send_message_with_file_ids(self, text, file_ids, env):
         """Resolve ir.attachment file_ids to base64 and send via chat.send."""
@@ -155,50 +155,12 @@ class OpenClawClient:
         except TimeoutError:
             raise OpenClawTimeoutError(f"Response not received within {timeout}s")
 
-    def list_sessions(self):
-        """Send sessions.list RPC, return the sessions list."""
-        if not self._connected.is_set():
-            raise OpenClawError("Not connected")
-        loop = self._require_loop()
-
-        fut = asyncio.run_coroutine_threadsafe(self._async_list_sessions(), loop)
-        return fut.result(timeout=15)
-
     def fetch_history(self, limit=1000):
         if not self._connected.is_set():
             raise OpenClawError("Not connected")
         loop = self._require_loop()
 
-        session_id = self._last_session_id
-        if session_id:
-            self._log.info(
-                "Using sessionId from chat.send: %s", session_id,
-            )
-        else:
-            try:
-                sessions = self.list_sessions()
-                if isinstance(sessions, list):
-                    for s in sessions:
-                        key = s.get("key") or s.get("sessionKey") or ""
-                        if key == self._session_key:
-                            session_id = s.get("id") or s.get("sessionId")
-                            self._log.info(
-                                "Discovered Odoo session: key=%s id=%s", key, session_id,
-                            )
-                            break
-                    if session_id is None:
-                        self._log.warning(
-                            "Odoo session key %s not found in %d sessions; keys=%s",
-                            self._session_key,
-                            len(sessions),
-                            [s.get("key") or s.get("sessionKey", "?") for s in sessions[:10]],
-                        )
-            except Exception as e:
-                self._log.warning("sessions.list failed: %s", e)
-
-        fut = asyncio.run_coroutine_threadsafe(
-            self._async_fetch_history(limit, session_id=session_id), loop,
-        )
+        fut = asyncio.run_coroutine_threadsafe(self._async_fetch_history(limit), loop)
         return fut.result(timeout=35)
 
     def disconnect(self):
@@ -625,43 +587,20 @@ class OpenClawClient:
         }
         if attachments:
             params["attachments"] = attachments
-        msg_id = self._next_id()
         msg = {
             "type": "req",
-            "id": msg_id,
+            "id": self._next_id(),
             "method": "chat.send",
             "params": params,
         }
-
+        # Reset response state
         self._stream_buf = ""
         self._tool_calls = []
         self._response_future = loop.create_future()
 
-        send_future = loop.create_future()
-        self._pending_rpcs[msg_id] = send_future
-
         truncated = text[:200] + ("..." if len(text) > 200 else "")
         self._log.info("Sending message: %s (attachments=%d)", truncated, len(attachments or []))
         await ws.send(json.dumps(msg))
-
-        try:
-            frame = await asyncio.wait_for(send_future, timeout=15)
-            result = frame.get("result", {})
-            if isinstance(result, dict):
-                sid = result.get("sessionId") or result.get("session_id") or ""
-                if sid:
-                    self._last_session_id = sid
-                    self._log.info("chat.send returned sessionId=%s", sid)
-                else:
-                    self._log.warning(
-                        "chat.send response has no sessionId: %s",
-                        json.dumps(result)[:500],
-                    )
-        except asyncio.TimeoutError:
-            self._pending_rpcs.pop(msg_id, None)
-            self._log.warning("chat.send RPC timed out — session discovery may be needed")
-        except OpenClawError as e:
-            self._log.error("chat.send RPC failed: %s", e)
 
     async def _async_wait_for_response(self, timeout):
         if not self._response_future:
@@ -671,62 +610,25 @@ class OpenClawClient:
         except asyncio.TimeoutError:
             raise OpenClawTimeoutError(f"Response not received within {timeout}s")
 
-    async def _async_list_sessions(self):
+    async def _async_fetch_history(self, limit):
         loop = asyncio.get_running_loop()
         ws = self._ws
         if ws is None:
             raise OpenClawError("WebSocket not available")
         msg_id = self._next_id()
-        msg = {
-            "type": "req",
-            "id": msg_id,
-            "method": "sessions.list",
-            "params": {},
-        }
-        future = loop.create_future()
-        self._pending_rpcs[msg_id] = future
-
-        self._log.info("Listing sessions")
-        await ws.send(json.dumps(msg))
-
-        try:
-            frame = await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError:
-            self._pending_rpcs.pop(msg_id, None)
-            raise OpenClawTimeoutError("sessions.list RPC timed out")
-
-        result = frame.get("result", {})
-        if isinstance(result, dict) and "sessions" in result:
-            return result["sessions"]
-        if isinstance(result, list):
-            return result
-        return result
-
-    async def _async_fetch_history(self, limit, session_id=None):
-        loop = asyncio.get_running_loop()
-        ws = self._ws
-        if ws is None:
-            raise OpenClawError("WebSocket not available")
-        msg_id = self._next_id()
-
-        params = {"limit": limit}
-        if session_id:
-            params["sessionId"] = session_id
-        else:
-            params["sessionKey"] = self._session_key
-
         msg = {
             "type": "req",
             "id": msg_id,
             "method": "chat.history",
-            "params": params,
+            "params": {
+                "sessionKey": self._session_key,
+                "limit": limit,
+            },
         }
         future = loop.create_future()
         self._pending_rpcs[msg_id] = future
 
-        self._log.info(
-            "Fetching chat history (limit=%d, session_id=%s)", limit, session_id or "key-based",
-        )
+        self._log.info("Fetching chat history (limit=%d)", limit)
         await ws.send(json.dumps(msg))
 
         try:
