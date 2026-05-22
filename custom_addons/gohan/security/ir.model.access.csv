@@ -1,5 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
-access_gohan_job_user,gohan.job.user,model_gohan_job,group_gohan_user,1,1,0,0
+access_gohan_job_user,gohan.job.user,model_gohan_job,group_gohan_user,1,1,1,0
 access_gohan_job_admin,gohan.job.admin,model_gohan_job,group_gohan_admin,1,1,1,1
 access_gohan_job_asset_user,gohan.job.asset.user,model_gohan_job_asset,group_gohan_user,1,1,1,1
 access_gohan_job_asset_admin,gohan.job.asset.admin,model_gohan_job_asset,group_gohan_admin,1,1,1,1

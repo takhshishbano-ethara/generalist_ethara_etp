@@ -18,7 +18,7 @@
               action="talos_persona_action_window" sequence="15"
               groups="etp_user_roles.group_quality_lead"/>
     <menuitem name="Taxonomy" id="talos.menu_talos_taxonomy" parent="talos.menu_talos_root"
-              action="taxonomy_action_window" sequence="30"
+              action="talos_taxonomy_action_window" sequence="30"
               groups="etp_user_roles.group_quality_lead"/>
     <menuitem name="Turns" id="talos.menu_talos_turns" parent="talos.menu_talos_root"
               action="talos_turn_action_window" sequence="25"

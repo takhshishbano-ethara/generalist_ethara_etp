@@ -155,13 +155,44 @@ class OpenClawClient:
         except TimeoutError:
             raise OpenClawTimeoutError(f"Response not received within {timeout}s")
 
+    def list_sessions(self):
+        """Send sessions.list RPC, return the sessions list."""
+        if not self._connected.is_set():
+            raise OpenClawError("Not connected")
+        loop = self._require_loop()
+
+        fut = asyncio.run_coroutine_threadsafe(self._async_list_sessions(), loop)
+        return fut.result(timeout=15)
+
     def fetch_history(self, limit=1000):
         """Send chat.history RPC, return the messages list."""
         if not self._connected.is_set():
             raise OpenClawError("Not connected")
         loop = self._require_loop()
 
-        fut = asyncio.run_coroutine_threadsafe(self._async_fetch_history(limit), loop)
+        session_id = None
+        try:
+            sessions = self.list_sessions()
+            if isinstance(sessions, list):
+                for s in sessions:
+                    key = s.get("key") or s.get("sessionKey") or ""
+                    if key == self._session_key:
+                        session_id = s.get("id") or s.get("sessionId")
+                        self._log.info(
+                            "Discovered Odoo session: key=%s id=%s", key, session_id,
+                        )
+                        break
+                if session_id is None:
+                    self._log.debug(
+                        "Odoo session key %s not found in %d sessions, using sessionKey fallback",
+                        self._session_key, len(sessions),
+                    )
+        except Exception as e:
+            self._log.debug("sessions.list failed, using sessionKey fallback: %s", e)
+
+        fut = asyncio.run_coroutine_threadsafe(
+            self._async_fetch_history(limit, session_id=session_id), loop,
+        )
         return fut.result(timeout=35)
 
     def disconnect(self):
@@ -611,7 +642,7 @@ class OpenClawClient:
         except asyncio.TimeoutError:
             raise OpenClawTimeoutError(f"Response not received within {timeout}s")
 
-    async def _async_fetch_history(self, limit):
+    async def _async_list_sessions(self):
         loop = asyncio.get_running_loop()
         ws = self._ws
         if ws is None:
@@ -620,16 +651,53 @@ class OpenClawClient:
         msg = {
             "type": "req",
             "id": msg_id,
-            "method": "chat.history",
-            "params": {
-                "sessionKey": self._session_key,
-                "limit": limit,
-            },
+            "method": "sessions.list",
+            "params": {},
         }
         future = loop.create_future()
         self._pending_rpcs[msg_id] = future
 
-        self._log.info("Fetching chat history (limit=%d)", limit)
+        self._log.info("Listing sessions")
+        await ws.send(json.dumps(msg))
+
+        try:
+            frame = await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            self._pending_rpcs.pop(msg_id, None)
+            raise OpenClawTimeoutError("sessions.list RPC timed out")
+
+        result = frame.get("result", {})
+        if isinstance(result, dict) and "sessions" in result:
+            return result["sessions"]
+        if isinstance(result, list):
+            return result
+        return result
+
+    async def _async_fetch_history(self, limit, session_id=None):
+        loop = asyncio.get_running_loop()
+        ws = self._ws
+        if ws is None:
+            raise OpenClawError("WebSocket not available")
+        msg_id = self._next_id()
+
+        params = {"limit": limit}
+        if session_id:
+            params["sessionId"] = session_id
+        else:
+            params["sessionKey"] = self._session_key
+
+        msg = {
+            "type": "req",
+            "id": msg_id,
+            "method": "chat.history",
+            "params": params,
+        }
+        future = loop.create_future()
+        self._pending_rpcs[msg_id] = future
+
+        self._log.info(
+            "Fetching chat history (limit=%d, session_id=%s)", limit, session_id or "key-based",
+        )
         await ws.send(json.dumps(msg))
 
         try:

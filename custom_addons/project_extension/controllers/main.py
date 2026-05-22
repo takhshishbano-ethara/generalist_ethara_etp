@@ -908,6 +908,7 @@ class ProjectController(http.Controller):
                         } for o in dim.option_ids],
                     } for dim in cat.dimension_ids],
                 } for cat in project.rubric_category_ids],
+                'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in project.api_map_ids]
             }
             return return_Response(
                 message="Success",

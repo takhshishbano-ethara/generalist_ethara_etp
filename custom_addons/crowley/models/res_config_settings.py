@@ -1,6 +1,7 @@
 import logging
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
 
 from . import credential_manager
 
@@ -77,6 +78,55 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="crowley.app_title",
         default="Ethara Crowley",
         help="X-Title header sent to OpenRouter.",
+    )
+
+    crowley_bedrock_region = fields.Char(
+        string="Bedrock AWS Region",
+        config_parameter="crowley.bedrock_region",
+        default="ap-south-1",
+        help="AWS region for Bedrock (enrichment + optional Bedrock-backed review).",
+    )
+    crowley_bedrock_model_id = fields.Char(
+        string="Enrichment Model ID (Bedrock)",
+        config_parameter="crowley.bedrock_model_id",
+        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        help="Bedrock modelId for ENRICHMENT. Target: Claude Sonnet 4.6 — "
+             "paste the exact ARN here when AWS publishes it. Falls back to "
+             "Claude 3.5 Sonnet so the pipeline runs out of the box.",
+    )
+    crowley_bedrock_max_retries = fields.Integer(
+        string="Bedrock Max Retries",
+        config_parameter="crowley.bedrock_max_retries",
+        default=5,
+    )
+    crowley_enrichment_max_attempts = fields.Integer(
+        string="Enrichment Max Attempts per Job",
+        config_parameter="crowley.enrichment_max_attempts",
+        default=3,
+    )
+    crowley_review_provider = fields.Selection(
+        [("openrouter", "OpenRouter (text-only review)"),
+         ("bedrock", "AWS Bedrock (multimodal Claude vision)")],
+        string="Video Review Provider",
+        config_parameter="crowley.review_provider",
+        default="openrouter",
+        help="OpenRouter routes the review to Kimi K2 (text-only — judges "
+             "the prompt contract, NOT the actual video frames). "
+             "Bedrock uses Claude vision with 20 extracted frames.",
+    )
+    crowley_openrouter_review_model_id = fields.Char(
+        string="Review Model ID (OpenRouter)",
+        config_parameter="crowley.openrouter_review_model_id",
+        default="moonshotai/kimi-k2-0905",
+        help="OpenRouter model slug for the review. Default: Kimi K2 (latest). "
+             "K2 is text-only; visual GV-* rules are marked N/A.",
+    )
+    crowley_bedrock_review_model_id = fields.Char(
+        string="Review Model ID (Bedrock)",
+        config_parameter="crowley.bedrock_review_model_id",
+        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        help="Bedrock modelId used when Review Provider is 'AWS Bedrock'. "
+             "Vision-capable Claude (3.5 / 4.x) recommended.",
     )
 
     # ── Generation defaults ───────────────────────────────────────────────
@@ -226,3 +276,15 @@ class ResConfigSettings(models.TransientModel):
         # S3 connector: store the id as a string, empty when cleared.
         sid = self.crowley_s3_connector_id.id if self.crowley_s3_connector_id else ""
         icp.set_param(_S3_CONNECTOR_PARAM, str(sid) if sid else "")
+
+    @api.constrains("crowley_bedrock_max_retries", "crowley_enrichment_max_attempts")
+    def _check_bedrock_limits(self):
+        for rec in self:
+            if not (1 <= rec.crowley_bedrock_max_retries <= 10):
+                raise ValidationError(_(
+                    "Bedrock Max Retries must be between 1 and 10."
+                ))
+            if not (1 <= rec.crowley_enrichment_max_attempts <= 5):
+                raise ValidationError(_(
+                    "Enrichment Max Attempts must be between 1 and 5."
+                ))

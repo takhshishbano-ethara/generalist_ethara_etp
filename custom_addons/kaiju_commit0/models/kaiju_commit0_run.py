@@ -312,46 +312,50 @@ class KaijuCommit0Run(models.Model):
             rec._fetch_logs_from_s3()
         return {"type": "ir.actions.client", "tag": "reload"}
 
+    def _parse_s3_log_location(self):
+        from odoo.exceptions import UserError
+
+        raw = (self.s3_log_prefix or "").strip()
+        if not raw:
+            raise UserError("No S3 log prefix set on this record.")
+
+        ICP = self.env["ir.config_parameter"].sudo()
+
+        if raw.startswith("s3://"):
+            rest = raw[5:]
+            if "/" not in rest:
+                raise UserError(f"Malformed S3 log prefix: {raw}")
+            bucket, prefix = rest.split("/", 1)
+        else:
+            bucket = ICP.get_param("kaiju.s3_log_bucket", "production-grtlabs-tag")
+            prefix = raw
+
+        if prefix and not prefix.endswith("/"):
+            prefix += "/"
+
+        region = ICP.get_param("kaiju.aws_region", "ap-south-1")
+        access_key = ICP.get_param("kaiju.aws_access_key_id", "") or None
+        secret_key = ICP.get_param("kaiju.aws_secret_access_key", "") or None
+
+        return bucket, prefix, region, access_key, secret_key
+
     def _fetch_logs_from_s3(self):
-        """Download step logs from S3 using the exit-hook convention.
+        from odoo.exceptions import UserError
 
-        Requires:
-            self.s3_log_prefix   e.g. ``s3://bucket/kaiju_logs/Repo/42/``
-            step.log_file        e.g. ``run-eval.log``  (relative to prefix)
-
-        Falls back to manifest.json in the prefix to discover steps when
-        the callback's ``steps[]`` payload was lost.
-        """
         self.ensure_one()
-        if not self.s3_log_prefix or not self.s3_log_prefix.startswith("s3://"):
-            return
+        bucket, prefix, region, access_key, secret_key = self._parse_s3_log_location()
+
+        _logger.info(
+            "Sync logs for %s: bucket=%s prefix=%s",
+            self.name,
+            bucket,
+            prefix,
+        )
 
         try:
             import boto3
         except ImportError:
-            _logger.error(
-                "boto3 missing in Odoo venv — cannot fetch S3 logs for %s",
-                self.name,
-            )
-            return
-
-        # Parse s3://bucket/prefix
-        rest = self.s3_log_prefix[5:]
-        if "/" not in rest:
-            _logger.warning(
-                "Malformed s3_log_prefix for %s: %s",
-                self.name,
-                self.s3_log_prefix,
-            )
-            return
-        bucket, prefix = rest.split("/", 1)
-        if prefix and not prefix.endswith("/"):
-            prefix += "/"
-
-        ICP = self.env["ir.config_parameter"].sudo()
-        region = ICP.get_param("kaiju.aws_region", "ap-south-1")
-        access_key = ICP.get_param("kaiju.aws_access_key_id", "") or None
-        secret_key = ICP.get_param("kaiju.aws_secret_access_key", "") or None
+            raise UserError("boto3 is not installed in the Odoo Python environment.")
 
         client_kwargs = {"region_name": region}
         if access_key and secret_key:
@@ -361,18 +365,26 @@ class KaijuCommit0Run(models.Model):
         try:
             s3 = boto3.client("s3", **client_kwargs)
         except Exception as e:
-            _logger.error("Failed to create S3 client for %s: %s", self.name, e)
-            return
+            raise UserError(f"Failed to create S3 client: {e}")
 
-        # If no steps exist yet, try manifest.json as fallback
         if not self.step_ids:
             self._discover_steps_from_manifest(s3, bucket, prefix)
 
+        steps_with_logfile = [s for s in self.step_ids if s.log_file]
+        if not steps_with_logfile:
+            raise UserError(
+                f"No steps with log files found.\n\n"
+                f"S3 prefix: s3://{bucket}/{prefix}\n"
+                f"Total steps: {len(self.step_ids)}\n"
+                f"Steps with log_file: 0\n\n"
+                f"Check that the Argo exit hook sent steps[] with log_file "
+                f"in the callback payload."
+            )
+
         fetched = 0
         failed = 0
-        for step in self.step_ids:
-            if not step.log_file:
-                continue
+        errors = []
+        for step in steps_with_logfile:
             key = prefix + step.log_file
             try:
                 obj = s3.get_object(Bucket=bucket, Key=key)
@@ -386,11 +398,13 @@ class KaijuCommit0Run(models.Model):
                 fetched += 1
             except Exception as e:
                 _logger.warning(
-                    "S3 log fetch failed for step %s (key=%s): %s",
+                    "S3 log fetch failed for step %s (key=s3://%s/%s): %s",
                     step.display_name or step.node_id,
+                    bucket,
                     key,
                     e,
                 )
+                errors.append(f"  {step.display_name or step.node_id}: {key} → {e}")
                 failed += 1
 
         _logger.info(
@@ -400,6 +414,11 @@ class KaijuCommit0Run(models.Model):
             failed,
             len(self.step_ids),
         )
+
+        if fetched == 0 and failed > 0:
+            raise UserError(
+                f"All {failed} log downloads failed:\n\n" + "\n".join(errors)
+            )
 
     def _discover_steps_from_manifest(self, s3, bucket, prefix):
         """Read manifest.json from S3 and create step records.

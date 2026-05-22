@@ -134,14 +134,43 @@ class LeviathanController(http.Controller):
                 content_type="application/json",
             )
 
+        # --- Diagnostic: log every inbound webhook with enough context to
+        # reconstruct the extraction timeline without guessing. `age` is how
+        # long the job has been in `extracting` since dispatch — the single
+        # most useful number when debugging "stuck in extracting": a large
+        # age on the FINAL callback means the Lambda sat in AWS's async
+        # invocation queue (reserved-concurrency exhaustion), not that
+        # extraction itself was slow.
+        _now = fields.Datetime.now()
+        _age = (
+            (_now - record.started_at).total_seconds()
+            if record.started_at else -1
+        )
+        _logger.info(
+            "[leviathan][job=%s] webhook inbound: status=%s success=%s "
+            "partial=%s warnings=%d body=%dB job_state=%s age_since_dispatch=%.0fs",
+            record.name, data.get("status"), data.get("success"),
+            data.get("partial"),
+            len(data.get("warnings") or []),
+            len(body) if isinstance(body, (bytes, bytearray)) else 0,
+            record.state, _age,
+        )
+
         # Lightweight "extraction started" ping — the Lambda sends this when it
         # actually picks the job up. Update last_heartbeat so the watchdog
         # measures real progress, not time-since-state-change (a job merely
         # queued in AWS shouldn't be killed for being slow to start).
         if data.get("status") == "started":
             if record.state == "extracting":
-                record.write({"last_heartbeat": fields.Datetime.now()})
-                _logger.info("[leviathan][job=%s] extraction started ping", record.name)
+                record.write({"last_heartbeat": _now})
+                # age here = AWS async-queue latency: time from Odoo's
+                # lambda:Invoke until the Lambda container actually began
+                # running. If this is routinely >5min the batch is
+                # outrunning the Lambda's reserved concurrency.
+                _logger.info(
+                    "[leviathan][job=%s] extraction STARTED ping — "
+                    "aws_queue_latency=%.0fs", record.name, _age,
+                )
             return Response(
                 json.dumps({"status": "ack"}),
                 status=200,
@@ -178,6 +207,11 @@ class LeviathanController(http.Controller):
             success = data.get("success")
             if not success:
                 error_msg = data.get("error", "Extraction failed (no details)")
+                _logger.warning(
+                    "[leviathan][job=%s] extraction reported FAILURE by Lambda "
+                    "after %.0fs — marking job failed: %s",
+                    record.name, _age, str(error_msg)[:300],
+                )
                 record._mark_failed(error_msg)
                 return Response(
                     json.dumps({"status": "failed"}),
@@ -262,15 +296,36 @@ class LeviathanController(http.Controller):
                 callback_snapshot["artifacts"] = sorted(callback_snapshot["artifacts"].keys())
             write_vals["lambda_callback_json"] = callback_snapshot
 
-            write_vals["state"] = "generating"
+            # auto_continue (default True: Run All / batch / retry / rerun) ->
+            # cascade straight into PRD generation, as before. When False
+            # (staged manual run) the job parks at 'extracted' and waits for
+            # the Generate button — this is the single decision point that
+            # severs the extraction->generation auto-link.
+            auto = record.auto_continue
+            next_state = "generating" if auto else "extracted"
+            write_vals["state"] = next_state
             record.write(write_vals)
+
+            # Extraction handoff complete. This INFO line is the boundary
+            # between the "extraction" timeline and the "PRD generation"
+            # timeline — grep it to confirm a job actually left `extracting`
+            # cleanly (vs. being watchdog-failed there).
+            _logger.info(
+                "[leviathan][job=%s] extraction COMPLETE after %.0fs "
+                "(partial=%s) — prd_prompt=%dB screenshots=%d assets=%d "
+                "artifacts_pending=%s -> state=%s (auto_continue=%s)",
+                record.name, _age, is_partial,
+                len(prd_prompt or ""),
+                len(screenshot_keys or []), len(asset_keys or []),
+                artifacts_pending, next_state, auto,
+            )
 
             # Notify browser of state change
             try:
                 request.env["bus.bus"]._sendone(
                     "leviathan_job_updates",
                     "leviathan/job_state",
-                    {"id": record.id, "state": "generating"},
+                    {"id": record.id, "state": next_state},
                 )
             except Exception:
                 pass
@@ -285,23 +340,32 @@ class LeviathanController(http.Controller):
 
             def _deferred():
                 from ..models.leviathan_job import _submit_bg
-                # 1) Artifacts upload to S3 — async, must not block webhook
+                _logger.info(
+                    "[leviathan][job=%s] webhook postcommit fired — "
+                    "scheduling background work (auto_continue=%s)",
+                    record_id, auto,
+                )
+                # Artifacts upload always runs — it is housekeeping, not a
+                # pipeline stage, so it happens in both auto and staged modes.
                 if artifacts_for_bg:
                     _submit_bg(
                         f"artifacts-upload[job={record_id}]",
                         record._upload_artifacts_bg,
                         db_name, record_id, artifacts_for_bg, s3_config,
                     )
-                # 2) PRD generation — runs concurrently with the upload
-                _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    record._run_prd_generation_bg, db_name, record_id,
-                )
+                # PRD generation auto-fires ONLY in auto_continue mode. Staged
+                # jobs stop at 'extracted' and are advanced by the Generate
+                # button (action_stage_generate).
+                if auto:
+                    _submit_bg(
+                        f"prd-gen[job={record_id}]",
+                        record._run_prd_generation_bg, db_name, record_id,
+                    )
 
             request.env.cr.postcommit.add(_deferred)
 
             return Response(
-                json.dumps({"status": "success", "next_step": "generating"}),
+                json.dumps({"status": "success", "next_step": next_state}),
                 status=200,
                 content_type="application/json",
             )

@@ -89,6 +89,17 @@ class TestK8sHelperFunctions(Kensei2TestCase):
                 MODEL_DEFAULTS[model_type],
             )
 
+    def test_build_openclaw_config_public_ws_url(self):
+        """basePath and publicWsUrl are set when sandbox_id and ws_router_host given."""
+        from odoo.addons.kensei2.models.kensei2_sandbox_k8s import _build_openclaw_config
+        cfg = _build_openclaw_config(
+            "tok", {}, sandbox_id=5,
+            ws_router_host="projects.ethara.ai/kensei2-sandbox",
+        )
+        ctrl = cfg["gateway"]["controlUi"]
+        self.assertEqual(ctrl["basePath"], "/kensei2-sandbox/sandbox/5")
+        self.assertEqual(ctrl["publicWsUrl"], "wss://projects.ethara.ai/kensei2-sandbox/sandbox/5/")
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # 2. deploy_sandbox

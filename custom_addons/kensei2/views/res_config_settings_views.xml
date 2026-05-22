@@ -99,6 +99,12 @@
                         >
                             <field name="kensei2_mock_image_tag" />
                         </setting>
+                        <setting
+                            string="Mock Image Name Prefix"
+                            help="Image-name prefix for mock API containers (e.g. 'kensei2-mock-'). Set to 'kensei-mock-' to reuse the existing kensei ECR repositories."
+                        >
+                            <field name="kensei2_mock_image_prefix" />
+                        </setting>
                     </block>
                     <block title="Batch Execution">
                         <setting

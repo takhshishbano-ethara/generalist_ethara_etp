@@ -9,10 +9,27 @@
             <field name="arch" type="xml">
                 <form string="Video Generation">
                     <header>
+                        <button name="action_enrich" string="Enrich Prompt" type="object"
+                                class="btn-primary"
+                                groups="crowley.group_crowley_manager"
+                                invisible="state not in ('draft','not_assigned') or last_enrichment_state in ('queued','submitting','validating')"
+                                confirm="Send the prompt to AWS Bedrock for enrichment? The enriched + validated text will appear below once complete."/>
+                        <button name="action_revalidate" string="Run QC" type="object"
+                                class="btn-secondary"
+                                groups="crowley.group_crowley_manager"
+                                invisible="not enriched_prompt"
+                                help="Re-run the T2AV validator on the enriched prompt without calling Bedrock. Use after editing the validator or when you want to re-check existing rows."/>
+                        <button name="action_regenerate_with_failure" string="Regenerate with Failure Reason" type="object"
+                                class="btn-warning"
+                                groups="crowley.group_crowley_manager"
+                                invisible="last_enrichment_state != 'fatal'"
+                                confirm="Re-run enrichment with the validator's failure reasons fed to the LLM? This incurs another Bedrock call."
+                                help="Spawn a new enrichment attempt that includes the previous attempt's validator failures as feedback. Auto-stops at the enrichment max-attempts cap."/>
+
                         <!-- First-run only -->
                         <button name="action_generate" string="Generate" type="object"
                                 class="oe_highlight"
-                                invisible="attempts_used > 0 or state != 'draft'"
+                                invisible="attempts_used > 0 or state not in ('draft','not_assigned')"
                                 confirm="This will submit the prompt to OpenRouter Seedance 2.0 and incur usage costs. Continue?"/>
 
                         <!-- Retry flow buttons -->
@@ -40,6 +57,11 @@
                         <button name="action_open_video" string="Open Video" type="object"
                                 class="btn-secondary"
                                 invisible="state != 'done' or ui_retry_pending"/>
+                        <button name="action_run_review" string="Run Review" type="object"
+                                class="btn-info"
+                                groups="crowley.group_crowley_manager"
+                                invisible="state != 'done' or ui_retry_pending"
+                                confirm="Send this video to the multimodal reviewer? An AWS Bedrock call will incur usage cost."/>
 
                         <field name="state" widget="statusbar"
                                statusbar_visible="draft,queued,processing,done"/>
@@ -56,7 +78,7 @@
 
                         <!-- Live status spinner (only during non-terminal states) -->
                         <field name="state" widget="crowley_live_status" nolabel="1"
-                               invisible="state in ('draft','done','failed','cancelled') or ui_retry_pending"/>
+                               invisible="state in ('not_assigned','draft','done','failed','cancelled') or ui_retry_pending"/>
 
                         <!-- Banners -->
                         <div class="alert alert-info" role="alert" invisible="not ui_retry_pending">
@@ -100,14 +122,31 @@
                                 <field name="category_locked" invisible="1"/>
                                 <field name="prompt"
                                        placeholder="Describe the video you want to generate..."
-                                       readonly="state != 'draft' and not ui_retry_pending"
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
                                        required="1"/>
+                                <field name="enriched_prompt" readonly="1"
+                                       invisible="not enriched_prompt"
+                                       placeholder="Will be populated by the Enrich Prompt button."/>
+                                <field name="golden_prompt" readonly="1"
+                                       invisible="not golden_prompt"
+                                       placeholder="Set when QC passes clean."/>
+                                <field name="is_golden" invisible="1"/>
+                                <div class="text-success mt-2" colspan="2"
+                                     invisible="not is_golden">
+                                    <i class="fa fa-check-circle"/>
+                                    <strong> Golden:</strong> validator passed clean. Ready for video generation.
+                                </div>
+                                <div class="text-warning mt-2" colspan="2"
+                                     invisible="not enriched_prompt or is_golden or last_enrichment_state in ('queued','submitting','validating')">
+                                    <i class="fa fa-exclamation-triangle"/>
+                                    <strong> Not Golden:</strong> validator has warnings or hasn't been re-run. Click <em>Run QC</em>.
+                                </div>
                                 <field name="duration"
-                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                 <field name="resolution"
-                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                 <field name="aspect_ratio"
-                                       readonly="state != 'draft' and not ui_retry_pending"/>
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                             </group>
                             <group string="Metadata">
                                 <field name="user_id" readonly="not context.get('crowley_is_manager')"/>
@@ -124,14 +163,165 @@
                                        string="Next Attempt Estimate"
                                        options="{'currency_field': 'currency_id'}"
                                        help="Estimated cost of the next attempt using the current input fields."/>
+                                <field name="review_status" widget="badge" readonly="1"
+                                       decoration-success="review_status == 'pass'"
+                                       decoration-warning="review_status == 'review'"
+                                       decoration-danger="review_status == 'fail'"
+                                       invisible="not review_status"/>
                                 <field name="currency_id" invisible="1"/>
                                 <field name="attempts_used" invisible="1"/>
                                 <field name="attempts_remaining" invisible="1"/>
                                 <field name="ui_retry_pending" invisible="1"/>
+                                <field name="enrichments_used" invisible="1"/>
+                                <field name="last_enrichment_state" invisible="1"/>
+                            </group>
+                        </group>
+
+                        <group string="T2AV Enrichment Metadata"
+                               help="Drives the enhance.md system prompt. Leave blank to fall back to defaults (precise / medium / moderate).">
+                            <group>
+                                <field name="style" placeholder="precise"/>
+                                <field name="priority"/>
+                                <field name="complexity"/>
+                            </group>
+                            <group>
+                                <field name="topic" placeholder="e.g. coffee shop morning"/>
+                                <field name="sub_category" placeholder="e.g. footstep_sync"/>
                             </group>
                         </group>
 
                         <notebook>
+                            <page string="Reviews" name="reviews">
+                                <field name="review_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="verdict == 'accept'"
+                                          decoration-warning="verdict == 'review'"
+                                          decoration-danger="verdict == 'reject' or state == 'error'"
+                                          decoration-info="state in ('queued','submitting')">
+                                        <field name="create_date" string="Started"/>
+                                        <field name="state" widget="badge"
+                                               decoration-info="state in ('queued','submitting')"
+                                               decoration-success="state == 'done'"
+                                               decoration-danger="state == 'error'"/>
+                                        <field name="verdict" widget="badge"
+                                               decoration-success="verdict == 'accept'"
+                                               decoration-warning="verdict == 'review'"
+                                               decoration-danger="verdict == 'reject'"
+                                               optional="show"/>
+                                        <field name="passed" optional="hide"/>
+                                        <field name="fatal_count" sum="FATAL" optional="show"/>
+                                        <field name="major_count" sum="MAJOR" optional="show"/>
+                                        <field name="minor_count" sum="MINOR" optional="hide"/>
+                                        <field name="unverifiable_count" sum="UNV" optional="hide"/>
+                                        <field name="num_frames" optional="hide"/>
+                                        <field name="tokens_used" sum="Tokens" optional="show"/>
+                                        <field name="model_id" optional="hide"/>
+                                        <field name="completed_at" optional="show"/>
+                                        <field name="regenerate_recommended" optional="show"/>
+                                        <field name="rebuilder_hint" optional="show"/>
+                                        <field name="error_code" optional="show"/>
+                                    </list>
+                                    <form>
+                                        <sheet>
+                                            <group>
+                                                <group>
+                                                    <field name="state" widget="badge" readonly="1"/>
+                                                    <field name="verdict" widget="badge" readonly="1"/>
+                                                    <field name="passed" readonly="1"/>
+                                                    <field name="model_id" readonly="1"/>
+                                                    <field name="region" readonly="1"/>
+                                                    <field name="num_frames" readonly="1"/>
+                                                </group>
+                                                <group>
+                                                    <field name="fatal_count" readonly="1"/>
+                                                    <field name="major_count" readonly="1"/>
+                                                    <field name="minor_count" readonly="1"/>
+                                                    <field name="unverifiable_count" readonly="1"/>
+                                                    <field name="tokens_used" readonly="1"/>
+                                                    <field name="submitted_at" readonly="1"/>
+                                                    <field name="completed_at" readonly="1"/>
+                                                </group>
+                                            </group>
+                                            <group>
+                                                <field name="regenerate_recommended" readonly="1"/>
+                                                <field name="rebuilder_hint" readonly="1"
+                                                       invisible="not rebuilder_hint"/>
+                                                <field name="bedrock_request_id" readonly="1"
+                                                       invisible="not bedrock_request_id"/>
+                                            </group>
+                                            <group string="Prose Report" invisible="not prose_report">
+                                                <field name="prose_report" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Findings (JSON)" invisible="not findings_json">
+                                                <field name="findings_json" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Rendered Info (JSON)" invisible="not rendered_info">
+                                                <field name="rendered_info" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Error" invisible="not error_message">
+                                                <field name="error_code" readonly="1"/>
+                                                <field name="error_message" readonly="1" nolabel="1"/>
+                                            </group>
+                                        </sheet>
+                                    </form>
+                                </field>
+                            </page>
+
+                            <page string="Enrichments" name="enrichments">
+                                <field name="enrichment_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="state == 'clean'"
+                                          decoration-warning="state == 'warned'"
+                                          decoration-danger="state in ('fatal','error')"
+                                          decoration-info="state in ('queued','submitting','validating')">
+                                        <field name="attempt_number" string="#" width="40"/>
+                                        <field name="state" widget="badge"
+                                               decoration-success="state == 'clean'"
+                                               decoration-warning="state == 'warned'"
+                                               decoration-danger="state in ('fatal','error')"
+                                               decoration-info="state in ('queued','submitting','validating')"/>
+                                        <field name="model_id" optional="show"/>
+                                        <field name="region" optional="hide"/>
+                                        <field name="word_count" optional="show"/>
+                                        <field name="tokens_used" optional="show" sum="Tokens"/>
+                                        <field name="submitted_at" optional="show"/>
+                                        <field name="completed_at" optional="hide"/>
+                                        <field name="error_code" optional="show"/>
+                                    </list>
+                                    <form>
+                                        <sheet>
+                                            <group>
+                                                <group>
+                                                    <field name="attempt_number" readonly="1"/>
+                                                    <field name="state" widget="badge" readonly="1"/>
+                                                    <field name="model_id" readonly="1"/>
+                                                    <field name="region" readonly="1"/>
+                                                </group>
+                                                <group>
+                                                    <field name="word_count" readonly="1"/>
+                                                    <field name="input_tokens" readonly="1"/>
+                                                    <field name="output_tokens" readonly="1"/>
+                                                    <field name="submitted_at" readonly="1"/>
+                                                    <field name="completed_at" readonly="1"/>
+                                                </group>
+                                            </group>
+                                            <group string="Enriched Prompt" invisible="not enriched_text">
+                                                <field name="enriched_text" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Validator Warnings" invisible="not validator_warnings">
+                                                <field name="validator_warnings" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Validator Fatals" invisible="not validator_fatals">
+                                                <field name="validator_fatals" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Error" invisible="not error_message">
+                                                <field name="error_code" readonly="1"/>
+                                                <field name="error_message" readonly="1" nolabel="1"/>
+                                            </group>
+                                        </sheet>
+                                    </form>
+                                </field>
+                            </page>
                             <page string="Attempts" name="attempts">
                                 <field name="attempt_ids" readonly="1">
                                     <list create="false" delete="false" edit="false"
@@ -172,12 +362,12 @@
                                 <group>
                                     <field name="negative_prompt"
                                            placeholder="Things to avoid in the video (optional)"
-                                           readonly="state != 'draft' and not ui_retry_pending"/>
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                     <field name="seed"
-                                           readonly="state != 'draft' and not ui_retry_pending"
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
                                            help="Leave 0 for random seed."/>
                                     <field name="generate_audio"
-                                           readonly="state != 'draft' and not ui_retry_pending"/>
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
                                     <field name="model_name" readonly="1"/>
                                 </group>
                             </page>
@@ -209,7 +399,7 @@
             <field name="model">crowley.generation</field>
             <field name="arch" type="xml">
                 <list string="Video Generations"
-                      decoration-muted="not category and state == 'done'"
+                      decoration-muted="(not category and state == 'done') or state == 'not_assigned'"
                       decoration-success="state == 'done' and category"
                       decoration-danger="state in ('failed','cancelled')"
                       decoration-info="state in ('queued','submitting','processing','downloading')">
@@ -229,7 +419,7 @@
                            decoration-success="state == 'done'"
                            decoration-danger="state in ('failed','cancelled')"
                            decoration-info="state in ('queued','submitting','processing','downloading')"
-                           decoration-muted="state == 'draft'"/>
+                           decoration-muted="state in ('draft','not_assigned')"/>
                 </list>
             </field>
         </record>
@@ -248,12 +438,20 @@
 
                     <filter name="filter_my" string="My Generations" domain="[('user_id', '=', uid)]"/>
                     <separator/>
+                    <filter name="filter_not_assigned" string="Not Assigned" domain="[('state', '=', 'not_assigned')]"/>
                     <filter name="filter_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
                     <filter name="filter_processing" string="Processing"
                             domain="[('state', 'in', ('queued','submitting','processing','downloading'))]"/>
                     <filter name="filter_done" string="Done" domain="[('state', '=', 'done')]"/>
                     <filter name="filter_failed" string="Failed"
                             domain="[('state', 'in', ('failed','cancelled'))]"/>
+                    <separator/>
+                    <filter name="filter_review_pass" string="Review: Pass"
+                            domain="[('review_status', '=', 'pass')]"/>
+                    <filter name="filter_review_needs" string="Review: Needs Attention"
+                            domain="[('review_status', '=', 'review')]"/>
+                    <filter name="filter_review_fail" string="Review: Fail"
+                            domain="[('review_status', '=', 'fail')]"/>
                     <separator/>
                     <filter name="filter_stuck" string="Stuck (needs reconcile)"
                             domain="[

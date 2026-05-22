@@ -238,6 +238,10 @@ class CrowleyAttempt(models.Model):
     )
     raw_response_json = fields.Text(string="Last Raw Response")
 
+    review_ids = fields.One2many(
+        "crowley.video.review", "attempt_id", string="Reviews",
+    )
+
     # ------------------------------------------------------------------
     # Webhook idempotency
     # ------------------------------------------------------------------

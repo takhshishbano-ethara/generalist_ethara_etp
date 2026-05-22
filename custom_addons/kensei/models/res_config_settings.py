@@ -91,6 +91,13 @@ class KenseiConfigSettings(models.TransientModel):
         config_parameter="kensei.gog_keyring_password",
         help="Password used to encrypt the gog file-based keyring.",
     )
+    kensei_batch_size = fields.Integer(
+        string="Batch Size (Pods Per Model)",
+        config_parameter="kensei.batch_size",
+        default=8,
+        help="Number of sandbox pods to launch per model type (e.g. 8 = 8 Claude + 8 GPT = 16 total).",
+    )
+
     kensei_disable_prompt_qc = fields.Boolean(
         string="Disable Prompt QC",
         config_parameter="kensei.disable_prompt_qc",

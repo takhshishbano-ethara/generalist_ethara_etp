@@ -1,22 +1,25 @@
 {
     "name": "Crowley - Video Generation",
-    "version": "19.0.1.2.0",
+    "version": "19.0.1.9.0",
     "category": "Tools",
     "summary": "Generate videos from prompts via OpenRouter Seedance 2.0",
     "author": "Ethara",
     "license": "LGPL-3",
     "depends": ["base", "web", "mail", "bus", "s3_connector"],
     "external_dependencies": {
-        "python": ["cryptography", "requests"],
+        "python": ["boto3", "cryptography", "requests"],
     },
     "data": [
         "security/crowley_security.xml",
         "security/ir.model.access.csv",
+        "security/crowley_record_rules.xml",
         "data/crowley_sequence.xml",
         "data/crowley_category_sequences.xml",
         "data/ir_cron.xml",
+        "data/crowley_server_actions.xml",
         "views/crowley_generation_views.xml",
         "views/res_config_settings_views.xml",
+        "views/crowley_import_wizard_views.xml",
         "views/crowley_menus.xml",
     ],
     "assets": {

@@ -18,6 +18,39 @@ const TRAJECTORY_FIELD_MAP = {
 
 const BATCH_POLL_INTERVAL_MS = 5000;
 
+const MAX_BATCH_ATTACHMENTS = 10;
+const MAX_BATCH_ATTACHMENT_SIZE_MB = 75;
+const MAX_BATCH_ATTACHMENT_SIZE_BYTES = MAX_BATCH_ATTACHMENT_SIZE_MB * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const ALLOWED_DOC_TYPES = [
+    "application/pdf", "text/plain", "text/markdown",
+    "text/html", "text/csv", "application/json",
+    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+const ALLOWED_VIDEO_TYPES = [
+    "video/mp4", "video/webm", "video/quicktime",
+    "video/x-msvideo", "video/mpeg", "video/x-m4v",
+];
+const ALLOWED_AUDIO_TYPES = [
+    "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg",
+    "audio/webm", "audio/x-m4a", "audio/mp4",
+];
+const ALLOWED_ATTACHMENT_TYPES = [
+    ...ALLOWED_IMAGE_TYPES, ...ALLOWED_DOC_TYPES,
+    ...ALLOWED_VIDEO_TYPES, ...ALLOWED_AUDIO_TYPES,
+];
+const EXT_MIME_MAP = {
+    doc: "application/msword",
+    docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    md: "text/markdown", pdf: "application/pdf",
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    gif: "image/gif", webp: "image/webp",
+    mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
+    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
+    txt: "text/plain", html: "text/html", csv: "text/csv",
+    json: "application/json", jsonl: "application/json",
+};
+
 export class TaskDashboard extends Component {
     static template = "kensei2.TaskDashboard";
     static components = { GogAuthDialog };
@@ -33,6 +66,9 @@ export class TaskDashboard extends Component {
             batchPrompt: "",
             batchStarting: false,
             batchStopping: false,
+            pendingAttachments: [],
+            attachmentError: "",
+            dragOver: false,
             sandboxes: [],
             showGogAuth: false,
             gogAuthDone: false,
@@ -44,6 +80,7 @@ export class TaskDashboard extends Component {
             testWeightsStatus: "idle",
             testWeightsError: "",
             activeTrajectoryTab: "claude",
+            pendingPodActions: {},
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -67,7 +104,7 @@ export class TaskDashboard extends Component {
             this._loadTestWeightsStatus();
             await this._loadSandboxes();
             this._loadTestResults();
-            if (this.batchStatus === "starting" || this.batchStatus === "running" || this.batchStatus === "stopping") {
+            if (this.batchStatus === "starting" || this.batchStatus === "ready" || this.batchStatus === "running" || this.batchStatus === "stopping") {
                 this._startPolling();
             }
         });
@@ -90,6 +127,10 @@ export class TaskDashboard extends Component {
         await this._loadSandboxes();
         await this._loadTestResults();
         const status = this.batchStatus;
+        if (status === "ready") {
+            this.state.batchStarting = false;
+            this.notification.add("All pods are ready. Enter a prompt and click Send.", { type: "success" });
+        }
         if (status === "done" || status === "error" || status === "idle") {
             this._stopPolling();
             this.state.batchStarting = false;
@@ -129,15 +170,19 @@ export class TaskDashboard extends Component {
 
     get isBatchActive() {
         const s = this.batchStatus;
-        return s === "starting" || s === "running" || s === "stopping";
+        return s === "starting" || s === "ready" || s === "running" || s === "stopping";
     }
 
     get canStartBatch() {
         return !this.isBatchActive && !this.state.batchStarting && this.taskId;
     }
 
+    get canSendPrompt() {
+        return this.batchStatus === "ready" && !this.state.batchStarting;
+    }
+
     get canStopBatch() {
-        return (this.batchStatus === "starting" || this.batchStatus === "running") && !this.state.batchStopping;
+        return (this.batchStatus === "starting" || this.batchStatus === "ready" || this.batchStatus === "running") && !this.state.batchStopping;
     }
 
     get totalPods() {
@@ -225,6 +270,10 @@ export class TaskDashboard extends Component {
             await this.props.record.load();
             await this._loadSandboxes();
             const status = this.batchStatus;
+            if (status === "ready" && this.state.batchStarting) {
+                this.state.batchStarting = false;
+                this.notification.add("All pods are ready. Enter a prompt and click Send.", { type: "success" });
+            }
             if (status === "done" || status === "error" || status === "idle") {
                 this._stopPolling();
                 this.state.batchStarting = false;
@@ -249,24 +298,166 @@ export class TaskDashboard extends Component {
         this.state.batchPrompt = ev.target.value;
     }
 
-    async onStartBatch() {
-        const prompt = this.state.batchPrompt.trim();
-        if (!prompt) {
-            this.notification.add("Please enter a prompt for the batch run.", { type: "warning" });
+    get acceptedFileTypes() {
+        return ALLOWED_ATTACHMENT_TYPES.join(",");
+    }
+
+    get hasAttachments() {
+        return this.state.pendingAttachments.length > 0;
+    }
+
+    onAttachmentPick() {
+        const input = document.createElement("input");
+        input.type = "file";
+        input.multiple = true;
+        input.accept = this.acceptedFileTypes;
+        input.onchange = (ev) => {
+            if (ev.target.files?.length) this._processFiles(ev.target.files);
+        };
+        input.click();
+    }
+
+    onAttachmentDragOver(ev) {
+        ev.preventDefault();
+        this.state.dragOver = true;
+    }
+
+    onAttachmentDragLeave() {
+        this.state.dragOver = false;
+    }
+
+    onAttachmentDrop(ev) {
+        ev.preventDefault();
+        this.state.dragOver = false;
+        const files = ev.dataTransfer?.files;
+        if (files?.length) this._processFiles(files);
+    }
+
+    onRemoveAttachment(index) {
+        const att = this.state.pendingAttachments[index];
+        if (att?.previewUrl) URL.revokeObjectURL(att.previewUrl);
+        this.state.pendingAttachments.splice(index, 1);
+        this.state.attachmentError = "";
+    }
+
+    formatFileSize(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    }
+
+    _processFiles(fileList) {
+        this.state.attachmentError = "";
+        const files = Array.from(fileList);
+
+        if (this.state.pendingAttachments.length + files.length > MAX_BATCH_ATTACHMENTS) {
+            this.state.attachmentError = `Maximum ${MAX_BATCH_ATTACHMENTS} attachments allowed.`;
             return;
         }
+
+        for (const file of files) {
+            let mimeType = file.type;
+            if (!mimeType || mimeType === "application/octet-stream") {
+                const ext = file.name.split(".").pop().toLowerCase();
+                mimeType = EXT_MIME_MAP[ext] || mimeType;
+            }
+            if (!ALLOWED_ATTACHMENT_TYPES.includes(mimeType)) {
+                this.state.attachmentError = `"${file.name}" has unsupported type: ${mimeType || "unknown"}`;
+                continue;
+            }
+            const totalWithNew = this.state.pendingAttachments.reduce((s, a) => s + a.size, 0) + file.size;
+            if (totalWithNew > MAX_BATCH_ATTACHMENT_SIZE_BYTES) {
+                this.state.attachmentError = `Total size exceeds ${MAX_BATCH_ATTACHMENT_SIZE_MB} MB limit.`;
+                continue;
+            }
+            const isImage = ALLOWED_IMAGE_TYPES.includes(mimeType);
+            const isVideo = ALLOWED_VIDEO_TYPES.includes(mimeType);
+            const previewUrl = (isImage || isVideo) ? URL.createObjectURL(file) : null;
+            this.state.pendingAttachments.push({
+                id: crypto.randomUUID(),
+                file,
+                name: file.name,
+                mimeType,
+                size: file.size,
+                previewUrl,
+                isImage,
+                isVideo,
+            });
+        }
+    }
+
+    _fileToBase64(file) {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const dataUri = reader.result;
+                const commaIdx = dataUri.indexOf(",");
+                resolve(commaIdx >= 0 ? dataUri.slice(commaIdx + 1) : dataUri);
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+    }
+
+    async _uploadAttachments() {
+        const ids = [];
+        for (const att of this.state.pendingAttachments) {
+            const rawBase64 = await this._fileToBase64(att.file);
+            const result = await this.orm.call("kensei2.kensei2", "upload_batch_attachment", [
+                [this.taskId], att.name, rawBase64, att.mimeType,
+            ]);
+            if (result.error) throw new Error(result.error);
+            ids.push(result.attachment_id);
+        }
+        return ids;
+    }
+
+    async onStartBatch() {
         if (!this.canStartBatch) return;
 
         this.state.batchStarting = true;
         try {
-            await this.orm.call("kensei2.kensei2", "action_start_batch", [[this.taskId], prompt]);
+            await this.orm.call(
+                "kensei2.kensei2", "action_start_batch",
+                [[this.taskId]],
+            );
             await this.props.record.load();
             await this._loadSandboxes();
             this._startPolling();
-            this.notification.add(`Batch started: ${this.totalPods} pods launching...`, { type: "info" });
+            this.notification.add(`Deploying ${this.totalPods} pods...`, { type: "info" });
         } catch (e) {
             this.state.batchStarting = false;
             const msg = e.data?.message || e.message || "Failed to start batch";
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
+    async onSendBatchPrompt() {
+        const prompt = this.state.batchPrompt.trim();
+        if (!prompt && !this.hasAttachments) {
+            this.notification.add("Please enter a prompt or attach files.", { type: "warning" });
+            return;
+        }
+        if (!this.canSendPrompt) return;
+
+        this.state.batchStarting = true;
+        this.state.attachmentError = "";
+        try {
+            let attachmentIds = [];
+            if (this.hasAttachments) {
+                attachmentIds = await this._uploadAttachments();
+            }
+            await this.orm.call(
+                "kensei2.kensei2", "action_send_batch_prompt",
+                [[this.taskId], prompt || "", attachmentIds],
+            );
+            this.state.pendingAttachments = [];
+            await this.props.record.load();
+            await this._loadSandboxes();
+            this.notification.add("Prompt sent to all pods.", { type: "info" });
+        } catch (e) {
+            this.state.batchStarting = false;
+            const msg = e.data?.message || e.message || "Failed to send prompt";
             this.notification.add(msg, { type: "danger" });
         }
     }
@@ -316,13 +507,90 @@ export class TaskDashboard extends Component {
 
     podTooltip(sandbox) {
         const vi = sandbox.variant_index || 0;
-        const model = sandbox.model_type || "?";
+        const modelLabel = this.podModelLabel(sandbox);
         const ds = sandbox.docker_status || "stopped";
         const ss = sandbox.session_status || "not_started";
-        let tip = `${model} #${vi} — Pod: ${ds}`;
+        let tip = `${modelLabel} — Session ${vi} — Pod: ${ds}`;
         if (ss !== "not_started") tip += `, Session: ${ss}`;
         if (sandbox.docker_error) tip += `\nError: ${sandbox.docker_error}`;
+        if (this.canRetryPod(sandbox)) tip += "\nClick refresh icon to retry this pod.";
+        if (this.canStopPod(sandbox)) tip += "\nClick stop icon to stop this pod.";
         return tip;
+    }
+
+    podModelLabel(sandbox) {
+        const model = BATCH_MODELS.find((m) => m.type === sandbox.model_type);
+        return model ? model.label : (sandbox.model_type || "Unknown");
+    }
+
+    podSessionLabel(sandbox) {
+        return `Session ${sandbox.variant_index || 0}`;
+    }
+
+    canRetryPod(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "error" || ds === "stopped";
+    }
+
+    canStopPod(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "starting" || ds === "running";
+    }
+
+    isPodActionPending(sandbox) {
+        return Boolean(this.state.pendingPodActions[sandbox.id]);
+    }
+
+    podRetryIcon(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "error" ? "fa-refresh" : "fa-play";
+    }
+
+    podRetryLabel(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        return ds === "error" ? "Retry" : "Start";
+    }
+
+    async onRetryPod(sandbox) {
+        if (!this.canRetryPod(sandbox) || this.isPodActionPending(sandbox)) {
+            return;
+        }
+        const label = `${this.podModelLabel(sandbox)} ${this.podSessionLabel(sandbox)}`;
+        const verb = this.podRetryLabel(sandbox);
+        this.state.pendingPodActions[sandbox.id] = "retry";
+        try {
+            await this.orm.call("kensei2.sandbox", "action_retry_pod", [[sandbox.id]]);
+            this.notification.add(`${verb}ing ${label}…`, { type: "info" });
+            await this._loadSandboxes();
+            this._startPolling();
+        } catch (e) {
+            const msg = e.data?.message || e.message || `Failed to ${verb.toLowerCase()} ${label}`;
+            this.notification.add(msg, { type: "danger" });
+        } finally {
+            delete this.state.pendingPodActions[sandbox.id];
+        }
+    }
+
+    async onStopPod(sandbox) {
+        if (!this.canStopPod(sandbox) || this.isPodActionPending(sandbox)) {
+            return;
+        }
+        const label = `${this.podModelLabel(sandbox)} ${this.podSessionLabel(sandbox)}`;
+        if (!window.confirm(`Stop ${label}? Any in-progress work on this pod will be lost.`)) {
+            return;
+        }
+        this.state.pendingPodActions[sandbox.id] = "stop";
+        try {
+            await this.orm.call("kensei2.sandbox", "action_stop_sandbox", [[sandbox.id]]);
+            this.notification.add(`Stopping ${label}…`, { type: "info" });
+            await this._loadSandboxes();
+            this._startPolling();
+        } catch (e) {
+            const msg = e.data?.message || e.message || `Failed to stop ${label}`;
+            this.notification.add(msg, { type: "danger" });
+        } finally {
+            delete this.state.pendingPodActions[sandbox.id];
+        }
     }
 
     onTrajectoryTabClick(modelType) {

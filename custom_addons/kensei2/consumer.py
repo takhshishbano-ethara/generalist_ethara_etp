@@ -165,6 +165,35 @@ def _ack_message(channel, delivery_tag):
 
 
 # -- Batch Polling -------------------------------------------------------------
+def _wait_for_batch_ready(task_id, timeout=BATCH_POLL_TIMEOUT):
+    deadline = time.time() + timeout
+    last_status = ""
+    while time.time() < deadline:
+        records = _read_fields(
+            "kensei2.kensei2", [task_id],
+            ["batch_status", "batch_error"],
+        )
+        if not records:
+            raise RuntimeError("Task %s not found" % task_id)
+        status = records[0].get("batch_status", "")
+        if status != last_status:
+            _logger.info(
+                "Batch deploy status for task %s: %s", task_id, status,
+            )
+            last_status = status
+        if status == "ready":
+            return "ready"
+        if status == "error":
+            error = records[0].get("batch_error", "unknown error")
+            raise RuntimeError(
+                "Batch deploy failed for task %s: %s" % (task_id, error)
+            )
+        time.sleep(BATCH_POLL_INTERVAL)
+    raise RuntimeError(
+        "Batch deploy timed out after %ds for task %s" % (timeout, task_id)
+    )
+
+
 def _wait_for_batch_done(task_id, timeout=BATCH_POLL_TIMEOUT):
     deadline = time.time() + timeout
     last_status = ""
@@ -231,17 +260,27 @@ def _process_task(connection, channel, delivery_tag, properties, body):
             task_id, len(initial_prompt),
         )
 
-        # 2. Start batch (16 pods: 8 Claude + 8 GPT)
+        # 2. Deploy all sandbox pods (no prompt yet)
+        _logger.info("Deploying pods for task_id=%s", task_id)
+        _call_odoo(
+            "kensei2.kensei2", "action_start_batch",
+            [task_id],
+        )
+
+        # 3. Poll until all pods are ready
+        _wait_for_batch_ready(task_id, timeout=BATCH_POLL_TIMEOUT)
+
+        # 4. Send prompt to all running pods
         _logger.info(
-            "Starting batch for task_id=%s: %.100s",
+            "Sending prompt for task_id=%s: %.100s",
             task_id, initial_prompt,
         )
         _call_odoo(
-            "kensei2.kensei2", "action_start_batch",
+            "kensei2.kensei2", "action_send_batch_prompt",
             [task_id], [initial_prompt],
         )
 
-        # 3. Poll batch_status until done/error
+        # 5. Poll batch_status until done/error
         _wait_for_batch_done(task_id, timeout=BATCH_POLL_TIMEOUT)
 
         # 4. Mark done

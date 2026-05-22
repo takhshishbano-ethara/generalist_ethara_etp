@@ -154,6 +154,13 @@ class Kensei2ConfigSettings(models.TransientModel):
         config_parameter="kensei2.test_gen_inference_arn",
         help="Bedrock inference ARN for test generation (Sonnet 4.6). Falls back to main ARN if empty.",
     )
+    kensei2_mock_image_prefix = fields.Char(
+        string="Mock Image Name Prefix",
+        config_parameter="kensei2.mock_image_prefix",
+        default="kensei2-mock-",
+        help="Image-name prefix for mock API containers (e.g. 'kensei2-mock-'). "
+             "Set to 'kensei-mock-' to reuse the existing kensei ECR repositories.",
+    )
 
     @api.depends_context("uid")
     def _compute_kensei2_docker_available(self):

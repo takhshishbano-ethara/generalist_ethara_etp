@@ -15,12 +15,21 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 
 _logger = logging.getLogger(__name__)
 
-LEVIATHAN_ADMIN_ROLE_XMLIDS = (
+LEVIATHAN_FULL_ACCESS_ROLE_XMLIDS = (
     "api_auth_gateway.role_cto_technical",
     "api_auth_gateway.role_tpm_technical",
+)
+
+LEVIATHAN_PL_ROLE_XMLIDS = (
     "api_auth_gateway.role_pl_technical",
     "api_auth_gateway.role_pl_stem",
     "api_auth_gateway.role_pl_non_stem",
+)
+
+LEVIATHAN_QR_ROLE_XMLIDS = (
+    "api_auth_gateway.role_qc_technical",
+    "api_auth_gateway.role_qc_stem",
+    "api_auth_gateway.role_qc_non_stem",
 )
 
 LEVIATHAN_TASKER_ROLE_XMLIDS = (
@@ -29,11 +38,15 @@ LEVIATHAN_TASKER_ROLE_XMLIDS = (
     "api_auth_gateway.role_tasker_non_stem",
 )
 
-LEVIATHAN_USER_ROLE_XMLIDS = LEVIATHAN_ADMIN_ROLE_XMLIDS + (
-    "api_auth_gateway.role_qc_technical",
-    "api_auth_gateway.role_qc_stem",
-    "api_auth_gateway.role_qc_non_stem",
-) + LEVIATHAN_TASKER_ROLE_XMLIDS
+LEVIATHAN_ADMIN_ROLE_XMLIDS = (
+    LEVIATHAN_FULL_ACCESS_ROLE_XMLIDS + LEVIATHAN_PL_ROLE_XMLIDS
+)
+
+LEVIATHAN_USER_ROLE_XMLIDS = (
+    LEVIATHAN_ADMIN_ROLE_XMLIDS
+    + LEVIATHAN_QR_ROLE_XMLIDS
+    + LEVIATHAN_TASKER_ROLE_XMLIDS
+)
 
 SKIP_DUPLICATE_STATES = ("submitted", "cancelled")
 BULK_REQUIRED_COLUMNS = ("url",)
@@ -93,6 +106,35 @@ def _require_tasker():
             status=403,
         )
     return None
+
+
+def _job_scope_domain():
+    env = request.env
+    user = env.user
+    if _user_has_role(env, LEVIATHAN_FULL_ACCESS_ROLE_XMLIDS):
+        return []
+    field = None
+    if _user_has_role(env, LEVIATHAN_PL_ROLE_XMLIDS):
+        field = "task_forge_pl_id"
+    elif _user_has_role(env, LEVIATHAN_QR_ROLE_XMLIDS):
+        field = "task_forge_qr_id"
+    if not field:
+        return [("user_id", "=", user.id)]
+    employees = env["hr.employee"].sudo().search([("user_id", "=", user.id)])
+    team = env["hr.employee"].sudo().search([(field, "in", employees.ids)])
+    user_ids = (team | employees).mapped("user_id").ids
+    return [("user_id", "in", user_ids)]
+
+
+def _job_in_scope(job_id):
+    scope = _job_scope_domain()
+    if not scope:
+        return True
+    return bool(
+        request.env["leviathan.job"].sudo().search_count(
+            [("id", "=", job_id)] + scope
+        )
+    )
 
 
 def _normalize_url(raw):
@@ -811,6 +853,7 @@ class LeviathanExtensionController(http.Controller):
             )
 
         domain, warnings = _build_jobs_domain(request.env, params)
+        domain = _job_scope_domain() + domain
 
         Job = request.env["leviathan.job"].sudo()
         total = Job.search_count(domain)
@@ -849,6 +892,12 @@ class LeviathanExtensionController(http.Controller):
             return return_Response(
                 message=f"Leviathan job id {job_id} not found.",
                 status=404,
+            )
+
+        if not _job_in_scope(job_id):
+            return return_Response(
+                message="You are not allowed to access this Leviathan job.",
+                status=403,
             )
 
         return return_Response(
@@ -961,6 +1010,12 @@ class LeviathanExtensionController(http.Controller):
             return return_Response(
                 message=f"Leviathan job id {job_id} not found.",
                 status=404,
+            )
+
+        if not _job_in_scope(job_id):
+            return return_Response(
+                message="You are not allowed to update this Leviathan job.",
+                status=403,
             )
 
         env = request.env

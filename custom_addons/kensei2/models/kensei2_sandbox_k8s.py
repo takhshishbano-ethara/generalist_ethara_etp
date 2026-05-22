@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
@@ -19,14 +20,22 @@ try:
 except ImportError:
     K8S_AVAILABLE = False
 
-
+_k8s_config_lock = threading.Lock()
+_k8s_config_loaded = False
 
 
 def _load_k8s_config():
-    try:
-        config.load_incluster_config()
-    except config.ConfigException:
-        config.load_kube_config()
+    global _k8s_config_loaded
+    if _k8s_config_loaded:
+        return
+    with _k8s_config_lock:
+        if _k8s_config_loaded:
+            return
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config()
+        _k8s_config_loaded = True
 
 
 NAMESPACE = "kensei2"
@@ -44,6 +53,17 @@ S3_BUCKET = "production-grtlabs-tag"
 S3_KENSEI2_PREFIX = "Kensei2"
 
 TERMINATION_GRACE_PERIOD = 300
+
+# A sandbox whose Deployment exists but has never reached an Available
+# replica for longer than this is treated as wedged (crash-loop,
+# unpullable image, unschedulable node, OOM) and reported as "error"
+# instead of spinning at "starting" forever. Kept well above the
+# legitimate startup budget — image pulls + the openclaw startup probe
+# (~300s) + the litellm/postgres sidecars + batch retry waves — so a
+# slow-but-healthy start is never misreported.
+SANDBOX_START_DEADLINE = int(
+    os.getenv("KENSEI2_SANDBOX_START_DEADLINE", "1200")
+)
 
 WS_ROUTER_NGINX_CONF = """\
 map $http_upgrade $connection_upgrade {
@@ -170,13 +190,24 @@ def _build_prestop_script(task_id, persona_name, s3_bucket=None, s3_prefix=None)
     ) % {"session": session_path, "browser": browser_path}
 
 
-def _build_openclaw_config(gateway_token, env, model_type="claude"):
+def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=None, ws_router_host=""):
     aws_bearer = (env.get("KENSEI2_AWS_BEARER_TOKEN") or env.get("AWS_BEARER_TOKEN_BEDROCK", "")).strip()
     aws_region = (env.get("KENSEI2_AWS_REGION") or env.get("AWS_REGION", "ap-south-1")).strip()
     bedrock_arn = (env.get("KENSEI2_BEDROCK_MODEL_ARN") or env.get("BEDROCK_MODEL_ARN", "")).strip()
     litellm_key = (env.get("KENSEI2_LITELLM_MASTER_KEY") or env.get("LITELLM_MASTER_KEY", "")).strip()
     if not litellm_key:
         litellm_key = "sk-kensei2-%s" % secrets.token_hex(8)
+
+    _base_path = ""
+    _public_ws_url = ""
+    if sandbox_id and ws_router_host and "/" in ws_router_host:
+        _hostname, _path_part = ws_router_host.split("/", 1)
+        _prefix = "/" + _path_part.strip("/")
+        _base_path = "%s/sandbox/%s" % (_prefix, sandbox_id)
+        _public_ws_url = "wss://%s%s/sandbox/%s/" % (_hostname, _prefix, sandbox_id)
+    elif sandbox_id and ws_router_host:
+        _base_path = "/sandbox/%s" % sandbox_id
+        _public_ws_url = "wss://%s/sandbox/%s/" % (ws_router_host, sandbox_id)
 
     config_dict = {
         "gateway": {
@@ -381,8 +412,11 @@ class Kensei2SandboxK8s(models.AbstractModel):
             sandbox_record,
         )
 
+        kensei2_ws_host = self._get_config_param("kensei2.ws_router_host", "")
         openclaw_config = _build_openclaw_config(
-            gateway_token, env, sandbox_record.model_type
+            gateway_token, env, sandbox_record.model_type,
+            sandbox_id=sandbox_record.id,
+            ws_router_host=kensei2_ws_host,
         )
         self._create_openclaw_config_configmap(
             core_v1,
@@ -431,7 +465,6 @@ class Kensei2SandboxK8s(models.AbstractModel):
         self._create_service(core_v1, sandbox_record, labels, name)
 
         networking_v1 = client.NetworkingV1Api()
-        kensei2_ws_host = self._get_config_param("kensei2.ws_router_host", "")
         nginx_image = self._get_config_param("kensei2.nginx_image", "nginx:alpine")
         self._ensure_ws_router(
             core_v1, apps_v1, networking_v1, kensei2_ws_host, nginx_image
@@ -874,12 +907,15 @@ class Kensei2SandboxK8s(models.AbstractModel):
             k8s_image = k8s.get("image", "")
             if not k8s_image:
                 svc_name = svc.get("name", entry)
+                mock_prefix = self._get_config_param(
+                    "kensei2.mock_image_prefix", "kensei2-mock-"
+                )
                 if registry_prefix:
-                    k8s_image = "%s/kensei2-mock-%s:%s" % (
-                        registry_prefix.rstrip("/"), svc_name, image_tag
+                    k8s_image = "%s/%s%s:%s" % (
+                        registry_prefix.rstrip("/"), mock_prefix, svc_name, image_tag
                     )
                 else:
-                    k8s_image = "kensei2-mock-%s:%s" % (svc_name, image_tag)
+                    k8s_image = "%s%s:%s" % (mock_prefix, svc_name, image_tag)
             port = svc.get("port", 0)
             default_start_cmd = (
                 "uvicorn server:app --host 0.0.0.0 --port %d" % port
@@ -1704,7 +1740,24 @@ class Kensei2SandboxK8s(models.AbstractModel):
         try:
             core_v1.create_namespaced_service(namespace=NAMESPACE, body=svc)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                try:
+                    existing = core_v1.read_namespaced_service(
+                        name=name, namespace=NAMESPACE
+                    )
+                    expected_selector = {
+                        "task-id": str(sandbox_record.id),
+                        "component": "sandbox",
+                    }
+                    if existing.spec.selector != expected_selector:
+                        core_v1.replace_namespaced_service(
+                            name=name, namespace=NAMESPACE, body=svc
+                        )
+                except ApiException as e2:
+                    if e2.status != 404:
+                        raise
+                    raise e
+            else:
                 raise
 
     def _ensure_ws_router(self, core_v1, apps_v1, networking_v1, ws_host, nginx_image):
@@ -2037,6 +2090,7 @@ class Kensei2SandboxK8s(models.AbstractModel):
             return "stopped"
 
         _load_k8s_config()
+        core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
         name = _resource_name(sandbox_record)
 
@@ -2053,13 +2107,37 @@ class Kensei2SandboxK8s(models.AbstractModel):
                     ).total_seconds()
                     if elapsed > 300:
                         return "error"
+                    return "starting"
                 return "stopped"
+            raise
+
+        try:
+            core_v1.read_namespaced_service(name=name, namespace=NAMESPACE)
+        except ApiException as e:
+            if e.status == 404:
+                return "error"
             raise
 
         status = dep.status
         if status.available_replicas and status.available_replicas >= 1:
             return "running"
         if status.replicas and status.replicas > 0:
+            # Deployment has pods but none are Available yet. Healthy
+            # startup legitimately takes minutes, so this is normally
+            # just "starting". But if the sandbox has been "starting"
+            # far past the startup budget the pod is wedged and will
+            # never become Available on its own — report "error" so the
+            # retry/UI path can act instead of spinning forever.
+            # (Mirrors the 404-branch timeout escape hatch above.)
+            if (
+                sandbox_record.docker_status == "starting"
+                and sandbox_record.write_date
+            ):
+                elapsed = (
+                    fields.Datetime.now() - sandbox_record.write_date
+                ).total_seconds()
+                if elapsed > SANDBOX_START_DEADLINE:
+                    return "error"
             return "starting"
         return "stopped"
 

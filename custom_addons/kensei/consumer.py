@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RabbitMQ Consumer for Kensei auto-processing pipeline.
+RabbitMQ Consumer for Kensei batch auto-processing pipeline.
 
 This script runs OUTSIDE the Odoo HTTP process as a standalone worker.
 It connects to RabbitMQ, listens on the kensei_auto_process queue, and
-orchestrates: sandbox start → WS connect → send prompt → receive response
-→ save → auto-hint QC loop.
+triggers batch execution: claim task -> start batch (16 pods) -> poll
+until done -> mark complete.
+
+All WS communication and sandbox orchestration is handled server-side
+by the batch background workers in kensei_sandbox.py.
 
 Usage:
     python consumer.py
@@ -15,10 +18,8 @@ Environment variables required:
     RABBITMQ_HOST, RABBITMQ_PORT, RABBITMQ_USERNAME, RABBITMQ_PASSWORD, RABBITMQ_VHOST
     ODOO_URL, ODOO_DB, ODOO_USERNAME, ODOO_PASSWORD
     CONSUMER_WORKERS          -- concurrent worker threads (default 10)
-    CONSUMER_MAX_RETRIES      -- max retries per message (default 3)
-    SANDBOX_START_TIMEOUT     -- seconds to wait for sandbox start (default 300)
-    HINT_EVAL_TIMEOUT         -- seconds to wait for auto-hint eval (default 600)
-    HINT_EVAL_POLL_INTERVAL   -- seconds between hint status polls (default 5)
+    BATCH_POLL_INTERVAL       -- seconds between batch status polls (default 10)
+    BATCH_POLL_TIMEOUT        -- max seconds to wait for batch completion (default 1800)
 """
 
 import functools
@@ -37,7 +38,7 @@ from dotenv import load_dotenv
 
 load_dotenv(override=True)
 
-# ── Logging ───────────────────────────────────────────────────────────────────
+# -- Logging -------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -45,7 +46,7 @@ logging.basicConfig(
 )
 _logger = logging.getLogger("kensei.consumer")
 
-# ── RabbitMQ Config ───────────────────────────────────────────────────────────
+# -- RabbitMQ Config -----------------------------------------------------------
 RABBITMQ_HOST = os.getenv("RABBITMQ_HOST", "localhost")
 RABBITMQ_PORT = int(os.getenv("RABBITMQ_PORT", "5672"))
 RABBITMQ_USERNAME = os.getenv("RABBITMQ_USERNAME", "rabbit_akshat")
@@ -55,19 +56,17 @@ RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", "/")
 QUEUE_AUTO_PROCESS = "kensei_auto_process"
 
 WORKER_THREADS = int(os.getenv("CONSUMER_WORKERS", "10"))
-MAX_RETRIES = int(os.getenv("CONSUMER_MAX_RETRIES", "3"))
-SANDBOX_START_TIMEOUT = int(os.getenv("SANDBOX_START_TIMEOUT", "300"))
-HINT_EVAL_TIMEOUT = int(os.getenv("HINT_EVAL_TIMEOUT", "600"))
-HINT_EVAL_POLL_INTERVAL = int(os.getenv("HINT_EVAL_POLL_INTERVAL", "5"))
+BATCH_POLL_INTERVAL = int(os.getenv("BATCH_POLL_INTERVAL", "10"))
+BATCH_POLL_TIMEOUT = int(os.getenv("BATCH_POLL_TIMEOUT", "1800"))
 
-# ── Odoo XML-RPC Config ──────────────────────────────────────────────────────
+# -- Odoo XML-RPC Config ------------------------------------------------------
 ODOO_URL = os.getenv("ODOO_URL", "http://localhost:8069")
 ODOO_DB = os.getenv("ODOO_DB", "ethara_new")
 ODOO_USERNAME = os.getenv("ODOO_USERNAME", "admin")
 ODOO_PASSWORD = os.getenv("ODOO_PASSWORD", "admin")
 XMLRPC_TIMEOUT = int(os.getenv("XMLRPC_TIMEOUT", "1800"))
 
-# ── Monitoring ────────────────────────────────────────────────────────────────
+# -- Monitoring ----------------------------------------------------------------
 _stats_lock = threading.Lock()
 _stats = {
     "tasks_completed": 0,
@@ -85,14 +84,11 @@ def _log_stats():
         avg = (_stats["total_process_time"] / tc) if tc else 0
     _logger.info(
         "STATS | completed: %d, failed: %d, skipped: %d (avg %.1fs)",
-        tc,
-        tf,
-        ts,
-        avg,
+        tc, tf, ts, avg,
     )
 
 
-# ── Odoo XML-RPC Helpers ─────────────────────────────────────────────────────
+# -- Odoo XML-RPC Helpers -----------------------------------------------------
 _cached_uid = None
 _uid_lock = threading.Lock()
 
@@ -135,18 +131,17 @@ def _get_odoo_uid():
 
 def _get_odoo_models():
     transport = _make_transport()
-    return xmlrpc.client.ServerProxy(f"{ODOO_URL}/xmlrpc/2/object", transport=transport)
+    return xmlrpc.client.ServerProxy(
+        f"{ODOO_URL}/xmlrpc/2/object", transport=transport
+    )
 
 
 def _call_odoo(model, method, record_ids, args=None, kwargs=None):
     uid = _get_odoo_uid()
     models_proxy = _get_odoo_models()
     return models_proxy.execute_kw(
-        ODOO_DB,
-        uid,
-        ODOO_PASSWORD,
-        model,
-        method,
+        ODOO_DB, uid, ODOO_PASSWORD,
+        model, method,
         [record_ids] + (args or []),
         kwargs or {},
     )
@@ -156,283 +151,58 @@ def _read_fields(model, record_ids, fields_list):
     uid = _get_odoo_uid()
     models_proxy = _get_odoo_models()
     return models_proxy.execute_kw(
-        ODOO_DB,
-        uid,
-        ODOO_PASSWORD,
-        model,
-        "read",
+        ODOO_DB, uid, ODOO_PASSWORD,
+        model, "read",
         [record_ids],
         {"fields": fields_list},
     )
 
 
-# ── ACK Helpers ───────────────────────────────────────────────────────────────
+# -- ACK Helpers ---------------------------------------------------------------
 def _ack_message(channel, delivery_tag):
     if channel.is_open:
         channel.basic_ack(delivery_tag=delivery_tag)
 
 
-# ── Sandbox Polling ───────────────────────────────────────────────────────────
-def _download_input_files_as_attachments(task_id, input_files):
-    """Download input files from S3, return as WS-ready base64 attachment dicts."""
-    if not input_files:
-        return []
-
-    s3_bucket = os.getenv("KENSEI_S3_BUCKET", "production-grtlabs-tag")
-    s3_prefix = os.getenv("KENSEI_S3_PREFIX", "Kensei")
-    s3_region = os.getenv("KENSEI_S3_REGION", "us-east-1")
-    access_key = os.getenv("KENSEI_S3_ACCESS_KEY_ID") or os.getenv("AWS_SECRET_KEY", "")
-    secret_key = os.getenv("KENSEI_S3_SECRET_ACCESS_KEY") or os.getenv("AWS_ACCESS_SECRET_KEY", "")
-
-    try:
-        import boto3
-    except ImportError:
-        _logger.error("boto3 not installed — cannot download input files")
-        return []
-
-    session_kwargs = {"region_name": s3_region}
-    if access_key and secret_key:
-        session_kwargs["aws_access_key_id"] = access_key
-        session_kwargs["aws_secret_access_key"] = secret_key
-    s3 = boto3.client("s3", **session_kwargs)
-
-    import base64
-    import io
-
-    attachments = []
-    for f in input_files:
-        stored_as = f.get("storedAs", "")
-        if not stored_as:
-            continue
-        s3_key = "%s/input/tasks/%s/%s" % (s3_prefix, task_id, stored_as)
-        try:
-            buf = io.BytesIO()
-            s3.download_fileobj(s3_bucket, s3_key, buf)
-            buf.seek(0)
-            attachments.append({
-                "fileName": f.get("name", stored_as),
-                "mimeType": f.get("mimeType", "application/octet-stream"),
-                "content": base64.b64encode(buf.read()).decode(),
-            })
-            _logger.info("Downloaded %s from S3 (%d bytes)", stored_as, buf.tell())
-        except Exception as e:
-            _logger.warning("Failed to download %s from S3: %s", stored_as, e)
-
-    return attachments
-
-
-def _wait_for_sandbox_running(sandbox_id, timeout=SANDBOX_START_TIMEOUT):
-    """Poll docker_status until 'running' or 'error'. Returns status string."""
+# -- Batch Polling -------------------------------------------------------------
+def _wait_for_batch_done(task_id, timeout=BATCH_POLL_TIMEOUT):
     deadline = time.time() + timeout
+    last_status = ""
     while time.time() < deadline:
         records = _read_fields(
-            "kensei.sandbox",
-            [sandbox_id],
-            ["docker_status", "docker_error"],
+            "kensei.kensei", [task_id],
+            ["batch_status", "batch_error"],
         )
         if not records:
-            raise RuntimeError("Sandbox %s not found" % sandbox_id)
-        status = records[0].get("docker_status", "")
-        if status == "running":
-            _logger.info("Sandbox %s is running", sandbox_id)
-            return "running"
-        if status == "error":
-            error = records[0].get("docker_error", "")
-            raise RuntimeError("Sandbox %s failed to start: %s" % (sandbox_id, error))
-        _logger.debug("Sandbox %s status: %s — polling...", sandbox_id, status)
-        time.sleep(5)
-    raise RuntimeError("Sandbox %s start timed out after %ds" % (sandbox_id, timeout))
-
-
-# ── Auto-Hint Loop ────────────────────────────────────────────────────────────
-def _run_auto_hint_loop(sandbox_id, ws_client, task_id):
-    """
-    Run the auto-hint evaluation loop for the current turn.
-    1. Trigger eval
-    2. Poll until satisfied/unsatisfied/max_retries/error
-    3. If unsatisfied: create hint turn, send via WS, wait for response, save, re-trigger
-    """
-    from ws_client import OpenClawError, OpenClawTimeoutError
-
-    # Check the Settings toggle: skip the entire auto-hint loop when disabled.
-    try:
-        disable_param = _call_odoo(
-            "ir.config_parameter", "get_param", ["kensei.disable_auto_hint", "False"]
-        )
-        if isinstance(disable_param, str) and disable_param.lower() == "true":
+            raise RuntimeError("Task %s not found" % task_id)
+        status = records[0].get("batch_status", "")
+        if status != last_status:
             _logger.info(
-                "auto_hint: SKIPPED for sandbox=%s task=%s (disabled in Settings)",
-                sandbox_id,
-                task_id,
+                "Batch status for task %s: %s", task_id, status,
             )
-            return
-    except Exception as e:  # noqa: BLE001 — defensive: do not break loop on toggle check
-        _logger.warning(
-            "auto_hint: failed to check kensei.disable_auto_hint (%s); proceeding",
-            e,
-        )
-
-    for attempt in range(5):
-        # Get the last turn
-        status = _call_odoo(
-            "kensei.sandbox", "auto_process_poll_hint_status", [sandbox_id]
-        )
-        last_turn_id = status.get("last_turn_id", 0)
-        if not last_turn_id:
-            _logger.warning("auto_hint: no turns found for sandbox %s", sandbox_id)
-            return
-
-        # Trigger evaluation
-        _logger.info(
-            "auto_hint: triggering eval for sandbox=%s turn=%s attempt=%d",
-            sandbox_id,
-            last_turn_id,
-            attempt + 1,
-        )
-        trigger_result = _call_odoo(
-            "kensei.sandbox",
-            "auto_process_trigger_hint_eval",
-            [last_turn_id, sandbox_id],
-        )
-        if trigger_result.get("error"):
-            _logger.error("auto_hint: trigger failed: %s", trigger_result["error"])
-            return
-        if trigger_result.get("status") == "max_retries":
-            _logger.info("auto_hint: max retries reached for sandbox %s", sandbox_id)
-            return
-
-        # Poll for result
-        deadline = time.time() + HINT_EVAL_TIMEOUT
-        resolved = False
-        while time.time() < deadline:
-            time.sleep(HINT_EVAL_POLL_INTERVAL)
-            poll = _call_odoo(
-                "kensei.sandbox", "auto_process_poll_hint_status", [sandbox_id]
+            last_status = status
+        if status == "done":
+            return "done"
+        if status == "error":
+            error = records[0].get("batch_error", "unknown error")
+            raise RuntimeError(
+                "Batch failed for task %s: %s" % (task_id, error)
             )
-            hint_status = poll.get("auto_hint_status", "")
-            _logger.debug(
-                "auto_hint: poll sandbox=%s status=%s iter=%s",
-                sandbox_id,
-                hint_status,
-                poll.get("auto_hint_iteration"),
-            )
-
-            if hint_status == "idle":
-                # Eval completed — check last turn feedback
-                feedback = poll.get("last_turn_feedback", "")
-                if feedback == "satisfied":
-                    _logger.info("auto_hint: satisfied for sandbox %s", sandbox_id)
-                    return
-                elif feedback == "unsatisfied":
-                    hint_text = poll.get("last_turn_hint_text", "")
-                    if not hint_text:
-                        _logger.warning(
-                            "auto_hint: unsatisfied but no hint text for sandbox %s",
-                            sandbox_id,
-                        )
-                        return
-                    _logger.info(
-                        "auto_hint: unsatisfied, sending hint (attempt %d): %.100s",
-                        attempt + 1,
-                        hint_text,
-                    )
-                    # Create hint turn
-                    group_id = poll.get("auto_hint_group_id", "")
-                    iteration = poll.get("auto_hint_iteration", 0)
-                    turn_result = _call_odoo(
-                        "kensei.sandbox",
-                        "auto_process_create_turn",
-                        [sandbox_id, hint_text],
-                        [],
-                        {
-                            "is_hint": True,
-                            "is_auto_hint": True,
-                            "auto_hint_iteration": iteration + 1,
-                            "auto_hint_group_id": group_id,
-                        },
-                    )
-                    if turn_result.get("error"):
-                        _logger.error(
-                            "auto_hint: create_turn failed: %s",
-                            turn_result["error"],
-                        )
-                        return
-                    new_turn_id = turn_result["turn_id"]
-
-                    # Send hint via WS
-                    try:
-                        ws_client.send_message(hint_text)
-                        response = ws_client.wait_for_response(timeout=600)
-                    except (OpenClawError, OpenClawTimeoutError) as e:
-                        _logger.error("auto_hint: WS error during hint response: %s", e)
-                        _call_odoo(
-                            "kensei.sandbox",
-                            "auto_process_save_response",
-                            [new_turn_id, str(e), "", False],
-                        )
-                        return
-
-                    # Save hint response
-                    _call_odoo(
-                        "kensei.sandbox",
-                        "auto_process_save_response",
-                        [new_turn_id, response.text, response.tool_calls_json, False],
-                    )
-
-                    # Fetch and save trajectory
-                    try:
-                        history = ws_client.fetch_history()
-                        if history:
-                            _call_odoo(
-                                "kensei.sandbox",
-                                "auto_process_save_trajectory",
-                                [sandbox_id, new_turn_id, json.dumps(history)],
-                            )
-                    except Exception as e:
-                        _logger.warning("auto_hint: fetch_history failed: %s", e)
-
-                    resolved = True
-                    break  # Back to outer loop for next eval
-                else:
-                    _logger.info(
-                        "auto_hint: idle with feedback=%s for sandbox %s",
-                        feedback,
-                        sandbox_id,
-                    )
-                    return
-
-            elif hint_status in ("max_retries", "error"):
-                _logger.info(
-                    "auto_hint: status=%s for sandbox %s", hint_status, sandbox_id
-                )
-                return
-
-        if not resolved:
-            _logger.warning(
-                "auto_hint: eval timed out after %ds for sandbox %s",
-                HINT_EVAL_TIMEOUT,
-                sandbox_id,
-            )
-            # Reset stuck status
-            _call_odoo("kensei.sandbox", "auto_process_reset_hint_status", [sandbox_id])
-            return
-
-    _logger.info("auto_hint: loop completed for sandbox %s", sandbox_id)
+        time.sleep(BATCH_POLL_INTERVAL)
+    raise RuntimeError(
+        "Batch timed out after %ds for task %s" % (timeout, task_id)
+    )
 
 
-# ── Worker Function ───────────────────────────────────────────────────────────
+# -- Worker Function -----------------------------------------------------------
 def _process_task(connection, channel, delivery_tag, properties, body):
-    """Full orchestration for one task."""
-    from ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
-
     task_id = None
     start_time = time.time()
-    ws_client = None
 
     try:
         message = json.loads(body)
         task_id = message.get("task_id")
-        _logger.info("Processing auto_process task_id=%s", task_id)
+        _logger.info("Processing batch task_id=%s", task_id)
 
         if not task_id:
             _logger.error("Missing task_id in message: %s", body)
@@ -441,127 +211,47 @@ def _process_task(connection, channel, delivery_tag, properties, body):
             return
 
         # 1. Claim task
-        claim = _call_odoo("kensei.kensei", "auto_process_claim_task", [task_id])
+        claim = _call_odoo(
+            "kensei.kensei", "auto_process_claim_task", [task_id],
+        )
         if claim.get("skip"):
-            _logger.info("Skipping task_id=%s: %s", task_id, claim.get("reason", "?"))
+            _logger.info(
+                "Skipping task_id=%s: %s",
+                task_id, claim.get("reason", "?"),
+            )
             with _stats_lock:
                 _stats["tasks_skipped"] += 1
             cb = functools.partial(_ack_message, channel, delivery_tag)
             connection.add_callback_threadsafe(cb)
             return
 
-        sandbox_id = claim["sandbox_id"]
         initial_prompt = claim["initial_prompt"]
-        docker_status = claim.get("docker_status", "stopped")
-
         _logger.info(
-            "Claimed task_id=%s sandbox_id=%s docker_status=%s",
-            task_id,
-            sandbox_id,
-            docker_status,
+            "Claimed task_id=%s, prompt_len=%d",
+            task_id, len(initial_prompt),
         )
 
-        # 2. Start sandbox if needed
-        if docker_status != "running":
-            _logger.info("Starting sandbox %s...", sandbox_id)
-            _call_odoo("kensei.sandbox", "action_start_sandbox", [sandbox_id])
-            _wait_for_sandbox_running(sandbox_id, timeout=SANDBOX_START_TIMEOUT)
-
-        # 3. Get WS info
-        ws_info = _call_odoo("kensei.sandbox", "auto_process_get_ws_info", [sandbox_id])
-        if ws_info.get("error"):
-            raise RuntimeError("WS info error: %s" % ws_info["error"])
-
-        ws_url = ws_info["ws_url"]
-        gateway_token = ws_info["gateway_token"]
-
-        # 4. Connect to OpenClaw
-        _logger.info("Connecting to OpenClaw: %s (sandbox=%s)", ws_url, sandbox_id)
-        ws_client = OpenClawClient(ws_url, gateway_token, sandbox_id)
-
-        connect_retries = 3
-        for attempt in range(connect_retries):
-            try:
-                ws_client.connect(timeout=30)
-                break
-            except (OpenClawError, OpenClawTimeoutError) as e:
-                if attempt < connect_retries - 1:
-                    _logger.warning(
-                        "WS connect failed (attempt %d/%d): %s",
-                        attempt + 1,
-                        connect_retries,
-                        e,
-                    )
-                    time.sleep(5)
-                else:
-                    raise
-
-        # 5. Download input files from S3 and build WS attachments
-        input_files = claim.get("input_files") or []
-        ws_attachments = _download_input_files_as_attachments(task_id, input_files)
-
-        # 6. Create turn + send prompt with attachments
+        # 2. Start batch (16 pods: 8 Claude + 8 GPT)
         _logger.info(
-            "Sending initial_prompt (task=%s, sandbox=%s, attachments=%d): %.100s",
-            task_id,
-            sandbox_id,
-            len(ws_attachments),
-            initial_prompt,
+            "Starting batch for task_id=%s: %.100s",
+            task_id, initial_prompt,
         )
-        turn_result = _call_odoo(
-            "kensei.sandbox",
-            "auto_process_create_turn",
-            [sandbox_id, initial_prompt],
-        )
-        if turn_result.get("error"):
-            raise RuntimeError("create_turn failed: %s" % turn_result["error"])
-        turn_id = turn_result["turn_id"]
-
-        ws_client.send_message(initial_prompt, ws_attachments or None)
-
-        # 6. Wait for response
-        _logger.info(
-            "Waiting for response (sandbox=%s, turn=%s)...", sandbox_id, turn_id
-        )
-        response = ws_client.wait_for_response(timeout=600)
-        _logger.info(
-            "Response received (sandbox=%s, turn=%s): %d chars",
-            sandbox_id,
-            turn_id,
-            len(response.text),
-        )
-
-        # 7. Save response
         _call_odoo(
-            "kensei.sandbox",
-            "auto_process_save_response",
-            [turn_id, response.text, response.tool_calls_json, False],
+            "kensei.kensei", "action_start_batch",
+            [task_id], [initial_prompt],
         )
 
-        # 8. Fetch and save trajectory
-        try:
-            history = ws_client.fetch_history()
-            if history:
-                _call_odoo(
-                    "kensei.sandbox",
-                    "auto_process_save_trajectory",
-                    [sandbox_id, turn_id, json.dumps(history)],
-                )
-        except Exception as e:
-            _logger.warning("fetch_history failed (non-fatal): %s", e)
+        # 3. Poll batch_status until done/error
+        _wait_for_batch_done(task_id, timeout=BATCH_POLL_TIMEOUT)
 
-        # 9. Auto-hint QC loop
-        _logger.info("Starting auto-hint loop (sandbox=%s)...", sandbox_id)
-        _run_auto_hint_loop(sandbox_id, ws_client, task_id)
-
-        # 10. Mark done (sandbox stays running)
+        # 4. Mark done
         elapsed = time.time() - start_time
-        _call_odoo("kensei.kensei", "auto_process_mark_done", [task_id, "done", ""])
+        _call_odoo(
+            "kensei.kensei", "auto_process_mark_done",
+            [task_id, "done", ""],
+        )
         _logger.info(
-            "Task completed: task_id=%s sandbox=%s (%.1fs)",
-            task_id,
-            sandbox_id,
-            elapsed,
+            "Task completed: task_id=%s (%.1fs)", task_id, elapsed,
         )
 
         with _stats_lock:
@@ -574,10 +264,7 @@ def _process_task(connection, channel, delivery_tag, properties, body):
         elapsed = time.time() - start_time
         _logger.error(
             "Task failed: task_id=%s (%.1fs): %s\n%s",
-            task_id or "?",
-            elapsed,
-            e,
-            traceback.format_exc(),
+            task_id or "?", elapsed, e, traceback.format_exc(),
         )
         with _stats_lock:
             _stats["tasks_failed"] += 1
@@ -585,42 +272,33 @@ def _process_task(connection, channel, delivery_tag, properties, body):
         if task_id:
             try:
                 _call_odoo(
-                    "kensei.kensei",
-                    "auto_process_mark_done",
+                    "kensei.kensei", "auto_process_mark_done",
                     [task_id, "failed", str(e)[:2000]],
                 )
             except Exception:
-                _logger.exception("Failed to mark task %s as failed", task_id)
-
+                _logger.exception(
+                    "Failed to mark task %s as failed", task_id,
+                )
     finally:
-        if ws_client:
-            try:
-                ws_client.disconnect()
-            except Exception:
-                pass
-
         cb = functools.partial(_ack_message, channel, delivery_tag)
         connection.add_callback_threadsafe(cb)
 
 
-# ── Callback Factory ─────────────────────────────────────────────────────────
+# -- Callback Factory ----------------------------------------------------------
 def _make_callback(connection, thread_pool):
     def on_message(channel, method, properties, body):
         thread_pool.submit(
             _process_task,
-            connection,
-            channel,
-            method.delivery_tag,
-            properties,
-            body,
+            connection, channel,
+            method.delivery_tag, properties, body,
         )
 
     return on_message
 
 
-# ── Consumer Setup ────────────────────────────────────────────────────────────
+# -- Consumer Setup ------------------------------------------------------------
 def start_consumer():
-    _logger.info("Starting Kensei consumer with %d worker threads", WORKER_THREADS)
+    _logger.info("Starting Kensei batch consumer with %d workers", WORKER_THREADS)
     _logger.info("Connecting to RabbitMQ at %s:%s...", RABBITMQ_HOST, RABBITMQ_PORT)
     _logger.info("Odoo: %s (DB: %s, User: %s)", ODOO_URL, ODOO_DB, ODOO_USERNAME)
 
@@ -655,7 +333,10 @@ def start_consumer():
         on_message_callback=_make_callback(connection, thread_pool),
     )
 
-    _logger.info("Consumer started. Listening on queue: [%s]", QUEUE_AUTO_PROCESS)
+    _logger.info(
+        "Batch consumer started. Listening on queue: [%s]",
+        QUEUE_AUTO_PROCESS,
+    )
     _logger.info("Press Ctrl+C to exit.")
 
     try:
@@ -675,9 +356,13 @@ if __name__ == "__main__":
         try:
             start_consumer()
         except pika.exceptions.AMQPConnectionError as e:
-            _logger.error("RabbitMQ connection lost: %s. Reconnecting in 5s...", e)
+            _logger.error(
+                "RabbitMQ connection lost: %s. Reconnecting in 5s...", e,
+            )
             time.sleep(5)
         except Exception as e:
-            _logger.error("Consumer crashed: %s\n%s", e, traceback.format_exc())
+            _logger.error(
+                "Consumer crashed: %s\n%s", e, traceback.format_exc(),
+            )
             _logger.info("Restarting consumer in 10s...")
             time.sleep(10)

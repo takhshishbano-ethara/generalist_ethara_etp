@@ -36,6 +36,8 @@ const STREAM_WORD_THRESHOLD = 5;
 const INCREMENTAL_SAVE_INTERVAL_MS = 3000;
 const CHAT_TIMEOUT_MS = 30 * 60 * 1000;
 
+const USE_SSE = true;
+
 const MAX_PENDING_ATTACHMENTS = 10;
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
 const ALLOWED_DOC_TYPES = [
@@ -271,9 +273,13 @@ const _sessions = new Map();
 export async function clearChatSession(sandboxId) {
     if (_sessions.has(sandboxId)) {
         const session = _sessions.get(sandboxId);
-        // Fetch and persist trajectory before tearing down the WS.
-        if (session.ws && session.wsConnected) {
-            const widget = session.ws._odooWidget;
+        const isSSE = USE_SSE && session.sseSource;
+        const isWS = session.ws && session.wsConnected;
+        const widget = isSSE
+            ? session.sseSource?._odooWidget
+            : (isWS ? session.ws._odooWidget : null);
+
+        if (isSSE || isWS) {
             const turnId = session.currentTurnId
                 || await _resolveLatestTurnId(sandboxId);
             if (turnId && widget) {
@@ -293,11 +299,12 @@ export async function clearChatSession(sandboxId) {
                 widget._clearQcState();
             }
         }
+        if (session.sseSource) {
+            try { session.sseSource.close(); } catch {}
+        }
         if (session.ws) {
             try { session.ws.close(); } catch {}
         }
-        // Covers the ws=null case: session.messages is the same reference as
-        // widget.state.messages (shared via _syncFromSession).
         session.messages.length = 0;
         _sessions.delete(sandboxId);
     }
@@ -340,6 +347,8 @@ function _getSession(sandboxId) {
             _reconnectAttempts: 0,
             _reconnectTimer: null,
             _thinkingBuf: "",
+            sseSource: null,
+            sseConnected: false,
             qcPending: false,
             qcResult: null,
             qcDismissReason: "",
@@ -482,7 +491,7 @@ export class Kensei2ChatWidget extends Component {
 
         onMounted(() => {
             console.log(LOG_PREFIX, "Widget mounted. sandboxId:", this.props.sandboxId,
-                "sessionCached:", this._session.wsConnected,
+                "sessionCached:", (USE_SSE ? this._session.sseConnected : this._session.wsConnected),
                 "messages:", this._session.messages.length);
 
             _loadMarked().catch(e => console.warn(LOG_PREFIX, "marked load failed:", e));
@@ -496,8 +505,9 @@ export class Kensei2ChatWidget extends Component {
                 this._currentSandboxId = this.props.sandboxId;
                 this._session = _getSession(this.props.sandboxId);
                 this._syncFromSession();
-            } else if (this.isRunning && !this._session.wsConnected) {
-                if (this._session.historyLoaded && !this._session.ws) {
+            } else if (this.isRunning && !(USE_SSE ? this._session.sseConnected : this._session.wsConnected)) {
+                const hasActiveConnection = USE_SSE ? !!this._session.sseSource : !!this._session.ws;
+                if (this._session.historyLoaded && !hasActiveConnection) {
                     this._resetSessionMessages();
                 }
                 this._tryConnect();
@@ -519,8 +529,9 @@ export class Kensei2ChatWidget extends Component {
         this._session.messages = this.state.messages;
 
         this.state.streaming = this._session.streaming;
-        this.state.connected = this._session.wsConnected;
-        this.state.statusText = this._session.wsConnected ? "Connected" : "Initializing...";
+        const connectedNow = USE_SSE ? this._session.sseConnected : this._session.wsConnected;
+        this.state.connected = connectedNow;
+        this.state.statusText = connectedNow ? (USE_SSE ? "Connected (SSE)" : "Connected") : "Initializing...";
         this.state.qcPending = this._session.qcPending;
         this.state.qcResult = this._session.qcResult;
         this.state.qcDismissReason = this._session.qcDismissReason;
@@ -530,7 +541,11 @@ export class Kensei2ChatWidget extends Component {
             this._loadHistory();
         }
 
-        if (this._session.wsConnected && this._session.ws) {
+        if (USE_SSE && this._session.sseConnected && this._session.sseSource) {
+            this.state.connected = true;
+            this.state.statusText = "Connected (SSE)";
+            this._session.sseSource._odooWidget = this;
+        } else if (!USE_SSE && this._session.wsConnected && this._session.ws) {
             this.state.connected = true;
             this.state.statusText = "Connected";
             this._session.ws._odooWidget = this;
@@ -542,6 +557,9 @@ export class Kensei2ChatWidget extends Component {
     }
 
     _detachFromSession() {
+        if (this._session.sseSource) {
+            this._session.sseSource._odooWidget = null;
+        }
         if (this._session.ws) {
             this._session.ws._odooWidget = null;
         }
@@ -563,18 +581,27 @@ export class Kensei2ChatWidget extends Component {
             this.state.statusText = "Sandbox not running";
             return;
         }
-        if (this._session.ws) {
-            const rs = this._session.ws.readyState;
-            if (rs === WebSocket.CONNECTING || rs === WebSocket.OPEN) return;
-        }
         const wsUrl = this.gatewayWsUrl;
         const token = this.gatewayToken;
         if (!wsUrl || !token) {
             this.state.statusText = "Missing gateway URL or token";
             return;
         }
-        this.state.statusText = "Connecting...";
-        this._connectGateway(wsUrl, token);
+        if (USE_SSE) {
+            if (this._session.sseSource) {
+                const rs = this._session.sseSource.readyState;
+                if (rs === EventSource.CONNECTING || rs === EventSource.OPEN) return;
+            }
+            this.state.statusText = "Connecting via SSE...";
+            this._connectSSE(wsUrl, token);
+        } else {
+            if (this._session.ws) {
+                const rs = this._session.ws.readyState;
+                if (rs === WebSocket.CONNECTING || rs === WebSocket.OPEN) return;
+            }
+            this.state.statusText = "Connecting...";
+            this._connectGateway(wsUrl, token);
+        }
     }
 
     _connectGateway(url, token) {
@@ -920,7 +947,143 @@ export class Kensei2ChatWidget extends Component {
         };
     }
 
+    _connectSSE(wsUrl, token) {
+        this._disconnectSSE();
+        const sandboxId = this.props.sandboxId;
+        const params = new URLSearchParams({
+            sandbox_id: sandboxId,
+            ws_url: wsUrl,
+            token: token,
+        });
+        const sseUrl = `/kensei2/sse/stream?${params.toString()}`;
+        console.log(LOG_PREFIX, `SSE connecting: ${sseUrl}`);
+
+        let source;
+        try {
+            source = new EventSource(sseUrl);
+        } catch (e) {
+            console.error(LOG_PREFIX, "EventSource constructor failed:", e);
+            this.state.statusText = `SSE error: ${e.message}`;
+            return;
+        }
+        this._session.sseSource = source;
+        source._odooWidget = this;
+
+        source.addEventListener("connected", (ev) => {
+            console.log(LOG_PREFIX, "SSE connected event received");
+            this._session.sseConnected = true;
+            this._session.wsConnected = true;
+            this._session._reconnectAttempts = 0;
+            this.state.connected = true;
+            this.state.statusText = "Connected (SSE)";
+            this._restoreSessionFromGateway();
+        });
+
+        source.addEventListener("chat", (ev) => {
+            let payload;
+            try { payload = JSON.parse(ev.data); } catch { return; }
+            this._handleChatEvent(payload, source._odooWidget);
+        });
+
+        source.addEventListener("heartbeat", () => {});
+
+        source.addEventListener("error", (ev) => {
+            let errData;
+            try { errData = JSON.parse(ev.data); } catch { errData = {}; }
+            const errText = errData.error || "SSE error event";
+            console.error(LOG_PREFIX, "SSE error event:", errText);
+            const msg = this._session.messages.findLast(m => m.pending);
+            if (msg) {
+                msg.pending = false;
+                msg.text = errText;
+                msg.html = markup(renderMarkdown(errText));
+                msg.isError = true;
+            }
+            this._session.streaming = false;
+            this._stopIncrementalSave();
+            this.state.streaming = false;
+            this.state.sending = false;
+            this.state.activityText = "";
+        });
+
+        source.onerror = (ev) => {
+            console.error(LOG_PREFIX, "SSE onerror — readyState:", source.readyState);
+            const was = this._session.sseConnected;
+            if (source.readyState === EventSource.CLOSED) {
+                this._session.sseConnected = false;
+                this._session.wsConnected = false;
+                this.state.connected = false;
+
+                if (this._session.streaming && this._session.currentTurnId) {
+                    this._stopIncrementalSave();
+                    const currentText = this._session._streamBuf || "";
+                    const toolCalls = this._session._toolCallMap.size > 0 ? Array.from(this._session._toolCallMap.values()) : null;
+                    if (currentText) {
+                        console.log(LOG_PREFIX, "SSE closed during stream — saving partial response");
+                        const params = { turn_id: this._session.currentTurnId, response: currentText, partial: true };
+                        if (toolCalls && toolCalls.length > 0) params.tool_calls = JSON.stringify(toolCalls);
+                        rpc("/kensei2/chat/save_response", params).catch(e => console.warn(LOG_PREFIX, "Partial save on SSE disconnect failed:", e));
+                    }
+                    let msg = this._session.messages.findLast(m => m.pending);
+                    if (msg) {
+                        msg.pending = false;
+                        if (currentText) {
+                            msg.text = currentText;
+                            msg.html = markup(renderMarkdown(currentText));
+                        }
+                        if (toolCalls && toolCalls.length > 0) msg.toolCalls = toolCalls;
+                    }
+                    this._session.streaming = false;
+                    this._session._streamBuf = "";
+                    this._session._lastFlushedWordCount = 0;
+                    this._session._toolCalls = [];
+                    this._session._toolCallMap = new Map();
+                    this._session._rawEvents = [];
+                    this.state.streaming = false;
+                    this.state.sending = false;
+                    this.state.activityText = "";
+                }
+
+                const MAX_RECONNECT = 8;
+                const attempts = this._session._reconnectAttempts || 0;
+                if (was && this.isRunning && attempts < MAX_RECONNECT) {
+                    const delay = Math.min(2000 * Math.pow(2, attempts), 60000);
+                    this._session._reconnectAttempts = attempts + 1;
+                    this.state.statusText = `Disconnected — reconnecting in ${Math.round(delay / 1000)}s (attempt ${attempts + 1}/${MAX_RECONNECT})…`;
+                    if (this._session._reconnectTimer) clearTimeout(this._session._reconnectTimer);
+                    this._session._reconnectTimer = setTimeout(() => {
+                        this._session._reconnectTimer = null;
+                        this._tryConnect();
+                    }, delay);
+                } else if (was && this.isRunning) {
+                    this.state.statusText = "Connection failed after multiple attempts. Please reload.";
+                } else {
+                    this.state.statusText = "SSE connection closed";
+                }
+            }
+        };
+    }
+
+    _disconnectSSE() {
+        if (this._session._reconnectTimer) {
+            clearTimeout(this._session._reconnectTimer);
+            this._session._reconnectTimer = null;
+        }
+        if (this._session.sseSource) {
+            console.log(LOG_PREFIX, "Disconnecting SSE");
+            try { this._session.sseSource.close(); } catch {}
+            this._session.sseSource = null;
+        }
+        this._session.sseConnected = false;
+    }
+
     _disconnectGateway() {
+        if (USE_SSE) {
+            this._disconnectSSE();
+            this._session.wsConnected = false;
+            this.state.connected = false;
+            return;
+        }
         this._stopHeartbeat();
         if (this._session._reconnectTimer) {
             clearTimeout(this._session._reconnectTimer);
@@ -954,6 +1117,7 @@ export class Kensei2ChatWidget extends Component {
     }
 
     _startHeartbeat() {
+        if (USE_SSE) return;
         this._stopHeartbeat();
         this._session._heartbeatTimer = setInterval(() => {
             const ws = this._session.ws;
@@ -1669,8 +1833,17 @@ export class Kensei2ChatWidget extends Component {
         const sessionKey = "odoo:sandbox:" + this.props.sandboxId;
         console.log(LOG_PREFIX, "🔄 _restoreSessionFromGateway: sessionKey=", sessionKey);
         try {
-            const res = await this._wsRpc("chat.history", { sessionKey, limit: 200 }, 60000);
-            const messages = res?.result?.messages || res?.messages || [];
+            let messages;
+            if (USE_SSE) {
+                const histRes = await rpc("/kensei2/sse/history", {
+                    sandbox_id: this.props.sandboxId,
+                    limit: 200,
+                });
+                messages = histRes?.messages || [];
+            } else {
+                const res = await this._wsRpc("chat.history", { sessionKey, limit: 200 }, 60000);
+                messages = res?.result?.messages || res?.messages || [];
+            }
             console.log(LOG_PREFIX, `🔄 Gateway returned ${messages.length} messages`);
             if (messages.length === 0) return;
 
@@ -1795,7 +1968,7 @@ export class Kensei2ChatWidget extends Component {
         await new Promise(r => setTimeout(r, 1000));
         await this._fetchTrajectory(turnId);
 
-        if (turnId && this._session.wsConnected) {
+        if (turnId && (this._session.wsConnected || this._session.sseConnected)) {
             // Auto-hint eval disabled
             // if (this.state.autoHintIteration < this.state.autoHintMaxRetries) {
             //     this._triggerAutoHintEval(turnId);
@@ -1813,8 +1986,17 @@ export class Kensei2ChatWidget extends Component {
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             console.log(LOG_PREFIX, `📜 _fetchTrajectory attempt ${attempt}/${maxAttempts}: turnId=${turnId}`);
             try {
-                const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 }, 60000);
-                const messages = res?.result?.messages || res?.messages || [];
+                let messages;
+                if (USE_SSE) {
+                    const histRes = await rpc("/kensei2/sse/history", {
+                        sandbox_id: this.props.sandboxId,
+                        limit: 1000,
+                    });
+                    messages = histRes?.messages || [];
+                } else {
+                    const res = await this._wsRpc("chat.history", { sessionKey, limit: 1000 }, 60000);
+                    messages = res?.result?.messages || res?.messages || [];
+                }
                 console.log(LOG_PREFIX, `📜 chat.history returned ${messages.length} messages`);
 
                 let thinkingBlockCount = 0;
@@ -2088,7 +2270,7 @@ export class Kensei2ChatWidget extends Component {
     }
 
     async _sendAutoHint(hint, evalTurnId, groupId, iteration) {
-        if (!hint || !this._session.wsConnected) {
+        if (!hint || !(this._session.wsConnected || this._session.sseConnected)) {
             this._endAutoHintLoop("error");
             return;
         }
@@ -2334,7 +2516,8 @@ export class Kensei2ChatWidget extends Component {
         this.state.autoHintIteration = 0;
         this.state.autoHintGroupId = "";
 
-        if (!this._session.wsConnected) {
+        const isConnected = USE_SSE ? this._session.sseConnected : this._session.wsConnected;
+        if (!isConnected) {
             this._session.messages.push({
                 role: "assistant",
                 text: `Not connected. ${this.state.statusText}`,
@@ -2556,6 +2739,9 @@ export class Kensei2ChatWidget extends Component {
     }
 
     async _sendToOpenClaw(text, attachments = []) {
+        if (USE_SSE) {
+            return this._sendViaSSE(text, attachments);
+        }
         if (!this._session.ws || !this._session.wsConnected) {
             for (let i = 0; i < 5; i++) {
                 await new Promise(r => setTimeout(r, 2000));
@@ -2586,8 +2772,6 @@ export class Kensei2ChatWidget extends Component {
             },
         };
         if (attachments.length > 0) {
-            // OpenClaw normalizeRpcAttachmentsToChatAttachments expects
-            // { content: <raw-base64>, mimeType, fileName } — not { media, name }
             chatSendMsg.params.attachments = attachments.map(a => ({
                 fileName: a.name,
                 mimeType: a.mimeType,
@@ -2598,6 +2782,74 @@ export class Kensei2ChatWidget extends Component {
         console.groupEnd();
         this._session.ws.send(JSON.stringify(chatSendMsg));
 
+        this._session.currentRunId = runId;
+        this._session.messages.push({ role: "assistant", text: "", pending: true, isModelResponse: true, turnId: this._session.currentTurnId });
+        this.state.activityText = "Waiting for model…";
+        this._session.streaming = true;
+        this.state.streaming = true;
+        this._startIncrementalSave();
+        this._startChatTimeout();
+        this._scrollToBottom();
+    }
+
+    async _sendViaSSE(text, attachments = []) {
+        if (!this._session.sseConnected) {
+            for (let i = 0; i < 5; i++) {
+                await new Promise(r => setTimeout(r, 2000));
+                if (this._session.sseConnected) break;
+            }
+        }
+        if (!this._session.sseConnected) {
+            this._session.messages.push({
+                role: "assistant",
+                text: "Connection lost while processing. Please try again.",
+                html: markup(renderMarkdown("Connection lost while processing. Please try again.")),
+                isError: true,
+                pending: false,
+            });
+            this._scrollToBottom();
+            return;
+        }
+
+        const sseAttachments = attachments.length > 0
+            ? attachments.map(a => ({
+                fileName: a.name,
+                mimeType: a.mimeType,
+                content: a.media?.split(",")[1] || a.media || "",
+            }))
+            : null;
+
+        try {
+            const result = await rpc("/kensei2/sse/send", {
+                sandbox_id: this.props.sandboxId,
+                text,
+                attachments: sseAttachments,
+            });
+            if (result.error) {
+                this._session.messages.push({
+                    role: "assistant",
+                    text: `Send failed: ${result.error}`,
+                    html: markup(renderMarkdown(`Send failed: ${result.error}`)),
+                    isError: true,
+                    pending: false,
+                });
+                this._scrollToBottom();
+                return;
+            }
+        } catch (e) {
+            console.error(LOG_PREFIX, "SSE send RPC failed:", e);
+            this._session.messages.push({
+                role: "assistant",
+                text: `Send failed: ${e.message || e}`,
+                html: markup(renderMarkdown(`Send failed: ${e.message || e}`)),
+                isError: true,
+                pending: false,
+            });
+            this._scrollToBottom();
+            return;
+        }
+
+        const runId = crypto.randomUUID();
         this._session.currentRunId = runId;
         this._session.messages.push({ role: "assistant", text: "", pending: true, isModelResponse: true, turnId: this._session.currentTurnId });
         this.state.activityText = "Waiting for model…";
@@ -2840,7 +3092,10 @@ export class Kensei2ChatWidget extends Component {
         console.warn(LOG_PREFIX, "⏱️ chat timeout after", CHAT_TIMEOUT_MS, "ms turn=", turnId);
 
         try {
-            if (this._session.ws && this._session.wsConnected) {
+            if (USE_SSE && this._session.sseConnected) {
+                rpc("/kensei2/sse/abort", { sandbox_id: this.props.sandboxId })
+                    .catch(e => console.warn(LOG_PREFIX, "SSE abort on timeout failed:", e));
+            } else if (this._session.ws && this._session.wsConnected) {
                 const abortMsg = {
                     type: "req",
                     id: nextId(),
@@ -2898,15 +3153,22 @@ export class Kensei2ChatWidget extends Component {
     }
 
     onAbort() {
-        if (!this._session.ws || !this._session.wsConnected) return;
-        const abortMsg = {
-            type: "req",
-            id: nextId(),
-            method: "chat.abort",
-            params: { sessionKey: "odoo:sandbox:" + this.props.sandboxId },
-        };
-        console.log(LOG_PREFIX, "SEND chat.abort:", JSON.stringify(abortMsg));
-        this._session.ws.send(JSON.stringify(abortMsg));
+        if (USE_SSE) {
+            if (!this._session.sseConnected) return;
+            rpc("/kensei2/sse/abort", { sandbox_id: this.props.sandboxId })
+                .catch(e => console.warn(LOG_PREFIX, "SSE abort RPC failed:", e));
+            console.log(LOG_PREFIX, "SEND chat.abort via SSE");
+        } else {
+            if (!this._session.ws || !this._session.wsConnected) return;
+            const abortMsg = {
+                type: "req",
+                id: nextId(),
+                method: "chat.abort",
+                params: { sessionKey: "odoo:sandbox:" + this.props.sandboxId },
+            };
+            console.log(LOG_PREFIX, "SEND chat.abort:", JSON.stringify(abortMsg));
+            this._session.ws.send(JSON.stringify(abortMsg));
+        }
 
         const messages = this._session.messages;
         const session = this._session;

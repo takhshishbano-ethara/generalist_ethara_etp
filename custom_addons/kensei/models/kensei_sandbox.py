@@ -81,15 +81,25 @@ _SANDBOX_LOCK = threading.Lock()
 
 MODEL_TYPES = [
     ("claude", "Claude Opus 4.7"),
-    ("glm", "Kimi K2.6"),
     ("gpt", "GPT-5.5"),
 ]
 
 MODEL_DEFAULTS = {
     "claude": "litellm/claude-opus-4.7",
-    "glm": "litellm/kimi-k2.6",
     "gpt": "litellm/gpt-5.5",
 }
+
+# Batch execution pool — supports parallel deploy/prompt/stop for 16+ pods
+_BATCH_POOL_WORKERS = int(os.getenv("BATCH_POOL_WORKERS", "20"))
+_BATCH_POOL = ThreadPoolExecutor(
+    max_workers=_BATCH_POOL_WORKERS, thread_name_prefix="kensei-batch"
+)
+_POD_MAX_RETRIES = int(os.getenv("BATCH_POD_MAX_RETRIES", "2"))
+
+
+class _PodRetryError(Exception):
+    """Raised for retryable pod failures (WS connect, pod start). Triggers pod restart."""
+    pass
 
 GATEWAY_PORT_BASE = 21000
 LITELLM_PORT_BASE = 16000
@@ -97,7 +107,6 @@ DB_PORT_BASE = 17432
 
 TRAJECTORY_FIELD_MAP = {
     "claude": "claude_trajectory",
-    "glm": "glm_trajectory",
     "gpt": "gpt_trajectory",
     "1pa": "onePA_trajectory",
     "1pb": "onePB_trajectory",
@@ -290,6 +299,371 @@ def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
     finally:
         with _SANDBOX_LOCK:
             _SANDBOX_STARTING.discard(sandbox_id)
+
+
+def _batch_restart_pod(db_name, sandbox_id, mode):
+    with Registry(db_name).cursor() as cr:
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        sandbox = env["kensei.sandbox"].browse(sandbox_id)
+        if not sandbox.exists():
+            return
+        if mode == "k8s":
+            sandbox._stop_k8s()
+        else:
+            sandbox._stop_local()
+        sandbox.write({
+            "docker_status": "starting",
+            "docker_error": False,
+        })
+
+
+def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode):
+    result = {"sandbox_id": sandbox_id, "status": "error", "error": "", "retries": 0}
+    max_attempts = _POD_MAX_RETRIES + 1
+
+    for pod_attempt in range(1, max_attempts + 1):
+        ws_client = None
+        try:
+            if pod_attempt > 1:
+                result["retries"] = pod_attempt - 1
+                _logger.warning(
+                    "[BATCH] Pod restart %d/%d for sandbox %s",
+                    pod_attempt - 1, _POD_MAX_RETRIES, sandbox_id,
+                )
+                try:
+                    _batch_restart_pod(db_name, sandbox_id, mode)
+                except Exception as e:
+                    _logger.error(
+                        "[BATCH] Pod restart failed for sandbox %s: %s", sandbox_id, e,
+                    )
+                    raise _PodRetryError("Pod restart failed: %s" % e)
+                time.sleep(5)
+
+            _logger.info(
+                "[BATCH] Deploying sandbox %s (mode=%s, attempt=%d/%d)",
+                sandbox_id, mode, pod_attempt, max_attempts,
+            )
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["kensei.sandbox"].browse(sandbox_id)
+                if not sandbox.exists():
+                    result["error"] = "Sandbox %s does not exist" % sandbox_id
+                    return result
+                if mode == "k8s":
+                    sandbox._start_k8s_bg()
+                else:
+                    sandbox._start_local_bg()
+
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["kensei.sandbox"].browse(sandbox_id)
+                if sandbox.docker_status != "running":
+                    raise _PodRetryError(
+                        "Sandbox %s failed to start (status=%s, error=%s)"
+                        % (sandbox_id, sandbox.docker_status, sandbox.docker_error or "")
+                    )
+
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                ws_info = env["kensei.sandbox"].auto_process_get_ws_info(sandbox_id)
+                if ws_info.get("error"):
+                    raise _PodRetryError("WS info error: %s" % ws_info["error"])
+                ws_url = ws_info["ws_url"]
+                gateway_token = ws_info["gateway_token"]
+
+            from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
+
+            _logger.info("[BATCH] Connecting WS for sandbox %s: %s", sandbox_id, ws_url)
+            ws_client = OpenClawClient(ws_url, gateway_token, sandbox_id)
+
+            for ws_attempt in range(3):
+                try:
+                    ws_client.connect(timeout=30)
+                    break
+                except (OpenClawError, OpenClawTimeoutError) as e:
+                    if ws_attempt < 2:
+                        _logger.warning(
+                            "[BATCH] WS connect attempt %d/3 failed for sandbox %s: %s",
+                            ws_attempt + 1, sandbox_id, e,
+                        )
+                        time.sleep(5)
+                    else:
+                        raise _PodRetryError(
+                            "WS connect failed after 3 attempts: %s" % e
+                        )
+
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                turn_result = env["kensei.sandbox"].auto_process_create_turn(
+                    sandbox_id, prompt,
+                )
+                if turn_result.get("error"):
+                    result["error"] = "create_turn failed: %s" % turn_result["error"]
+                    return result
+                turn_id = turn_result["turn_id"]
+
+            _logger.info("[BATCH] Sending prompt to sandbox %s (turn=%s)", sandbox_id, turn_id)
+            ws_client.send_message(prompt)
+
+            response = ws_client.wait_for_response(timeout=600)
+            _logger.info(
+                "[BATCH] Response received from sandbox %s (%d chars)",
+                sandbox_id, len(response.text),
+            )
+
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                env["kensei.sandbox"].auto_process_save_response(
+                    turn_id, response.text, response.tool_calls_json,
+                )
+
+            try:
+                history = ws_client.fetch_history(limit=1000)
+                if history:
+                    with Registry(db_name).cursor() as cr:
+                        env = api.Environment(cr, SUPERUSER_ID, {})
+                        env["kensei.sandbox"].auto_process_save_trajectory(
+                            sandbox_id, turn_id, history,
+                        )
+            except Exception as e:
+                _logger.warning(
+                    "[BATCH] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
+                )
+
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["kensei.sandbox"].browse(sandbox_id)
+                if sandbox.exists():
+                    sandbox.write({"session_status": "completed"})
+
+            result["status"] = "completed"
+            result["error"] = ""
+            _logger.info(
+                "[BATCH] Sandbox %s completed successfully (attempt %d/%d, retries=%d)",
+                sandbox_id, pod_attempt, max_attempts, result["retries"],
+            )
+            return result
+
+        except _PodRetryError as e:
+            if ws_client:
+                try:
+                    ws_client.disconnect()
+                except Exception:
+                    pass
+                ws_client = None
+
+            if pod_attempt < max_attempts:
+                _logger.warning(
+                    "[BATCH] Retryable failure for sandbox %s (attempt %d/%d): %s",
+                    sandbox_id, pod_attempt, max_attempts, e,
+                )
+                continue
+
+            _logger.error(
+                "[BATCH] All %d pod attempts exhausted for sandbox %s: %s",
+                max_attempts, sandbox_id, e,
+            )
+            result["error"] = "Failed after %d attempts: %s" % (max_attempts, str(e)[:1500])
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["kensei.sandbox"].browse(sandbox_id)
+                    if sandbox.exists() and sandbox.docker_status not in ("stopped", "error"):
+                        sandbox.write({
+                            "docker_status": "error",
+                            "docker_error": "Failed after %d attempts: %s" % (
+                                max_attempts, str(e)[:500],
+                            ),
+                        })
+            except Exception:
+                _logger.exception("[BATCH] Failed to mark error for sandbox %s", sandbox_id)
+            return result
+
+        except Exception as e:
+            _logger.exception("[BATCH] Sandbox %s non-retryable failure: %s", sandbox_id, e)
+            result["error"] = str(e)[:2000]
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["kensei.sandbox"].browse(sandbox_id)
+                    if sandbox.exists() and sandbox.docker_status not in ("stopped", "error"):
+                        sandbox.write({
+                            "docker_status": "error",
+                            "docker_error": "Batch execution failed: %s" % str(e)[:500],
+                        })
+            except Exception:
+                _logger.exception("[BATCH] Failed to mark error for sandbox %s", sandbox_id)
+            return result
+
+        finally:
+            if ws_client:
+                try:
+                    ws_client.disconnect()
+                except Exception:
+                    pass
+
+    return result
+
+
+def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_partner_id):
+    _logger.info(
+        "[BATCH] Starting batch run: task=%s, sandboxes=%d, mode=%s",
+        task_id, len(sandbox_ids), mode,
+    )
+    from concurrent.futures import as_completed
+
+    futures = {}
+    for sid in sandbox_ids:
+        fut = _BATCH_POOL.submit(_batch_run_single_sandbox, db_name, sid, prompt, mode)
+        futures[fut] = sid
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei.kensei"].browse(task_id)
+            if task.exists():
+                task.write({"batch_status": "running"})
+                _batch_notify(env, task, "kensei/batch_status", {
+                    "task_id": task_id,
+                    "batch_status": "running",
+                    "total": len(sandbox_ids),
+                })
+    except Exception:
+        _logger.exception("[BATCH] Failed to set running status for task %s", task_id)
+
+    BATCH_TIMEOUT = int(os.getenv("BATCH_TIMEOUT", "1200"))
+    results = {}
+    try:
+        for fut in as_completed(futures, timeout=BATCH_TIMEOUT):
+            sid = futures[fut]
+            try:
+                results[sid] = fut.result()
+            except Exception as e:
+                _logger.error("[BATCH] Sandbox %s raised exception: %s", sid, e)
+                results[sid] = {"sandbox_id": sid, "status": "error", "error": str(e)[:1000]}
+    except TimeoutError:
+        _logger.error("[BATCH] Batch timed out after %ds for task %s", BATCH_TIMEOUT, task_id)
+        for fut, sid in futures.items():
+            if fut.done():
+                try:
+                    results[sid] = fut.result()
+                except Exception as e:
+                    results[sid] = {"sandbox_id": sid, "status": "error", "error": str(e)[:500]}
+            else:
+                results[sid] = {"sandbox_id": sid, "status": "error", "error": "Batch timeout"}
+                fut.cancel()
+
+    completed = sum(1 for r in results.values() if r.get("status") == "completed")
+    failed = len(results) - completed
+    total_retries = sum(r.get("retries", 0) for r in results.values())
+    _logger.info(
+        "[BATCH] All workers done: task=%s completed=%d failed=%d retries=%d",
+        task_id, completed, failed, total_retries,
+    )
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei.kensei"].browse(task_id)
+            if task.exists():
+                task.write({"batch_status": "stopping"})
+                _batch_notify(env, task, "kensei/batch_status", {
+                    "task_id": task_id,
+                    "batch_status": "stopping",
+                    "completed": completed,
+                    "failed": failed,
+                })
+    except Exception:
+        _logger.exception("[BATCH] Failed to set stopping status for task %s", task_id)
+
+    stop_futures = {}
+    for sid in sandbox_ids:
+        fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
+        stop_futures[fut] = sid
+
+    stop_errors = []
+    try:
+        for fut in as_completed(stop_futures, timeout=300):
+            sid = stop_futures[fut]
+            try:
+                fut.result()
+            except Exception as e:
+                _logger.error("[BATCH] Stop failed for sandbox %s: %s", sid, e)
+                stop_errors.append("sandbox %s: %s" % (sid, str(e)[:200]))
+    except TimeoutError:
+        _logger.error("[BATCH] Stop phase timed out for task %s", task_id)
+        stop_errors.append("Stop phase timed out")
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei.kensei"].browse(task_id)
+            if task.exists():
+                final_status = "done" if not failed and not stop_errors else "error"
+                error_parts = []
+                if failed:
+                    error_parts.append("%d sandbox(es) failed." % failed)
+                    for sid, r in results.items():
+                        if r.get("status") != "completed" and r.get("error"):
+                            retries = r.get("retries", 0)
+                            retry_note = " (after %d retries)" % retries if retries else ""
+                            error_parts.append(
+                                "  sandbox %s%s: %s" % (sid, retry_note, r["error"][:300])
+                            )
+                if stop_errors:
+                    error_parts.append("Stop errors: %s" % "; ".join(stop_errors[:5]))
+                if total_retries:
+                    error_parts.append("Total pod restarts: %d" % total_retries)
+                error_msg = "\n".join(error_parts)
+                task.write({
+                    "batch_status": final_status,
+                    "batch_error": error_msg[:4000] if error_msg else False,
+                    "batch_completed_at": fields.Datetime.now(),
+                })
+                _batch_notify(env, task, "kensei/batch_status", {
+                    "task_id": task_id,
+                    "batch_status": final_status,
+                    "completed": completed,
+                    "failed": failed,
+                    "retries": total_retries,
+                    "error": error_msg[:500] if error_msg else "",
+                })
+                _logger.info(
+                    "[BATCH] Batch finalized: task=%s status=%s completed=%d failed=%d retries=%d",
+                    task_id, final_status, completed, failed, total_retries,
+                )
+    except Exception:
+        _logger.exception("[BATCH] Failed to finalize batch status for task %s", task_id)
+
+
+def _batch_stop_single_sandbox(db_name, sandbox_id):
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            sandbox = env["kensei.sandbox"].browse(sandbox_id)
+            if not sandbox.exists():
+                _logger.warning("[BATCH] Sandbox %s not found during stop", sandbox_id)
+                return
+            if sandbox.docker_status == "stopped":
+                _logger.info("[BATCH] Sandbox %s already stopped", sandbox_id)
+                return
+            sandbox.action_stop_sandbox()
+            _logger.info("[BATCH] Sandbox %s stopped successfully", sandbox_id)
+    except Exception:
+        _logger.exception("[BATCH] Stop failed for sandbox %s", sandbox_id)
+        raise
+
+
+def _batch_notify(env, task, channel, payload):
+    partners = env["res.partner"]
+    for emp in task.employee_ids:
+        p = emp.user_id.partner_id
+        if p:
+            partners |= p
+    if not partners and task.user_id:
+        partners = task.user_id.partner_id
+    for partner in partners:
+        env["bus.bus"]._sendone(partner, channel, payload)
 
 
 def _unwrap_trajectory_messages(messages):
@@ -502,6 +876,10 @@ class KenseiSandbox(models.Model):
         related="kensei_id.employee_ids", readonly=True
     )
     model_type = fields.Selection(MODEL_TYPES, required=True, readonly=True)
+    variant_index = fields.Integer(
+        default=0, readonly=True,
+        help="0 = legacy single sandbox, 1-N = batch variant",
+    )
 
     # Docker lifecycle fields (moved from kensei.kensei)
     docker_compose_project = fields.Char(readonly=True, copy=False)
@@ -567,9 +945,9 @@ class KenseiSandbox(models.Model):
 
     _sql_constraints = [
         (
-            "unique_task_model",
-            "UNIQUE(kensei_id, model_type)",
-            "Each task can only have one sandbox per model type.",
+            "unique_task_model_variant",
+            "UNIQUE(kensei_id, model_type, variant_index)",
+            "Each task can only have one sandbox per model type and variant.",
         ),
     ]
 
@@ -732,7 +1110,10 @@ class KenseiSandbox(models.Model):
             from kubernetes import client as k8s_client
             from kubernetes import config as k8s_config
 
-            k8s_config.load_incluster_config()
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                k8s_config.load_kube_config()
         except Exception:
             _logger.warning(
                 "K8s not available for JSONL extraction (sandbox=%s)", self.id
@@ -3266,10 +3647,13 @@ class KenseiSandbox(models.Model):
             return
 
         try:
-            k8s_config.load_incluster_config()
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                k8s_config.load_kube_config()
         except Exception as exc:
             _logger.warning(
-                "K8s audit: load_incluster_config failed (sandbox=%s): %s",
+                "K8s audit: load_k8s_config failed (sandbox=%s): %s",
                 self.id, exc,
             )
             return
@@ -3858,10 +4242,13 @@ class KenseiSandbox(models.Model):
             return "ERROR: kubernetes package not available"
 
         try:
-            k8s_config.load_incluster_config()
+            try:
+                k8s_config.load_incluster_config()
+            except k8s_config.ConfigException:
+                k8s_config.load_kube_config()
         except Exception as exc:
-            _logger.warning("K8s test exec: load_incluster_config failed: %s", exc)
-            return "ERROR: Not in K8s cluster: %s" % str(exc)[:200]
+            _logger.warning("K8s test exec: load_k8s_config failed: %s", exc)
+            return "ERROR: K8s config not available: %s" % str(exc)[:200]
 
         core_v1 = k8s_client.CoreV1Api()
         pod_label = "app.kubernetes.io/name=kensei-sandbox,task-id=%s" % self.id

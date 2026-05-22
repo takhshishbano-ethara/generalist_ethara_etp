@@ -1223,6 +1223,7 @@ class Kensei2(models.Model):
         [
             ("idle", "Idle"),
             ("starting", "Starting"),
+            ("ready", "Ready"),
             ("running", "Running"),
             ("stopping", "Stopping"),
             ("done", "Done"),
@@ -1367,17 +1368,31 @@ class Kensei2(models.Model):
 
     # ── Batch execution ─────────────────────────────────────────
 
-    def action_start_batch(self, prompt):
+    def upload_batch_attachment(self, name, data_b64, mimetype):
         self.ensure_one()
-        prompt = (prompt or "").strip()
-        if not prompt:
-            raise UserError("A prompt is required to start a batch run.")
+        attachment = self.env["ir.attachment"].create({
+            "name": name,
+            "type": "binary",
+            "datas": data_b64,
+            "mimetype": mimetype or "application/octet-stream",
+            "res_model": self._name,
+            "res_id": self.id,
+        })
+        return {"attachment_id": attachment.id}
+
+    def action_start_batch(self):
+        """Deploy all sandbox pods without sending any prompt.
+
+        After all pods are up, *batch_status* transitions to ``ready``.
+        The prompt is sent later via :meth:`action_send_batch_prompt`.
+        """
+        self.ensure_one()
         if not self.persona_id:
             raise UserError(
                 "No persona selected. Please select a persona and save "
                 "before starting a batch."
             )
-        if self.batch_status in ("starting", "running", "stopping"):
+        if self.batch_status in ("starting", "ready", "running", "stopping"):
             raise UserError(
                 "A batch is already %s. Wait for it to finish or stop it first."
                 % self.batch_status
@@ -1426,7 +1441,7 @@ class Kensei2(models.Model):
 
         self.write({
             "batch_status": "starting",
-            "batch_prompt": prompt,
+            "batch_prompt": False,
             "batch_error": False,
             "batch_started_at": fields.Datetime.now(),
             "batch_completed_at": False,
@@ -1436,37 +1451,94 @@ class Kensei2(models.Model):
         db_name = self.env.cr.dbname
         notify_partner_id = self.env.user.partner_id.id
 
-        from .kensei2_sandbox import _BATCH_POOL, _run_batch_background
+        from .kensei2_sandbox import _BATCH_POOL, _run_batch_deploy_background
 
         @self.env.cr.postcommit.add
         def _queue_batch():
             _BATCH_POOL.submit(
-                _run_batch_background,
+                _run_batch_deploy_background,
+                db_name,
+                task_id,
+                sandbox_ids,
+                mode,
+                notify_partner_id,
+            )
+
+        _logger.info(
+            "Batch deploy started: task=%s sandboxes=%d mode=%s",
+            self.id, len(sandbox_ids), mode,
+        )
+        return True
+
+    def action_send_batch_prompt(self, prompt, attachment_ids=None):
+        """Send a prompt to all deployed (ready) sandbox pods.
+
+        Only valid when *batch_status* is ``ready`` (all pods are up).
+        Transitions *batch_status* to ``running``.
+        """
+        self.ensure_one()
+        prompt = (prompt or "").strip()
+        attachment_ids = attachment_ids or []
+        if not prompt and not attachment_ids:
+            raise UserError("A prompt or attachments are required.")
+        if self.batch_status != "ready":
+            raise UserError(
+                "Batch is not ready for a prompt (current status: %s). "
+                "Start the batch first and wait until all pods are up."
+                % self.batch_status
+            )
+
+        sandbox_ids = self.sandbox_ids.filtered(
+            lambda s: s.docker_status == "running"
+        ).ids
+        if not sandbox_ids:
+            raise UserError("No running sandboxes to send the prompt to.")
+
+        SandboxModel = self.env["kensei2.sandbox"]
+        mode = SandboxModel._deployment_mode()
+
+        self.write({
+            "batch_status": "running",
+            "batch_prompt": prompt,
+        })
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+        att_ids = list(attachment_ids) if attachment_ids else []
+
+        from .kensei2_sandbox import _BATCH_POOL, _run_batch_prompt_background
+
+        @self.env.cr.postcommit.add
+        def _queue_prompt():
+            _BATCH_POOL.submit(
+                _run_batch_prompt_background,
                 db_name,
                 task_id,
                 sandbox_ids,
                 prompt,
                 mode,
                 notify_partner_id,
+                att_ids,
             )
 
         _logger.info(
-            "Batch started: task=%s sandboxes=%d mode=%s prompt_len=%d",
-            self.id, len(sandbox_ids), mode, len(prompt),
+            "Batch prompt sent: task=%s sandboxes=%d prompt_len=%d attachments=%d",
+            self.id, len(sandbox_ids), len(prompt), len(att_ids),
         )
         return True
 
     def action_stop_batch(self):
         self.ensure_one()
-        if self.batch_status not in ("starting", "running"):
+        if self.batch_status not in ("starting", "ready", "running"):
             raise UserError(
                 "No active batch to stop (current status: %s)." % self.batch_status
             )
 
-        active = self.sandbox_ids.filtered(
-            lambda s: s.docker_status in ("starting", "running")
+        non_stopped = self.sandbox_ids.filtered(
+            lambda s: s.docker_status != "stopped"
         )
-        if not active:
+        if not non_stopped:
             self.write({
                 "batch_status": "done",
                 "batch_completed_at": fields.Datetime.now(),
@@ -1475,48 +1547,26 @@ class Kensei2(models.Model):
 
         self.write({"batch_status": "stopping"})
 
-        sandbox_ids = active.ids
+        sandbox_ids = non_stopped.ids
         task_id = self.id
         db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
 
-        from .kensei2_sandbox import _BATCH_POOL, _batch_stop_single_sandbox
+        from .kensei2_sandbox import _BATCH_POOL, _run_batch_stop_background
 
         @self.env.cr.postcommit.add
         def _queue_batch_stop():
-            from concurrent.futures import as_completed as _as_completed
-            stop_futures = {
-                _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid): sid
-                for sid in sandbox_ids
-            }
-            stop_errors = []
-            try:
-                for fut in _as_completed(stop_futures, timeout=300):
-                    sid = stop_futures[fut]
-                    try:
-                        fut.result()
-                    except Exception as e:
-                        _logger.error("Batch manual stop failed for sandbox %s: %s", sid, e)
-                        stop_errors.append("sandbox %s: %s" % (sid, str(e)[:200]))
-            except TimeoutError:
-                stop_errors.append("Stop phase timed out")
-
-            try:
-                with Registry(db_name).cursor() as cr:
-                    env = api.Environment(cr, SUPERUSER_ID, {})
-                    task = env["kensei2.kensei2"].browse(task_id)
-                    if task.exists():
-                        status = "done" if not stop_errors else "error"
-                        task.write({
-                            "batch_status": status,
-                            "batch_error": "; ".join(stop_errors[:5])[:4000] if stop_errors else False,
-                            "batch_completed_at": fields.Datetime.now(),
-                        })
-            except Exception:
-                _logger.exception("Failed to finalize batch stop for task %s", task_id)
+            _BATCH_POOL.submit(
+                _run_batch_stop_background,
+                db_name,
+                task_id,
+                sandbox_ids,
+                notify_partner_id,
+            )
 
         _logger.info(
             "Batch manual stop: task=%s stopping %d sandboxes",
-            self.id, len(active),
+            self.id, len(non_stopped),
         )
         return True
 
@@ -1524,7 +1574,7 @@ class Kensei2(models.Model):
     def _cron_check_batch(self):
         stuck_cutoff = fields.Datetime.subtract(fields.Datetime.now(), minutes=30)
         stuck = self.search([
-            ("batch_status", "in", ("starting", "running", "stopping")),
+            ("batch_status", "in", ("starting", "ready", "running", "stopping")),
             ("batch_started_at", "<", stuck_cutoff),
         ])
         for task in stuck:

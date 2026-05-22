@@ -19,6 +19,16 @@ try:
 except ImportError:
     K8S_AVAILABLE = False
 
+
+
+
+def _load_k8s_config():
+    try:
+        config.load_incluster_config()
+    except config.ConfigException:
+        config.load_kube_config()
+
+
 NAMESPACE = "kensei"
 
 WS_ROUTER_NAME = "kensei-ws-router"
@@ -136,11 +146,13 @@ def _s3_browser_path(persona_name):
     )
 
 
-def _build_prestop_script(task_id, persona_name):
-    session_path = "s3://%s/%s/sessions/%s/" % (S3_BUCKET, S3_KENSEI_PREFIX, task_id)
-    browser_path = "s3://%s/%s/browser-profiles/%s/%s/" % (
-        S3_BUCKET,
-        S3_KENSEI_PREFIX,
+def _build_prestop_script(task_id, persona_name, s3_bucket=None, s3_prefix=None):
+    bucket = s3_bucket or S3_BUCKET
+    prefix = s3_prefix or S3_KENSEI_PREFIX
+    session_path = "s3://%s/%s/tasks/%s/sessions/" % (bucket, prefix, task_id)
+    browser_path = "s3://%s/%s/tasks/browser-profiles/%s/%s/" % (
+        bucket,
+        prefix,
         persona_name,
         task_id,
     )
@@ -296,7 +308,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         if not K8S_AVAILABLE:
             raise UserError("kubernetes package is not installed on this server.")
 
-        config.load_incluster_config()
+        _load_k8s_config()
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
 
@@ -860,12 +872,14 @@ class KenseiSandboxK8s(models.AbstractModel):
             svc = data.get("service", {})
             k8s = data.get("k8s", {})
             k8s_image = k8s.get("image", "")
-            # Auto-derive image URI from registry prefix if not explicitly set
-            if not k8s_image and registry_prefix:
+            if not k8s_image:
                 svc_name = svc.get("name", entry)
-                k8s_image = "%s/kensei-mock-%s:%s" % (
-                    registry_prefix.rstrip("/"), svc_name, image_tag
-                )
+                if registry_prefix:
+                    k8s_image = "%s/kensei-mock-%s:%s" % (
+                        registry_prefix.rstrip("/"), svc_name, image_tag
+                    )
+                else:
+                    k8s_image = "kensei-mock-%s:%s" % (svc_name, image_tag)
             port = svc.get("port", 0)
             default_start_cmd = (
                 "uvicorn server:app --host 0.0.0.0 --port %d" % port
@@ -932,12 +946,12 @@ class KenseiSandboxK8s(models.AbstractModel):
 
         db_url = ""
 
-        prestop_script = _build_prestop_script(task_id, persona)
+        prestop_script = _build_prestop_script(task_id, persona, s3_bucket, s3_prefix)
 
-        init_containers = [
-            client.V1Container(
+        session_restore = client.V1Container(
                 name="session-restore",
                 image=aws_cli_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -973,10 +987,13 @@ class KenseiSandboxK8s(models.AbstractModel):
                 resources=client.V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
-            ),
+            )
+        init_containers = [
+            session_restore,
             client.V1Container(
                 name="persona-setup",
                 image=openclaw_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -1007,6 +1024,7 @@ class KenseiSandboxK8s(models.AbstractModel):
                 client.V1Container(
                     name="skills-setup",
                     image=openclaw_image,
+                    image_pull_policy="IfNotPresent",
                     command=[
                         "sh",
                         "-c",
@@ -1046,10 +1064,12 @@ class KenseiSandboxK8s(models.AbstractModel):
                 )
             )
 
-        init_containers.extend([
+        s3_init_tail = []
+        s3_init_tail.append(
             client.V1Container(
                 name="snapshot-start",
                 image=aws_cli_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -1067,10 +1087,13 @@ class KenseiSandboxK8s(models.AbstractModel):
                 resources=client.V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
-            ),
+            )
+        )
+        s3_init_tail.append(
             client.V1Container(
                 name="gog-setup",
                 image=openclaw_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -1102,10 +1125,13 @@ class KenseiSandboxK8s(models.AbstractModel):
                 resources=client.V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
-            ),
+            )
+        )
+        s3_init_tail.append(
             client.V1Container(
                 name="gog-install",
                 image=openclaw_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -1123,8 +1149,9 @@ class KenseiSandboxK8s(models.AbstractModel):
                 resources=client.V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "64Mi"},
                 ),
-            ),
-        ])
+            )
+        )
+        init_containers.extend(s3_init_tail)
 
         openclaw_env = [
                 client.V1EnvVar(
@@ -1202,6 +1229,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         openclaw_container = client.V1Container(
             name="openclaw",
             image=openclaw_image,
+            image_pull_policy="IfNotPresent",
             ports=[client.V1ContainerPort(container_port=18789)],
             env=openclaw_env,
             volume_mounts=[
@@ -1271,6 +1299,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         litellm_container = client.V1Container(
             name="litellm",
             image=litellm_image,
+            image_pull_policy="IfNotPresent",
             ports=[client.V1ContainerPort(container_port=4000)],
             command=["litellm", "--config", "/app/config.yaml", "--port", "4000"],
             env=[
@@ -1350,6 +1379,7 @@ class KenseiSandboxK8s(models.AbstractModel):
             ],
             resources=client.V1ResourceRequirements(
                 requests={"cpu": "25m", "memory": "1Gi"},
+                limits={},
             ),
             startup_probe=client.V1Probe(
                 tcp_socket=client.V1TCPSocketAction(port=4000),
@@ -1368,6 +1398,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         session_backup_container = client.V1Container(
             name="session-backup",
             image=aws_cli_image,
+            image_pull_policy="IfNotPresent",
             command=[
                 "sh",
                 "-c",
@@ -1416,6 +1447,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         postgres_container = client.V1Container(
             name="postgres",
             image=postgres_image,
+            image_pull_policy="IfNotPresent",
             ports=[client.V1ContainerPort(container_port=5432)],
             env=[
                 client.V1EnvVar(name="POSTGRES_DB", value="litellm"),
@@ -1463,8 +1495,8 @@ class KenseiSandboxK8s(models.AbstractModel):
             openclaw_container,
             litellm_container,
             postgres_container,
-            session_backup_container,
         ]
+        containers.append(session_backup_container)
 
         mock_data_cms = mock_data_cms or {}
         for svc in mock_services:
@@ -1499,6 +1531,7 @@ class KenseiSandboxK8s(models.AbstractModel):
                 client.V1Container(
                     name=svc["name"],
                     image=svc["k8s_image"],
+                    image_pull_policy="IfNotPresent",
                     command=svc_command,
                     ports=[client.V1ContainerPort(container_port=svc["port"])],
                     volume_mounts=svc_vol_mounts or None,
@@ -1763,6 +1796,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         container = client.V1Container(
             name="nginx",
             image=nginx_image,
+            image_pull_policy="IfNotPresent",
             ports=[client.V1ContainerPort(container_port=80)],
             volume_mounts=[
                 client.V1VolumeMount(
@@ -1933,7 +1967,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         if not K8S_AVAILABLE:
             return
 
-        config.load_incluster_config()
+        _load_k8s_config()
         core_v1 = client.CoreV1Api()
         apps_v1 = client.AppsV1Api()
 
@@ -2002,7 +2036,7 @@ class KenseiSandboxK8s(models.AbstractModel):
         if not K8S_AVAILABLE:
             return "stopped"
 
-        config.load_incluster_config()
+        _load_k8s_config()
         apps_v1 = client.AppsV1Api()
         name = _resource_name(sandbox_record)
 

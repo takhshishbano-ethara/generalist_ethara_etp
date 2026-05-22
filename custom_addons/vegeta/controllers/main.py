@@ -244,7 +244,12 @@ class VegetaController(http.Controller):
                 }
             write_vals["lambda_callback_json"] = callback_snapshot
 
+            # The PRD dispatch cron (vegeta.job._cron_dispatch_prd_jobs) now
+            # creates the worker; the webhook only moves the job to
+            # `generating`. job_name is cleared so the cron's "already
+            # dispatched" guard does not skip a retried job.
             write_vals["state"] = "generating"
+            write_vals["job_name"] = False
             record.write(write_vals)
 
             # Notify browser of state change
@@ -256,20 +261,6 @@ class VegetaController(http.Controller):
                 )
             except Exception:
                 pass
-
-            # Use postcommit to ensure data is committed before
-            # background thread reads it (fixes race condition LG-3)
-            db_name = request.env.cr.dbname
-            record_id = record.id
-
-            def _deferred():
-                from ..models.vegeta_job import _submit_bg
-                _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    record._run_prd_generation_bg, db_name, record_id,
-                )
-
-            request.env.cr.postcommit.add(_deferred)
 
             return Response(
                 json.dumps({"status": "success", "next_step": "generating"}),

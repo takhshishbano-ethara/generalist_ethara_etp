@@ -3,3 +3,8 @@ access_crowley_generation_user,crowley.generation.user,model_crowley_generation,
 access_crowley_generation_manager,crowley.generation.manager,model_crowley_generation,group_crowley_manager,1,1,1,1
 access_crowley_attempt_user,crowley.attempt.user,model_crowley_attempt,group_crowley_user,1,1,1,0
 access_crowley_attempt_manager,crowley.attempt.manager,model_crowley_attempt,group_crowley_manager,1,1,1,1
+access_crowley_import_wizard_manager,crowley.import.wizard.manager,model_crowley_import_wizard,group_crowley_manager,1,1,1,0
+access_crowley_enrichment_user,crowley.enrichment.user,model_crowley_enrichment,group_crowley_user,1,1,1,0
+access_crowley_enrichment_manager,crowley.enrichment.manager,model_crowley_enrichment,group_crowley_manager,1,1,1,1
+access_crowley_video_review_user,crowley.video.review.user,model_crowley_video_review,group_crowley_user,1,1,1,0
+access_crowley_video_review_manager,crowley.video.review.manager,model_crowley_video_review,group_crowley_manager,1,1,1,1

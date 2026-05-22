@@ -23,3 +23,4 @@ class ProjectProject(models.Model):
         string='API Mappings',
         help="API table/field mappings connected to this external project.",
     )
+    connected_table = fields.Char(string='Connected Table')

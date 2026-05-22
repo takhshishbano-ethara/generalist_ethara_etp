@@ -21,7 +21,7 @@
                  decoration-muted="auto_process_status == 'none'"
                  optional="show"/>
           <field name="batch_status" widget="badge" string="Batch"
-                 decoration-success="batch_status == 'done'"
+                 decoration-success="batch_status in ('done', 'ready')"
                  decoration-danger="batch_status == 'error'"
                  decoration-info="batch_status in ('starting', 'running', 'stopping')"
                  decoration-muted="batch_status == 'idle'"
@@ -347,11 +347,19 @@ for user in records:
       <field name="arch" type="xml">
         <form>
           <header>
-            <button name="action_generate_tests" type="object"
-                    string="Generate Tests" icon="fa-flask"
-                    class="oe_highlight"
-                    invisible="docker_status != 'running'"
-                    confirm="Generate pytest tests from mock API audit logs?"/>
+            <button name="action_retry_pod"
+                    type="object"
+                    string="Retry Pod"
+                    class="btn-primary"
+                    icon="fa-refresh"
+                    invisible="docker_status not in ('error', 'stopped')"
+                    confirm="Retry deploying this sandbox pod?"/>
+            <button name="action_stop_sandbox"
+                    type="object"
+                    string="Stop Pod"
+                    class="btn-secondary"
+                    icon="fa-stop"
+                    invisible="docker_status not in ('running', 'starting')"/>
           </header>
           <sheet>
             <group>
@@ -389,6 +397,79 @@ for user in records:
                     <field name="status_code" decoration-success="status_code &lt; 400" decoration-danger="status_code &gt;= 400"/>
                     <field name="duration_ms"/>
                   </list>
+                </field>
+              </page>
+
+              <page string="Connection / WebSocket Errors" name="connection_errors">
+                <div class="alert alert-danger d-flex align-items-center mb-3" role="alert"
+                     invisible="docker_status != 'error'">
+                    <i class="fa fa-exclamation-triangle fa-2x me-3" aria-hidden="true"/>
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">Pod failed to start or crashed</h5>
+                        <div class="small">
+                            Use <b>Retry Pod</b> in the header to redeploy. Review the error trace and recent failed requests below to diagnose the cause.
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-warning d-flex align-items-center mb-3" role="alert"
+                     invisible="docker_status != 'stopped' or not docker_error">
+                    <i class="fa fa-info-circle fa-2x me-3" aria-hidden="true"/>
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">Pod is stopped — last run recorded an error</h5>
+                        <div class="small">
+                            Click <b>Retry Pod</b> in the header to redeploy, or review the error trace below.
+                        </div>
+                    </div>
+                </div>
+                <div class="alert alert-success d-flex align-items-center mb-3" role="alert"
+                     invisible="docker_status != 'running' or docker_error">
+                    <i class="fa fa-check-circle fa-2x me-3" aria-hidden="true"/>
+                    <div class="flex-grow-1">
+                        <h5 class="mb-1">Pod is healthy</h5>
+                        <div class="small">No connection or WebSocket errors recorded for this sandbox.</div>
+                    </div>
+                </div>
+                <group string="Connectivity Snapshot">
+                    <group>
+                        <field name="docker_status" widget="badge" readonly="1"
+                               decoration-success="docker_status == 'running'"
+                               decoration-danger="docker_status == 'error'"
+                               decoration-info="docker_status == 'starting'"
+                               decoration-muted="docker_status == 'stopped'"/>
+                        <field name="docker_port" readonly="1"/>
+                        <field name="docker_compose_project" readonly="1"/>
+                    </group>
+                    <group>
+                        <field name="docker_ws_url" widget="url" readonly="1"/>
+                        <field name="docker_dashboard_url" widget="url" readonly="1"/>
+                    </group>
+                </group>
+                <separator string="Latest Error Trace"/>
+                <div class="bg-light border rounded-3 p-3 my-2 font-monospace small text-danger"
+                     style="white-space: pre-wrap; word-break: break-word; max-height: 18rem; overflow: auto;"
+                     invisible="not docker_error">
+                    <div class="d-flex align-items-center mb-2 text-danger">
+                        <i class="fa fa-bug me-2 fs-5" aria-hidden="true"/>
+                        <strong>Latest error captured for this pod</strong>
+                    </div>
+                    <field name="docker_error" nolabel="1" readonly="1"/>
+                </div>
+                <div class="text-center text-muted p-4 border rounded-3 my-2"
+                     invisible="docker_error">
+                    <i class="fa fa-check-circle text-success fs-2 d-block mb-2" aria-hidden="true"/>
+                    No connection or WebSocket errors recorded for this sandbox.
+                </div>
+                <separator string="Recent Failed Requests (HTTP ≥ 400)"/>
+                <field name="api_request_ids" nolabel="1" readonly="1"
+                       domain="[('status_code', '&gt;=', 400)]">
+                    <list default_order="request_time desc" limit="50">
+                        <field name="request_time"/>
+                        <field name="service_name"/>
+                        <field name="method"/>
+                        <field name="path"/>
+                        <field name="status_code" decoration-danger="status_code &gt;= 400"/>
+                        <field name="duration_ms"/>
+                    </list>
                 </field>
               </page>
               <page string="Test Results">

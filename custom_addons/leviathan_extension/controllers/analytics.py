@@ -11,30 +11,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .main import (
-    LEVIATHAN_ADMIN_ROLE_XMLIDS,
-    _get_role_ids,
+    _job_scope_domain,
     _require_leviathan_user,
-    _user_has_role,
 )
 
 _logger = logging.getLogger(__name__)
-
-TPM_ROLE_XMLIDS = ("api_auth_gateway.role_tpm_technical",)
-PL_ROLE_XMLIDS = (
-    "api_auth_gateway.role_pl_technical",
-    "api_auth_gateway.role_pl_stem",
-    "api_auth_gateway.role_pl_non_stem",
-)
-QR_ROLE_XMLIDS = (
-    "api_auth_gateway.role_qc_technical",
-    "api_auth_gateway.role_qc_stem",
-    "api_auth_gateway.role_qc_non_stem",
-)
-TASKER_ROLE_XMLIDS = (
-    "api_auth_gateway.role_tasker_technical",
-    "api_auth_gateway.role_tasker_stem",
-    "api_auth_gateway.role_tasker_non_stem",
-)
 
 TREND_PERIODS = ("weekly", "monthly", "yearly")
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -65,12 +46,6 @@ def _diff_pct(current, previous):
 
 def _week_start(d):
     return d - timedelta(days=d.weekday())
-
-
-def _analytics_scope_domain():
-    if _user_has_role(request.env, LEVIATHAN_ADMIN_ROLE_XMLIDS):
-        return []
-    return [("user_id", "=", request.env.user.id)]
 
 
 def _date_filter_domain(params):
@@ -139,30 +114,55 @@ def _submission_events(env, job_domain):
     return events
 
 
-def _team_overview(env):
-    projects = env["project.project"].sudo().search([])
-    users = projects.mapped("assigned_team_ids")
+def _team_overview(env, project_id=None):
+    Project = env["project.project"].sudo()
+    projects = Project.browse(project_id) if project_id else Project.search([])
 
-    tpm_ids = set(_get_role_ids(env, TPM_ROLE_XMLIDS))
-    pl_ids = set(_get_role_ids(env, PL_ROLE_XMLIDS))
-    qr_ids = set(_get_role_ids(env, QR_ROLE_XMLIDS))
-    tasker_ids = set(_get_role_ids(env, TASKER_ROLE_XMLIDS))
+    pl_employees = projects.mapped("project_lead")
+    qr_employees = projects.mapped("project_qc_reviewer")
+    tasker_employees = projects.mapped("project_tasker")
+    aire_employees = projects.mapped("project_aire")
+    swe_employees = projects.mapped("project_swe")
+    tpm_employees = pl_employees.mapped("task_forge_tpm_id")
 
-    counts = {"tpm": 0, "pl": 0, "qr": 0, "tasker": 0}
-    for user in users:
-        role_id = user.user_role.id
-        if not role_id:
-            continue
-        if role_id in tpm_ids:
-            counts["tpm"] += 1
-        elif role_id in pl_ids:
-            counts["pl"] += 1
-        elif role_id in qr_ids:
-            counts["qr"] += 1
-        elif role_id in tasker_ids:
-            counts["tasker"] += 1
+    members = (
+        pl_employees
+        | qr_employees
+        | tasker_employees
+        | aire_employees
+        | swe_employees
+        | tpm_employees
+    )
 
-    return {"total_team_size": len(users), "role_counts": counts}
+    return {
+        "total_team_size": len(members),
+        "role_counts": {
+            "tpm": len(tpm_employees),
+            "pl": len(pl_employees),
+            "qr": len(qr_employees),
+            "tasker": len(tasker_employees),
+            "aire": len(aire_employees),
+            "swe": len(swe_employees),
+        },
+    }
+
+
+def _resolve_project_id(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    if not raw.isdigit():
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project_id = int(raw)
+    if not env["project.project"].sudo().browse(project_id).exists():
+        return None, return_Response(
+            message=f"Project '{project_id}' not found.",
+            status=404,
+        )
+    return project_id, None
 
 
 def _resolve_trend_period(params):
@@ -178,62 +178,30 @@ def _resolve_trend_period(params):
     return period, None
 
 
-def _compute_kpi(env, scope):
+def _compute_kpi(env, scope, project_id=None):
     Job = env["leviathan.job"].sudo()
     today = fields.Datetime.now().date()
     this_week_start = datetime.combine(_week_start(today), datetime.min.time())
-    last_week_start = this_week_start - timedelta(days=7)
 
     total_task_count = Job.search_count(scope)
-
+    total_task_done = Job.search_count(scope + [("state", "=", "done")])
     this_week_added = Job.search_count(
         scope + [("create_date", ">=", this_week_start)]
     )
-    last_week_added = Job.search_count(
-        scope
-        + [
-            ("create_date", ">=", last_week_start),
-            ("create_date", "<", this_week_start),
-        ]
-    )
+    total_url_tasks = Job.search_count(scope + [("url", "!=", False)])
 
-    total_submitted = Job.search_count(scope + [("state", "=", "submitted")])
-    events = _submission_events(env, scope)
-    this_week_submitted = sum(
-        1 for when in events.values() if when >= this_week_start
+    scored_rows = Job.read_group(
+        scope + [("score", ">", 0)], fields=["score:avg"], groupby=[]
     )
-    last_week_submitted = sum(
-        1
-        for when in events.values()
-        if last_week_start <= when < this_week_start
-    )
-
-    scrap_failure_count = Job.search_count(scope + [("state", "=", "discarded")])
-    generation_failure_count = Job.search_count(scope + [("state", "=", "failed")])
-    failed_task_count = scrap_failure_count + generation_failure_count
+    avg_score = (scored_rows[0].get("score") if scored_rows else 0.0) or 0.0
 
     return {
-        "task_overview": {
-            "total_task_count": total_task_count,
-            "this_week_added": this_week_added,
-            "last_week_added": last_week_added,
-            "added_diff_percentage": _diff_pct(this_week_added, last_week_added),
-        },
-        "submission_overview": {
-            "total_submitted": total_submitted,
-            "submitted_percentage": _pct(total_submitted, total_task_count),
-            "this_week_submitted": this_week_submitted,
-            "last_week_submitted": last_week_submitted,
-            "submitted_diff_percentage": _diff_pct(
-                this_week_submitted, last_week_submitted
-            ),
-        },
-        "failure_overview": {
-            "failed_task_count": failed_task_count,
-            "scrap_failure_count": scrap_failure_count,
-            "generation_failure_count": generation_failure_count,
-        },
-        "team_overview": _team_overview(env),
+        "total_task_count": total_task_count,
+        "total_task_done": total_task_done,
+        "this_week_added": this_week_added,
+        "total_url_tasks": total_url_tasks,
+        "avg_quality_score_percentage": round(avg_score, 2),
+        "team_overview": _team_overview(env, project_id),
     }
 
 
@@ -673,7 +641,7 @@ def _build_qc_leaderboard(env, filters):
     }
 
 
-def _dashboard_cache_key(env, filters):
+def _dashboard_cache_key(env, filters, project_id):
     return (
         env.cr.dbname,
         env.user.id,
@@ -681,6 +649,7 @@ def _dashboard_cache_key(env, filters):
         filters["end"].isoformat() if filters["end"] else "",
         filters["month_start"].isoformat() if filters["month_start"] else "",
         round(filters["target_aht"], 2),
+        project_id or 0,
     )
 
 
@@ -718,15 +687,20 @@ class LeviathanAnalyticsController(http.Controller):
             return guard
 
         env = request.env
-        date_domain, error = _date_filter_domain(request.params or {})
+        params = request.params or {}
+        date_domain, error = _date_filter_domain(params)
         if error is not None:
             return error
-        scope = _analytics_scope_domain() + date_domain
+
+        project_id, error = _resolve_project_id(env, params)
+        if error is not None:
+            return error
+        scope = _job_scope_domain() + date_domain
 
         return return_Response(
             message="OK",
             status=200,
-            data={"kpi": _compute_kpi(env, scope)},
+            data={"kpi": _compute_kpi(env, scope, project_id)},
         )
 
     @http.route(
@@ -747,7 +721,7 @@ class LeviathanAnalyticsController(http.Controller):
         date_domain, error = _date_filter_domain(request.params or {})
         if error is not None:
             return error
-        scope = _analytics_scope_domain() + date_domain
+        scope = _job_scope_domain() + date_domain
 
         return return_Response(
             message="OK",
@@ -778,7 +752,7 @@ class LeviathanAnalyticsController(http.Controller):
         date_domain, error = _date_filter_domain(params)
         if error is not None:
             return error
-        scope = _analytics_scope_domain() + date_domain
+        scope = _job_scope_domain() + date_domain
 
         return return_Response(
             message="OK",
@@ -806,28 +780,32 @@ class LeviathanAnalyticsController(http.Controller):
         if error is not None:
             return error
 
-        cache_key = _dashboard_cache_key(env, filters)
+        project_id, error = _resolve_project_id(env, params)
+        if error is not None:
+            return error
+
+        cache_key = _dashboard_cache_key(env, filters, project_id)
         cached = _dashboard_cache_get(cache_key)
         if cached is not None:
             return return_Response(message="OK", status=200, data=cached)
 
-        scope = _analytics_scope_domain()
+        scope = _job_scope_domain()
         data = {
             "dashboard": {
-                "filters": {
-                    "start_date": (
-                        filters["start"].isoformat() if filters["start"] else None
-                    ),
-                    "end_date": (
-                        filters["end"].isoformat() if filters["end"] else None
-                    ),
-                    "month": params.get("month") or None,
-                    "target_aht_minutes": round(filters["target_aht"], 2),
-                },
+                # "filters": {
+                #     "start_date": (
+                #         filters["start"].isoformat() if filters["start"] else None
+                #     ),
+                #     "end_date": (
+                #         filters["end"].isoformat() if filters["end"] else None
+                #     ),
+                #     "month": params.get("month") or None,
+                #     "target_aht_minutes": round(filters["target_aht"], 2),
+                # },
                 "task_overview": _build_task_overview(env, scope, filters),
                 "aht_overview": _build_aht_overview(env, scope, filters),
                 "url_overview": _build_url_overview(env, scope, filters),
-                "team_overview": _team_overview(env),
+                "team_overview": _team_overview(env, project_id),
                 "status_chart": _build_status_chart(env, scope, filters),
                 "completion_heatmap": _build_heatmap(env, scope, filters),
                 "qc_leaderboard": _build_qc_leaderboard(env, filters),
@@ -860,14 +838,18 @@ class LeviathanAnalyticsController(http.Controller):
         date_domain, error = _date_filter_domain(params)
         if error is not None:
             return error
-        scope = _analytics_scope_domain() + date_domain
+
+        project_id, error = _resolve_project_id(env, params)
+        if error is not None:
+            return error
+        scope = _job_scope_domain() + date_domain
 
         return return_Response(
             message="OK",
             status=200,
             data={
                 "overview_dashboard": {
-                    "kpi": _compute_kpi(env, scope),
+                    "kpi": _compute_kpi(env, scope, project_id),
                     "status_chart": _compute_status_chart(env, scope),
                     "submission_trend": _compute_submission_trend(
                         env, scope, period

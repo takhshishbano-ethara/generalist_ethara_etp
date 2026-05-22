@@ -39,24 +39,86 @@
             <t t-if="this.taskId">
 
                 <div class="o_kensei2_batch_controls">
-                    <div class="o_kensei2_batch_prompt_section">
+                    <div class="o_kensei2_batch_prompt_section"
+                         t-on-dragover="onAttachmentDragOver"
+                         t-on-dragleave="onAttachmentDragLeave"
+                         t-on-drop="onAttachmentDrop"
+                         t-attf-class="o_kensei2_batch_prompt_section #{state.dragOver ? 'o_kensei2_drag_over' : ''}">
                         <textarea class="form-control o_kensei2_batch_prompt_input"
                                   rows="3"
                                   placeholder="Enter the prompt to send to all pods..."
                                   t-att-value="state.batchPrompt"
                                   t-on-input="onBatchPromptInput"
-                                  t-att-disabled="this.isBatchActive"/>
+                                  t-att-disabled="this.batchStatus === 'running' || this.batchStatus === 'stopping'"/>
+
+                        <t t-if="state.pendingAttachments.length > 0">
+                            <div class="o_kensei2_batch_attachments">
+                                <t t-foreach="state.pendingAttachments" t-as="att" t-key="att.id">
+                                    <div class="o_kensei2_batch_att_item">
+                                        <t t-if="att.isImage and att.previewUrl">
+                                            <img t-att-src="att.previewUrl"
+                                                 class="o_kensei2_batch_att_thumb"
+                                                 t-att-alt="att.name"/>
+                                        </t>
+                                        <t t-elif="att.isVideo and att.previewUrl">
+                                            <video t-att-src="att.previewUrl"
+                                                   class="o_kensei2_batch_att_thumb" muted="true"/>
+                                        </t>
+                                        <t t-else="">
+                                            <div class="o_kensei2_batch_att_icon">
+                                                <i class="fa fa-file-o"/>
+                                            </div>
+                                        </t>
+                                        <div class="o_kensei2_batch_att_info">
+                                            <span class="o_kensei2_batch_att_name" t-out="att.name"/>
+                                            <span class="o_kensei2_batch_att_size"
+                                                  t-out="this.formatFileSize(att.size)"/>
+                                        </div>
+                                        <button class="o_kensei2_batch_att_remove"
+                                                t-on-click="() => this.onRemoveAttachment(att_index)"
+                                                t-att-disabled="this.batchStatus === 'running' || this.batchStatus === 'stopping'"
+                                                title="Remove">
+                                            <i class="fa fa-times"/>
+                                        </button>
+                                    </div>
+                                </t>
+                            </div>
+                        </t>
+
+                        <t t-if="state.attachmentError">
+                            <div class="o_kensei2_batch_att_error">
+                                <i class="fa fa-exclamation-circle me-1"/>
+                                <t t-out="state.attachmentError"/>
+                            </div>
+                        </t>
+
                         <div class="o_kensei2_batch_actions">
+                            <button class="o_kensei2_btn_batch_attach"
+                                    t-on-click="onAttachmentPick"
+                                    t-att-disabled="this.batchStatus === 'running' || this.batchStatus === 'stopping'"
+                                    title="Attach files">
+                                <i class="fa fa-paperclip me-1"/>
+                                Attach
+                                <t t-if="state.pendingAttachments.length > 0">
+                                    (<t t-out="state.pendingAttachments.length"/>)
+                                </t>
+                            </button>
                             <button t-attf-class="o_kensei2_btn_batch_start #{!this.canStartBatch ? 'disabled' : ''}"
                                     t-on-click="onStartBatch"
                                     t-att-disabled="!this.canStartBatch">
-                                <t t-if="state.batchStarting">
-                                    <i class="fa fa-spinner fa-spin me-1"/>Starting...
+                                <t t-if="this.batchStatus === 'starting'">
+                                    <i class="fa fa-spinner fa-spin me-1"/>Deploying...
                                 </t>
                                 <t t-else="">
                                     <i class="fa fa-play me-1"/>
                                     Start Batch (<t t-out="this.totalPods"/> pods)
                                 </t>
+                            </button>
+                            <button t-attf-class="o_kensei2_btn_batch_send #{!this.canSendPrompt ? 'disabled' : ''}"
+                                    t-on-click="onSendBatchPrompt"
+                                    t-att-disabled="!this.canSendPrompt">
+                                <i class="fa fa-paper-plane me-1"/>
+                                Send Prompt
                             </button>
                             <button t-attf-class="o_kensei2_btn_batch_stop #{!this.canStopBatch ? 'disabled' : ''}"
                                     t-on-click="onStopBatch"
@@ -117,8 +179,32 @@
                                     <t t-foreach="this.sandboxesByModel[model.type] || []" t-as="sb" t-key="sb.id">
                                         <div t-attf-class="o_kensei2_pod_cell o_kensei2_pod_#{this.podStatusClass(sb)}"
                                              t-att-title="this.podTooltip(sb)">
-                                            <i t-attf-class="fa #{this.podStatusIcon(sb)}"/>
-                                            <span class="o_kensei2_pod_num">#<t t-out="sb.variant_index || 0"/></span>
+                                            <div class="o_kensei2_pod_cell_main">
+                                                <i t-attf-class="fa #{this.podStatusIcon(sb)}"/>
+                                                <span class="o_kensei2_pod_label" t-out="this.podSessionLabel(sb)"/>
+                                            </div>
+                                            <t t-if="this.canRetryPod(sb)">
+                                                <button type="button"
+                                                        class="o_kensei2_pod_action o_kensei2_pod_action--retry"
+                                                        t-att-title="this.podRetryLabel(sb) + ' ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-aria-label="this.podRetryLabel(sb) + ' ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-disabled="this.isPodActionPending(sb) ? 'disabled' : undefined"
+                                                        t-on-click.stop="() => this.onRetryPod(sb)">
+                                                    <i t-attf-class="fa #{this.isPodActionPending(sb) ? 'fa-spinner fa-spin' : this.podRetryIcon(sb)}"/>
+                                                    <span t-out="this.podRetryLabel(sb)"/>
+                                                </button>
+                                            </t>
+                                            <t t-if="this.canStopPod(sb)">
+                                                <button type="button"
+                                                        class="o_kensei2_pod_action o_kensei2_pod_action--stop"
+                                                        t-att-title="'Stop ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-aria-label="'Stop ' + this.podModelLabel(sb) + ' ' + this.podSessionLabel(sb)"
+                                                        t-att-disabled="this.isPodActionPending(sb) ? 'disabled' : undefined"
+                                                        t-on-click.stop="() => this.onStopPod(sb)">
+                                                    <i t-attf-class="fa #{this.isPodActionPending(sb) ? 'fa-spinner fa-spin' : 'fa-stop'}"/>
+                                                    <span>Stop</span>
+                                                </button>
+                                            </t>
                                         </div>
                                     </t>
                                 </div>
