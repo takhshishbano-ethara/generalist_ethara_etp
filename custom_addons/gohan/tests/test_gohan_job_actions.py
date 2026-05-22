@@ -516,3 +516,75 @@ class TestStaggeredFanout(GohanTestCase):
 
         self.assertEqual(mock_trigger.call_count, n)
         self.assertEqual(mock_sleep.call_count, expected_sleeps)
+
+
+@tagged("post_install", "-at_install", "gohan")
+class TestStagedPipeline(GohanTestCase):
+    """Per-stage pipeline: from the 'extracted' review gate the tasker can
+    step Generate -> Score -> Run QC, parking at 'generated' and 'scored'."""
+
+    def test_stage_generate_from_extracted(self):
+        job = self._create_job(
+            user_id=self.tasker.id, state="extracted",
+            prd_prompt="extracted website data",
+        )
+        with self._patch_submit_bg():
+            job.action_stage_generate()
+        job.invalidate_recordset()
+        # Synchronous part: job advances to generating, claim token cleared.
+        self.assertEqual(job.state, "generating")
+        self.assertFalse(job.started_processing_at)
+
+    def test_stage_generate_rejects_wrong_state(self):
+        job = self._create_job(user_id=self.tasker.id, state="draft")
+        with self.assertRaises(UserError):
+            job.action_stage_generate()
+
+    def test_stage_score_from_generated(self):
+        # action_stage_score runs the rubric inline (no Bedrock) — fully
+        # exercisable end to end in a TransactionCase.
+        job = self._create_job(
+            user_id=self.tasker.id, state="generated",
+            prd_text="# PRD\n\n## 1. Overview\nA product.\n\n## 2. Goals\nShip it.",
+        )
+        job.action_stage_score()
+        job.invalidate_recordset()
+        self.assertEqual(job.state, "scored")
+        self.assertIsNotNone(job.score)
+        self.assertTrue(job.grade)
+        self.assertTrue(job.score_report_json)
+
+    def test_stage_score_rejects_wrong_state(self):
+        job = self._create_job(user_id=self.tasker.id, state="extracted")
+        with self.assertRaises(UserError):
+            job.action_stage_score()
+
+    def test_stage_qc_from_scored(self):
+        job = self._create_job(
+            user_id=self.tasker.id, state="scored",
+            prd_text="# PRD\nBody.", qc_verdict="shippable",
+        )
+        with self._patch_submit_bg():
+            job.action_stage_qc()
+        job.invalidate_recordset()
+        # `scoring` doubles as the QC-running state; prior verdict cleared.
+        self.assertEqual(job.state, "scoring")
+        self.assertFalse(job.qc_verdict)
+
+    def test_stage_qc_rejects_wrong_state(self):
+        job = self._create_job(user_id=self.tasker.id, state="generated",
+                               prd_text="# PRD\nBody.")
+        with self.assertRaises(UserError):
+            job.action_stage_qc()
+
+    def test_cancel_resets_parked_generated_job(self):
+        job = self._create_job(user_id=self.tasker.id, state="generated")
+        job.action_cancel()
+        job.invalidate_recordset()
+        self.assertEqual(job.state, "draft")
+
+    def test_cancel_resets_parked_scored_job(self):
+        job = self._create_job(user_id=self.tasker.id, state="scored")
+        job.action_cancel()
+        job.invalidate_recordset()
+        self.assertEqual(job.state, "draft")

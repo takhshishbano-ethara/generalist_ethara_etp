@@ -470,7 +470,16 @@ class GohanJob(models.Model):
             ("extracting", "Extracting"),
             ("extracted", "Extracted — Review"),
             ("generating", "Generating PRD"),
+            # Parked: PRD generated, awaiting the tasker's Score button
+            # (staged/manual flow only — the monolithic Generate PRD path
+            # never parks here, it runs straight through to `done`).
+            ("generated", "Generated"),
+            # `scoring` doubles as the staged QC-running state — gohan already
+            # uses it that way for action_rerun_qc, so the heartbeat manager
+            # and watchdog cover it without change.
             ("scoring", "Scoring"),
+            # Parked: rubric score recorded, awaiting the tasker's Run QC button.
+            ("scored", "Scored"),
             ("done", "Done"),
             ("submitted", "Submitted"),
             ("failed", "Failed"),
@@ -1731,11 +1740,18 @@ class GohanJob(models.Model):
         self._trigger_extraction()
 
     def action_cancel(self):
-        """Stop a running task (extracting / generating / scoring) and return it
-        to Draft so the tasker can re-run. Signals background threads to stop."""
+        """Stop a running task — or reset one parked mid-staged-run — and
+        return it to Draft so the tasker can re-run. Covers the running
+        states (extracting / generating / scoring) and the staged park
+        states (generated / scored). Signals background threads to stop."""
         self.ensure_one()
-        if self.state not in ("extracting", "generating", "scoring"):
-            raise UserError("Cancel is only available while a task is running.")
+        if self.state not in (
+            "extracting", "generating", "scoring", "generated", "scored",
+        ):
+            raise UserError(
+                "Cancel / Reset is only available while a task is running "
+                "or parked mid-staged-run."
+            )
         self.write({
             "state": "draft",
             "cancel_requested": True,
@@ -2669,6 +2685,100 @@ class GohanJob(models.Model):
             )
         )
 
+    # ------------------------------------------------------------------
+    # Staged (per-stage) pipeline — run the job one stage at a time.
+    # The review gate at 'extracted' stays mandatory for single jobs;
+    # from there the tasker may EITHER click "Generate PRD" (runs the
+    # whole rest via _run_prd_generation_bg) OR step through Generate →
+    # Score → Run QC with these three actions.
+    # ------------------------------------------------------------------
+
+    def action_stage_generate(self):
+        """Staged: generate the PRD only, then park at 'generated'."""
+        self.ensure_one()
+        if self.state != "extracted":
+            raise UserError(
+                "Generate is only available while the job is in the "
+                "'Extracted — Review' state."
+            )
+        if not self.prd_prompt and not self.screenshot_keys and not self.asset_keys:
+            raise UserError(
+                "No extraction data is available to generate a PRD from."
+            )
+        # Same asset curation as action_generate_prd — the tasker's
+        # keep/delete/upload decisions become the PRD pipeline's input.
+        self._hydrate_svg_markup_from_s3()
+        self._sync_assets_to_keys()
+        self.write({
+            "state": "generating",
+            "last_heartbeat": fields.Datetime.now(),
+            "error_message": False,
+            # Cleared so the generate-stage worker's re-entry guard claims it.
+            "started_processing_at": False,
+        })
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"prd-gen-stage[job={record_id}]",
+                self._run_generate_only_bg, db_name, record_id,
+            )
+        )
+
+    def action_stage_score(self):
+        """Staged: score the PRD with the rubric, park at 'scored'.
+
+        Synchronous — score_prd is pure-Python (regex rubric, no Bedrock),
+        so it runs inline in the request rather than on the background pool.
+        """
+        self.ensure_one()
+        if self.state != "generated":
+            raise UserError(
+                "Score is only available after PRD generation "
+                "(the 'Generated' state)."
+            )
+        if not self.prd_text:
+            raise UserError("No PRD text available to score.")
+        from ..services.scoring_service import score_prd
+        category = (
+            self.category_id.name if self.category_id else "Uncategorized"
+        )
+        report = score_prd(prd_text=self.prd_text, category=category)
+        self.write({
+            "state": "scored",
+            "score": report["total_score"],
+            "grade": report["grade"],
+            "score_report_json": report,
+            "error_message": False,
+        })
+        self._notify_state_change("scored")
+
+    def action_stage_qc(self):
+        """Staged: run QC on the scored PRD, then complete the job (Done)."""
+        self.ensure_one()
+        if self.state != "scored":
+            raise UserError("Run QC is only available after scoring "
+                            "(the 'Scored' state).")
+        if not self.prd_text:
+            raise UserError("No PRD text available for QC.")
+        # `scoring` doubles as the QC-running state (same as action_rerun_qc),
+        # so the heartbeat manager + watchdog cover it without change.
+        self.write({
+            "state": "scoring",
+            "qc_verdict": False,
+            "qc_report": False,
+            "error_message": False,
+            "last_heartbeat": fields.Datetime.now(),
+        })
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                f"qc-stage[job={record_id}]",
+                self._run_qc_only_bg, db_name, record_id,
+            )
+        )
+
     def action_rerun_qc(self):
         """Re-run only QC validation (after manual PRD edits)."""
         self.ensure_one()
@@ -2782,6 +2892,10 @@ class GohanJob(models.Model):
                     "state": "done",
                     "qc_verdict": qc_result["verdict"],
                     "qc_report": qc_result["report"],
+                    # Stamp completion — staged QC (action_stage_qc) reaches
+                    # 'done' through this worker without ever passing the
+                    # monolith's PHASE 4, so completed_at would be blank.
+                    "completed_at": fields.Datetime.now(),
                 })
 
             except Exception as exc:
@@ -2794,6 +2908,7 @@ class GohanJob(models.Model):
                     "qc_verdict": "not_shippable",
                     "qc_report": f"QC rerun error: {exc}",
                     "error_message": f"QC failed: {exc}",
+                    "completed_at": fields.Datetime.now(),
                 })
 
     def action_download_zip(self):
@@ -3406,12 +3521,6 @@ class GohanJob(models.Model):
                     config = {
                         "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
                         "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
-                        # Single-pass PRD generation by default: one Bedrock call,
-                        # no score-refinement loop. The retry loop inflated length
-                        # (each rewrite chased the density score); a single pass
-                        # follows the prompt's under-1000-word target directly.
-                        # Still overridable via the gohan.max_llm_attempts sysparam.
-                        "max_attempts": int(ICP.get_param("gohan.max_llm_attempts") or 1),
                         "bedrock_access_key": bedrock_access_key,
                         "bedrock_secret_key": bedrock_secret_key,
                         "s3_bucket": ICP.get_param("gohan.s3_bucket"),
@@ -3490,7 +3599,6 @@ class GohanJob(models.Model):
                     step="prd.config",
                     status="ok",
                     message="Configuration loaded; entering PRD generation",
-                    max_attempts=config["max_attempts"],
                     inference_arn=config["inference_arn"],
                     region=config["region"],
                     category=job_data["category_name"],
@@ -3577,11 +3685,6 @@ class GohanJob(models.Model):
                     )})
                 messages = [{"role": "user", "content": content_blocks}]
 
-                best_prd_text = None
-                best_score = 0
-                best_grade = None
-                best_score_report = None
-
                 # Full transparency: capture every LLM interaction for audit.
                 llm_trace = {
                     "prd_system_prompt": prd_system_prompt,
@@ -3591,116 +3694,69 @@ class GohanJob(models.Model):
                     "qc": {},
                 }
 
-                for attempt in range(1, config["max_attempts"] + 1):
-                    if self._is_cancelled(db_name, record_id):
-                        self._append_pipeline_event(
-                            db_name, record_id,
-                            step=f"prd.attempt.{attempt}.generate",
-                            status="cancelled",
-                            message="Operator cancelled the job mid-generation",
-                        )
-                        self._write_with_cursor(db_name, record_id, {
-                            "state": "draft", "error_message": "Cancelled during generation",
-                            "completed_at": fields.Datetime.now(),
-                        })
-                        return
-
+                # Single-pass PRD generation — no score-driven retry loop.
+                # Transient Bedrock errors are retried inside generate_prd(); a
+                # hard failure propagates to the outer except so the job is
+                # marked failed and the tasker can re-run it from the UI.
+                if self._is_cancelled(db_name, record_id):
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="prd.generate", status="cancelled",
+                        message="Operator cancelled the job mid-generation",
+                    )
                     self._write_with_cursor(db_name, record_id, {
-                        "last_heartbeat": fields.Datetime.now(),
+                        "state": "draft",
+                        "error_message": "Cancelled during generation",
+                        "completed_at": fields.Datetime.now(),
                     })
+                    return
 
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step=f"prd.attempt.{attempt}.generate",
-                        status="started",
-                        message=f"Calling Bedrock for PRD attempt {attempt}/{config['max_attempts']}",
-                        attempt=attempt,
-                        max_attempts=config["max_attempts"],
-                    )
+                self._write_with_cursor(db_name, record_id, {
+                    "last_heartbeat": fields.Datetime.now(),
+                })
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.generate", status="started",
+                    message="Calling Bedrock for PRD generation",
+                )
 
-                    try:
-                        prd_text = generate_prd(
-                            inference_arn=config["inference_arn"],
-                            region=config["region"],
-                            system_prompt=prd_system_prompt,
-                            messages=messages,
-                            access_key_id=config["bedrock_access_key"],
-                            secret_access_key=config["bedrock_secret_key"],
-                        )
-                    except Exception as gen_exc:
-                        _logger.warning(
-                            "LLM attempt %d/%d failed for job %s: %s",
-                            attempt, config["max_attempts"], job_data["name"], gen_exc,
-                        )
-                        self._append_pipeline_event(
-                            db_name, record_id,
-                            step=f"prd.attempt.{attempt}.generate",
-                            status="error" if attempt == config["max_attempts"] else "warn",
-                            message=f"Bedrock call failed: {gen_exc}",
-                            attempt=attempt,
-                        )
-                        if attempt == config["max_attempts"]:
-                            raise
-                        time.sleep(2 * attempt)
-                        continue
+                best_prd_text = generate_prd(
+                    inference_arn=config["inference_arn"],
+                    region=config["region"],
+                    system_prompt=prd_system_prompt,
+                    messages=messages,
+                    access_key_id=config["bedrock_access_key"],
+                    secret_access_key=config["bedrock_secret_key"],
+                )
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.generate", status="ok",
+                    message=f"PRD produced {len(best_prd_text or '')} chars",
+                    chars=len(best_prd_text or ""),
+                )
 
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step=f"prd.attempt.{attempt}.generate",
-                        status="ok",
-                        message=f"PRD attempt {attempt} produced {len(prd_text or '')} chars",
-                        attempt=attempt,
-                        chars=len(prd_text or ""),
-                    )
+                best_score_report = score_prd(
+                    prd_text=best_prd_text,
+                    category=job_data["category_name"],
+                )
+                best_score = best_score_report["total_score"]
+                best_grade = best_score_report["grade"]
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.score", status="ok",
+                    message=f"Score = {best_score} / grade = {best_grade}",
+                    score=best_score, grade=best_grade,
+                )
 
-                    score_report = score_prd(
-                        prd_text=prd_text,
-                        category=job_data["category_name"],
-                    )
-                    total_score = score_report["total_score"]
+                self._write_with_cursor(db_name, record_id, {"llm_attempts": 1})
 
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step=f"prd.attempt.{attempt}.score",
-                        status="ok",
-                        message=f"Score = {total_score} / grade = {score_report.get('grade')}",
-                        attempt=attempt,
-                        score=total_score,
-                        grade=score_report.get("grade"),
-                    )
-
-                    self._write_with_cursor(db_name, record_id, {
-                        "llm_attempts": attempt,
-                    })
-
-                    llm_trace["attempts"].append({
-                        "attempt": attempt,
-                        "prd_text": prd_text,
-                        "score": total_score,
-                        "grade": score_report.get("grade"),
-                        "score_report": score_report,
-                    })
-
-                    # Keep the highest scorer; always keep *something* so a run that
-                    # only produces rejected PRDs (score 0) still saves a PRD for the
-                    # tasker to edit instead of crashing on upload with prd_text=None.
-                    if best_prd_text is None or total_score > best_score:
-                        best_prd_text = prd_text
-                        best_score = total_score
-                        best_grade = score_report["grade"]
-                        best_score_report = score_report
-
-                    if attempt < config["max_attempts"]:
-                        messages.append({"role": "assistant", "content": prd_text})
-                        feedback = self._build_feedback(score_report)
-                        messages.append({
-                            "role": "user",
-                            "content": (
-                                f"Score: {total_score} (attempt {attempt})\n"
-                                f"Feedback:\n{feedback}\n\n"
-                                "Fix all issues and rewrite the complete PRD."
-                            ),
-                        })
+                llm_trace["attempts"].append({
+                    "attempt": 1,
+                    "prd_text": best_prd_text,
+                    "score": best_score,
+                    "grade": best_grade,
+                    "score_report": best_score_report,
+                })
 
                 # Upload to S3
                 try:
@@ -3882,6 +3938,230 @@ class GohanJob(models.Model):
                 except Exception:
                     _logger.error("[gohan][job=%s] failed to mark as failed", record_id)
 
+    def _run_generate_only_bg(self, db_name, record_id):
+        """Background (staged): generate the PRD + upload, park at 'generated'.
+
+        The generation half of `_run_prd_generation_bg` — config load, Bedrock
+        generation, S3 upload — but it STOPS before scoring and QC and parks
+        the job at 'generated' for the tasker's Score button. Wrapped in
+        `_HeartbeatTicker` so a long Bedrock call keeps last_heartbeat fresh.
+        """
+        from ..services.bedrock_service import generate_prd, get_credentials as _get_bedrock_credentials
+        from ..services.s3_service import upload_prd_to_s3
+
+        with _HeartbeatTicker(self, db_name, record_id, interval=60):
+            try:
+                # === Config + extraction data ===
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if not record.exists():
+                        return
+
+                    # Re-entry guard — same row-locked claim as the monolith,
+                    # so a double-clicked Generate button never double-runs.
+                    cr.execute(
+                        "SELECT state, started_processing_at FROM gohan_job "
+                        "WHERE id = %s FOR UPDATE",
+                        (record_id,),
+                    )
+                    _claim_row = cr.fetchone()
+                    if not _claim_row:
+                        cr.commit()
+                        return
+                    _claim_state, _claim_spa = _claim_row
+                    if _claim_state != "generating":
+                        _logger.info(
+                            "[gohan][job=%s] generate-stage: state=%s is not "
+                            "generating — skipping", record_id, _claim_state,
+                        )
+                        cr.commit()
+                        return
+                    if _claim_spa:
+                        _logger.warning(
+                            "[gohan][job=%s] generate-stage: already claimed — "
+                            "skipping duplicate run", record_id,
+                        )
+                        cr.commit()
+                        return
+                    cr.execute(
+                        "UPDATE gohan_job SET started_processing_at = "
+                        "(now() AT TIME ZONE 'UTC') WHERE id = %s",
+                        (record_id,),
+                    )
+                    cr.commit()
+
+                    ICP = env["ir.config_parameter"].sudo()
+                    bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
+                    _include_ss_raw = ICP.get_param("gohan.prd_include_screenshots", "True")
+                    _include_ss = str(_include_ss_raw).strip().lower() not in ("false", "0", "no", "off", "")
+                    config = {
+                        "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
+                        "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
+                        "bedrock_access_key": bedrock_access_key,
+                        "bedrock_secret_key": bedrock_secret_key,
+                        "s3_bucket": ICP.get_param("gohan.s3_bucket"),
+                        "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
+                        "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
+                        "s3_region": ICP.get_param("gohan.s3_region"),
+                        "s3_folder": ICP.get_param("gohan.s3_folder") or "gohan",
+                        "cdn_url": ICP.get_param("gohan.s3_cdn_url"),
+                        "include_screenshots": _include_ss,
+                    }
+                    job_data = {
+                        "name": record.name,
+                        "prd_prompt": record.prd_prompt,
+                        "category_name": record.category_id.name if record.category_id else "Uncategorized",
+                        "screenshot_keys": record.screenshot_keys or [],
+                        "svg_icons": [
+                            {"name": a.name, "markup": a.svg_markup()}
+                            for a in record.asset_ids.filtered(
+                                lambda x: x.include_in_prd and x.asset_type == "svg"
+                            )
+                            if a.svg_markup()
+                        ],
+                    }
+                    prd_system_prompt = record._get_prd_system_prompt()
+
+                    if not config["inference_arn"]:
+                        record.write({
+                            "state": "failed",
+                            "error_message": "Bedrock inference ARN not configured",
+                            "completed_at": fields.Datetime.now(),
+                        })
+                        cr.commit()
+                        return
+                    if not job_data["prd_prompt"]:
+                        record.write({
+                            "state": "failed",
+                            "error_message": "No extraction data available for PRD generation",
+                            "completed_at": fields.Datetime.now(),
+                        })
+                        cr.commit()
+                        return
+
+                    record.write({
+                        "state": "generating",
+                        "last_heartbeat": fields.Datetime.now(),
+                    })
+                    cr.commit()
+
+                # === Screenshots + Bedrock generation ===
+                screenshot_blocks = []
+                if config["include_screenshots"] and job_data["screenshot_keys"] and config["s3_bucket"]:
+                    from ..services.s3_service import download_file_from_s3
+                    import base64 as b64
+                    MAX_SCREENSHOTS = 5
+                    MAX_IMG_BYTES = 3_500_000
+                    total_bytes = 0
+                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                        try:
+                            img_bytes = download_file_from_s3(
+                                key=key, bucket=config["s3_bucket"],
+                                access_key_id=config["s3_key_id"],
+                                secret_key=config["s3_secret"],
+                                region=config["s3_region"],
+                            )
+                            if len(img_bytes) > MAX_IMG_BYTES:
+                                continue
+                            ext = key.rsplit(".", 1)[-1].lower()
+                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
+                            total_bytes += len(img_bytes)
+                            if total_bytes > 20_000_000:
+                                break
+                            screenshot_blocks.append({
+                                "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
+                            })
+                        except Exception as img_exc:
+                            _logger.warning("Failed to download screenshot %s: %s", key, img_exc)
+
+                content_blocks = list(screenshot_blocks)
+                content_blocks.append({"text": (
+                    f"Below is the extracted website data. "
+                    f"Write the complete PRD following all rules.\n\n"
+                    f"---\n\n{job_data['prd_prompt']}"
+                )})
+                if job_data.get("svg_icons"):
+                    icon_md = "\n\n".join(
+                        f"### {ic['name']}\n```svg\n{ic['markup']}\n```"
+                        for ic in job_data["svg_icons"]
+                    )
+                    content_blocks.append({"text": (
+                        "\n\n---\n\n## EXTRACTED UI ICONS (SVG)\n\n"
+                        "The following SVG icons were captured from the site and "
+                        "approved by the reviewer:\n\n" + icon_md
+                    )})
+                messages = [{"role": "user", "content": content_blocks}]
+
+                llm_trace = {
+                    "prd_system_prompt": prd_system_prompt,
+                    "extraction_prompt": job_data["prd_prompt"],
+                    "screenshots_attached": len(screenshot_blocks),
+                    "attempts": [],
+                    "qc": {},
+                }
+
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.generate", status="started",
+                    message="Calling Bedrock for PRD generation (staged)",
+                )
+                prd_text = generate_prd(
+                    inference_arn=config["inference_arn"],
+                    region=config["region"],
+                    system_prompt=prd_system_prompt,
+                    messages=messages,
+                    access_key_id=config["bedrock_access_key"],
+                    secret_access_key=config["bedrock_secret_key"],
+                )
+                llm_trace["attempts"].append({"attempt": 1, "prd_text": prd_text})
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.generate", status="ok",
+                    message=f"PRD produced {len(prd_text or '')} chars",
+                    chars=len(prd_text or ""),
+                )
+
+                # === Upload to S3 ===
+                prd_url = upload_prd_to_s3(
+                    prd_text=prd_text,
+                    job_name=job_data["name"],
+                    bucket=config["s3_bucket"],
+                    access_key_id=config["s3_key_id"],
+                    secret_key=config["s3_secret"],
+                    region=config["s3_region"],
+                    folder=config["s3_folder"],
+                    cdn_url=config["cdn_url"],
+                )
+
+                # === Park at 'generated' — the Score button advances from here ===
+                self._write_with_cursor(db_name, record_id, {
+                    "state": "generated",
+                    "prd_text": prd_text,
+                    "prd_url": prd_url,
+                    "llm_attempts": 1,
+                    "llm_trace_json": llm_trace,
+                    "last_heartbeat": fields.Datetime.now(),
+                })
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="prd.generate", status="ok",
+                    message="Generate stage complete — parked at 'generated'",
+                )
+
+            except Exception as exc:
+                _logger.exception("[gohan][job=%s] generate-stage failed", record_id)
+                friendly_msg = self._friendly_pipeline_error(exc)
+                try:
+                    self._write_with_cursor(db_name, record_id, {
+                        "state": "failed",
+                        "error_message": friendly_msg[:500],
+                        "completed_at": fields.Datetime.now(),
+                    })
+                except Exception:
+                    _logger.error("[gohan][job=%s] failed to mark as failed", record_id)
+
     @staticmethod
     def _friendly_pipeline_error(exc):
         """Translate raw pipeline exceptions to operator-facing messages.
@@ -4030,64 +4310,6 @@ class GohanJob(models.Model):
                 "[gohan][pipeline][job=%s] journaling failed (non-fatal) for step=%s status=%s",
                 record_id, step, status,
             )
-
-    def _build_feedback(self, score_report):
-        from ..services.scoring_service import (
-            SECTION_MAX_POINTS, PRD_MAX_WORDS, PRD_MIN_WORDS,
-        )
-
-        lines = []
-
-        # Word count leads the feedback: the 1500-word ceiling is a hard
-        # auto-reject, and the model cannot count its own output reliably.
-        # Hand it the measured count plus a concrete "cut N words, here"
-        # instruction -- far more steerable than the terse "R5" trigger.
-        word_count = score_report.get("details", {}).get("word_count", 0)
-        if word_count > PRD_MAX_WORDS:
-            over = word_count - PRD_MAX_WORDS
-            lines.append(
-                f"- WORD LIMIT EXCEEDED (auto-reject): PRD is {word_count} "
-                f"words, {over} over the {PRD_MAX_WORDS}-word hard ceiling. "
-                f"Rewrite the entire PRD shorter -- target under 1000 words. "
-                f"Compress Section 6 (Application Logic) and Section 4 page "
-                f"prose first; drop adjectives and any sentence that is not a "
-                f"spec fact. Do not drop sections, hex codes, entities, "
-                f"flows, easing values, or ARIA rules."
-            )
-        elif word_count and word_count < PRD_MIN_WORDS:
-            short = PRD_MIN_WORDS - word_count
-            lines.append(
-                f"- BELOW WORD FLOOR: PRD is {word_count} words, {short} "
-                f"under the {PRD_MIN_WORDS}-word minimum. Expand Section 4 "
-                f"(more pages from the category feature list) and Section 6 "
-                f"(more entity fields) until at least {PRD_MIN_WORDS} words."
-            )
-
-        section_scores = score_report.get("section_scores", {})
-        for section, section_data in section_scores.items():
-            score_val = section_data["score"] if isinstance(section_data, dict) else section_data
-            max_points = SECTION_MAX_POINTS.get(section, 10)
-            if score_val < max_points * 0.6:
-                lines.append(
-                    f"- {section}: scored {score_val}/{max_points} -- needs improvement"
-                )
-
-        reject_triggers = score_report.get("reject_triggers", [])
-        for trigger in reject_triggers:
-            # R4/R5 are the word-count triggers, already covered above with a
-            # more actionable instruction -- skip to avoid a duplicate line.
-            if trigger.startswith(("R4:", "R5:")):
-                continue
-            lines.append(f"- AUTO-REJECT: {trigger}")
-
-        warnings = score_report.get("warnings", [])
-        for warning in warnings:
-            lines.append(f"- WARNING: {warning}")
-
-        if not lines:
-            lines.append("Minor improvements needed across all sections.")
-
-        return "\n".join(lines)
 
     # ------------------------------------------------------------------
     # Cron: Watchdog

@@ -869,6 +869,8 @@ def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_pa
         _logger.error("[BATCH] Stop phase timed out for task %s", task_id)
         stop_errors.append("Stop phase timed out")
 
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH]")
+
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1290,6 +1292,8 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         _logger.error("[BATCH-PROMPT] Stop phase timed out for task %s", task_id)
         stop_errors.append("Stop phase timed out")
 
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-PROMPT]")
+
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1359,6 +1363,8 @@ def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id)
                 _logger.warning("[BATCH-STOP] Sandbox %s stop timed out, cancelling", sid)
                 fut.cancel()
 
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-STOP]")
+
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1383,6 +1389,23 @@ def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id)
         _logger.exception("[BATCH-STOP] Failed to finalize batch stop for task %s", task_id)
 
 
+def _batch_export_trajectories(db_name, sandbox_ids, log_prefix="[BATCH]"):
+    for sid in sandbox_ids:
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["kensei2.sandbox"].browse(sid)
+                if sandbox.exists() and sandbox.kensei2_id:
+                    sandbox._export_trajectory_to_task()
+                    _logger.info(
+                        "%s Trajectory exported for sandbox %s", log_prefix, sid,
+                    )
+        except Exception:
+            _logger.exception(
+                "%s Trajectory export failed for sandbox %s", log_prefix, sid,
+            )
+
+
 def _batch_stop_single_sandbox(db_name, sandbox_id):
     try:
         with Registry(db_name).cursor() as cr:
@@ -1394,7 +1417,10 @@ def _batch_stop_single_sandbox(db_name, sandbox_id):
             if sandbox.docker_status == "stopped":
                 _logger.info("[BATCH] Sandbox %s already stopped", sandbox_id)
                 return
-            sandbox.action_stop_sandbox()
+            # Skip trajectory export during batch stop — done sequentially
+            # after all pods are stopped to avoid serialization conflicts
+            # on the shared task record.
+            sandbox.action_stop_sandbox(export_trajectory=False)
             _logger.info("[BATCH] Sandbox %s stopped successfully", sandbox_id)
     except Exception:
         _logger.exception("[BATCH] Stop failed for sandbox %s", sandbox_id)
@@ -3151,12 +3177,12 @@ class Kensei2Sandbox(models.Model):
             _logger.warning("Failed to read artifact %s: %s", host_path, e)
             return None
 
-    def action_stop_sandbox(self):
+    def action_stop_sandbox(self, export_trajectory=True):
         self.ensure_one()
 
         _logger.info(
-            "action_stop_sandbox START (sandbox=%s, status=%s, mode=%s)",
-            self.id, self.docker_status, self._deployment_mode(),
+            "action_stop_sandbox START (sandbox=%s, status=%s, mode=%s, export_traj=%s)",
+            self.id, self.docker_status, self._deployment_mode(), export_trajectory,
         )
 
         try:
@@ -3179,7 +3205,8 @@ class Kensei2Sandbox(models.Model):
         except Exception as e:
             _logger.warning("Artifact S3 persistence failed (sandbox=%s): %s", self.id, e)
 
-        self._export_trajectory_to_task()
+        if export_trajectory:
+            self._export_trajectory_to_task()
 
         mode = self._deployment_mode()
         if mode == "k8s":
