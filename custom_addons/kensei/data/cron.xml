@@ -10,5 +10,15 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+
+        <record id="ir_cron_kensei_check_batch" model="ir.cron">
+            <field name="name">Kensei: Check Stuck Batch Runs</field>
+            <field name="model_id" ref="model_kensei_kensei"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_check_batch()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
     </data>
 </odoo>

@@ -2,103 +2,82 @@
 <odoo>
     <data noupdate="0">
 
-        <!-- Module Category -->
-        <record id="module_category_skoll_build" model="ir.module.category">
-            <field name="name">Skoll Build</field>
-            <field name="description">Skoll — Docker image build platform for task execution environments</field>
-            <field name="sequence">32</field>
+        <record id="module_category_skoll" model="ir.module.category">
+            <field name="name">Skoll</field>
+            <field name="description">Skoll — AI-assisted content generation with JSON rendering</field>
+            <field name="sequence">33</field>
         </record>
 
-        <!-- Privilege (Odoo 19 pattern) -->
-        <record id="res_groups_privilege_skoll_build" model="res.groups.privilege">
-            <field name="name">Skoll Build</field>
-            <field name="sequence">32</field>
-            <field name="category_id" ref="module_category_skoll_build"/>
+        <record id="res_groups_privilege_skoll" model="res.groups.privilege">
+            <field name="name">Skoll</field>
+            <field name="sequence">33</field>
+            <field name="category_id" ref="module_category_skoll"/>
+        </record>
+
+        <record id="group_skoll_tasker" model="res.groups">
+            <field name="name">Tasker</field>
+            <field name="privilege_id" ref="res_groups_privilege_skoll"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Sees only tasks assigned to them. Can work on tasks and submit content.</field>
+        </record>
+
+        <record id="group_skoll_ql" model="res.groups">
+            <field name="name">Quality Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_skoll"/>
+            <field name="implied_ids" eval="[(4, ref('group_skoll_tasker'))]"/>
+            <field name="comment">Sees all tasks. Manages personas. Cannot access settings.</field>
+        </record>
+
+        <record id="group_skoll_pl" model="res.groups">
+            <field name="name">Project Lead</field>
+            <field name="privilege_id" ref="res_groups_privilege_skoll"/>
+            <field name="implied_ids" eval="[(4, ref('group_skoll_ql'))]"/>
+            <field name="comment">Full access: all data, settings, and configuration.</field>
         </record>
 
     </data>
 
     <data noupdate="1">
 
-        <!-- User Group -->
-        <record id="group_skoll_user" model="res.groups">
-            <field name="name">User</field>
-            <field name="privilege_id" ref="res_groups_privilege_skoll_build"/>
-            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
-            <field name="comment">Can view builds and trigger builds for registered apps.</field>
-        </record>
-
-        <!-- Admin Group (implies User) -->
-        <record id="group_skoll_admin" model="res.groups">
-            <field name="name">Admin</field>
-            <field name="privilege_id" ref="res_groups_privilege_skoll_build"/>
-            <field name="implied_ids" eval="[(4, ref('group_skoll_user'))]"/>
-            <field name="comment">Full access: manage apps, builds, and configuration.</field>
-        </record>
-
-        <!-- ===== Record Rules: Skoll Task ===== -->
         <record id="skoll_task_rule_tasker" model="ir.rule">
             <field name="name">Skoll Task: Tasker sees own</field>
             <field name="model_id" ref="model_skoll_skoll"/>
-            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_skoll_tasker'))]"/>
+            <field name="domain_force">[('employee_ids.user_id', '=', user.id)]</field>
         </record>
 
         <record id="skoll_task_rule_ql" model="ir.rule">
             <field name="name">Skoll Task: QL sees all</field>
             <field name="model_id" ref="model_skoll_skoll"/>
-            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+            <field name="groups" eval="[(4, ref('group_skoll_ql'))]"/>
             <field name="domain_force">[(1, '=', 1)]</field>
         </record>
 
-        <record id="skoll_task_rule_admin" model="ir.rule">
-            <field name="name">Skoll Task: Admin sees all</field>
+        <record id="skoll_task_rule_pl" model="ir.rule">
+            <field name="name">Skoll Task: PL sees all</field>
             <field name="model_id" ref="model_skoll_skoll"/>
-            <field name="groups" eval="[(4, ref('group_skoll_admin'))]"/>
+            <field name="groups" eval="[(4, ref('group_skoll_pl'))]"/>
             <field name="domain_force">[(1, '=', 1)]</field>
         </record>
 
-        <!-- ===== Record Rules: Skoll Turn ===== -->
-        <record id="skoll_turn_rule_tasker" model="ir.rule">
-            <field name="name">Skoll Turn: Tasker sees own</field>
-            <field name="model_id" ref="model_skoll_turn"/>
-            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
+        <record id="skoll_generation_rule_tasker" model="ir.rule">
+            <field name="name">Skoll Generation: Tasker sees own</field>
+            <field name="model_id" ref="model_skoll_generation"/>
+            <field name="groups" eval="[(4, ref('group_skoll_tasker'))]"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
         </record>
 
-        <record id="skoll_turn_rule_ql" model="ir.rule">
-            <field name="name">Skoll Turn: QL sees all</field>
-            <field name="model_id" ref="model_skoll_turn"/>
-            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
+        <record id="skoll_generation_rule_ql" model="ir.rule">
+            <field name="name">Skoll Generation: QL sees all</field>
+            <field name="model_id" ref="model_skoll_generation"/>
+            <field name="groups" eval="[(4, ref('group_skoll_ql'))]"/>
             <field name="domain_force">[(1, '=', 1)]</field>
         </record>
 
-        <record id="skoll_turn_rule_admin" model="ir.rule">
-            <field name="name">Skoll Turn: Admin sees all</field>
-            <field name="model_id" ref="model_skoll_turn"/>
-            <field name="groups" eval="[(4, ref('group_skoll_admin'))]"/>
-            <field name="domain_force">[(1, '=', 1)]</field>
-        </record>
-
-        <!-- ===== Record Rules: Skoll Sandbox ===== -->
-        <record id="skoll_sandbox_rule_tasker" model="ir.rule">
-            <field name="name">Skoll Sandbox: Tasker sees own</field>
-            <field name="model_id" ref="model_skoll_sandbox"/>
-            <field name="groups" eval="[(4, ref('etp_user_roles.group_tasker'))]"/>
-            <field name="domain_force">[('employee_id.user_id', '=', user.id)]</field>
-        </record>
-
-        <record id="skoll_sandbox_rule_ql" model="ir.rule">
-            <field name="name">Skoll Sandbox: QL sees all</field>
-            <field name="model_id" ref="model_skoll_sandbox"/>
-            <field name="groups" eval="[(4, ref('etp_user_roles.group_quality_lead'))]"/>
-            <field name="domain_force">[(1, '=', 1)]</field>
-        </record>
-
-        <record id="skoll_sandbox_rule_admin" model="ir.rule">
-            <field name="name">Skoll Sandbox: Admin sees all</field>
-            <field name="model_id" ref="model_skoll_sandbox"/>
-            <field name="groups" eval="[(4, ref('group_skoll_admin'))]"/>
+        <record id="skoll_generation_rule_pl" model="ir.rule">
+            <field name="name">Skoll Generation: PL sees all</field>
+            <field name="model_id" ref="model_skoll_generation"/>
+            <field name="groups" eval="[(4, ref('group_skoll_pl'))]"/>
             <field name="domain_force">[(1, '=', 1)]</field>
         </record>
 

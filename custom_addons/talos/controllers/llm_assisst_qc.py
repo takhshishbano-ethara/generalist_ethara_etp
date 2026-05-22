@@ -180,7 +180,7 @@ def _is_degenerate(text, threshold=0.8):
     return most_common_count / len(text) >= threshold
 
 
-_QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="traj_qc")
+_QC_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="talos-traj-qc")
 
 
 def _run_trajectory_qc_background(

@@ -1097,9 +1097,6 @@ class Kensei(models.Model):
     claude_sandbox_id = fields.Many2one(
         "kensei.sandbox", compute="_compute_sandbox_ids", string="Claude Sandbox"
     )
-    glm_sandbox_id = fields.Many2one(
-        "kensei.sandbox", compute="_compute_sandbox_ids", string="GLM Sandbox"
-    )
     gpt_sandbox_id = fields.Many2one(
         "kensei.sandbox", compute="_compute_sandbox_ids", string="GPT Sandbox"
     )
@@ -1120,15 +1117,12 @@ class Kensei(models.Model):
     )
 
     claude_status = fields.Selection(related="claude_sandbox_id.docker_status")
-    glm_status = fields.Selection(related="glm_sandbox_id.docker_status")
     gpt_status = fields.Selection(related="gpt_sandbox_id.docker_status")
 
     claude_session_status = fields.Selection(related="claude_sandbox_id.session_status")
-    glm_session_status = fields.Selection(related="glm_sandbox_id.session_status")
     gpt_session_status = fields.Selection(related="gpt_sandbox_id.session_status")
 
     claude_trajectory = fields.Text(string="Claude 4.7 Trajectory")
-    glm_trajectory = fields.Text(string="GLM 5 Trajectory")
     gpt_trajectory = fields.Text(string="GPT-5.5 Trajectory")
     onePA_trajectory = fields.Text(string="1PA Trajectory")
     onePB_trajectory = fields.Text(string="1PB Trajectory")
@@ -1179,8 +1173,6 @@ class Kensei(models.Model):
     # Token usage totals (aggregated from JSONL on stop, survives turn deletion)
     claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)
     claude_output_tokens = fields.Integer(string="Claude Output Tokens", default=0)
-    glm_input_tokens = fields.Integer(string="GLM Input Tokens", default=0)
-    glm_output_tokens = fields.Integer(string="GLM Output Tokens", default=0)
     gpt_input_tokens = fields.Integer(string="GPT Input Tokens", default=0)
     gpt_output_tokens = fields.Integer(string="GPT Output Tokens", default=0)
     oneP_input_tokens = fields.Integer(string="1P Input Tokens", default=0)
@@ -1226,12 +1218,31 @@ class Kensei(models.Model):
     )
     auto_process_error = fields.Text(string="Auto Process Error")
 
+    # Batch execution fields
+    batch_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("starting", "Starting"),
+            ("running", "Running"),
+            ("stopping", "Stopping"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        default="idle",
+        string="Batch Status",
+        index=True,
+    )
+    batch_prompt = fields.Text(string="Batch Prompt")
+    batch_size = fields.Integer(string="Pods Per Model", default=8)
+    batch_error = fields.Text(string="Batch Error")
+    batch_started_at = fields.Datetime(string="Batch Started At")
+    batch_completed_at = fields.Datetime(string="Batch Completed At")
+
     @api.depends("sandbox_ids", "sandbox_ids.model_type")
     def _compute_sandbox_ids(self):
         for rec in self:
             for mtype, field in [
                 ("claude", "claude_sandbox_id"),
-                ("glm", "glm_sandbox_id"),
                 ("gpt", "gpt_sandbox_id"),
                 ("1p", "oneP_sandbox_id"),
                 ("1pa", "onePA_sandbox_id"),
@@ -1251,18 +1262,31 @@ class Kensei(models.Model):
                 vals["employee_ids"] = [(4, vals["employee_id"])]
         records = super().create(vals_list)
         for rec in records:
-            rec.ensure_sandboxes()
+            rec.ensure_batch_sandboxes()
         return records
 
-    def ensure_sandboxes(self):
+    def ensure_batch_sandboxes(self):
         from .kensei_sandbox import MODEL_TYPES
+
+        SandboxModel = self.env["kensei.sandbox"]
         for rec in self:
-            existing = rec.sandbox_ids.mapped("model_type")
+            batch_size = int(self.env["ir.config_parameter"].sudo().get_param(
+                "kensei.batch_size", rec.batch_size or 8
+            ))
+            existing = {
+                (s.model_type, s.variant_index) for s in rec.sandbox_ids
+            }
+            vals_list = []
             for mtype, _label in MODEL_TYPES:
-                if mtype not in existing:
-                    self.env["kensei.sandbox"].create(
-                        {"kensei_id": rec.id, "model_type": mtype}
-                    )
+                for idx in range(1, batch_size + 1):
+                    if (mtype, idx) not in existing:
+                        vals_list.append({
+                            "kensei_id": rec.id,
+                            "model_type": mtype,
+                            "variant_index": idx,
+                        })
+            if vals_list:
+                SandboxModel.create(vals_list)
 
     # ── Turns helper (aggregates across all sandboxes) ──────────
 
@@ -1340,6 +1364,188 @@ class Kensei(models.Model):
         count = len(turns)
         turns.unlink()
         _logger.info("Cleared %d turns for task %s", count, self.id)
+
+    # ── Batch execution ─────────────────────────────────────────
+
+    def action_start_batch(self, prompt):
+        self.ensure_one()
+        prompt = (prompt or "").strip()
+        if not prompt:
+            raise UserError("A prompt is required to start a batch run.")
+        if not self.persona_id:
+            raise UserError(
+                "No persona selected. Please select a persona and save "
+                "before starting a batch."
+            )
+        if self.batch_status in ("starting", "running", "stopping"):
+            raise UserError(
+                "A batch is already %s. Wait for it to finish or stop it first."
+                % self.batch_status
+            )
+
+        running = self.sandbox_ids.filtered(
+            lambda s: s.docker_status in ("starting", "running")
+        )
+        if running:
+            raise UserError(
+                "%d sandbox(es) are still active. Stop them before "
+                "starting a new batch." % len(running)
+            )
+
+        self.ensure_batch_sandboxes()
+
+        SandboxModel = self.env["kensei.sandbox"]
+        mode = SandboxModel._deployment_mode()
+
+        if mode != "k8s":
+            from .kensei_sandbox import _docker_available, _compose_cmd
+            if not _docker_available():
+                raise UserError(
+                    "Docker is not available. Ensure the Docker daemon is running."
+                )
+            if not _compose_cmd():
+                raise UserError("docker compose (or docker-compose) not found.")
+
+        sandbox_ids = self.sandbox_ids.ids
+        for sandbox in self.sandbox_ids:
+            gateway_token = secrets.token_hex(32)
+            write_vals = {
+                "docker_status": "starting",
+                "docker_error": False,
+                "docker_gateway_token": gateway_token,
+                "session_status": "not_started",
+                "auto_hint_status": "idle",
+                "auto_hint_iteration": 0,
+                "auto_hint_group_id": False,
+            }
+            if mode != "k8s":
+                gw_port, llm_port, db_port = sandbox._allocate_ports()
+                write_vals["docker_port"] = gw_port
+                write_vals["docker_litellm_port"] = llm_port
+            sandbox.write(write_vals)
+
+        self.write({
+            "batch_status": "starting",
+            "batch_prompt": prompt,
+            "batch_error": False,
+            "batch_started_at": fields.Datetime.now(),
+            "batch_completed_at": False,
+        })
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+
+        from .kensei_sandbox import _BATCH_POOL, _run_batch_background
+
+        @self.env.cr.postcommit.add
+        def _queue_batch():
+            _BATCH_POOL.submit(
+                _run_batch_background,
+                db_name,
+                task_id,
+                sandbox_ids,
+                prompt,
+                mode,
+                notify_partner_id,
+            )
+
+        _logger.info(
+            "Batch started: task=%s sandboxes=%d mode=%s prompt_len=%d",
+            self.id, len(sandbox_ids), mode, len(prompt),
+        )
+        return True
+
+    def action_stop_batch(self):
+        self.ensure_one()
+        if self.batch_status not in ("starting", "running"):
+            raise UserError(
+                "No active batch to stop (current status: %s)." % self.batch_status
+            )
+
+        active = self.sandbox_ids.filtered(
+            lambda s: s.docker_status in ("starting", "running")
+        )
+        if not active:
+            self.write({
+                "batch_status": "done",
+                "batch_completed_at": fields.Datetime.now(),
+            })
+            return True
+
+        self.write({"batch_status": "stopping"})
+
+        sandbox_ids = active.ids
+        task_id = self.id
+        db_name = self.env.cr.dbname
+
+        from .kensei_sandbox import _BATCH_POOL, _batch_stop_single_sandbox
+
+        @self.env.cr.postcommit.add
+        def _queue_batch_stop():
+            from concurrent.futures import as_completed as _as_completed
+            stop_futures = {
+                _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid): sid
+                for sid in sandbox_ids
+            }
+            stop_errors = []
+            try:
+                for fut in _as_completed(stop_futures, timeout=300):
+                    sid = stop_futures[fut]
+                    try:
+                        fut.result()
+                    except Exception as e:
+                        _logger.error("Batch manual stop failed for sandbox %s: %s", sid, e)
+                        stop_errors.append("sandbox %s: %s" % (sid, str(e)[:200]))
+            except TimeoutError:
+                stop_errors.append("Stop phase timed out")
+
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    task = env["kensei.kensei"].browse(task_id)
+                    if task.exists():
+                        status = "done" if not stop_errors else "error"
+                        task.write({
+                            "batch_status": status,
+                            "batch_error": "; ".join(stop_errors[:5])[:4000] if stop_errors else False,
+                            "batch_completed_at": fields.Datetime.now(),
+                        })
+            except Exception:
+                _logger.exception("Failed to finalize batch stop for task %s", task_id)
+
+        _logger.info(
+            "Batch manual stop: task=%s stopping %d sandboxes",
+            self.id, len(active),
+        )
+        return True
+
+    @api.model
+    def _cron_check_batch(self):
+        stuck_cutoff = fields.Datetime.subtract(fields.Datetime.now(), minutes=30)
+        stuck = self.search([
+            ("batch_status", "in", ("starting", "running", "stopping")),
+            ("batch_started_at", "<", stuck_cutoff),
+        ])
+        for task in stuck:
+            active = task.sandbox_ids.filtered(
+                lambda s: s.docker_status in ("starting", "running")
+            )
+            if not active:
+                task.write({
+                    "batch_status": "error",
+                    "batch_error": "Batch appears stuck with no active sandboxes.",
+                    "batch_completed_at": fields.Datetime.now(),
+                })
+                _logger.warning(
+                    "Marked stuck batch as error: task=%s (no active sandboxes)",
+                    task.id,
+                )
+            else:
+                _logger.info(
+                    "Batch still active: task=%s (%d sandboxes running)",
+                    task.id, len(active),
+                )
 
     def action_delete_trajectory_for_sandbox(self, sandbox_id):
         self.ensure_one()
@@ -2969,7 +3175,6 @@ class Kensei(models.Model):
 
     @api.model
     def auto_process_claim_task(self, task_id):
-        """Atomically claim a task for auto-processing. Called via XML-RPC."""
         task = self.browse(task_id)
         if not task.exists():
             return {"skip": True, "reason": "not_found"}
@@ -2977,7 +3182,6 @@ class Kensei(models.Model):
         if task.auto_process_status != "queued":
             return {"skip": True, "reason": "status_%s" % task.auto_process_status}
 
-        # Atomic claim via SQL to prevent race conditions
         self.env.cr.execute(
             "UPDATE kensei_kensei SET auto_process_status = 'processing' "
             "WHERE id = %s AND auto_process_status = 'queued' RETURNING id",
@@ -2989,43 +3193,16 @@ class Kensei(models.Model):
 
         task.invalidate_recordset()
 
-        # Find Claude sandbox
-        claude_sandbox = self.env["kensei.sandbox"].search(
-            [("kensei_id", "=", task_id), ("model_type", "=", "claude")], limit=1
-        )
-        if not claude_sandbox:
-            return {"skip": True, "reason": "no_claude_sandbox"}
+        if task.batch_status in ("starting", "running", "stopping"):
+            return {"skip": True, "reason": "batch_active"}
 
-        # Check if sandbox already has turns
-        if claude_sandbox.turn_ids:
-            return {"skip": True, "reason": "has_turns"}
-
-        input_files = []
-        for sb in task.sandbox_ids:
-            for turn in sb.turn_ids:
-                if not turn.attachments:
-                    continue
-                try:
-                    atts = json.loads(turn.attachments)
-                    if isinstance(atts, list):
-                        for att in atts:
-                            stored_as = att.get("storedAs", "")
-                            if stored_as and stored_as not in {f["storedAs"] for f in input_files}:
-                                input_files.append({
-                                    "storedAs": stored_as,
-                                    "name": att.get("name", stored_as),
-                                    "mimeType": att.get("mimeType", "application/octet-stream"),
-                                })
-                except (json.JSONDecodeError, TypeError):
-                    continue
+        prompt = (task.initial_prompt or "").strip()
+        if not prompt:
+            return {"skip": True, "reason": "no_prompt"}
 
         return {
             "task_id": task_id,
-            "sandbox_id": claude_sandbox.id,
-            "docker_status": claude_sandbox.docker_status or "stopped",
-            "initial_prompt": task.initial_prompt or "",
-            "system_prompt": task.system_prompt or "",
-            "input_files": input_files,
+            "initial_prompt": prompt,
         }
 
     @api.model

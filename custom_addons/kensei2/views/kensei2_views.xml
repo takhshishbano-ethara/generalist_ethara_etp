@@ -21,7 +21,7 @@
                  decoration-muted="auto_process_status == 'none'"
                  optional="show"/>
           <field name="batch_status" widget="badge" string="Batch"
-                 decoration-success="batch_status == 'done'"
+                 decoration-success="batch_status in ('done', 'ready')"
                  decoration-danger="batch_status == 'error'"
                  decoration-info="batch_status in ('starting', 'running', 'stopping')"
                  decoration-muted="batch_status == 'idle'"

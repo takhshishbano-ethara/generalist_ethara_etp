@@ -182,6 +182,7 @@ class ResConfigSettings(models.TransientModel):
              "Live — takes effect on next request.",
     )
 
+    @api.depends("leviathan_prd_prompt_filename", "leviathan_qc_prompt_filename")
     def _compute_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = ICP.get_param("leviathan.prd_system_prompt", "")

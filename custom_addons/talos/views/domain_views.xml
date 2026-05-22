@@ -31,7 +31,7 @@
       </field>
     </record>
 
-    <record model="ir.actions.act_window" id="domain_action_window">
+    <record model="ir.actions.act_window" id="talos_domain_action_window">
       <field name="name">Domain</field>
       <field name="res_model">talos.domain</field>
       <field name="view_mode">list,form</field>

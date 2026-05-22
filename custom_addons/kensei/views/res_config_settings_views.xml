@@ -100,6 +100,14 @@
                             <field name="kensei_mock_image_tag" />
                         </setting>
                     </block>
+                    <block title="Batch Execution">
+                        <setting
+                            string="Pods Per Model"
+                            help="Number of sandbox pods per model type. E.g. 2 = 2 Claude + 2 GPT = 4 total. Set low for resource-constrained environments."
+                        >
+                            <field name="kensei_batch_size" />
+                        </setting>
+                    </block>
                     <block title="AWS &amp; Provider Credentials">
                         <setting
                             string="AWS Bearer Token (Bedrock)"

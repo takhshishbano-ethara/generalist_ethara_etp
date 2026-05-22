@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import secrets
+import threading
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
@@ -19,14 +20,22 @@ try:
 except ImportError:
     K8S_AVAILABLE = False
 
-
+_k8s_config_lock = threading.Lock()
+_k8s_config_loaded = False
 
 
 def _load_k8s_config():
-    try:
-        config.load_incluster_config()
-    except config.ConfigException:
-        config.load_kube_config()
+    global _k8s_config_loaded
+    if _k8s_config_loaded:
+        return
+    with _k8s_config_lock:
+        if _k8s_config_loaded:
+            return
+        try:
+            config.load_incluster_config()
+        except config.ConfigException:
+            config.load_kube_config()
+        _k8s_config_loaded = True
 
 
 NAMESPACE = "kensei2"

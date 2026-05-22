@@ -20,16 +20,18 @@
                  decoration-warning="auto_process_status == 'queued'"
                  decoration-muted="auto_process_status == 'none'"
                  optional="show"/>
+          <field name="batch_status" widget="badge" string="Batch"
+                 decoration-success="batch_status == 'done'"
+                 decoration-danger="batch_status == 'error'"
+                 decoration-info="batch_status in ('starting', 'running', 'stopping')"
+                 decoration-muted="batch_status == 'idle'"
+                 optional="show"/>
           <field name="claude_status" widget="badge" string="Claude"
                  decoration-success="claude_status == 'running'"
                  decoration-danger="claude_status == 'error'"
                  decoration-info="claude_status == 'starting'"
-                 decoration-muted="claude_status == 'stopped'"/>
-          <field name="glm_status" widget="badge" string="Kimi"
-                 decoration-success="glm_status == 'running'"
-                 decoration-danger="glm_status == 'error'"
-                 decoration-info="glm_status == 'starting'"
-                 decoration-muted="glm_status == 'stopped'"/>
+                 decoration-muted="claude_status == 'stopped'"
+                 optional="hide"/>
         </list>
       </field>
     </record>
@@ -122,15 +124,17 @@
 
             <field name="sandbox_ids" invisible="1"/>
             <field name="claude_session_status" invisible="1"/>
-            <field name="glm_session_status" invisible="1"/>
+            <field name="batch_status" invisible="1"/>
+            <field name="batch_prompt" invisible="1"/>
+            <field name="batch_error" invisible="1"/>
+            <field name="batch_started_at" invisible="1"/>
+            <field name="batch_completed_at" invisible="1"/>
 
             <widget name="kensei_task_dashboard"/>
 
             <group string="Trajectories" colspan="2">
               <separator string="Claude 4.7 Trajectory" colspan="2"/>
               <field name="claude_trajectory" widget="kensei_json" nolabel="1" placeholder="Claude 4.7 Trajectory" colspan="2"/>
-              <separator string="Kimi K2.6 Trajectory" colspan="2"/>
-              <field name="glm_trajectory" widget="kensei_json" nolabel="1" placeholder="Kimi K2.6 Trajectory" colspan="2"/>
               <separator string="GPT-5.5 Trajectory" colspan="2"/>
               <field name="gpt_trajectory" widget="kensei_json" nolabel="1" placeholder="GPT-5.5 Trajectory" colspan="2"/>
               <separator string="Golden Trajectory" colspan="2"/>
@@ -320,10 +324,11 @@ for user in records:
       <field name="name">kensei.sandbox.list</field>
       <field name="model">kensei.sandbox</field>
       <field name="arch" type="xml">
-        <list default_order="kensei_id desc, model_type">
+        <list default_order="kensei_id desc, model_type, variant_index">
           <field name="kensei_id"/>
           <field name="employee_ids" widget="many2many_tags"/>
           <field name="model_type"/>
+          <field name="variant_index"/>
           <field name="docker_status" widget="badge"
                  decoration-success="docker_status == 'running'"
                  decoration-danger="docker_status == 'error'"
@@ -354,6 +359,7 @@ for user in records:
                 <field name="kensei_id"/>
                 <field name="employee_ids" widget="many2many_tags"/>
                 <field name="model_type"/>
+                <field name="variant_index"/>
                 <field name="session_status"/>
               </group>
               <group string="Docker Status">

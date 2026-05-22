@@ -3,40 +3,37 @@ import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
-import { SandboxCard } from "../components/sandbox_card/sandbox_card";
 import { GogAuthDialog } from "../components/gog_auth_dialog/gog_auth_dialog";
-import { clearChatSession } from "../chat_widget/chat_widget";
 import { rpc } from "@web/core/network/rpc";
 
-const MODEL_TABS = [
-    { type: "claude", label: "Claude Opus 4.7", icon: "fa-microchip" },
-    { type: "glm", label: "Kimi K2.6", icon: "fa-cube" },
-    { type: "gpt", label: "GPT-5.5", icon: "fa-bolt" },
+const BATCH_MODELS = [
+    { type: "claude", label: "Claude Opus 4.7", color: "#c084fc" },
+    { type: "gpt", label: "GPT-5.5", color: "#34d399" },
 ];
 
 const TRAJECTORY_FIELD_MAP = {
     claude: "claude_trajectory",
-    glm: "glm_trajectory",
     gpt: "gpt_trajectory",
 };
 
-const STATUS_POLL_INTERVAL_MS = 5000;
+const BATCH_POLL_INTERVAL_MS = 5000;
 
 export class TaskDashboard extends Component {
     static template = "kensei.TaskDashboard";
-    static components = { SandboxCard, GogAuthDialog };
+    static components = { GogAuthDialog };
     static props = { ...standardWidgetProps };
 
     setup() {
         this.notification = useService("notification");
         this.orm = useService("orm");
-        this.modelTabs = MODEL_TABS;
+        this.batchModels = BATCH_MODELS;
         this._pollTimer = null;
 
         this.state = useState({
-            activeTab: "claude",
-            loadingSandbox: {},
-            sandboxes: {},
+            batchPrompt: "",
+            batchStarting: false,
+            batchStopping: false,
+            sandboxes: [],
             showGogAuth: false,
             gogAuthDone: false,
             rubrics: [],
@@ -46,10 +43,16 @@ export class TaskDashboard extends Component {
             expandedTestIds: {},
             testWeightsStatus: "idle",
             testWeightsError: "",
-            generatingTests: {},
-            testsGenerated: {},
+            activeTrajectoryTab: "claude",
         });
 
+        this._onBatchStatusChanged = (ev) => {
+            this._handleBatchStatusChanged(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "KENSEI:BATCH_STATUS_CHANGED",
+            this._onBatchStatusChanged,
+        );
         this._onSandboxStatusChanged = (ev) => {
             this._handleSandboxStatusChanged(ev.detail);
         };
@@ -59,17 +62,22 @@ export class TaskDashboard extends Component {
         );
 
         onMounted(async () => {
-            // Fire independent loads in parallel - don't let sandboxes block rubrics/auth
             this._checkGogAuthStatus();
             this._loadRubrics();
             this._loadTestWeightsStatus();
-            // Sandboxes + test results are sequential (tests need sandbox IDs)
             await this._loadSandboxes();
             this._loadTestResults();
+            if (this.batchStatus === "starting" || this.batchStatus === "running" || this.batchStatus === "stopping") {
+                this._startPolling();
+            }
         });
         onWillUnmount(() => {
             this._stopPolling();
             if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
+            this.env.bus.removeEventListener(
+                "KENSEI:BATCH_STATUS_CHANGED",
+                this._onBatchStatusChanged,
+            );
             this.env.bus.removeEventListener(
                 "KENSEI:SANDBOX_STATUS_CHANGED",
                 this._onSandboxStatusChanged,
@@ -77,20 +85,26 @@ export class TaskDashboard extends Component {
         });
     }
 
-    async _handleSandboxStatusChanged(payload) {
-        const sandboxId = payload.sandbox_id;
-        delete this.state.loadingSandbox[sandboxId];
+    async _handleBatchStatusChanged(_payload) {
+        await this.props.record.load();
         await this._loadSandboxes();
         await this._loadTestResults();
-        await this.props.record.load();
-
-        const status = payload.docker_status || payload.status;
-        if (status === "stopped" || status === "exited") {
-            const modelType = payload.model_type;
-            if (modelType) {
-                await this._autoTriggerTaskDescription(modelType);
+        const status = this.batchStatus;
+        if (status === "done" || status === "error" || status === "idle") {
+            this._stopPolling();
+            this.state.batchStarting = false;
+            this.state.batchStopping = false;
+        }
+        if (status === "done") {
+            for (const model of BATCH_MODELS) {
+                await this._autoTriggerTaskDescription(model.type);
             }
         }
+    }
+
+    async _handleSandboxStatusChanged(_payload) {
+        await this._loadSandboxes();
+        await this.props.record.load();
     }
 
     get taskId() {
@@ -101,93 +115,102 @@ export class TaskDashboard extends Component {
         return this.props.record.data.email || "";
     }
 
+    get batchStatus() {
+        return this.props.record.data.batch_status || "idle";
+    }
+
+    get batchError() {
+        return this.props.record.data.batch_error || "";
+    }
+
+    get batchSize() {
+        return this.props.record.data.batch_size || 8;
+    }
+
+    get isBatchActive() {
+        const s = this.batchStatus;
+        return s === "starting" || s === "running" || s === "stopping";
+    }
+
+    get canStartBatch() {
+        return !this.isBatchActive && !this.state.batchStarting && this.taskId;
+    }
+
+    get canStopBatch() {
+        return (this.batchStatus === "starting" || this.batchStatus === "running") && !this.state.batchStopping;
+    }
+
+    get totalPods() {
+        return BATCH_MODELS.length * this.batchSize;
+    }
+
+    get sandboxesByModel() {
+        const grouped = {};
+        for (const m of BATCH_MODELS) {
+            grouped[m.type] = this.state.sandboxes
+                .filter((sb) => sb.model_type === m.type)
+                .sort((a, b) => (a.variant_index || 0) - (b.variant_index || 0));
+        }
+        return grouped;
+    }
+
+    get completedCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.session_status === "completed"
+        ).length;
+    }
+
+    get runningCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "running"
+        ).length;
+    }
+
+    get startingCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "starting"
+        ).length;
+    }
+
+    get errorCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "error"
+        ).length;
+    }
+
+    get stoppedCount() {
+        return this.state.sandboxes.filter(
+            (sb) => sb.docker_status === "stopped"
+        ).length;
+    }
+
+    get batchProgressPercent() {
+        const total = this.totalPods;
+        if (total === 0) return 0;
+        return Math.round((this.completedCount / total) * 100);
+    }
+
     async _loadSandboxes() {
         if (!this.taskId) return;
 
-        let sandboxes = await this.orm.searchRead(
+        const sandboxes = await this.orm.searchRead(
             "kensei.sandbox",
             [["kensei_id", "=", this.taskId]],
             [
-                "id", "model_type", "docker_status", "docker_port",
-                "docker_gateway_token",
+                "id", "model_type", "variant_index", "docker_status",
+                "docker_port", "docker_gateway_token",
                 "docker_ws_url", "docker_error", "docker_workdir",
                 "session_status", "docker_compose_project",
             ],
+            { order: "model_type asc, variant_index asc" },
         );
 
-        if (sandboxes.length < MODEL_TABS.length) {
-            await this.orm.call("kensei.kensei", "ensure_sandboxes", [[this.taskId]]);
-            sandboxes = await this.orm.searchRead(
-                "kensei.sandbox",
-                [["kensei_id", "=", this.taskId]],
-                [
-                    "id", "model_type", "docker_status", "docker_port",
-                    "docker_gateway_token",
-                    "docker_ws_url", "docker_error", "docker_workdir",
-                    "session_status", "docker_compose_project",
-                ],
-            );
-        }
-
-        const needsReconcile = sandboxes.filter(
-            (sb) => sb.docker_status === "starting" || sb.docker_status === "running" || sb.docker_status === "error"
-        );
-        if (needsReconcile.length > 0) {
-            try {
-                const ids = needsReconcile.map((sb) => sb.id);
-                const statusMap = await this.orm.call(
-                    "kensei.sandbox", "action_check_status", [ids]
-                );
-                let anyChanged = false;
-                for (const sb of sandboxes) {
-                    if (statusMap && statusMap[sb.id] && statusMap[sb.id] !== sb.docker_status) {
-                        sb.docker_status = statusMap[sb.id];
-                        anyChanged = true;
-                    }
-                }
-                // Re-fetch computed fields (docker_ws_url) after status changes
-                if (anyChanged) {
-                    const allIds = sandboxes.map((sb) => sb.id);
-                    const freshData = await this.orm.searchRead(
-                        "kensei.sandbox",
-                        [["id", "in", allIds]],
-                        [
-                            "id", "model_type", "docker_status", "docker_port",
-                            "docker_gateway_token",
-                            "docker_ws_url", "docker_error", "docker_workdir",
-                            "session_status", "docker_compose_project",
-                        ],
-                    );
-                    sandboxes = freshData;
-                }
-            } catch (e) {
-                console.warn("[kensei-dashboard] Status reconciliation failed:", e);
-            }
-        }
-
-        const map = {};
-        let needsPoll = false;
-        for (const sb of sandboxes) {
-            map[sb.model_type] = sb;
-            if (sb.docker_status === "starting") {
-                this.state.loadingSandbox[sb.id] = true;
-                needsPoll = true;
-            } else if (sb.docker_status === "error" && sb.docker_compose_project) {
-                needsPoll = true;
-            }
-        }
-        this.state.sandboxes = map;
-
-        if (needsPoll) {
-            this._startPolling();
-        } else {
-            this._stopPolling();
-        }
+        this.state.sandboxes = sandboxes;
     }
 
     _startPolling() {
         if (this._pollTimer) return;
-        this._pollTimer = setInterval(() => this._pollStatus(), STATUS_POLL_INTERVAL_MS);
+        this._pollTimer = setInterval(() => this._pollBatchStatus(), BATCH_POLL_INTERVAL_MS);
     }
 
     _stopPolling() {
@@ -197,178 +220,153 @@ export class TaskDashboard extends Component {
         }
     }
 
-    async _pollStatus() {
-        const pollable = Object.values(this.state.sandboxes).filter(
-            (sb) => sb.docker_status === "starting" || (sb.docker_status === "error" && sb.docker_compose_project)
-        );
-        if (pollable.length === 0) {
-            this._stopPolling();
-            return;
-        }
-
+    async _pollBatchStatus() {
         try {
-            const ids = pollable.map((sb) => sb.id);
-            const statusMap = await this.orm.call(
-                "kensei.sandbox", "action_check_status", [ids]
-            );
-            let anyChanged = false;
-            for (const sb of Object.values(this.state.sandboxes)) {
-                if (statusMap && statusMap[sb.id] && statusMap[sb.id] !== sb.docker_status) {
-                    sb.docker_status = statusMap[sb.id];
-                    anyChanged = true;
-                    if (statusMap[sb.id] !== "starting") {
-                        delete this.state.loadingSandbox[sb.id];
-                    }
-                }
-            }
-            if (anyChanged) {
-                const allIds = Object.values(this.state.sandboxes).map((sb) => sb.id);
-                const freshData = await this.orm.searchRead(
-                    "kensei.sandbox",
-                    [["id", "in", allIds]],
-                    [
-                        "id", "model_type", "docker_status", "docker_port",
-                        "docker_gateway_token",
-                        "docker_ws_url", "docker_error", "docker_workdir",
-                        "session_status", "docker_compose_project",
-                    ],
-                );
-                for (const fresh of freshData) {
-                    if (this.state.sandboxes[fresh.model_type]) {
-                        Object.assign(this.state.sandboxes[fresh.model_type], fresh);
-                    }
-                }
-            }
-        } catch (e) {
-            console.warn("[kensei-dashboard] Poll status failed:", e);
-        }
-
-        const stillStarting = Object.values(this.state.sandboxes).some(
-            (sb) => sb.docker_status === "starting"
-        );
-        if (!stillStarting) {
-            this._stopPolling();
-        }
-    }
-
-    _buildSandboxProps(modelType) {
-        const sb = this.state.sandboxes[modelType];
-        if (!sb) {
-            return {
-                sandboxId: 0,
-                taskId: this.taskId,
-                taskEmail: this.taskEmail,
-                modelType,
-                modelLabel: MODEL_TABS.find((t) => t.type === modelType)?.label || modelType,
-                dockerStatus: "stopped",
-                sessionStatus: "not_started",
-                dockerWsUrl: false,
-                gatewayToken: false,
-                dockerError: false,
-                disabled: false,
-                loading: false,
-                generatingTests: false,
-                testsGenerated: false,
-            };
-        }
-
-        return {
-            sandboxId: sb.id,
-            taskId: this.taskId,
-            taskEmail: this.taskEmail,
-            modelType: sb.model_type,
-            modelLabel: MODEL_TABS.find((t) => t.type === modelType)?.label || modelType,
-            dockerStatus: sb.docker_status || "stopped",
-            sessionStatus: sb.session_status || "not_started",
-            dockerWsUrl: sb.docker_ws_url || false,
-            gatewayToken: sb.docker_gateway_token || false,
-            dockerError: sb.docker_error || false,
-            disabled: false,
-            loading: !!this.state.loadingSandbox[sb.id],
-            generatingTests: !!this.state.generatingTests[sb.id],
-            testsGenerated: !!this.state.testsGenerated[sb.id],
-        };
-    }
-
-    onTabClick(modelType) {
-        this.state.activeTab = modelType;
-    }
-
-    async onStartSandbox(sandboxId) {
-        if (!sandboxId) {
-            this.notification.add("Sandbox not found. Save the task first.", { type: "warning" });
-            return;
-        }
-
-        this.state.loadingSandbox[sandboxId] = true;
-        this._setSandboxStatus(sandboxId, "starting");
-        this._startPolling();
-        clearChatSession(sandboxId);
-        try {
-            await this.orm.call("kensei.sandbox", "action_start_sandbox", [[sandboxId]]);
-            await this._loadSandboxes();
-        } catch (e) {
-            const msg = e.data?.message || e.message || "";
-            const isAlreadyActive = msg.includes("already") && (msg.includes("starting") || msg.includes("running") || msg.includes("progress"));
-            if (isAlreadyActive) {
-                await this._loadSandboxes();
-                this.notification.add(msg, { type: "warning" });
-            } else {
-                delete this.state.loadingSandbox[sandboxId];
-                this._setSandboxStatus(sandboxId, "error");
-                this.notification.add(msg || "Failed to start sandbox", { type: "danger" });
-            }
-        }
-    }
-
-    async onStopSandbox(sandboxId) {
-        if (!sandboxId) return;
-
-        if (!this.state.testsGenerated[sandboxId]) {
-            const confirmed = window.confirm(
-                "Tests have not been generated for this session. Are you sure you want to stop the sandbox without generating tests?"
-            );
-            if (!confirmed) return;
-        }
-
-        this.state.loadingSandbox[sandboxId] = true;
-
-        const sandbox = Object.values(this.state.sandboxes).find((sb) => sb.id === sandboxId);
-        const modelType = sandbox?.model_type;
-
-        try {
-            await clearChatSession(sandboxId);
-            await this.orm.call("kensei.sandbox", "action_stop_sandbox", [[sandboxId]]);
-            await this._loadSandboxes();
-            await this._loadTestResults();
             await this.props.record.load();
-            await this._autoTriggerTaskDescription(modelType);
+            await this._loadSandboxes();
+            const status = this.batchStatus;
+            if (status === "done" || status === "error" || status === "idle") {
+                this._stopPolling();
+                this.state.batchStarting = false;
+                this.state.batchStopping = false;
+                if (status === "done") {
+                    this.notification.add("Batch completed successfully!", { type: "success" });
+                    await this._loadTestResults();
+                    for (const model of BATCH_MODELS) {
+                        await this._autoTriggerTaskDescription(model.type);
+                    }
+                } else if (status === "error") {
+                    this.notification.add("Batch completed with errors.", { type: "warning" });
+                    await this._loadTestResults();
+                }
+            }
         } catch (e) {
-            this.notification.add(
-                e.data?.message || e.message || "Failed to stop sandbox",
-                { type: "danger" }
-            );
-        } finally {
-            delete this.state.loadingSandbox[sandboxId];
-            delete this.state.testsGenerated[sandboxId];
+            console.warn("[kensei-dashboard] Batch poll failed:", e);
         }
     }
 
-    async onGenerateTests(sandboxId) {
-        if (!sandboxId) return;
-        this.state.generatingTests[sandboxId] = true;
+    onBatchPromptInput(ev) {
+        this.state.batchPrompt = ev.target.value;
+    }
+
+    async onStartBatch() {
+        const prompt = this.state.batchPrompt.trim();
+        if (!prompt) {
+            this.notification.add("Please enter a prompt for the batch run.", { type: "warning" });
+            return;
+        }
+        if (!this.canStartBatch) return;
+
+        this.state.batchStarting = true;
         try {
-            await this.orm.call("kensei.sandbox", "action_generate_tests", [[sandboxId]]);
-            this.state.testsGenerated[sandboxId] = true;
-            await this._loadTestResults();
-            this.notification.add("Tests generated successfully.", { type: "success" });
+            await this.orm.call("kensei.kensei", "action_start_batch", [[this.taskId], prompt]);
+            await this.props.record.load();
+            await this._loadSandboxes();
+            this._startPolling();
+            this.notification.add(`Batch started: ${this.totalPods} pods launching...`, { type: "info" });
         } catch (e) {
-            this.notification.add(
-                e.data?.message || e.message || "Failed to generate tests",
-                { type: "danger" }
-            );
-        } finally {
-            delete this.state.generatingTests[sandboxId];
+            this.state.batchStarting = false;
+            const msg = e.data?.message || e.message || "Failed to start batch";
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
+    async onStopBatch() {
+        if (!this.canStopBatch) return;
+
+        const confirmed = window.confirm(
+            "Are you sure you want to stop the batch? All running pods will be terminated and trajectories exported."
+        );
+        if (!confirmed) return;
+
+        this.state.batchStopping = true;
+        try {
+            await this.orm.call("kensei.kensei", "action_stop_batch", [[this.taskId]]);
+            await this.props.record.load();
+            await this._loadSandboxes();
+            this.notification.add("Batch stopping...", { type: "info" });
+        } catch (e) {
+            this.state.batchStopping = false;
+            const msg = e.data?.message || e.message || "Failed to stop batch";
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
+    podStatusClass(sandbox) {
+        const ds = sandbox.docker_status || "stopped";
+        const ss = sandbox.session_status || "not_started";
+        if (ss === "completed") return "completed";
+        if (ds === "running") return "running";
+        if (ds === "starting") return "starting";
+        if (ds === "error") return "error";
+        return "stopped";
+    }
+
+    podStatusIcon(sandbox) {
+        const cls = this.podStatusClass(sandbox);
+        const map = {
+            completed: "fa-check",
+            running: "fa-circle-o-notch fa-spin",
+            starting: "fa-spinner fa-spin",
+            error: "fa-exclamation-triangle",
+            stopped: "fa-circle-o",
+        };
+        return map[cls] || "fa-circle-o";
+    }
+
+    podTooltip(sandbox) {
+        const vi = sandbox.variant_index || 0;
+        const model = sandbox.model_type || "?";
+        const ds = sandbox.docker_status || "stopped";
+        const ss = sandbox.session_status || "not_started";
+        let tip = `${model} #${vi} — Pod: ${ds}`;
+        if (ss !== "not_started") tip += `, Session: ${ss}`;
+        if (sandbox.docker_error) tip += `\nError: ${sandbox.docker_error}`;
+        return tip;
+    }
+
+    onTrajectoryTabClick(modelType) {
+        this.state.activeTrajectoryTab = modelType;
+    }
+
+    get trajectoryEntries() {
+        const fieldName = TRAJECTORY_FIELD_MAP[this.state.activeTrajectoryTab];
+        if (!fieldName) return [];
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return [];
+        try {
+            const parsed = JSON.parse(raw);
+            return Array.isArray(parsed) ? parsed : [parsed];
+        } catch (_e) {
+            return [];
+        }
+    }
+
+    get trajectoryCount() {
+        return this.trajectoryEntries.length;
+    }
+
+    get maxTrajectories() {
+        return 12;
+    }
+
+    _trajectoryCountCache = {};
+
+    getModelTrajectoryCount(modelType) {
+        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
+        if (!fieldName) return 0;
+        const raw = this.props.record.data[fieldName];
+        if (!raw || !raw.trim()) return 0;
+        const cached = this._trajectoryCountCache[modelType];
+        if (cached && cached.raw === raw) return cached.count;
+        try {
+            const parsed = JSON.parse(raw);
+            const count = Array.isArray(parsed) ? parsed.length : 0;
+            this._trajectoryCountCache[modelType] = { raw, count };
+            return count;
+        } catch (_e) {
+            this._trajectoryCountCache[modelType] = { raw, count: 0 };
+            return 0;
         }
     }
 
@@ -448,10 +446,9 @@ export class TaskDashboard extends Component {
         }, 5000);
     }
 
-    get hasAnySandboxRunning() {
-        return Object.values(this.state.sandboxes).some(
-            (sb) => sb.docker_status === "running" || sb.docker_status === "starting"
-        );
+    getTestResultsForTrajectory(trajIndex) {
+        const results = this.state.testResults[this.state.activeTrajectoryTab] || [];
+        return results.filter(r => r.trajectory_index === trajIndex);
     }
 
     async _checkGogAuthStatus() {
@@ -477,47 +474,6 @@ export class TaskDashboard extends Component {
         this.state.gogAuthDone = true;
     }
 
-    get trajectoryEntries() {
-        const fieldName = TRAJECTORY_FIELD_MAP[this.state.activeTab];
-        if (!fieldName) return [];
-        const raw = this.props.record.data[fieldName];
-        if (!raw || !raw.trim()) return [];
-        try {
-            const parsed = JSON.parse(raw);
-            return Array.isArray(parsed) ? parsed : [parsed];
-        } catch (_e) {
-            return [];
-        }
-    }
-
-    get trajectoryCount() {
-        return this.trajectoryEntries.length;
-    }
-
-    get maxTrajectories() {
-        return 12;
-    }
-
-    _trajectoryCountCache = {};
-
-    getModelTrajectoryCount(modelType) {
-        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
-        if (!fieldName) return 0;
-        const raw = this.props.record.data[fieldName];
-        if (!raw || !raw.trim()) return 0;
-        const cached = this._trajectoryCountCache[modelType];
-        if (cached && cached.raw === raw) return cached.count;
-        try {
-            const parsed = JSON.parse(raw);
-            const count = Array.isArray(parsed) ? parsed.length : 0;
-            this._trajectoryCountCache[modelType] = { raw, count };
-            return count;
-        } catch (_e) {
-            this._trajectoryCountCache[modelType] = { raw, count: 0 };
-            return 0;
-        }
-    }
-
     _loadRubrics() {
         const raw = this.props.record.data.rubrics;
         if (!raw || !raw.trim()) {
@@ -528,8 +484,9 @@ export class TaskDashboard extends Component {
             const parsed = JSON.parse(raw);
             const migrateRubric = (r) => ({
                 ...r,
+                claude: r.claude || Array(12).fill(null),
                 gpt: r.gpt || Array(12).fill(null),
-                justification: r.justification || { claude: "", glm: "", gpt: "" },
+                justification: r.justification || { claude: "", gpt: "" },
                 score: r.score ?? 1,
                 is_positive: r.is_positive ?? true,
                 type: r.type || "task completion",
@@ -539,7 +496,7 @@ export class TaskDashboard extends Component {
             if (Array.isArray(parsed)) {
                 this.state.rubrics = parsed.map(migrateRubric);
             } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
-                const globalJ = parsed.justification || { claude: "", glm: "", gpt: "" };
+                const globalJ = parsed.justification || { claude: "", gpt: "" };
                 this.state.rubrics = parsed.rubrics.map(r => migrateRubric({
                     ...r,
                     justification: r.justification || { ...globalJ },
@@ -552,10 +509,99 @@ export class TaskDashboard extends Component {
         }
     }
 
+    async _saveRubrics() {
+        const value = JSON.stringify(this.state.rubrics);
+        await this.orm.write("kensei.kensei", [this.taskId], { rubrics: value });
+        await this.props.record.load();
+    }
+
+    onRubricLabelInput(ev) {
+        this.state.newRubricLabel = ev.target.value;
+    }
+
+    async onAddRubric() {
+        const label = this.state.newRubricLabel.trim();
+        if (!label) return;
+        this.state.rubrics.push({
+            label,
+            claude: Array(12).fill(null),
+            gpt: Array(12).fill(null),
+            justification: { claude: "", gpt: "" },
+            score: 1,
+            is_positive: true,
+            type: "task completion",
+            evaluation_target: "state change",
+            importance: "important",
+        });
+        this.state.newRubricLabel = "";
+        await this._saveRubrics();
+    }
+
+    async onRubricMetaChange(rubricIndex, field, ev) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        const val = ev.target.value;
+        if (field === "score") {
+            rubric.score = parseInt(val, 10);
+            rubric.is_positive = rubric.score > 0;
+        } else {
+            rubric[field] = val;
+        }
+        if (field === "importance") {
+            const absScore = Math.abs(rubric.score);
+            if (rubric.importance === "critically_important" && absScore < 5) {
+                rubric.score = rubric.is_positive ? 5 : -5;
+            }
+        }
+        await this._saveRubrics();
+    }
+
+    onRubricKeydown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.onAddRubric();
+        }
+    }
+
+    async onRemoveRubric(index) {
+        this.state.rubrics.splice(index, 1);
+        await this._saveRubrics();
+    }
+
+    async onToggleRubricResult(rubricIndex, model, slotIndex) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        const current = rubric[model][slotIndex];
+        if (current === null || current === "fail") {
+            rubric[model][slotIndex] = "pass";
+        } else {
+            rubric[model][slotIndex] = "fail";
+        }
+        await this._saveRubrics();
+    }
+
+    rubricNeedsJustification(rubricIndex, model) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return false;
+        const pass8 = rubric[model].slice(0, 8);
+        return pass8.every(v => v === "fail");
+    }
+
+    onJustificationInput(rubricIndex, model, ev) {
+        const rubric = this.state.rubrics[rubricIndex];
+        if (!rubric) return;
+        if (!rubric.justification) rubric.justification = { claude: "", gpt: "" };
+        rubric.justification[model] = ev.target.value;
+    }
+
+    async onSaveJustification() {
+        await this._saveRubrics();
+    }
+
     async _loadTestResults() {
         if (!this.taskId) return;
         try {
-            const sandboxIds = Object.values(this.state.sandboxes).map(sb => sb.id).filter(Boolean);
+            const sandboxIds = this.state.sandboxes.map(sb => sb.id).filter(Boolean);
             if (sandboxIds.length === 0) {
                 this.state.testResults = {};
                 return;
@@ -569,14 +615,14 @@ export class TaskDashboard extends Component {
                     "duration_generation_ms", "duration_execution_ms", "create_date",
                     "trajectory_index", "test_code", "test_output", "score", "test_scores",
                 ],
-                { order: "trajectory_index asc, create_date desc", limit: 50 },
+                { order: "trajectory_index asc, create_date desc", limit: 100 },
             );
             const grouped = {};
             for (const r of results) {
                 let modelType = "";
                 if (r.sandbox_id) {
                     const sbId = r.sandbox_id[0];
-                    const sb = Object.values(this.state.sandboxes).find(s => s.id === sbId);
+                    const sb = this.state.sandboxes.find(s => s.id === sbId);
                     if (sb) modelType = sb.model_type;
                 }
                 if (!modelType) modelType = r.model_type || "unknown";
@@ -637,7 +683,7 @@ export class TaskDashboard extends Component {
     }
 
     get activeTestResults() {
-        return this.state.testResults[this.state.activeTab] || [];
+        return this.state.testResults[this.state.activeTrajectoryTab] || [];
     }
 
     get testResultsByTrajectory() {
@@ -653,8 +699,18 @@ export class TaskDashboard extends Component {
             .map(idx => ({ index: Number(idx), results: grouped[idx] }));
     }
 
-    getTestResultsForTrajectory(trajIndex) {
-        return this.activeTestResults.filter(r => r.trajectory_index === trajIndex);
+    get testResultsSummary() {
+        const results = this.activeTestResults;
+        if (results.length === 0) return null;
+        let totalTests = 0, passed = 0, failed = 0, errored = 0, running = 0;
+        for (const r of results) {
+            totalTests += r.tests_total || 0;
+            passed += r.tests_passed || 0;
+            failed += r.tests_failed || 0;
+            errored += r.tests_errored || 0;
+            if (r.status === "running" || r.status === "generating") running++;
+        }
+        return { total: totalTests, passed, failed, errored, running };
     }
 
     onToggleTestDetail(resultId) {
@@ -722,8 +778,7 @@ export class TaskDashboard extends Component {
     getFunctionStatus(result, funcName) {
         if (!result.test_output) return "unknown";
         const output = result.test_output;
-        if (output.includes(funcName + " PASSED") || output.includes(funcName + "\\s+PASSED") ||
-            output.match(new RegExp(funcName + "\\s+PASSED"))) return "passed";
+        if (output.includes(funcName + " PASSED") || output.match(new RegExp(funcName + "\\s+PASSED"))) return "passed";
         if (output.includes(funcName + " FAILED") || output.match(new RegExp(funcName + "\\s+FAILED"))) return "failed";
         if (output.includes(funcName + " ERROR") || output.match(new RegExp(funcName + "\\s+ERROR"))) return "error";
         return "unknown";
@@ -762,125 +817,6 @@ export class TaskDashboard extends Component {
         const regex = new RegExp(`([ \\t]*(?:def|async def)\\s+${funcName}\\s*\\([\\s\\S]*?)(?=\\n[ \\t]*(?:def|async def|class)\\s|$)`, "m");
         const match = code.match(regex);
         return match ? match[1].trim() : "";
-    }
-
-    get latestTestResult() {
-        const results = this.activeTestResults;
-        return results.length > 0 ? results[0] : null;
-    }
-
-    get testResultsSummary() {
-        const results = this.activeTestResults;
-        if (results.length === 0) return null;
-        let totalTests = 0, passed = 0, failed = 0, errored = 0, running = 0;
-        for (const r of results) {
-            totalTests += r.tests_total || 0;
-            passed += r.tests_passed || 0;
-            failed += r.tests_failed || 0;
-            errored += r.tests_errored || 0;
-            if (r.status === "running" || r.status === "generating") running++;
-        }
-        return { total: totalTests, passed, failed, errored, running };
-    }
-
-    async _saveRubrics() {
-        const value = JSON.stringify(this.state.rubrics);
-        await this.orm.write("kensei.kensei", [this.taskId], { rubrics: value });
-        await this.props.record.load();
-    }
-
-    onRubricLabelInput(ev) {
-        this.state.newRubricLabel = ev.target.value;
-    }
-
-    async onAddRubric() {
-        const label = this.state.newRubricLabel.trim();
-        if (!label) return;
-        this.state.rubrics.push({
-            label,
-            claude: Array(12).fill(null),
-            glm: Array(12).fill(null),
-            gpt: Array(12).fill(null),
-            justification: { claude: "", glm: "", gpt: "" },
-            score: 1,
-            is_positive: true,
-            type: "task completion",
-            evaluation_target: "state change",
-            importance: "important",
-        });
-        this.state.newRubricLabel = "";
-        await this._saveRubrics();
-    }
-
-    async onRubricMetaChange(rubricIndex, field, ev) {
-        const rubric = this.state.rubrics[rubricIndex];
-        if (!rubric) return;
-        const val = ev.target.value;
-        if (field === "score") {
-            rubric.score = parseInt(val, 10);
-            rubric.is_positive = rubric.score > 0;
-        } else {
-            rubric[field] = val;
-        }
-        if (field === "importance") {
-            const absScore = Math.abs(rubric.score);
-            if (rubric.importance === "critically_important" && absScore < 5) {
-                rubric.score = rubric.is_positive ? 5 : -5;
-            }
-        }
-        await this._saveRubrics();
-    }
-
-    onRubricKeydown(ev) {
-        if (ev.key === "Enter") {
-            ev.preventDefault();
-            this.onAddRubric();
-        }
-    }
-
-    async onRemoveRubric(index) {
-        this.state.rubrics.splice(index, 1);
-        await this._saveRubrics();
-    }
-
-    async onToggleRubricResult(rubricIndex, model, slotIndex) {
-        const rubric = this.state.rubrics[rubricIndex];
-        if (!rubric) return;
-        const current = rubric[model][slotIndex];
-        if (current === null || current === "fail") {
-            rubric[model][slotIndex] = "pass";
-        } else {
-            rubric[model][slotIndex] = "fail";
-        }
-        await this._saveRubrics();
-    }
-
-    rubricNeedsJustification(rubricIndex, model) {
-        const rubric = this.state.rubrics[rubricIndex];
-        if (!rubric) return false;
-        const modelKey = model;
-        const pass8 = rubric[modelKey].slice(0, 8);
-        return pass8.every(v => v === "fail");
-    }
-
-    onJustificationInput(rubricIndex, model, ev) {
-        const rubric = this.state.rubrics[rubricIndex];
-        if (!rubric) return;
-        if (!rubric.justification) rubric.justification = { claude: "", glm: "", gpt: "" };
-        rubric.justification[model] = ev.target.value;
-    }
-
-    async onSaveJustification() {
-        await this._saveRubrics();
-    }
-
-    _setSandboxStatus(sandboxId, status) {
-        for (const sb of Object.values(this.state.sandboxes)) {
-            if (sb.id === sandboxId) {
-                sb.docker_status = status;
-                break;
-            }
-        }
     }
 }
 
