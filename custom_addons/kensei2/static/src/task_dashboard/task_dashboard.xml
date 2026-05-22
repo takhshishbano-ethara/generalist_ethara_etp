@@ -177,8 +177,9 @@
                                 </div>
                                 <div class="o_kensei2_pod_grid">
                                     <t t-foreach="this.sandboxesByModel[model.type] || []" t-as="sb" t-key="sb.id">
-                                        <div t-attf-class="o_kensei2_pod_cell o_kensei2_pod_#{this.podStatusClass(sb)}"
-                                             t-att-title="this.podTooltip(sb)">
+                                        <div t-attf-class="o_kensei2_pod_cell o_kensei2_pod_#{this.podStatusClass(sb)} #{this.isSelectedSandbox(sb) ? 'o_kensei2_pod_selected' : ''} #{sb.docker_status === 'running' or sb.docker_status === 'starting' ? 'o_kensei2_pod_clickable' : ''}"
+                                             t-att-title="this.podTooltip(sb)"
+                                             t-on-click="() => this.onSelectSandbox(sb)">
                                             <div class="o_kensei2_pod_cell_main">
                                                 <i t-attf-class="fa #{this.podStatusIcon(sb)}"/>
                                                 <span class="o_kensei2_pod_label" t-out="this.podSessionLabel(sb)"/>
@@ -207,6 +208,36 @@
                                             </t>
                                         </div>
                                     </t>
+                                </div>
+                            </div>
+                        </t>
+
+                        <t t-if="this.selectedSandbox">
+                            <div class="o_kensei2_chat_panel">
+                                <div class="o_kensei2_chat_panel_header">
+                                    <div class="o_kensei2_chat_panel_title">
+                                        <i class="fa fa-comments me-2"/>
+                                        <span t-out="this.podModelLabel(this.selectedSandbox)"/>
+                                        <span class="o_kensei2_chat_panel_session">
+                                            <t t-out="this.podSessionLabel(this.selectedSandbox)"/>
+                                        </span>
+                                        <span t-attf-class="o_kensei2_chat_panel_status o_kensei2_chat_panel_status_#{this.selectedSandbox.docker_status}">
+                                            <t t-out="this.selectedSandbox.docker_status"/>
+                                        </span>
+                                    </div>
+                                    <button class="o_kensei2_chat_panel_close"
+                                            t-on-click="onCloseChatPanel"
+                                            title="Close chat panel">
+                                        <i class="fa fa-times"/>
+                                    </button>
+                                </div>
+                                <div class="o_kensei2_chat_panel_body">
+                                    <Kensei2ChatWidget
+                                        sandboxId="this.selectedSandbox.id"
+                                        dockerStatus="this.selectedSandbox.docker_status || 'stopped'"
+                                        dockerWsUrl="this.selectedSandbox.docker_ws_url || false"
+                                        gatewayToken="this.selectedSandbox.docker_gateway_token || false"
+                                        modelType="this.selectedSandbox.model_type || ''"/>
                                 </div>
                             </div>
                         </t>

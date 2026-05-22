@@ -4,6 +4,7 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
 import { GogAuthDialog } from "../components/gog_auth_dialog/gog_auth_dialog";
+import { Kensei2ChatWidget } from "../chat_widget/chat_widget";
 import { rpc } from "@web/core/network/rpc";
 
 const BATCH_MODELS = [
@@ -53,7 +54,7 @@ const EXT_MIME_MAP = {
 
 export class TaskDashboard extends Component {
     static template = "kensei2.TaskDashboard";
-    static components = { GogAuthDialog };
+    static components = { GogAuthDialog, Kensei2ChatWidget };
     static props = { ...standardWidgetProps };
 
     setup() {
@@ -81,6 +82,7 @@ export class TaskDashboard extends Component {
             testWeightsError: "",
             activeTrajectoryTab: "claude",
             pendingPodActions: {},
+            selectedSandboxId: null,
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -146,6 +148,14 @@ export class TaskDashboard extends Component {
     async _handleSandboxStatusChanged(_payload) {
         await this._loadSandboxes();
         await this.props.record.load();
+        if (this.state.selectedSandboxId) {
+            const sb = this.state.sandboxes.find(
+                (s) => s.id === this.state.selectedSandboxId
+            );
+            if (!sb || sb.docker_status === "stopped") {
+                this.state.selectedSandboxId = null;
+            }
+        }
     }
 
     get taskId() {
@@ -549,6 +559,33 @@ export class TaskDashboard extends Component {
     podRetryLabel(sandbox) {
         const ds = sandbox.docker_status || "stopped";
         return ds === "error" ? "Retry" : "Start";
+    }
+
+    get selectedSandbox() {
+        if (!this.state.selectedSandboxId) return null;
+        return this.state.sandboxes.find(
+            (sb) => sb.id === this.state.selectedSandboxId
+        ) || null;
+    }
+
+    isSelectedSandbox(sandbox) {
+        return sandbox.id === this.state.selectedSandboxId;
+    }
+
+    onSelectSandbox(sandbox) {
+        if (this.state.selectedSandboxId === sandbox.id) {
+            this.state.selectedSandboxId = null;
+            return;
+        }
+        const ds = sandbox.docker_status || "stopped";
+        if (ds !== "running" && ds !== "starting") {
+            return;
+        }
+        this.state.selectedSandboxId = sandbox.id;
+    }
+
+    onCloseChatPanel() {
+        this.state.selectedSandboxId = null;
     }
 
     async onRetryPod(sandbox) {

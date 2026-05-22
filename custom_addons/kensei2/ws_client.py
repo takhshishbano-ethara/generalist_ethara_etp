@@ -271,7 +271,7 @@ class OpenClawClient:
                 "minProtocol": 3,
                 "maxProtocol": 4,
                 "client": {
-                    "id": "openclaw-control-ui",
+                    "id": "openclaw-tui",
                     "version": "1.0",
                     "platform": "server",
                     "mode": "backend",
