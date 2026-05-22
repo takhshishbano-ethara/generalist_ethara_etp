@@ -18,6 +18,7 @@ import os
 import signal
 import sys
 import threading
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,6 +91,11 @@ def main():
 
     _logger.info("Worker starting: job_id=%d, db=%s", job_id, db_name)
 
+    # Wall-clock anchor for the whole pod lifetime — the "exiting" line at the
+    # end reports elapsed from here. A pod killed by K8s activeDeadlineSeconds
+    # shows its last log line near the deadline mark.
+    _t0 = time.monotonic()
+
     try:
         registry = _boot_odoo(db_name, conf_path)
     except Exception:
@@ -116,6 +122,15 @@ def main():
                     "vegeta.job %s not found — nothing to do", job_id,
                 )
                 sys.exit(1)
+            # Stage boundary: pod has booted and found the job, now handing
+            # off to the shared pipeline. If this line appears for a job but
+            # the "exiting" line never does, the pod died INSIDE
+            # _run_prd_generation_bg (OOM-kill / SIGTERM / deadline) — the
+            # PRD-GEN PHASE lines tell you which phase.
+            _logger.info(
+                "[vegeta][job=%s] worker entering _run_prd_generation_bg "
+                "(boot took %.1fs)", job_id, time.monotonic() - _t0,
+            )
             vegeta_job._run_prd_generation_bg(db_name, job_id)
     except Exception:
         _logger.exception(
@@ -124,6 +139,12 @@ def main():
         sys.exit(3)
 
     _logger.info("Worker finished PRD generation for job %s", job_id)
+    # Total pod lifetime — compare against PRD_DEADLINE_SECONDS (3600s). A
+    # value close to the deadline means generation is too slow for the budget.
+    _logger.info(
+        "[vegeta][job=%s] worker exiting cleanly — total pod lifetime %.1fs",
+        job_id, time.monotonic() - _t0,
+    )
     sys.exit(0)
 
 

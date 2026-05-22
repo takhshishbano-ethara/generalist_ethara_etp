@@ -83,14 +83,18 @@ Each task = one pod. Spec (defined in the addon code):
 
 ### 4.2 Kubernetes RBAC
 
-- Apply `custom_addons/vegeta/deploy/vegeta-prd-rbac.yaml`. It creates the
-  `vegeta` namespace, the `vegeta-worker` ServiceAccount, and a Role +
-  RoleBinding allowing creation of Jobs/Secrets/ConfigMaps in the `vegeta`
-  namespace.
-- ⚠️ The file has `TODO(devops)` placeholders — fill in **the Odoo backend's
-  ServiceAccount name and namespace** (the RoleBinding subject) before applying.
-- The Odoo backend pods must run under that ServiceAccount, so Odoo can call the
-  Kubernetes API.
+**DevOps provisions the RBAC** — the canonical manifests live in the DevOps
+infra repo; this addon ships no manifests. Provision the following in the
+cluster:
+
+- A namespace `vegeta`.
+- A ServiceAccount `vegeta-worker` in the `vegeta` namespace — the PRD worker
+  pods run as this account.
+- A Role in the `vegeta` namespace allowing **create / list / get / delete** of
+  `jobs` (the `batch` API group), `secrets`, and `configmaps`.
+- A RoleBinding granting that Role to **the Odoo backend's own ServiceAccount**,
+  so the Odoo backend can create the per-job Jobs/Secrets/ConfigMaps via the
+  Kubernetes API. The Odoo backend pods must run under that ServiceAccount.
 
 ### 4.3 Nodes / Karpenter
 
@@ -109,17 +113,17 @@ Each task = one pod. Spec (defined in the addon code):
 
 - The EKS **node IAM role** needs ECR pull permission
   (`AmazonEC2ContainerRegistryReadOnly`).
-- The **worker pod** needs AWS access for Bedrock + S3. Recommended: **IRSA** —
-  attach an IAM role to the `vegeta-worker` ServiceAccount with
-  `bedrock:InvokeModel` / `bedrock:Converse` and `s3:GetObject` /
-  `s3:PutObject` on the bucket. (Alternative: AWS keys via Odoo system
-  parameters, passed through the per-job Secret.)
-- ℹ️ **Bedrock and S3 configuration (model ARN, region, credentials, bucket
-  name) is set in the Odoo UI** — Settings → Vegeta → system parameters —
-  **not by DevOps.** The worker pod reads it from the shared database
-  automatically. DevOps only needs to ensure the pod has **network egress** to
-  Bedrock and S3 (see §4.5). If using IRSA, leave the credential fields blank
-  in the UI and the pod's IAM role is used instead.
+- The **worker pod** gets its AWS access for Bedrock + S3 via **EKS Pod
+  Identity** — DevOps associates an IAM role (with `bedrock:InvokeModel` /
+  `bedrock:Converse` and `s3:GetObject` / `s3:PutObject` on the bucket) to the
+  `vegeta-worker` ServiceAccount. The pod's boto3 clients pick those
+  credentials up automatically.
+- ℹ️ **Bedrock and S3 settings (model ARN, region, bucket name) are configured
+  in the Odoo UI** — Settings → Vegeta → system parameters — **not by DevOps.**
+  The worker pod reads them from the shared database automatically. The
+  Bedrock/S3 **access-key fields in the UI are left blank** — with Pod Identity
+  the boto3 clients fall through to the ServiceAccount's IAM role. DevOps only
+  needs to ensure the pod has **network egress** to Bedrock and S3 (see §4.5).
 
 ### 4.5 Networking
 
@@ -135,8 +139,6 @@ Each task = one pod. Spec (defined in the addon code):
   the production DB — this applies the DB migration and creates the two new
   crons (*Vegeta: PRD Dispatch*, *Vegeta: PRD Reconcile*).
 - Ensure Odoo runs at least one cron worker (`max_cron_threads >= 1`).
-- Do **not** set the `VEGETA_LOCAL_MODE` env var in production (it is a
-  local-testing flag only).
 
 ### 4.7 System parameters
 
@@ -151,17 +153,15 @@ Each task = one pod. Spec (defined in the addon code):
 
 ## 5. Files in the `deploy/` folder
 
-| File | For production? | Action |
-|---|---|---|
-| `vegeta-prd-rbac.yaml` | ✅ **Required** | Fill the `TODO(devops)` placeholders, then `kubectl apply`. |
-| `DEVOPS-HANDOFF.md` | 📖 This document | Reference only — read it, don't deploy it. |
-| `vegeta-kueue-localqueue.yaml` | ⚪ Optional | Apply **only if** you adopt Kueue (see §4.3). Despite the filename, `LocalQueue` is a real Kueue production resource — not a local-testing file. |
-| `README.md` | 🧪 Local testing only | The minikube local-testing guide for developer laptops. **Ignore for production** — its instructions are minikube-specific. |
-| `minikube-local-test.sh` | 🧪 Local testing only | Script that builds/runs the pipeline on **minikube**. **Ignore for production** — never run it against the cluster. |
+This folder is **documentation only** — it ships no Kubernetes manifests.
 
-**For an EKS production deploy, the only file you act on is `vegeta-prd-rbac.yaml`**
-(plus `vegeta-kueue-localqueue.yaml` *if* you use Kueue). **`README.md` and
-`minikube-local-test.sh` exist purely for local minikube testing — ignore them.**
+| File | Purpose |
+|---|---|
+| `DEVOPS-HANDOFF.md` | This document — the deployment handoff. |
+| `README.md` | The full Kubernetes deployment reference — components, deploy steps, config parameters, Kueue. Read alongside this document. |
+
+DevOps provisions all Kubernetes resources (RBAC, and optionally Kueue) from the
+DevOps infra repo — see §4.2.
 
 ---
 
@@ -182,5 +182,3 @@ Each task = one pod. Spec (defined in the addon code):
   this document covers only PRD generation.
 - This addon mirrors the `aurora` addon's existing K8s-Job pattern; the cluster
   setup is very similar.
-- For local testing on minikube, see `deploy/README.md` and
-  `deploy/minikube-local-test.sh` (not used in production).

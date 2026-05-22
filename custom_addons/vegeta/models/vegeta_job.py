@@ -34,6 +34,7 @@ def _submit_bg(label, fn, *args, **kwargs):
     - If the pool is gone (process recycling), runs inline as a last resort so
       the job is never silently dropped. The watchdog cron is the final backstop.
     """
+    qsize = -1
     try:
         qsize = _POOL._work_queue.qsize()
         if qsize > _PRD_POOL_SIZE:
@@ -45,11 +46,34 @@ def _submit_bg(label, fn, *args, **kwargs):
     except Exception:
         pass
 
+    # Submit-time marker: diff this timestamp against the "STARTED" line
+    # _guarded() logs to measure pool queue-wait. A large gap means the job
+    # sat waiting for a free worker (pool too small / slow Bedrock backlog).
+    submitted_at = time.monotonic()
+    _logger.info(
+        "[vegeta] _submit_bg: queued '%s' on pool[pid=%d] "
+        "(queue_depth=%d, workers=%d)",
+        label, os.getpid(), qsize, _PRD_POOL_SIZE,
+    )
+
     def _guarded():
+        # bg task running now. Its absence after a _submit_bg line for the
+        # same label means the pool never reached the task.
+        wait_s = time.monotonic() - submitted_at
+        _logger.info(
+            "[vegeta] bg task '%s' STARTED (pool queue-wait=%.1fs)",
+            label, wait_s,
+        )
+        t0 = time.monotonic()
         try:
             return fn(*args, **kwargs)
         except Exception:
             _logger.exception("[vegeta] background task '%s' crashed", label)
+        finally:
+            _logger.info(
+                "[vegeta] bg task '%s' FINISHED (ran %.1fs, queue-wait %.1fs)",
+                label, time.monotonic() - t0, wait_s,
+            )
 
     try:
         return _POOL.submit(_guarded)
@@ -954,9 +978,28 @@ class VegetaJob(models.Model):
             # If no user, must be not_assigned
             if not vals.get("user_id") and vals.get("state") in ("draft", "done"):
                 vals["state"] = "not_assigned"
-        return super().create(vals_list)
+        records = super().create(vals_list)
+        for rec in records:
+            # Birth of a job record — the first line of its timeline. Grep
+            # its name from here forward to reconstruct the whole run.
+            _logger.info(
+                "[vegeta][job=%s] created: state=%s url=%s user=%s",
+                rec.name, rec.state, rec.url or "-",
+                rec.user_id.login if rec.user_id else "-",
+            )
+        return records
 
     def write(self, vals):
+        # State-transition trace: capture each record's pre-write state so a
+        # job's full state history is reconstructable from grep alone. The
+        # background path is logged separately in _write_with_cursor.
+        if "state" in vals:
+            for rec in self:
+                if rec.state != vals["state"]:
+                    _logger.info(
+                        "[vegeta][job=%s] state %s -> %s (ORM write)",
+                        rec.name, rec.state, vals["state"],
+                    )
         res = super().write(vals)
         # Auto-promote when admin assigns a user to a not_assigned task.
         # The target state preserves whatever progress the task already has
@@ -1074,6 +1117,10 @@ class VegetaJob(models.Model):
                 "Can only release tasks in Draft, Done, or Failed state. "
                 "Cancel in-progress tasks first."
             )
+        _logger.info(
+            "[vegeta][job=%s] released to the unassigned pool by %s",
+            self.name, self.env.user.login,
+        )
         self.write({
             "user_id": False,
             "state": "not_assigned",
@@ -1093,6 +1140,10 @@ class VegetaJob(models.Model):
         if not eligible:
             raise UserError("No eligible tasks to reset.")
         skipped = self - eligible
+        _logger.info(
+            "[vegeta] action_reset_selected by %s: resetting %d task(s) %s",
+            self.env.user.login, len(eligible), eligible.mapped("name"),
+        )
 
         for task in eligible:
             vals = {
@@ -1133,6 +1184,10 @@ class VegetaJob(models.Model):
         Works from draft or not_assigned (auto-assigns current user).
         """
         self.ensure_one()
+        _logger.info(
+            "[vegeta][job=%s] action_run by %s — state=%s",
+            self.name, self.env.user.login, self.state,
+        )
         if self.state not in ("draft", "not_assigned"):
             raise UserError("Can only run tasks in Draft or Not Assigned state.")
         if not self.url:
@@ -1145,6 +1200,10 @@ class VegetaJob(models.Model):
         # If extraction data exists, ask user what to do
         if self._has_extraction_data and not self.env.context.get("force_extract"):
             wizard = self.env["vegeta.rerun.wizard"].create({"job_id": self.id})
+            _logger.info(
+                "[vegeta][job=%s] action_run: extraction data exists — "
+                "opening rerun wizard instead of dispatching", self.name,
+            )
             return {
                 "type": "ir.actions.act_window",
                 "name": "Extraction Data Exists",
@@ -1184,6 +1243,12 @@ class VegetaJob(models.Model):
             )
         except Exception:
             self.env.cr.execute(f"ROLLBACK TO SAVEPOINT {sp_name}")
+            # Lock conflict: another session holds this row. Logged so a
+            # "task being modified" UserError can be traced to a real clash.
+            _logger.warning(
+                "[vegeta][job=%s] action_run: row locked by another session "
+                "— aborting", self.name, exc_info=True,
+            )
             raise UserError("Task is being modified by another session. Try again.")
 
         self.env.cr.execute(
@@ -1202,6 +1267,13 @@ class VegetaJob(models.Model):
             "duration_seconds": False,
             "last_heartbeat": fields.Datetime.now(),
         })
+        # Stage boundary: job has left draft; the extraction Lambda is
+        # dispatched on postcommit. Absence of this line means action_run
+        # raised before the state write committed.
+        _logger.info(
+            "[vegeta][job=%s] action_run: state -> extracting, dispatching "
+            "extraction Lambda on postcommit", self.name,
+        )
         self._trigger_extraction()
 
     def action_cancel(self):
@@ -1239,10 +1311,18 @@ class VegetaJob(models.Model):
         """
         eligible = self.filtered(lambda r: r.state == "not_assigned" and r.url)
         if not eligible:
+            _logger.info(
+                "[vegeta] action_run_batch_concurrent: no eligible tasks "
+                "(need not_assigned + URL)",
+            )
             raise UserError(
                 "No eligible tasks. Tasks must be 'Not Assigned' with a URL."
             )
         skipped = self - eligible
+        _logger.info(
+            "[vegeta] action_run_batch_concurrent by %s: %d eligible, "
+            "%d skipped", self.env.user.login, len(eligible), len(skipped),
+        )
 
         ICP = self.env["ir.config_parameter"].sudo()
         config = {
@@ -1364,8 +1444,10 @@ class VegetaJob(models.Model):
             return record_id, result
 
         _logger.info(
-            "Batch fan-out: %d records, max_workers=%d, function=%s, region=%s",
-            len(record_ids), max_workers, config["function_name"], config["region"],
+            "[vegeta] Batch fan-out START: %d records, max_workers=%d, "
+            "function=%s, region=%s",
+            len(record_ids), max_workers, config["function_name"],
+            config["region"],
         )
 
         with ThreadPoolExecutor(
@@ -1376,7 +1458,7 @@ class VegetaJob(models.Model):
                 try:
                     record_id, result = future.result()
                 except Exception as exc:
-                    _logger.exception("Fan-out worker crashed: %s", exc)
+                    _logger.exception("[vegeta] fan-out worker crashed: %s", exc)
                     continue
                 if result.get("success"):
                     ok_ids.append(record_id)
@@ -1384,7 +1466,8 @@ class VegetaJob(models.Model):
                     failed[record_id] = result.get("error", "Unknown error")[:500]
 
         _logger.info(
-            "Batch fan-out done: %d invoked OK, %d failed", len(ok_ids), len(failed),
+            "[vegeta] Batch fan-out done: %d invoked OK, %d failed",
+            len(ok_ids), len(failed),
         )
 
         if failed:
@@ -1403,7 +1486,8 @@ class VegetaJob(models.Model):
                     cr.commit()
             except Exception:
                 _logger.exception(
-                    "Failed to revert %d records after invoke failures", len(failed),
+                    "[vegeta] failed to revert %d records after invoke "
+                    "failures", len(failed),
                 )
 
     def action_mark_submitted(self):
@@ -1573,6 +1657,10 @@ class VegetaJob(models.Model):
         if not eligible:
             raise UserError("No failed tasks selected.")
         skipped = self - eligible
+        _logger.info(
+            "[vegeta] action_retry_failed_batch by %s: %d failed task(s) "
+            "selected", self.env.user.login, len(eligible),
+        )
 
         to_generate = eligible.filtered(lambda r: r.prd_prompt)
         to_extract = eligible - to_generate
@@ -1714,6 +1802,11 @@ class VegetaJob(models.Model):
             raise UserError("Cannot rerun from this state.")
 
         re_extract = self.env.context.get("re_extract", False)
+        _logger.info(
+            "[vegeta][job=%s] action_rerun by %s: re_extract=%s "
+            "has_prd_prompt=%s", self.name, self.env.user.login,
+            re_extract, bool(self.prd_prompt),
+        )
 
         if re_extract or not self.prd_prompt:
             # No usable PRD prompt — must re-extract
@@ -1789,6 +1882,11 @@ class VegetaJob(models.Model):
             raise UserError("No QC report available for feedback.")
 
         qc_feedback = self.qc_report
+        _logger.info(
+            "[vegeta][job=%s] action_regenerate_with_qc_feedback by %s — "
+            "state -> generating, QC feedback appended to prd_prompt",
+            self.name, self.env.user.login,
+        )
         self.write({
             "state": "generating",
             "job_name": False,
@@ -1844,6 +1942,10 @@ class VegetaJob(models.Model):
         if not self.prd_text:
             raise UserError("No PRD text available for QC.")
 
+        _logger.info(
+            "[vegeta][job=%s] action_rerun_qc by %s — state -> scoring, QC "
+            "re-runs on the background pool", self.name, self.env.user.login,
+        )
         self.write({
             "state": "scoring",
             "qc_verdict": False,
@@ -1866,11 +1968,18 @@ class VegetaJob(models.Model):
         """Background: re-run only QC on existing PRD text."""
         from ..services.qc_service import run_qc
 
+        _logger.info(
+            "[vegeta][job=%s] QC-RERUN worker picked up job", record_id,
+        )
         try:
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
                 if not record.exists():
+                    _logger.warning(
+                        "[vegeta][job=%s] QC-RERUN abort: record gone",
+                        record_id,
+                    )
                     return
 
                 ICP = env["ir.config_parameter"].sudo()
@@ -1950,9 +2059,16 @@ class VegetaJob(models.Model):
                 "qc_verdict": qc_result["verdict"],
                 "qc_report": qc_result["report"],
             })
+            _logger.info(
+                "[vegeta][job=%s] QC-RERUN complete — verdict=%s -> state=done",
+                record_id, qc_result["verdict"],
+            )
 
         except Exception as exc:
-            _logger.exception("QC rerun failed for job %s", record_id)
+            _logger.exception(
+                "[vegeta][job=%s] QC-RERUN failed — fail-closed to "
+                "done/not_shippable", record_id,
+            )
             self._write_with_cursor(db_name, record_id, {
                 "state": "done",
                 # Fail-closed: a QC error must not leave qc_verdict blank, or the
@@ -2105,6 +2221,12 @@ class VegetaJob(models.Model):
                 self.name, self.state,
             )
             return
+        # Single chokepoint for terminal failure — grep this when a job shows
+        # up `failed` to see which state it fell from and the reason given.
+        _logger.warning(
+            "[vegeta][job=%s] _mark_failed: state %s -> failed: %s",
+            self.name, self.state, str(error_msg)[:300],
+        )
         self.write({
             "state": "failed",
             "error_message": str(error_msg)[:500],
@@ -2124,6 +2246,12 @@ class VegetaJob(models.Model):
                 row = cr.fetchone()
                 return row and row[0]
         except Exception:
+            # DB read failed — treat as "not cancelled" so a transient error
+            # never aborts a healthy run; logged so a flapping DB is visible.
+            _logger.warning(
+                "[vegeta][job=%s] _is_cancelled check failed — assuming "
+                "not cancelled", record_id, exc_info=True,
+            )
             return False
 
 
@@ -2147,11 +2275,18 @@ class VegetaJob(models.Model):
         """
         from ..services.extraction_service import trigger_extraction
 
+        _logger.info(
+            "[vegeta][job=%s] extraction worker picked up job", record_id,
+        )
         try:
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
                 if not record.exists():
+                    _logger.warning(
+                        "[vegeta][job=%s] extraction abort: record gone",
+                        record_id,
+                    )
                     return
 
                 ICP = env["ir.config_parameter"].sudo()
@@ -2181,15 +2316,28 @@ class VegetaJob(models.Model):
 
             if not result.get("success"):
                 error_msg = result.get("error", "Extraction Lambda invoke failed")
+                _logger.error(
+                    "[vegeta][job=%s] extraction Lambda invoke REJECTED — "
+                    "marking failed: %s", record_id, str(error_msg)[:300],
+                )
                 self._write_with_cursor(db_name, record_id, {
                     "state": "failed",
                     "error_message": error_msg[:500],
                     "completed_at": fields.Datetime.now(),
                 })
+            else:
+                # Async invoke accepted: the job now waits in `extracting`
+                # for the webhook callback. If neither the callback nor the
+                # "started" ping arrives, the watchdog fails it.
+                _logger.info(
+                    "[vegeta][job=%s] extraction Lambda invoke ACCEPTED — "
+                    "awaiting webhook callback", record_id,
+                )
 
         except Exception as exc:
             _logger.exception(
-                "Extraction background task failed for job %s", record_id
+                "[vegeta][job=%s] extraction background task failed",
+                record_id,
             )
             try:
                 self._write_with_cursor(db_name, record_id, {
@@ -2198,7 +2346,10 @@ class VegetaJob(models.Model):
                     "completed_at": fields.Datetime.now(),
                 })
             except Exception:
-                _logger.error("Failed to mark job %s as failed", record_id)
+                _logger.error(
+                    "[vegeta][job=%s] failed to mark job as failed after "
+                    "extraction error", record_id,
+                )
 
     # ------------------------------------------------------------------
     # Background: PRD Generation
@@ -2214,6 +2365,19 @@ class VegetaJob(models.Model):
         from ..services.scoring_service import score_prd
         from ..services.s3_service import upload_prd_to_s3
 
+        # Wall-clock anchor for the whole PRD-gen pipeline. Every PHASE log
+        # below reports `+Ns` elapsed from here, so a stuck job's last log
+        # line tells you exactly which phase it died/hung in.
+        _t0 = time.monotonic()
+
+        def _elapsed():
+            return time.monotonic() - _t0
+
+        _logger.info(
+            "[vegeta][job=%s] PRD-GEN worker picked up job (pid=%d)",
+            record_id, os.getpid(),
+        )
+
         # Lease/heartbeat thread: refresh last_heartbeat every 60 s for the
         # whole run so liveness is decoupled from how long a single Bedrock
         # call takes. The reconcile/watchdog crons read last_heartbeat to
@@ -2227,6 +2391,13 @@ class VegetaJob(models.Model):
                     self._write_with_cursor(db_name, record_id, {
                         "last_heartbeat": fields.Datetime.now(),
                     })
+                    # Liveness pulse. If these stop for a job with no terminal
+                    # line following, the worker process died mid-phase
+                    # (OOM / SIGKILL) without unwinding.
+                    _logger.debug(
+                        "[vegeta][job=%s] heartbeat pulse (+%.0fs)",
+                        record_id, _elapsed(),
+                    )
                 except Exception:
                     _logger.debug(
                         "[vegeta][job=%s] heartbeat refresh failed",
@@ -2252,10 +2423,18 @@ class VegetaJob(models.Model):
 
         try:
             # === PHASE 1: Read config and extraction data ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 1 (+%.1fs): reading config + "
+                "extraction data", record_id, _elapsed(),
+            )
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
                 if not record.exists():
+                    _logger.warning(
+                        "[vegeta][job=%s] PHASE 1 abort: record no longer "
+                        "exists", record_id,
+                    )
                     return
                 if record.state != "generating":
                     _logger.warning(
@@ -2294,6 +2473,10 @@ class VegetaJob(models.Model):
                 qc_system_prompt = record._get_qc_system_prompt()
 
                 if not config["inference_arn"]:
+                    _logger.error(
+                        "[vegeta][job=%s] PHASE 1 abort: Bedrock inference "
+                        "ARN not configured", record_id,
+                    )
                     record.write({
                         "state": "failed",
                         "error_message": "Bedrock inference ARN not configured",
@@ -2302,6 +2485,10 @@ class VegetaJob(models.Model):
                     })
                     return
                 if not job_data["prd_prompt"]:
+                    _logger.error(
+                        "[vegeta][job=%s] PHASE 1 abort: no prd_prompt — "
+                        "extraction produced nothing usable", record_id,
+                    )
                     record.write({
                         "state": "failed",
                         "error_message": "No extraction data available for PRD generation",
@@ -2324,6 +2511,16 @@ class VegetaJob(models.Model):
                 })
                 cr.commit()
 
+            # started_processing_at is now stamped — past this point the
+            # watchdog treats the job as "really running" (vs merely queued).
+            _logger.info(
+                "[vegeta][job=%s] PHASE 1 COMPLETE (+%.1fs): category=%s "
+                "prd_prompt=%dB screenshot_keys=%d -> state=generating",
+                record_id, _elapsed(), job_data["category_name"],
+                len(job_data["prd_prompt"] or ""),
+                len(job_data["screenshot_keys"]),
+            )
+
             heartbeat_thread = threading.Thread(
                 target=_heartbeat_loop,
                 name=f"vegeta-prd-hb-{record_id}",
@@ -2332,6 +2529,10 @@ class VegetaJob(models.Model):
             heartbeat_thread.start()
 
             # === PHASE 2: LLM generation loop ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): downloading screenshots "
+                "from S3 for vision", record_id, _elapsed(),
+            )
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
             screenshot_blocks = []
@@ -2408,6 +2609,15 @@ class VegetaJob(models.Model):
                 "last_heartbeat": fields.Datetime.now(),
             })
 
+            # Bedrock PRD generation — the single longest external call in
+            # the pipeline. A job whose last log line is this one (with no
+            # "Bedrock PRD returned" line after it) is hung inside Bedrock.
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): calling Bedrock for PRD "
+                "generation (%d screenshot(s) attached)",
+                record_id, _elapsed(), len(screenshot_blocks),
+            )
+            _bedrock_t0 = time.monotonic()
             prd_text = generate_prd(
                 inference_arn=config["inference_arn"],
                 region=config["region"],
@@ -2415,6 +2625,12 @@ class VegetaJob(models.Model):
                 messages=messages,
                 access_key_id=config["bedrock_access_key"],
                 secret_access_key=config["bedrock_secret_key"],
+            )
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): Bedrock PRD returned in "
+                "%.1fs — %d chars / ~%d words",
+                record_id, _elapsed(), time.monotonic() - _bedrock_t0,
+                len(prd_text or ""), len((prd_text or "").split()),
             )
 
             if _bail_if_cancelled("scoring"):
@@ -2425,6 +2641,11 @@ class VegetaJob(models.Model):
                 category=job_data["category_name"],
             )
             total_score = score_report["total_score"]
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): scored %s/100 grade=%s",
+                record_id, _elapsed(), total_score,
+                score_report.get("grade"),
+            )
 
             best_prd_text = prd_text
             best_score = total_score
@@ -2448,6 +2669,10 @@ class VegetaJob(models.Model):
             })
 
             # Upload to S3
+            _logger.info(
+                "[vegeta][job=%s] PHASE 2 (+%.1fs): uploading PRD to S3",
+                record_id, _elapsed(),
+            )
             prd_url = upload_prd_to_s3(
                 prd_text=best_prd_text,
                 job_name=job_data["name"],
@@ -2462,6 +2687,10 @@ class VegetaJob(models.Model):
             )
 
             # === PHASE 3: QC ===
+            _logger.info(
+                "[vegeta][job=%s] PHASE 3 (+%.1fs): PRD generation done -> "
+                "state=scoring, starting QC", record_id, _elapsed(),
+            )
             # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
             # call; without this pulse the gap from the last PRD-gen attempt
             # to PHASE 4's final write was fully unmonitored — long QC calls
@@ -2476,6 +2705,7 @@ class VegetaJob(models.Model):
 
             qc_verdict = "not_shippable"
             qc_report = ""
+            _qc_t0 = time.monotonic()
             try:
                 from ..services.qc_service import run_qc
 
@@ -2498,6 +2728,11 @@ class VegetaJob(models.Model):
                 )
                 qc_verdict = qc_result["verdict"]
                 qc_report = qc_result["report"]
+                _logger.info(
+                    "[vegeta][job=%s] PHASE 3 (+%.1fs): QC done in %.1fs — "
+                    "verdict=%s", record_id, _elapsed(),
+                    time.monotonic() - _qc_t0, qc_verdict,
+                )
             except Exception as qc_exc:
                 _logger.warning(
                     "QC failed for job %s: %s (fail-closed: not_shippable)",
@@ -2516,10 +2751,18 @@ class VegetaJob(models.Model):
             if _bail_if_cancelled("final write"):
                 return
 
+            _logger.info(
+                "[vegeta][job=%s] PHASE 4 (+%.1fs): writing final results",
+                record_id, _elapsed(),
+            )
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
                 if not record.exists():
+                    _logger.warning(
+                        "[vegeta][job=%s] PHASE 4 abort: record gone before "
+                        "final write", record_id,
+                    )
                     return
 
                 started = record.started_at
@@ -2580,7 +2823,19 @@ class VegetaJob(models.Model):
 
                 cr.commit()
 
+            _logger.info(
+                "[vegeta][job=%s] PRD-GEN PIPELINE COMPLETE in %.1fs — "
+                "score=%s grade=%s qc=%s",
+                record_id, _elapsed(), best_score, best_grade, qc_verdict,
+            )
+
         except Exception as exc:
+            # Crash exit — elapsed pinpoints which phase's budget was burned
+            # before the failure; the exception line below carries the trace.
+            _logger.error(
+                "[vegeta][job=%s] PRD-GEN pipeline FAILED at +%.1fs: %s",
+                record_id, _elapsed(), exc,
+            )
             _logger.exception("[vegeta][job=%s] PRD generation failed", record_id)
             try:
                 fail_vals = {
@@ -2629,6 +2884,13 @@ class VegetaJob(models.Model):
                         record_id, vals.get("state"), record.state,
                     )
                     vals = {k: v for k, v in vals.items() if k != "state"}
+                if "state" in vals and record.state != vals["state"]:
+                    # Every background state transition flows through here —
+                    # log it so a job's full state history is greppable.
+                    _logger.info(
+                        "[vegeta][job=%s] state %s -> %s (bg write)",
+                        record_id, record.state, vals["state"],
+                    )
                 if vals:
                     record.write(vals)
                     if "state" in vals:
@@ -2640,6 +2902,13 @@ class VegetaJob(models.Model):
                             )
                         except Exception:
                             pass
+            else:
+                # Late background write to a vanished record — surfaced so a
+                # silently dropped write is visible, not mysterious.
+                _logger.warning(
+                    "[vegeta][job=%s] _write_with_cursor: record gone — "
+                    "write of %s dropped", record_id, sorted(vals.keys()),
+                )
             cr.commit()
 
     def _build_feedback(self, score_report):
@@ -2677,6 +2946,7 @@ class VegetaJob(models.Model):
         self.env.cr.execute("SELECT pg_try_advisory_lock(987654321)")
         locked = self.env.cr.fetchone()
         if not locked or not locked[0]:
+            _logger.debug("[vegeta] watchdog: lock held elsewhere, skipping")
             return
 
         ICP = self.env["ir.config_parameter"].sudo()
@@ -2693,6 +2963,21 @@ class VegetaJob(models.Model):
         )
 
         try:
+            # System-state heartbeat: one line per watchdog tick with the
+            # live count of jobs in each running state. The cheapest way to
+            # watch a backlog build — if `generating` climbs tick over tick
+            # while `done` stays flat, the dispatch/reconcile crons are not
+            # draining work.
+            _wd_extracting = self.search_count([("state", "=", "extracting")])
+            _wd_generating = self.search_count([("state", "=", "generating")])
+            _wd_scoring = self.search_count([("state", "=", "scoring")])
+            _logger.info(
+                "[vegeta] watchdog tick: extracting=%d generating=%d "
+                "scoring=%d (extract>%dmin, generate-backstop>%dh)",
+                _wd_extracting, _wd_generating, _wd_scoring,
+                extracting_threshold, generating_backstop_hours,
+            )
+
             stale_extracting = self.search([
                 ("state", "=", "extracting"),
                 (
@@ -2823,12 +3108,25 @@ class VegetaJob(models.Model):
         )
         try:
             core_v1.create_namespaced_secret(namespace=ns, body=secret)
+            _logger.info(
+                "[vegeta][job=%s] created K8s Secret %s", self.id, secret_name,
+            )
         except K8sApiException as exc:
             if exc.status == 409:
+                # Secret already exists (retry / re-dispatch) — replace it so
+                # the worker pod always reads current credentials.
+                _logger.info(
+                    "[vegeta][job=%s] K8s Secret %s exists — replacing",
+                    self.id, secret_name,
+                )
                 core_v1.replace_namespaced_secret(
                     name=secret_name, namespace=ns, body=secret,
                 )
             else:
+                _logger.error(
+                    "[vegeta][job=%s] K8s Secret %s create failed (status=%s)",
+                    self.id, secret_name, exc.status, exc_info=True,
+                )
                 raise
         return secret_name
 
@@ -2847,12 +3145,25 @@ class VegetaJob(models.Model):
         )
         try:
             core_v1.create_namespaced_config_map(namespace=ns, body=cm)
+            _logger.info(
+                "[vegeta][job=%s] created K8s ConfigMap %s", self.id, cm_name,
+            )
         except K8sApiException as exc:
             if exc.status == 409:
+                # ConfigMap already exists (retry / re-dispatch) — replace it
+                # so the worker pod mounts the current odoo.conf.
+                _logger.info(
+                    "[vegeta][job=%s] K8s ConfigMap %s exists — replacing",
+                    self.id, cm_name,
+                )
                 core_v1.replace_namespaced_config_map(
                     name=cm_name, namespace=ns, body=cm,
                 )
             else:
+                _logger.error(
+                    "[vegeta][job=%s] K8s ConfigMap %s create failed "
+                    "(status=%s)", self.id, cm_name, exc.status, exc_info=True,
+                )
                 raise
         return cm_name
 
@@ -2962,6 +3273,10 @@ class VegetaJob(models.Model):
         uid_suffix = uuid.uuid4().hex[:12]
         job_name = f"vegeta-prd-{self.id}-{uid_suffix}"
 
+        _logger.info(
+            "[vegeta][job=%s] _create_prd_job: provisioning K8s Job %s in "
+            "namespace %s", self.id, job_name, ns,
+        )
         _load_k8s_config()
         batch_v1 = k8s_client.BatchV1Api()
         core_v1 = k8s_client.CoreV1Api()
@@ -3179,6 +3494,14 @@ class VegetaJob(models.Model):
 
         use_k8s = self._prd_k8s_enabled()
         db_name = self.env.cr.dbname
+        # Dispatch-cron heartbeat: which jobs are handed to a worker this
+        # tick and by which path. A job still in `generating` with an empty
+        # job_name after a tick means this line never saw it.
+        _logger.info(
+            "[vegeta] PRD dispatch: %d job(s) pending -> %s (mode=%s)",
+            len(pending), pending.mapped("name"),
+            "K8s Jobs" if use_k8s else "in-process pool",
+        )
 
         for job in pending:
             if use_k8s:
@@ -3260,6 +3583,10 @@ class VegetaJob(models.Model):
         ])
         if not active:
             return
+        _logger.info(
+            "[vegeta] PRD reconcile: checking %d K8s-dispatched job(s) "
+            "against the cluster", len(active),
+        )
         if not K8S_AVAILABLE:
             _logger.warning(
                 "[vegeta] kubernetes package unavailable — skipping PRD reconcile"
@@ -3277,6 +3604,10 @@ class VegetaJob(models.Model):
             _logger.exception("[vegeta] failed to list K8s Jobs for PRD reconcile")
             return
 
+        _logger.debug(
+            "[vegeta] PRD reconcile: cluster returned %d Job(s) in "
+            "namespace %s", len(jobs.items), ns,
+        )
         job_map = {
             j.metadata.name: j
             for j in jobs.items

@@ -4,8 +4,11 @@ Ported from leviathon_v2_pipeline/modules/prd_scorer.py.
 Constants inlined for Odoo module standalone use.
 """
 
+import logging
 import re
 import json
+
+_logger = logging.getLogger(__name__)
 
 # Constants inlined from leviathon_v2_pipeline/config.py
 PRD_MIN_WORDS = 800
@@ -67,6 +70,14 @@ def score_prd(prd_text: str, category: str = "Knowledge") -> dict:
     Returns:
         dict with: total_score, grade, section_scores, reject_triggers, warnings, details
     """
+    # Stage boundary: scoring is a pure-Python pass (no LLM) sitting between
+    # PRD generation and QC. Pairs with the verdict line below — if the start
+    # line appears without the verdict line, scoring raised mid-rubric.
+    _logger.info(
+        "[vegeta] score_prd start: category=%s prd=%dB",
+        category, len(prd_text or ""),
+    )
+
     result = {
         "total_score": 0,
         "grade": "F",
@@ -169,6 +180,18 @@ def score_prd(prd_text: str, category: str = "Knowledge") -> dict:
                 result["grade"] = grade
                 result["details"]["grade_meaning"] = meaning
                 break
+
+    # Verdict line: the single number/grade that PHASE 2 logs and writes to
+    # the record. reject_triggers>0 means a hard gate failed (grade=REJECT).
+    _logger.info(
+        "[vegeta] score_prd verdict: total=%s grade=%s "
+        "(raw=%s/%s, reject_triggers=%d, word_count=%s)",
+        result["total_score"], result["grade"],
+        result["details"].get("raw_total"),
+        result["details"].get("total_available"),
+        len(result["reject_triggers"]),
+        result["details"].get("word_count"),
+    )
 
     return result
 
