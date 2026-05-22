@@ -4,7 +4,6 @@ import json
 import logging
 import mimetypes
 import re
-import time
 from io import BytesIO
 
 import boto3
@@ -55,14 +54,6 @@ def upload_prd_to_s3(
     client = _get_s3_client(access_key_id, secret_key, region, endpoint_url)
     key = f"{folder}/{job_name}/final_prd.md"
 
-    # External call boundary: S3 PutObject for the finished PRD. This is the
-    # last step of PHASE 2 — if its "Uploaded" line is missing for a job that
-    # reached `scoring`, the upload raised and the run failed here.
-    _t0 = time.monotonic()
-    _logger.info(
-        "[vegeta][job=%s] uploading PRD to s3://%s/%s (%dB)",
-        job_name, bucket, key, len(prd_text or ""),
-    )
     try:
         client.put_object(
             Bucket=bucket,
@@ -70,20 +61,14 @@ def upload_prd_to_s3(
             Body=prd_text.encode("utf-8"),
             ContentType="text/markdown; charset=utf-8",
         )
-        _logger.info(
-            "[vegeta][job=%s] Uploaded PRD to s3://%s/%s in %.2fs",
-            job_name, bucket, key, time.monotonic() - _t0,
-        )
+        _logger.info("Uploaded PRD to s3://%s/%s", bucket, key)
 
         if cdn_url:
             return f"{cdn_url.rstrip('/')}/{key}"
         return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
 
     except ClientError as exc:
-        _logger.error(
-            "[vegeta][job=%s] S3 PRD upload failed: %s",
-            job_name, exc, exc_info=True,
-        )
+        _logger.error("S3 upload failed: %s", exc)
         raise RuntimeError(f"S3 upload failed: {exc}") from exc
 
 
@@ -115,14 +100,6 @@ def upload_artifacts_to_s3(
     client = _get_s3_client(access_key_id, secret_key, region, endpoint_url)
     urls = {}
     base_key = f"{folder}/{job_name}/artifacts"
-
-    # Per-file failures below are logged at WARNING and skipped, not raised —
-    # the summary line at the end shows the success ratio so a partial upload
-    # is visible without trawling for individual warnings.
-    _logger.info(
-        "[vegeta][job=%s] uploading %d extraction artifact(s) to s3://%s/%s",
-        job_name, len(artifacts), bucket, base_key,
-    )
 
     for filename, content in artifacts.items():
         try:
@@ -157,15 +134,9 @@ def upload_artifacts_to_s3(
             else:
                 urls[filename] = f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
         except Exception as exc:
-            _logger.warning(
-                "[vegeta][job=%s] failed to upload artifact %s: %s",
-                job_name, filename, exc,
-            )
+            _logger.warning("Failed to upload %s: %s", filename, exc)
 
-    _logger.info(
-        "[vegeta][job=%s] Uploaded %d/%d artifacts",
-        job_name, len(urls), len(artifacts),
-    )
+    _logger.info("Uploaded %d/%d artifacts for %s", len(urls), len(artifacts), job_name)
     return urls
 
 
@@ -194,9 +165,5 @@ def download_file_from_s3(
 ) -> bytes:
     """Download a file from S3 and return its content as bytes."""
     client = _get_s3_client(access_key_id, secret_key, region, endpoint_url)
-    # External call: S3 GetObject. No try/except here by design — a failure
-    # propagates to the caller (the screenshot / zip loops catch it per-file).
-    # The debug line lets you see which key stalled when S3 is slow.
-    _logger.debug("[vegeta] S3 GetObject: s3://%s/%s", bucket, key)
     response = client.get_object(Bucket=bucket, Key=key)
     return response["Body"].read()

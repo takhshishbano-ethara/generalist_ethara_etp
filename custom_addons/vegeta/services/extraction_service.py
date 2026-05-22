@@ -14,7 +14,6 @@ import json
 import logging
 import socket
 import threading
-import time
 from typing import Any
 from urllib.parse import urlparse
 
@@ -157,20 +156,10 @@ def trigger_extraction(
         or by RIE locally), NOT that extraction succeeded — that arrives
         only via the webhook.
     """
-    # Entry marker for the extraction timeline — pairs with the webhook's
-    # "extraction COMPLETE" line in controllers/main.py. Absence of either
-    # the ACCEPTED line or an error line below means this call hung.
-    _t0 = time.monotonic()
-    _logger.info(
-        "[vegeta][job=%d] trigger_extraction: url=%s function=%s region=%s "
-        "local=%s", job_id, url, function_name or "-", region, bool(local_url),
-    )
-
     is_valid, error_msg = validate_url(url)
     if not is_valid:
         _logger.warning(
-            "[vegeta][job=%d] URL validation failed: %s (url=%s)",
-            job_id, error_msg, url,
+            "URL validation failed for job %d: %s (url=%s)", job_id, error_msg, url
         )
         return {"success": False, "error": f"URL validation failed: {error_msg}"}
 
@@ -188,21 +177,10 @@ def trigger_extraction(
         return _invoke_lambda_local(local_url, payload, job_id)
 
     if not function_name:
-        _logger.warning(
-            "[vegeta][job=%d] trigger_extraction aborted: Lambda function "
-            "name not configured", job_id,
-        )
         return {"success": False, "error": "Lambda function name not configured"}
 
     try:
         client = _get_lambda_client(region, access_key_id, secret_access_key)
-        # External call boundary: AWS lambda:Invoke (InvocationType=Event).
-        # Returns in <1s with HTTP 202 — that is "accepted", NOT "extraction
-        # ran". If this line has no ACCEPTED/error follow-up, the invoke hung.
-        _logger.info(
-            "[vegeta][job=%d] calling AWS lambda:Invoke (async Event) on %s",
-            job_id, function_name,
-        )
         response = client.invoke(
             FunctionName=function_name,
             InvocationType="Event",
@@ -211,8 +189,8 @@ def trigger_extraction(
         status = response.get("StatusCode")
         if status != 202:
             _logger.warning(
-                "[vegeta][job=%d] Lambda async invoke unexpected status %s "
-                "(function=%s) — expected 202", job_id, status, function_name,
+                "Lambda async invoke unexpected status %s for job %d (function=%s)",
+                status, job_id, function_name,
             )
             return {
                 "success": False,
@@ -224,21 +202,13 @@ def trigger_extraction(
             "Lambda async invoke OK: job_id=%d, RequestId=%s, url=%s",
             job_id, request_id, url,
         )
-        # AWS accepted the async invoke (HTTP 202). The job stays in
-        # `extracting` until the Lambda's webhook callback arrives; aws_latency
-        # here is only the invoke round-trip, not the extraction runtime.
-        _logger.info(
-            "[vegeta][job=%d] extraction Lambda invoke ACCEPTED by AWS in "
-            "%.2fs — awaiting webhook callback", job_id, time.monotonic() - _t0,
-        )
         return {"success": True, "request_id": request_id}
 
     except ClientError as exc:
         code = exc.response.get("Error", {}).get("Code", "Unknown")
         msg = exc.response.get("Error", {}).get("Message", str(exc))
         _logger.error(
-            "[vegeta][job=%d] Lambda invoke ClientError [%s]: %s",
-            job_id, code, msg, exc_info=True,
+            "Lambda invoke ClientError for job %d [%s]: %s", job_id, code, msg
         )
         if code == "TooManyRequestsException":
             return {
@@ -264,5 +234,5 @@ def trigger_extraction(
         return {"success": False, "error": f"{code}: {msg}"}
 
     except Exception as exc:
-        _logger.exception("[vegeta][job=%d] Lambda async invoke failed", job_id)
+        _logger.exception("Lambda async invoke failed for job %d", job_id)
         return {"success": False, "error": str(exc)}
