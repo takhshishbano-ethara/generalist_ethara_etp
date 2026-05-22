@@ -241,7 +241,6 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
                     "http://0.0.0.0:18789",
                 ],
                 "dangerouslyDisableDeviceAuth": True,
-                **({"basePath": _base_path} if _base_path else {}),
             },
             "http": {
                 "endpoints": {

@@ -3197,6 +3197,7 @@ class Kensei2(models.Model):
 
     @api.model
     def _reconcile_batch_status(self):
+        # ── Phase 1: starting → ready ────────────────────────────────
         tasks = self.sudo().search([("batch_status", "=", "starting")])
         for task in tasks:
             sandboxes = task.sandbox_ids
@@ -3224,6 +3225,79 @@ class Kensei2(models.Model):
                     "[BATCH-RECONCILE] task=%s → error (0 running, %d total)",
                     task.id, len(sandboxes),
                 )
+
+        # ── Phase 2: running → stopping / done ───────────────────────
+        # A sandbox is "still working" if docker_status == running AND
+        # session_status != completed.  Once every sandbox has finished
+        # its prompt (completed / error / stopped), the batch is done.
+        for task in self.sudo().search([("batch_status", "=", "running")]):
+            sandboxes = task.sandbox_ids
+            if not sandboxes:
+                continue
+            still_working = sandboxes.filtered(
+                lambda s: s.docker_status == "running"
+                and s.session_status != "completed"
+            )
+            if still_working:
+                continue
+            all_stopped = all(
+                s.docker_status in ("stopped", "error") for s in sandboxes
+            )
+            completed = sandboxes.filtered(
+                lambda s: s.session_status == "completed"
+            )
+            failed = sandboxes.filtered(
+                lambda s: s.docker_status == "error"
+            )
+            if all_stopped:
+                final = "done" if completed else "error"
+                vals = {
+                    "batch_status": final,
+                    "batch_completed_at": fields.Datetime.now(),
+                }
+                if failed:
+                    vals["batch_error"] = "%d sandbox(es) failed." % len(failed)
+                task.write(vals)
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s → %s (%d completed, %d failed, %d total)",
+                    task.id, final, len(completed), len(failed), len(sandboxes),
+                )
+            else:
+                # Prompt work done but pods still alive → trigger stop
+                task.write({"batch_status": "stopping"})
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s → stopping (prompt done, pods still alive)",
+                    task.id,
+                )
+
+        # ── Phase 3: stopping → done ─────────────────────────────────
+        for task in self.sudo().search([("batch_status", "=", "stopping")]):
+            sandboxes = task.sandbox_ids
+            if not sandboxes:
+                continue
+            still_alive = sandboxes.filtered(
+                lambda s: s.docker_status in ("starting", "running")
+            )
+            if still_alive:
+                continue
+            completed = sandboxes.filtered(
+                lambda s: s.session_status == "completed"
+            )
+            failed = sandboxes.filtered(
+                lambda s: s.docker_status == "error"
+            )
+            final = "done" if completed else "error"
+            vals = {
+                "batch_status": final,
+                "batch_completed_at": fields.Datetime.now(),
+            }
+            if failed:
+                vals["batch_error"] = "%d sandbox(es) failed." % len(failed)
+            task.write(vals)
+            _logger.info(
+                "[BATCH-RECONCILE] task=%s → %s (%d completed, %d failed, %d total)",
+                task.id, final, len(completed), len(failed), len(sandboxes),
+            )
 
     # ── Auto-process (RabbitMQ batch processing) ──────────────────────
 
