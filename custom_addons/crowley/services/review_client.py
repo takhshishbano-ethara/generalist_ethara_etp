@@ -414,7 +414,6 @@ def _review_via_bedrock(
                 inferenceConfig={
                     "maxTokens": max_tokens,
                     "temperature": temperature,
-                    "topP": top_p,
                 },
             )
             break

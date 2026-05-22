@@ -28,6 +28,18 @@ _ALLOWED_TRANSITIONS = {
 }
 
 
+def _mask_model_id(value):
+    if not value:
+        return value
+    if not value.startswith("arn:aws:"):
+        return value
+    parts = value.split(":", 5)
+    if len(parts) >= 6:
+        parts[4] = "***"
+        return ":".join(parts)
+    return value
+
+
 class CrowleyVideoReview(models.Model):
     _name = "crowley.video.review"
     _description = "Crowley Video QC Review"
@@ -44,7 +56,14 @@ class CrowleyVideoReview(models.Model):
     )
     display_name = fields.Char(compute="_compute_display_name", store=False)
 
-    model_id = fields.Char(string="Model ID", readonly=True, copy=False)
+    model_id = fields.Char(
+        string="Model ID", readonly=True, copy=False,
+        groups="base.group_no_one",
+    )
+    model_id_display = fields.Char(
+        string="Model", compute="_compute_model_id_display",
+        help="Model identifier with AWS account ID masked for safe UI display.",
+    )
     region = fields.Char(string="AWS Region", readonly=True, copy=False)
     provider = fields.Selection(
         [("bedrock", "AWS Bedrock"), ("openrouter", "OpenRouter")],
@@ -141,6 +160,11 @@ class CrowleyVideoReview(models.Model):
         for rec in self:
             base = rec.attempt_id.display_name or "(no attempt)"
             rec.display_name = f"{base} review"
+
+    @api.depends("model_id")
+    def _compute_model_id_display(self):
+        for rec in self:
+            rec.model_id_display = _mask_model_id(rec.model_id)
 
     @api.depends("verdict")
     def _compute_passed(self):
@@ -251,7 +275,7 @@ class CrowleyVideoReview(models.Model):
                 )
                 return
             model_id = icp.get_param(
-                "crowley.bedrock_review_model_id",
+                "crowley.bedrock_model_id",
                 review_client.DEFAULT_BEDROCK_MODEL_ID,
             )
         elif provider == "openrouter":

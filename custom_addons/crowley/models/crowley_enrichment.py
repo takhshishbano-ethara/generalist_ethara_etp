@@ -38,6 +38,18 @@ _PRIORITY_DEFAULT = "medium"
 _COMPLEXITY_DEFAULT = "moderate"
 
 
+def _mask_model_id(value):
+    if not value:
+        return value
+    if not value.startswith("arn:aws:"):
+        return value
+    parts = value.split(":", 5)
+    if len(parts) >= 6:
+        parts[4] = "***"
+        return ":".join(parts)
+    return value
+
+
 class CrowleyEnrichment(models.Model):
     _name = "crowley.enrichment"
     _description = "Crowley Prompt Enrichment Attempt"
@@ -51,7 +63,14 @@ class CrowleyEnrichment(models.Model):
     attempt_number = fields.Integer(string="Attempt #", required=True, copy=False)
     display_name = fields.Char(compute="_compute_display_name", store=False)
 
-    model_id = fields.Char(string="Model ID", readonly=True, copy=False)
+    model_id = fields.Char(
+        string="Model ID", readonly=True, copy=False,
+        groups="base.group_no_one",
+    )
+    model_id_display = fields.Char(
+        string="Model", compute="_compute_model_id_display",
+        help="Model identifier with AWS account ID masked for safe UI display.",
+    )
     region = fields.Char(string="AWS Region", readonly=True, copy=False)
     bedrock_request_id = fields.Char(
         string="Bedrock Request ID", readonly=True, copy=False,
@@ -138,6 +157,11 @@ class CrowleyEnrichment(models.Model):
                 f"{rec.job_id.name or 'CRW/?'} · enrich {rec.attempt_number or '?'}"
             )
 
+    @api.depends("model_id")
+    def _compute_model_id_display(self):
+        for rec in self:
+            rec.model_id_display = _mask_model_id(rec.model_id)
+
     @api.depends("input_tokens", "output_tokens")
     def _compute_tokens_used(self):
         for rec in self:
@@ -206,15 +230,20 @@ class CrowleyEnrichment(models.Model):
             self._fail("no_job", "Parent job no longer exists.")
             return
 
-        access_key = credential_manager.get_aws_access_key(self.env)
-        secret_key = credential_manager.get_aws_secret_key(self.env)
-        if not access_key or not secret_key:
-            self._fail(
-                "aws_creds_missing",
-                "AWS Access Key / Secret Key not configured. "
-                "Set them in Settings > Crowley.",
-            )
-            return
+        bedrock_api_key = credential_manager.get_bedrock_api_key(self.env)
+        access_key = ""
+        secret_key = ""
+        if not bedrock_api_key:
+            access_key = credential_manager.get_aws_access_key(self.env)
+            secret_key = credential_manager.get_aws_secret_key(self.env)
+            if not access_key or not secret_key:
+                self._fail(
+                    "aws_creds_missing",
+                    "Bedrock auth missing: set either (a) Bedrock API Key "
+                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
+                    "in Settings > Crowley.",
+                )
+                return
 
         icp = self.env["ir.config_parameter"].sudo()
         model_id = icp.get_param(
@@ -256,6 +285,7 @@ class CrowleyEnrichment(models.Model):
             result = enrichment_client.enrich(
                 access_key=access_key,
                 secret_key=secret_key,
+                bedrock_api_key=bedrock_api_key,
                 region=region,
                 model_id=model_id,
                 metadata=metadata,

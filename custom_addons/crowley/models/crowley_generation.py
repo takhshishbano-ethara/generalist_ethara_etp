@@ -1116,11 +1116,11 @@ class CrowleyGeneration(models.Model):
 
         access_key = credential_manager.get_aws_access_key(self.env)
         secret_key = credential_manager.get_aws_secret_key(self.env)
-        if not access_key or not secret_key:
-            raise UserError(_(
-                "AWS Access Key / Secret Key not configured. "
-                "Set them in Settings > Crowley > AWS Credentials."
-            ))
+        # if not access_key or not secret_key:
+        #     raise UserError(_(
+        #         "AWS Access Key / Secret Key not configured. "
+        #         "Set them in Settings > Crowley > AWS Credentials."
+        #     ))
 
         next_n = (max(self.enrichment_ids.mapped("attempt_number") or [0])) + 1
         enrichment = self.env["crowley.enrichment"].create({
