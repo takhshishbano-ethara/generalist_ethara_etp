@@ -7,6 +7,7 @@ Supports two authentication modes:
 
 import json
 import logging
+import time
 from typing import Optional
 
 import boto3
@@ -100,13 +101,15 @@ def _call_bedrock_bearer(
     }
 
     _logger.info(
-        "Calling Bedrock Converse (bearer): model=%s, region=%s, messages=%d, max_tokens=%d",
+        "[gohan] Calling Bedrock Converse (bearer): model=%s region=%s "
+        "messages=%d max_tokens=%d",
         inference_arn,
         region,
         len(messages),
         max_tokens,
     )
 
+    _call_t0 = time.monotonic()
     last_exc = None
     for attempt in range(3):
         try:
@@ -116,10 +119,13 @@ def _call_bedrock_bearer(
             if resp.status_code == 200:
                 data = resp.json()
                 _logger.info(
-                    "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+                    "[gohan] Bedrock bearer OK in %.1fs — input_tokens=%d "
+                    "output_tokens=%d stop_reason=%s attempt=%d/3",
+                    time.monotonic() - _call_t0,
                     data.get("usage", {}).get("inputTokens", 0),
                     data.get("usage", {}).get("outputTokens", 0),
                     data.get("stopReason", "unknown"),
+                    attempt + 1,
                 )
                 stop_reason = data.get("stopReason", "unknown")
                 if stop_reason == "max_tokens":
@@ -131,25 +137,34 @@ def _call_bedrock_bearer(
 
             # Retryable server errors
             if resp.status_code in (429, 500, 502, 503, 529):
+                _kind = "THROTTLED" if resp.status_code in (429, 529) else "SERVER-ERROR"
                 _logger.warning(
-                    "Bedrock bearer API [%d] (attempt %d/3): %s",
-                    resp.status_code, attempt + 1, resp.text[:200],
+                    "[gohan] Bedrock bearer %s [%d] attempt=%d/3 elapsed=%.1fs "
+                    "— backing off %ds: %s",
+                    _kind, resp.status_code, attempt + 1,
+                    time.monotonic() - _call_t0, 2 ** attempt, resp.text[:200],
                 )
                 last_exc = RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:200]}")
-                import time as _time
-                _time.sleep(2 ** attempt)  # 1s, 2s, 4s
+                time.sleep(2 ** attempt)  # 1s, 2s, 4s
                 continue
 
             # Non-retryable client errors
             raise RuntimeError(f"Bedrock API error [{resp.status_code}]: {resp.text[:500]}")
 
         except httpx.TimeoutException as exc:
-            _logger.warning("Bedrock bearer timeout (attempt %d/3): %s", attempt + 1, exc)
+            _logger.warning(
+                "[gohan] Bedrock bearer TIMEOUT attempt=%d/3 elapsed=%.1fs "
+                "(read_timeout=%ds): %s",
+                attempt + 1, time.monotonic() - _call_t0, DEFAULT_TIMEOUT, exc,
+            )
             last_exc = RuntimeError(f"Bedrock timeout: {exc}")
-            import time as _time
-            _time.sleep(2 ** attempt)
+            time.sleep(2 ** attempt)
             continue
 
+    _logger.error(
+        "[gohan] Bedrock bearer FAILED — all 3 attempts exhausted in %.1fs",
+        time.monotonic() - _call_t0,
+    )
     raise last_exc or RuntimeError("Bedrock bearer: all retries exhausted")
 
 
@@ -222,13 +237,15 @@ def generate_prd(
             bedrock_messages.append({"role": msg["role"], "content": [{"text": str(content)}]})
 
     _logger.info(
-        "Calling Bedrock Converse: model=%s, region=%s, messages=%d, max_tokens=%d",
+        "[gohan] Calling Bedrock Converse (sigv4): model=%s region=%s "
+        "messages=%d max_tokens=%d",
         inference_arn,
         region,
         len(messages),
         max_tokens,
     )
 
+    _call_t0 = time.monotonic()
     try:
         response = client.converse(
             modelId=inference_arn,
@@ -241,7 +258,9 @@ def generate_prd(
         )
 
         _logger.info(
-            "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+            "[gohan] Bedrock sigv4 OK in %.1fs — input_tokens=%d "
+            "output_tokens=%d stop_reason=%s",
+            time.monotonic() - _call_t0,
             response.get("usage", {}).get("inputTokens", 0),
             response.get("usage", {}).get("outputTokens", 0),
             response.get("stopReason", "unknown"),
@@ -250,17 +269,31 @@ def generate_prd(
         return response["output"]["message"]["content"][0]["text"]
 
     except ReadTimeoutError as exc:
-        _logger.error("Bedrock API timeout after %ds: %s", DEFAULT_TIMEOUT, exc)
+        _logger.error(
+            "[gohan] Bedrock sigv4 TIMEOUT after %.1fs (read_timeout=%ds): %s",
+            time.monotonic() - _call_t0, DEFAULT_TIMEOUT, exc,
+        )
         raise RuntimeError(
             f"Bedrock API timeout after {DEFAULT_TIMEOUT}s: {exc}"
         ) from exc
     except ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code", "unknown")
         error_msg = exc.response.get("Error", {}).get("Message", str(exc))
-        _logger.error("Bedrock API error [%s]: %s", error_code, error_msg)
+        _throttle_codes = (
+            "ThrottlingException", "TooManyRequestsException",
+            "ServiceQuotaExceededException", "ModelTimeoutException",
+        )
+        _tag = "THROTTLED" if error_code in _throttle_codes else "ERROR"
+        _logger.error(
+            "[gohan] Bedrock sigv4 %s [%s] after %.1fs: %s",
+            _tag, error_code, time.monotonic() - _call_t0, error_msg,
+        )
         raise RuntimeError(
             f"Bedrock API error [{error_code}]: {error_msg}"
         ) from exc
     except Exception as exc:
-        _logger.error("Bedrock API call failed: %s", exc)
+        _logger.error(
+            "[gohan] Bedrock sigv4 call FAILED after %.1fs: %s",
+            time.monotonic() - _call_t0, exc,
+        )
         raise RuntimeError(f"Bedrock API call failed: {exc}") from exc

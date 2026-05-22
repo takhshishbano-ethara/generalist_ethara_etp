@@ -49,6 +49,7 @@ def _submit_bg(label, fn, *args, **kwargs):
     - If the pool is gone (process recycling), runs inline as a last resort so
       the job is never silently dropped. The watchdog cron is the final backstop.
     """
+    qsize = -1
     try:
         qsize = _POOL._work_queue.qsize()
         if qsize > _PRD_POOL_SIZE:
@@ -60,11 +61,32 @@ def _submit_bg(label, fn, *args, **kwargs):
     except Exception:
         pass
 
+    # Grafana telemetry — diff the QUEUED timestamp against STARTED to see
+    # pool queue-wait. A job that logs STARTED but never FINISHED means its
+    # worker process was recycled mid-run (the thread died) — that is the
+    # production worker-recycling signal you cannot reproduce locally.
+    submitted_at = time.monotonic()
+    _logger.info(
+        "[gohan] bg task '%s' QUEUED pid=%s queue_depth=%s pool_workers=%s",
+        label, os.getpid(), qsize, _PRD_POOL_SIZE,
+    )
+
     def _guarded():
+        wait_s = time.monotonic() - submitted_at
+        _logger.info(
+            "[gohan] bg task '%s' STARTED pid=%s queue_wait=%.1fs",
+            label, os.getpid(), wait_s,
+        )
+        t0 = time.monotonic()
         try:
             return fn(*args, **kwargs)
         except Exception:
-            _logger.exception("[gohan] background task '%s' crashed", label)
+            _logger.exception("[gohan] bg task '%s' CRASHED", label)
+        finally:
+            _logger.info(
+                "[gohan] bg task '%s' FINISHED pid=%s ran=%.1fs queue_wait=%.1fs",
+                label, os.getpid(), time.monotonic() - t0, wait_s,
+            )
 
     try:
         return _POOL.submit(_guarded)
