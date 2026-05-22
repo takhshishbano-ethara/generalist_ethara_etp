@@ -223,8 +223,6 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
                     "http://0.0.0.0:18789",
                 ],
                 "dangerouslyDisableDeviceAuth": True,
-                **({"basePath": _base_path, "publicWsUrl": _public_ws_url}
-                   if _base_path else {}),
             },
             "http": {
                 "endpoints": {
@@ -2100,6 +2098,7 @@ class Kensei2SandboxK8s(models.AbstractModel):
                     ).total_seconds()
                     if elapsed > 300:
                         return "error"
+                    return "starting"
                 return "stopped"
             raise
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="action_server_batch_generate_golden" model="ir.actions.server">
+            <field name="name">Generate Videos (Golden Only)</field>
+            <field name="model_id" ref="model_crowley_generation"/>
+            <field name="binding_model_id" ref="model_crowley_generation"/>
+            <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">action = records.action_batch_generate_golden()</field>
+        </record>
+
+        <record id="action_server_batch_enrich" model="ir.actions.server">
+            <field name="name">Enrich Prompts (Bulk)</field>
+            <field name="model_id" ref="model_crowley_generation"/>
+            <field name="binding_model_id" ref="model_crowley_generation"/>
+            <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">action = records.action_batch_enrich()</field>
+        </record>
+
+        <record id="action_server_batch_run_review" model="ir.actions.server">
+            <field name="name">Run Reviews (Bulk)</field>
+            <field name="model_id" ref="model_crowley_generation"/>
+            <field name="binding_model_id" ref="model_crowley_generation"/>
+            <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">action = records.action_batch_run_review()</field>
+        </record>
+    </data>
+</odoo>

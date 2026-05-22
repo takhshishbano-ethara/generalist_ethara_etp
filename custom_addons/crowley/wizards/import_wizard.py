@@ -10,15 +10,21 @@ from ..models.crowley_generation import CATEGORY_SELECTION
 _VALID_DURATIONS = {"4", "5", "6", "7", "8", "9", "10", "12", "15"}
 _VALID_RESOLUTIONS = {"480p", "720p", "1080p"}
 _VALID_ASPECT_RATIOS = {"16:9", "9:16", "1:1", "4:3", "3:4", "21:9"}
+_VALID_STYLES = {"casual", "precise", "narrative", "terse", "exhaustive", "creative"}
+_VALID_PRIORITIES = {"medium", "high", "highest"}
+_VALID_COMPLEXITIES = {"simple", "moderate", "complex"}
 _BOOL_TRUE = {"true", "1", "yes", "y", "t"}
 _BOOL_FALSE = {"false", "0", "no", "n", "f"}
 _MAX_PROMPT_LEN = 2000
+_MAX_TOPIC_LEN = 200
+_MAX_SUB_CATEGORY_LEN = 200
 _MAX_SEED = 2_147_483_647
 
 _REQUIRED_COLUMNS = ("prompt", "category")
 _OPTIONAL_COLUMNS = (
     "negative_prompt", "duration", "resolution",
     "aspect_ratio", "seed", "generate_audio",
+    "sub_category", "style", "priority", "topic", "complexity",
 )
 
 
@@ -55,7 +61,8 @@ class CrowleyImportWizard(models.TransientModel):
                 "CSV is missing required column(s): %(cols)s. "
                 "Required: prompt, category. "
                 "Optional: negative_prompt, duration, resolution, "
-                "aspect_ratio, seed, generate_audio."
+                "aspect_ratio, seed, generate_audio, "
+                "sub_category, style, priority, topic, complexity."
             ) % {"cols": ", ".join(missing_required)})
 
         category_lookup = self._build_category_lookup()
@@ -211,5 +218,62 @@ class CrowleyImportWizard(models.TransientModel):
                     "Row %(row)d: generate_audio '%(val)s' invalid. "
                     "Use true/false, yes/no, 1/0."
                 ) % {"row": row_num, "val": generate_audio})
+
+        style = get("style")
+        if style:
+            normalized = style.lower()
+            if normalized not in _VALID_STYLES:
+                errors.append(_(
+                    "Row %(row)d: style '%(val)s' invalid. Allowed: %(valid)s."
+                ) % {
+                    "row": row_num, "val": style,
+                    "valid": ", ".join(sorted(_VALID_STYLES)),
+                })
+            else:
+                vals["style"] = normalized
+
+        priority = get("priority")
+        if priority:
+            normalized = priority.lower()
+            if normalized not in _VALID_PRIORITIES:
+                errors.append(_(
+                    "Row %(row)d: priority '%(val)s' invalid. Allowed: %(valid)s."
+                ) % {
+                    "row": row_num, "val": priority,
+                    "valid": ", ".join(sorted(_VALID_PRIORITIES)),
+                })
+            else:
+                vals["priority"] = normalized
+
+        complexity = get("complexity")
+        if complexity:
+            normalized = complexity.lower()
+            if normalized not in _VALID_COMPLEXITIES:
+                errors.append(_(
+                    "Row %(row)d: complexity '%(val)s' invalid. Allowed: %(valid)s."
+                ) % {
+                    "row": row_num, "val": complexity,
+                    "valid": ", ".join(sorted(_VALID_COMPLEXITIES)),
+                })
+            else:
+                vals["complexity"] = normalized
+
+        topic = get("topic")
+        if topic:
+            if len(topic) > _MAX_TOPIC_LEN:
+                errors.append(_(
+                    "Row %(row)d: topic is %(len)d chars; max is %(max)d."
+                ) % {"row": row_num, "len": len(topic), "max": _MAX_TOPIC_LEN})
+            else:
+                vals["topic"] = topic
+
+        sub_category = get("sub_category")
+        if sub_category:
+            if len(sub_category) > _MAX_SUB_CATEGORY_LEN:
+                errors.append(_(
+                    "Row %(row)d: sub_category is %(len)d chars; max is %(max)d."
+                ) % {"row": row_num, "len": len(sub_category), "max": _MAX_SUB_CATEGORY_LEN})
+            else:
+                vals["sub_category"] = sub_category
 
         return errors, vals

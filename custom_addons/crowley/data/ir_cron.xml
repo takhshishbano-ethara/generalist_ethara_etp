@@ -10,5 +10,25 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+
+        <record id="ir_cron_crowley_watchdog_enrichments" model="ir.cron">
+            <field name="name">Crowley: Watchdog Stuck Enrichments</field>
+            <field name="model_id" ref="model_crowley_enrichment"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_watchdog()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_crowley_watchdog_reviews" model="ir.cron">
+            <field name="name">Crowley: Watchdog Stuck Video Reviews</field>
+            <field name="model_id" ref="model_crowley_video_review"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_watchdog()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
     </data>
 </odoo>

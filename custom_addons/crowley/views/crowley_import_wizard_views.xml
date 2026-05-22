@@ -22,7 +22,9 @@
                                 <strong>Optional columns:</strong>
                                 <code>negative_prompt</code>, <code>duration</code>,
                                 <code>resolution</code>, <code>aspect_ratio</code>,
-                                <code>seed</code>, <code>generate_audio</code>
+                                <code>seed</code>, <code>generate_audio</code>,
+                                <code>sub_category</code>, <code>style</code>,
+                                <code>priority</code>, <code>topic</code>, <code>complexity</code>
                             </p>
                             <p class="mb-1">
                                 <strong>Allowed category values:</strong>

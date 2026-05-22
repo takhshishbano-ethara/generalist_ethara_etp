@@ -64,6 +64,39 @@
                                 <field name="crowley_verify_after_upload"/>
                             </setting>
                         </block>
+                        <block title="Bedrock Enrichment" name="crowley_bedrock_block">
+                            <setting string="Bedrock AWS Region"
+                                     help="AWS region for the Bedrock Converse API used by prompt enrichment. Defaults to ap-south-1.">
+                                <field name="crowley_bedrock_region"/>
+                            </setting>
+                            <setting string="Enrichment Model ID (Bedrock)"
+                                     help="Target: Claude Sonnet 4.6 — paste exact ARN when AWS publishes it. Default falls back to Claude 3.5 Sonnet.">
+                                <field name="crowley_bedrock_model_id"/>
+                            </setting>
+                            <setting string="Video Review Provider"
+                                     help="OpenRouter (Kimi K2 text-only) is the default. Switch to Bedrock for multimodal Claude vision (heavier + needs ffmpeg).">
+                                <field name="crowley_review_provider"/>
+                            </setting>
+                            <setting string="Review Model ID (OpenRouter)"
+                                     help="OpenRouter model slug when Review Provider is OpenRouter. Default: moonshotai/kimi-k2-0905 (Kimi K2.5).">
+                                <field name="crowley_openrouter_review_model_id"/>
+                            </setting>
+                            <setting string="Review Model ID (Bedrock)"
+                                     help="Bedrock modelId when Review Provider is Bedrock. Must be vision-capable.">
+                                <field name="crowley_bedrock_review_model_id"/>
+                            </setting>
+                            <setting string="Bedrock Max Retries"
+                                     help="Per-call retry attempts on transient Bedrock errors (throttling, 5xx).">
+                                <field name="crowley_bedrock_max_retries"/>
+                            </setting>
+                            <setting string="Enrichment Max Attempts"
+                                     help="How many enrichment attempts a job can spend before the row is locked out.">
+                                <field name="crowley_enrichment_max_attempts"/>
+                            </setting>
+                            <div class="text-muted o_text_neutral">
+                                <i class="fa fa-info-circle"/> Bedrock uses the AWS credentials configured in the section below. Once you add the AWS Access Key ID and Secret Access Key, prompt enrichment via Claude on Bedrock becomes available.
+                            </div>
+                        </block>
                         <block title="AWS Credentials (optional)" name="crowley_aws_block">
                             <setting string="AWS Access Key ID"
                                      help="Encrypted at rest. Leave blank to use credentials from the s3.connector record or the AWS default credential chain (IAM role / env vars).">
