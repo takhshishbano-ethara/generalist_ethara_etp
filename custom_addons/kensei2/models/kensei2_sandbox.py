@@ -593,22 +593,14 @@ def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
                         return False, "Sandbox disappeared", pod_attempt - 1
                     if sandbox.docker_status == "running":
                         _logger.info("[BATCH] Sandbox %s already running in DB (attempt %d)", sandbox_id, pod_attempt)
-                        ws_ok, ws_err = _batch_ws_health_check(db_name, sandbox_id)
-                        if ws_ok:
-                            return True, "", pod_attempt - 1
-                        _logger.error("[BATCH] Sandbox %s running but WS failed: %s", sandbox_id, ws_err)
-                        break
+                        return True, "", pod_attempt - 1
                     if sandbox.docker_status == "error":
                         break
                     k8s_status = env["kensei2.sandbox.k8s"].get_sandbox_status(sandbox)
                     if k8s_status == "running":
                         sandbox.write({"docker_status": "running", "docker_port": 18789})
                         _logger.info("[BATCH] Sandbox %s is running (attempt %d)", sandbox_id, pod_attempt)
-                        ws_ok, ws_err = _batch_ws_health_check(db_name, sandbox_id)
-                        if ws_ok:
-                            return True, "", pod_attempt - 1
-                        _logger.error("[BATCH] Sandbox %s running but WS failed: %s", sandbox_id, ws_err)
-                        break
+                        return True, "", pod_attempt - 1
                     if k8s_status == "error":
                         sandbox.write({"docker_status": "error", "docker_error": "K8s deployment failed"})
                         break
@@ -1048,15 +1040,6 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
     ws_client = None
 
     try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            ws_info = env["kensei2.sandbox"].auto_process_get_ws_info(sandbox_id)
-            if ws_info.get("error"):
-                result["error"] = "WS info error: %s" % ws_info["error"]
-                return result
-            ws_url = ws_info["ws_url"]
-            gateway_token = ws_info["gateway_token"]
-
         test_gen_thread = threading.Thread(
             target=_generate_intent_tests_background,
             args=(db_name, sandbox_id, prompt),
@@ -1065,24 +1048,6 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
         test_gen_thread.start()
 
         from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
-
-        _logger.info("[BATCH-PROMPT] Connecting WS for sandbox %s: %s", sandbox_id, ws_url)
-        ws_client = OpenClawClient(ws_url, gateway_token, sandbox_id)
-
-        for ws_attempt in range(3):
-            try:
-                ws_client.connect(timeout=30)
-                break
-            except (OpenClawError, OpenClawTimeoutError) as e:
-                if ws_attempt < 2:
-                    _logger.warning(
-                        "[BATCH-PROMPT] WS connect attempt %d/3 failed for sandbox %s: %s",
-                        ws_attempt + 1, sandbox_id, e,
-                    )
-                    time.sleep(5)
-                else:
-                    result["error"] = "WS connect failed after 3 attempts: %s" % e
-                    return result
 
         attachments = None
         if attachment_ids:
@@ -1111,15 +1076,57 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
                 return result
             turn_id = turn_result["turn_id"]
 
-        _logger.info("[BATCH-PROMPT] Sending prompt to sandbox %s (turn=%s, attachments=%d)",
-                     sandbox_id, turn_id, len(attachments or []))
-        ws_client.send_message(prompt, attachments=attachments)
+        _WS_MAX_RETRIES = 3
+        last_ws_error = None
+        for ws_attempt in range(1, _WS_MAX_RETRIES + 1):
+            if ws_client:
+                try:
+                    ws_client.disconnect()
+                except Exception:
+                    pass
+                ws_client = None
 
-        response = ws_client.wait_for_response(timeout=600)
-        _logger.info(
-            "[BATCH-PROMPT] Response received from sandbox %s (%d chars)",
-            sandbox_id, len(response.text),
-        )
+            # Re-read WS info from DB each retry (token may have changed)
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                ws_info = env["kensei2.sandbox"].auto_process_get_ws_info(sandbox_id)
+                if ws_info.get("error"):
+                    last_ws_error = "WS info error: %s" % ws_info["error"]
+                    _logger.warning("[BATCH-PROMPT] WS info error on attempt %d/%d for sandbox %s: %s",
+                                    ws_attempt, _WS_MAX_RETRIES, sandbox_id, last_ws_error)
+                    time.sleep(10)
+                    continue
+                ws_url = ws_info["ws_url"]
+                gateway_token = ws_info["gateway_token"]
+
+            _logger.info("[BATCH-PROMPT] WS attempt %d/%d for sandbox %s: %s",
+                         ws_attempt, _WS_MAX_RETRIES, sandbox_id, ws_url)
+            ws_client = OpenClawClient(ws_url, gateway_token, sandbox_id)
+
+            try:
+                ws_client.connect(timeout=30)
+                _logger.info("[BATCH-PROMPT] Sending prompt to sandbox %s (turn=%s, attachments=%d)",
+                             sandbox_id, turn_id, len(attachments or []))
+                ws_client.send_message(prompt, attachments=attachments)
+                response = ws_client.wait_for_response(timeout=600)
+                _logger.info(
+                    "[BATCH-PROMPT] Response received from sandbox %s (%d chars)",
+                    sandbox_id, len(response.text),
+                )
+                last_ws_error = None
+                break
+            except (OpenClawError, OpenClawTimeoutError) as e:
+                last_ws_error = str(e)
+                _logger.warning(
+                    "[BATCH-PROMPT] WS attempt %d/%d failed for sandbox %s: %s",
+                    ws_attempt, _WS_MAX_RETRIES, sandbox_id, e,
+                )
+                if ws_attempt < _WS_MAX_RETRIES:
+                    time.sleep(10)
+
+        if last_ws_error:
+            result["error"] = "WS failed after %d attempts: %s" % (_WS_MAX_RETRIES, last_ws_error)
+            return result
 
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
