@@ -66,12 +66,12 @@ class OpenClawClient:
         self._thread = None
         self._ws = None
 
-        # Async state (only touched from the event-loop thread)
-        self._pending_rpcs: dict = {}  # id -> asyncio.Future
+        self._pending_rpcs: dict = {}
         self._stream_buf = ""
         self._tool_calls: list = []
-        self._response_future = None  # asyncio.Future[OpenClawResponse]
-        self._stop_event = None  # asyncio.Event
+        self._response_future = None
+        self._stop_event = None
+        self._connect_error = None
 
     # ------------------------------------------------------------------
     # ID generation
@@ -95,11 +95,11 @@ class OpenClawClient:
     # ------------------------------------------------------------------
 
     def connect(self, timeout=30):
-        """Connect and authenticate. Starts the internal event-loop thread."""
         if self._thread is not None and self._thread.is_alive():
             raise OpenClawError("Already connected")
 
         self._connected.clear()
+        self._connect_error = None
         self._thread = threading.Thread(
             target=self._run_loop, daemon=True, name="openclaw-ws"
         )
@@ -110,6 +110,13 @@ class OpenClawClient:
             raise OpenClawTimeoutError(
                 f"Connection to {self._ws_url} timed out after {timeout}s"
             )
+
+        err = self._connect_error
+        if err:
+            self._connect_error = None
+            self.disconnect()
+            raise OpenClawError(f"Connection failed: {err}")
+
         self._log.info("Connected to OpenClaw at %s", self._ws_url)
 
     def _require_loop(self):
@@ -214,7 +221,7 @@ class OpenClawClient:
         except Exception as exc:
             self._log.error("WS connection error: %s", exc)
             if not self._connected.is_set():
-                # Signal connect() to stop waiting
+                self._connect_error = exc
                 self._connected.set()
 
     async def _wait_for_stop(self):

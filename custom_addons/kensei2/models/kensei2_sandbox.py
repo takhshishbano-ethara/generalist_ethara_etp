@@ -488,6 +488,36 @@ def _batch_is_cancelled(db_name, task_id):
         return False
 
 
+def _batch_ws_health_check(db_name, sandbox_id, retries=3, timeout=15):
+    from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
+
+    with Registry(db_name).cursor() as cr:
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        ws_info = env["kensei2.sandbox"].auto_process_get_ws_info(sandbox_id)
+        if ws_info.get("error"):
+            return False, "WS info error: %s" % ws_info["error"]
+        ws_url = ws_info["ws_url"]
+        gateway_token = ws_info["gateway_token"]
+
+    for attempt in range(1, retries + 1):
+        client = OpenClawClient(ws_url, gateway_token, sandbox_id)
+        try:
+            client.connect(timeout=timeout)
+            client.disconnect()
+            _logger.info("[BATCH] WS health check passed for sandbox %s (attempt %d)", sandbox_id, attempt)
+            return True, ""
+        except (OpenClawError, OpenClawTimeoutError) as e:
+            _logger.warning("[BATCH] WS health check %d/%d failed for sandbox %s: %s", attempt, retries, sandbox_id, e)
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+            if attempt < retries:
+                time.sleep(5)
+
+    return False, "WS gateway not reachable after %d health checks" % retries
+
+
 def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
     max_attempts = _POD_MAX_RETRIES + 1
 
@@ -563,14 +593,22 @@ def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
                         return False, "Sandbox disappeared", pod_attempt - 1
                     if sandbox.docker_status == "running":
                         _logger.info("[BATCH] Sandbox %s already running in DB (attempt %d)", sandbox_id, pod_attempt)
-                        return True, "", pod_attempt - 1
+                        ws_ok, ws_err = _batch_ws_health_check(db_name, sandbox_id)
+                        if ws_ok:
+                            return True, "", pod_attempt - 1
+                        _logger.error("[BATCH] Sandbox %s running but WS failed: %s", sandbox_id, ws_err)
+                        break
                     if sandbox.docker_status == "error":
                         break
                     k8s_status = env["kensei2.sandbox.k8s"].get_sandbox_status(sandbox)
                     if k8s_status == "running":
                         sandbox.write({"docker_status": "running", "docker_port": 18789})
                         _logger.info("[BATCH] Sandbox %s is running (attempt %d)", sandbox_id, pod_attempt)
-                        return True, "", pod_attempt - 1
+                        ws_ok, ws_err = _batch_ws_health_check(db_name, sandbox_id)
+                        if ws_ok:
+                            return True, "", pod_attempt - 1
+                        _logger.error("[BATCH] Sandbox %s running but WS failed: %s", sandbox_id, ws_err)
+                        break
                     if k8s_status == "error":
                         sandbox.write({"docker_status": "error", "docker_error": "K8s deployment failed"})
                         break
