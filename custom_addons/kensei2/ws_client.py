@@ -274,10 +274,10 @@ class OpenClawClient:
                 "minProtocol": 3,
                 "maxProtocol": 4,
                 "client": {
-                    "id": "kensei2-auto-process",
+                    "id": "gateway-client",
                     "version": "1.0",
                     "platform": "server",
-                    "mode": "headless",
+                    "mode": "backend",
                 },
                 "role": "operator",
                 "scopes": [

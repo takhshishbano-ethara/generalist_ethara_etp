@@ -310,10 +310,10 @@ class SSEConnectionManager:
                 "minProtocol": 3,
                 "maxProtocol": 4,
                 "client": {
-                    "id": "kensei2-sse-proxy",
+                    "id": "gateway-client",
                     "version": "1.0",
                     "platform": "server",
-                    "mode": "headless",
+                    "mode": "backend",
                 },
                 "role": "operator",
                 "scopes": [
