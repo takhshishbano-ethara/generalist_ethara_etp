@@ -1363,7 +1363,32 @@ def _batch_notify(env, task, channel, payload):
 
 
 _VALID_CHAT_ROLES = {"user", "assistant", "tool", "toolResult", "system"}
-_HEARTBEAT_STRINGS = {"HEARTBEAT_OK", "HEARTBEAT", "PONG"}
+_HEARTBEAT_PATTERNS = {"heartbeat_ok", "heartbeat", "pong", "openclaw heartbeat poll"}
+
+
+def _is_heartbeat_text(text):
+    if not text or not isinstance(text, str):
+        return False
+    lower = text.strip().lower()
+    return any(pat in lower for pat in _HEARTBEAT_PATTERNS)
+
+
+def _extract_message_text(inner):
+    content = inner.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return " ".join(parts)
+    text = inner.get("text")
+    if isinstance(text, str):
+        return text
+    return ""
 
 
 def _filter_trajectory_messages(messages):
@@ -1371,9 +1396,6 @@ def _filter_trajectory_messages(messages):
     dropped = 0
     for msg in messages:
         if isinstance(msg, str):
-            if msg.strip() in _HEARTBEAT_STRINGS:
-                dropped += 1
-                continue
             dropped += 1
             continue
 
@@ -1384,11 +1406,13 @@ def _filter_trajectory_messages(messages):
         inner = msg.get("message", msg) if isinstance(msg.get("message"), dict) else msg
         role = inner.get("role", "")
 
-        if role not in _VALID_CHAT_ROLES:
-            text = str(inner.get("content", "") or inner.get("text", "") or "")
-            if any(hb in text for hb in _HEARTBEAT_STRINGS) or not role:
-                dropped += 1
-                continue
+        if not role or role not in _VALID_CHAT_ROLES:
+            dropped += 1
+            continue
+
+        if _is_heartbeat_text(_extract_message_text(inner)):
+            dropped += 1
+            continue
 
         filtered.append(msg)
 
