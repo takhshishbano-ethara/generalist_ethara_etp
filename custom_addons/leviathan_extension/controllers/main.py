@@ -126,6 +126,23 @@ def _job_scope_domain():
     return [("user_id", "in", user_ids)]
 
 
+def _tasker_scope_user_ids():
+    env = request.env
+    user = env.user
+    if _user_has_role(env, LEVIATHAN_FULL_ACCESS_ROLE_XMLIDS):
+        return None
+    field = None
+    if _user_has_role(env, LEVIATHAN_PL_ROLE_XMLIDS):
+        field = "task_forge_pl_id"
+    elif _user_has_role(env, LEVIATHAN_QR_ROLE_XMLIDS):
+        field = "task_forge_qr_id"
+    if not field:
+        return [user.id]
+    employees = env["hr.employee"].sudo().search([("user_id", "=", user.id)])
+    team = env["hr.employee"].sudo().search([(field, "in", employees.ids)])
+    return (team | employees).mapped("user_id").ids
+
+
 def _job_in_scope(job_id):
     scope = _job_scope_domain()
     if not scope:
@@ -821,6 +838,64 @@ class LeviathanExtensionController(http.Controller):
                 "limit": limit,
                 "roles_resolved": roles_resolved,
                 "available_roles": available_roles,
+            },
+        )
+
+    @http.route(
+        "/api/v1/leviathan_ext/taskers",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+    )
+    @validate_token
+    def leviathan_ext_list_taskers(self, **kwargs):
+        guard = _require_leviathan_user()
+        if guard is not None:
+            return guard
+
+        params = request.params or {}
+        active_raw = str(params.get("active", "true")).strip().lower()
+        active_filter = active_raw not in ("false", "0", "no")
+        search = (params.get("search") or "").strip()
+        limit = _coerce_int(params.get("limit"), LIST_DEFAULT_LIMIT)
+        limit = max(1, min(limit, LIST_MAX_LIMIT))
+        offset = max(0, _coerce_int(params.get("offset"), 0))
+
+        role_ids = _get_role_ids(request.env, LEVIATHAN_TASKER_ROLE_XMLIDS)
+        domain = [("user_role", "in", role_ids)]
+        scope_ids = _tasker_scope_user_ids()
+        if scope_ids is not None:
+            domain.append(("id", "in", scope_ids))
+        if not active_filter:
+            domain.append(("active", "in", (True, False)))
+        if search:
+            domain += [
+                "|", "|",
+                ("name", "ilike", search),
+                ("login", "ilike", search),
+                ("email", "ilike", search),
+            ]
+
+        Users = request.env["res.users"].sudo()
+        if not active_filter:
+            Users = Users.with_context(active_test=False)
+
+        total = Users.search_count(domain)
+        records = Users.search(
+            domain, limit=limit, offset=offset, order="name asc, id asc"
+        )
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "taskers": [_serialize_user(u) for u in records],
+                "count": len(records),
+                "total": total,
+                "offset": offset,
+                "limit": limit,
             },
         )
 
