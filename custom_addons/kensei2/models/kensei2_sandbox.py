@@ -680,10 +680,13 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
                 attachments = []
                 for att in env["ir.attachment"].sudo().browse(attachment_ids):
                     if att.exists() and att.datas:
+                        # OpenClaw chat.send → normalizeRpcAttachmentsToChatAttachments
+                        # reads { type, mimeType, fileName, content }; content must be a
+                        # base64 string. It does not accept `name`/`media` keys.
                         attachments.append({
-                            "name": att.name,
+                            "fileName": att.name,
                             "mimeType": att.mimetype,
-                            "media": "data:%s;base64,%s" % (att.mimetype, att.datas.decode()),
+                            "content": att.datas.decode(),
                         })
                 _logger.info(
                     "[BATCH] Loaded %d attachments for sandbox %s",
@@ -1056,10 +1059,13 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
                 attachments = []
                 for att in env["ir.attachment"].sudo().browse(attachment_ids):
                     if att.exists() and att.datas:
+                        # OpenClaw chat.send → normalizeRpcAttachmentsToChatAttachments
+                        # reads { type, mimeType, fileName, content }; content must be a
+                        # base64 string. It does not accept `name`/`media` keys.
                         attachments.append({
-                            "name": att.name,
+                            "fileName": att.name,
                             "mimeType": att.mimetype,
-                            "media": "data:%s;base64,%s" % (att.mimetype, att.datas.decode()),
+                            "content": att.datas.decode(),
                         })
                 _logger.info(
                     "[BATCH-PROMPT] Loaded %d attachments for sandbox %s",

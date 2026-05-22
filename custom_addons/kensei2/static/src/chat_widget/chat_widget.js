@@ -39,19 +39,34 @@ const CHAT_TIMEOUT_MS = 30 * 60 * 1000;
 const USE_SSE = true;
 
 const MAX_PENDING_ATTACHMENTS = 10;
-const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"];
+const ALLOWED_IMAGE_TYPES = [
+    "image/jpeg", "image/png", "image/gif", "image/webp",
+    "image/svg+xml", "image/bmp", "image/tiff",
+    "image/avif", "image/heic", "image/heif",
+];
 const ALLOWED_DOC_TYPES = [
     "application/pdf", "text/plain", "text/markdown",
-    "text/html", "text/csv", "application/json",
-    "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/html", "text/csv", "text/tab-separated-values",
+    "application/json", "application/xml", "text/xml",
+    "text/yaml", "application/x-yaml",
+    "text/javascript", "application/javascript", "text/css",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/rtf", "application/vnd.oasis.opendocument.text",
 ];
 const ALLOWED_VIDEO_TYPES = [
     "video/mp4", "video/webm", "video/quicktime",
     "video/x-msvideo", "video/mpeg", "video/x-m4v",
+    "video/x-matroska", "video/3gpp", "video/ogg",
 ];
 const ALLOWED_AUDIO_TYPES = [
     "audio/mpeg", "audio/mp3", "audio/wav", "audio/ogg",
     "audio/webm", "audio/x-m4a", "audio/mp4",
+    "audio/flac", "audio/aac", "audio/x-wav",
 ];
 const MAX_MEDIA_SIZE_MB = 1650;
 const MAX_MEDIA_SIZE_BYTES = MAX_MEDIA_SIZE_MB * 1024 * 1024;
@@ -2442,15 +2457,36 @@ export class Kensei2ChatWidget extends Component {
             if (!mimeType || mimeType === "application/octet-stream") {
                 const ext = file.name.split(".").pop().toLowerCase();
                 const extMimeMap = {
+                    // documents
                     doc: "application/msword",
                     docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    md: "text/markdown", pdf: "application/pdf",
+                    xls: "application/vnd.ms-excel",
+                    xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ppt: "application/vnd.ms-powerpoint",
+                    pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                    odt: "application/vnd.oasis.opendocument.text",
+                    rtf: "application/rtf", pdf: "application/pdf",
+                    // images
                     png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
-                    gif: "image/gif", webp: "image/webp",
+                    gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
+                    svg: "image/svg+xml", tiff: "image/tiff", tif: "image/tiff",
+                    avif: "image/avif", heic: "image/heic", heif: "image/heif",
+                    // video
                     mp4: "video/mp4", webm: "video/webm", mov: "video/quicktime",
-                    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", m4a: "audio/mp4",
-                    txt: "text/plain", html: "text/html", csv: "text/csv",
+                    avi: "video/x-msvideo", mpeg: "video/mpeg", mpg: "video/mpeg",
+                    m4v: "video/x-m4v", mkv: "video/x-matroska",
+                    // audio
+                    mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg",
+                    m4a: "audio/mp4", flac: "audio/flac", aac: "audio/aac",
+                    // text / data / code — served as text/plain so any code file is accepted
+                    md: "text/markdown", txt: "text/plain", html: "text/html",
+                    htm: "text/html", csv: "text/csv", tsv: "text/tab-separated-values",
                     json: "application/json", jsonl: "application/json",
+                    xml: "application/xml", yaml: "text/yaml", yml: "text/yaml",
+                    log: "text/plain", ini: "text/plain", toml: "text/plain",
+                    js: "text/javascript", ts: "text/plain", tsx: "text/plain",
+                    jsx: "text/plain", py: "text/plain", css: "text/css",
+                    sh: "text/plain", sql: "text/plain",
                 };
                 mimeType = extMimeMap[ext] || mimeType;
             }
