@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
@@ -19,6 +20,23 @@ _POOL = ThreadPoolExecutor(
     max_workers=_PRD_POOL_SIZE, thread_name_prefix="gohan-prd"
 )
 
+# Fix 4 — admission control. The PRD pool has _PRD_POOL_SIZE workers; we allow
+# at most _PRD_POOL_SIZE more jobs to sit queued behind them. Past that,
+# `_submit_bg` refuses (returns None) instead of growing the queue without
+# bound — unbounded queueing is what drains the cursor pool and the process
+# memory under a 200+ job burst. Rejected jobs stay in their DB state and the
+# watchdog's deferred-job pass (see `_cron_watchdog_stuck_jobs`) re-submits
+# them once the pool drains. Tunable via GOHAN_ADMISSION_LIMIT.
+#
+# Caveat: the permit is released in the worker thread's `finally`; if a worker
+# is hard-killed mid-run (process recycle) its permit leaks, slowly shrinking
+# effective capacity. The watchdog still fails genuinely-stuck jobs, and the
+# limit can be raised — acceptable for this fix.
+_ADMISSION_LIMIT = int(
+    os.environ.get("GOHAN_ADMISSION_LIMIT", str(_PRD_POOL_SIZE * 2))
+)
+_ADMISSION_SEMAPHORE = threading.Semaphore(_ADMISSION_LIMIT)
+
 # How many extra attempts `_write_with_cursor` makes on transient psycopg2
 # InterfaceError / OperationalError before propagating. 2 retries = 3 total
 # attempts, with backoff 0.5s, 1.0s — covers idle-backend reap blips without
@@ -26,6 +44,21 @@ _POOL = ThreadPoolExecutor(
 _WRITE_CURSOR_RETRIES = 2
 
 _BATCH_FANOUT_POOL_SIZE = int(os.environ.get("GOHAN_BATCH_FANOUT_SIZE", "250"))
+
+# Fix 5 — staggered batch fan-out. Dispatching every Lambda invoke of a large
+# batch at once spikes AWS concurrency, and the resulting webhook callbacks all
+# land in the same narrow window — a synchronized storm against the DB and the
+# PRD pool. `_fanout_batch_extraction` instead dispatches in waves of
+# _FANOUT_WAVE_SIZE, sleeping _FANOUT_WAVE_DELAY_S between waves, spreading the
+# extraction (and downstream webhook) load over time.
+#
+# Constraint: total dispatch time is roughly
+#   (ceil(n / _FANOUT_WAVE_SIZE) - 1) * _FANOUT_WAVE_DELAY_S
+# which must stay well under `gohan.watchdog_extracting_minutes` (default 60m)
+# or the watchdog will false-fail tail jobs. Defaults (250 / 30 / 60s ≈ 8 min)
+# leave a wide margin.
+_FANOUT_WAVE_SIZE = int(os.environ.get("GOHAN_FANOUT_WAVE_SIZE", "30"))
+_FANOUT_WAVE_DELAY_S = int(os.environ.get("GOHAN_FANOUT_WAVE_DELAY_S", "60"))
 
 # Shared advisory-lock namespace used by:
 #   - controllers/main.py (webhook handler)
@@ -61,6 +94,19 @@ def _submit_bg(label, fn, *args, **kwargs):
     except Exception:
         pass
 
+    # Fix 4 — admission control. acquire(timeout=0) is a non-blocking try. On
+    # failure the pool AND its queue are full: we DO NOT run inline (inline is
+    # the process-recycle fallback below, not a load-shedding tool). We return
+    # None — the caller's job stays in its current DB state and the watchdog's
+    # deferred-job pass re-submits it once capacity frees up.
+    if not _ADMISSION_SEMAPHORE.acquire(timeout=0):
+        _logger.warning(
+            "[gohan] admission denied for '%s' — in-flight+queued cap of %d "
+            "reached; job deferred to watchdog re-submission.",
+            label, _ADMISSION_LIMIT,
+        )
+        return None
+
     # Grafana telemetry — diff the QUEUED timestamp against STARTED to see
     # pool queue-wait. A job that logs STARTED but never FINISHED means its
     # worker process was recycled mid-run (the thread died) — that is the
@@ -83,6 +129,10 @@ def _submit_bg(label, fn, *args, **kwargs):
         except Exception:
             _logger.exception("[gohan] bg task '%s' CRASHED", label)
         finally:
+            # Fix 4 — release the admission permit. _guarded runs exactly once
+            # on every accepted path (pool submit OR inline fallback), so the
+            # acquire above is always balanced by this release.
+            _ADMISSION_SEMAPHORE.release()
             _logger.info(
                 "[gohan] bg task '%s' FINISHED pid=%s ran=%.1fs queue_wait=%.1fs",
                 label, os.getpid(), time.monotonic() - t0, wait_s,
@@ -96,6 +146,208 @@ def _submit_bg(label, fn, *args, **kwargs):
         )
         _guarded()
         return None
+
+
+_HEARTBEAT_INTERVAL_S = int(os.environ.get("GOHAN_HEARTBEAT_INTERVAL_S", "60"))
+_HEARTBEAT_MODE = os.environ.get("GOHAN_HEARTBEAT_MODE", "aggregator").lower()
+
+
+class _HeartbeatManager:
+    """Process-wide shared heartbeat pulser (Fix 3).
+
+    gohan used to keep ``last_heartbeat`` fresh only with inline writes at
+    pipeline checkpoints. A Bedrock call sitting in adaptive-retry backoff for
+    30+ minutes leaves a long gap with no write — long enough for the watchdog
+    to false-fail a worker that is perfectly alive. The naive cure (one daemon
+    thread per active job) burns one thread AND one DB cursor every 60s per
+    job; with 50 PRD workers that is 50 heartbeat threads draining the cursor
+    pool (db_maxconn) against the workers themselves.
+
+    This manager is the scalable middle ground:
+      * ONE daemon thread per Python process, lazily started on first
+        register() call. Idle-exits when the registry empties; respawns on the
+        next register(). No idle thread between batches.
+      * Registry: reference-counted ``dict[(db_name, record_id), int]``.
+        register()/unregister() are O(1) under a single Lock. A job stays
+        pulsed until the LAST worker tracking it unregisters — two workers
+        can legitimately track one job when the Fix 4 watchdog re-submission
+        races the original submission. A plain set would let the first
+        unregister() drop a job the other still needs. Multi-tenant safe.
+      * Only between-Bedrock-phase workers are wrapped
+        (`_run_prd_generation_bg`, `_run_qc_only_bg`). The extraction poll
+        worker is deliberately NOT wrapped: it commits every few seconds, so
+        a concurrent pulse and its write collide on the same row under
+        Odoo's REPEATABLE READ isolation (SerializationFailure). It does not
+        need the manager — its run (<=900s) is far shorter than the
+        extracting watchdog threshold, and the Lambda start-ping refreshes
+        its heartbeat.
+      * Every interval (GOHAN_HEARTBEAT_INTERVAL_S, default 60s) the thread
+        snapshots the registry, groups by db_name, and issues ONE batched
+        UPDATE per group filtered by state IN
+        ('extracting','generating','scoring'). Terminal jobs never get pinged
+        even if a worker forgot to unregister.
+      * Self-heal: any tick error is logged and the next tick continues. The
+        thread MUST NOT die — the watchdog cron is the secondary safety net.
+      * Backward-compat: GOHAN_HEARTBEAT_MODE=per_job restores legacy per-job
+        daemons without touching any call site.
+    """
+
+    __slots__ = ("_active", "_lock", "_interval", "_stop_event", "_thread")
+
+    def __init__(self, interval=_HEARTBEAT_INTERVAL_S):
+        # (db_name, record_id) -> count of live workers tracking that job.
+        self._active: dict[tuple[str, int], int] = {}
+        self._lock = threading.Lock()
+        self._interval = max(5, int(interval))
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def register(self, db_name, record_id):
+        if not record_id or not db_name:
+            return
+        with self._lock:
+            key = (db_name, record_id)
+            self._active[key] = self._active.get(key, 0) + 1
+            self._ensure_thread_locked()
+
+    def unregister(self, db_name, record_id):
+        if not record_id or not db_name:
+            return
+        with self._lock:
+            key = (db_name, record_id)
+            count = self._active.get(key, 0)
+            if count <= 1:
+                self._active.pop(key, None)
+            else:
+                self._active[key] = count - 1
+
+    def _ensure_thread_locked(self):
+        # Called with self._lock held. Lazy-start on the first registration;
+        # respawn if a prior thread idle-exited.
+        t = self._thread
+        if t is not None and t.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(
+            target=self._run,
+            name="gohan-heartbeat",
+            daemon=True,
+        )
+        self._thread.start()
+
+    def _run(self):
+        while not self._stop_event.wait(self._interval):
+            try:
+                # Snapshot under lock; idle-exit if empty.
+                with self._lock:
+                    if not self._active:
+                        self._thread = None
+                        return
+                    groups: dict[str, list[int]] = {}
+                    for db_name, rid in self._active:
+                        groups.setdefault(db_name, []).append(rid)
+
+                for db_name, ids in groups.items():
+                    try:
+                        self._bulk_pulse(db_name, ids)
+                    except Exception:
+                        _logger.debug(
+                            "[gohan] heartbeat pulse failed for db=%s "
+                            "ids=%s (will retry next tick)",
+                            db_name, ids, exc_info=True,
+                        )
+            except Exception:
+                # Catch-all so a bad tick never kills the thread. The watchdog
+                # cron is the real safety net.
+                _logger.exception(
+                    "[gohan] heartbeat manager tick crashed; continuing",
+                )
+
+    def _bulk_pulse(self, db_name, record_ids):
+        registry = Registry(db_name)
+        with registry.cursor() as cr:
+            cr.execute(
+                "UPDATE gohan_job "
+                "SET last_heartbeat = (now() AT TIME ZONE 'UTC') "
+                "WHERE id = ANY(%s) "
+                "  AND state IN ('extracting', 'generating', 'scoring')",
+                (list(record_ids),),
+            )
+            pulsed = cr.rowcount
+            cr.commit()
+        # registered != pulsed means some registered jobs are already terminal
+        # — a worker finished but did not unregister, or the job was cancelled
+        # out from under a live worker. Harmless (terminal rows are filtered by
+        # the WHERE clause) but worth seeing in the log.
+        _logger.info(
+            "[gohan] heartbeat pulse: db=%s registered=%d pulsed=%d",
+            db_name, len(record_ids), pulsed,
+        )
+
+
+_HEARTBEAT_MGR = _HeartbeatManager()
+
+
+class _HeartbeatTicker:
+    """Backward-compat facade so call sites don't change (Fix 3).
+
+    Default (GOHAN_HEARTBEAT_MODE=aggregator): a thin wrapper that
+    register/unregisters the job with the shared _HEARTBEAT_MGR. Set
+    GOHAN_HEARTBEAT_MODE=per_job to restore legacy per-job daemons without
+    changing any call site. Use as a context manager:
+
+        with _HeartbeatTicker(self, db_name, record_id):
+            ... long-running work ...
+    """
+
+    __slots__ = ("_model", "_db_name", "_record_id", "_interval",
+                 "_mode", "_stop_event", "_thread")
+
+    def __init__(self, model, db_name, record_id, interval=_HEARTBEAT_INTERVAL_S):
+        self._model = model
+        self._db_name = db_name
+        self._record_id = record_id
+        self._interval = interval
+        self._mode = _HEARTBEAT_MODE
+        self._stop_event = threading.Event()
+        self._thread = None
+
+    def __enter__(self):
+        if self._mode == "per_job":
+            self._thread = threading.Thread(
+                target=self._run_legacy,
+                name=f"gohan-hb[job={self._record_id}]",
+                daemon=True,
+            )
+            self._thread.start()
+        else:
+            _HEARTBEAT_MGR.register(self._db_name, self._record_id)
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if self._mode == "per_job":
+            self._stop_event.set()
+            if self._thread is not None:
+                self._thread.join(timeout=2)
+        else:
+            _HEARTBEAT_MGR.unregister(self._db_name, self._record_id)
+        return False  # never swallow exceptions
+
+    def _run_legacy(self):
+        # Old per-job daemon body, kept for the GOHAN_HEARTBEAT_MODE=per_job
+        # rollback switch. One short-lived cursor per pulse.
+        while not self._stop_event.wait(self._interval):
+            try:
+                self._model._write_with_cursor(
+                    self._db_name,
+                    self._record_id,
+                    {"last_heartbeat": fields.Datetime.now()},
+                )
+            except Exception:
+                _logger.debug(
+                    "[gohan][job=%s] heartbeat pulse failed (will retry)",
+                    self._record_id, exc_info=True,
+                )
 
 
 # Bedrock Claude rejects images where either dimension exceeds 8000 px with:
@@ -1589,7 +1841,13 @@ class GohanJob(models.Model):
 
         # --- Path A: already extracted -> straight to PRD generation ---
         if to_generate:
-            to_generate.write(dict(_common, state="generating"))
+            # started_processing_at=False — the bg worker's re-entry guard
+            # claims it when it actually picks the job up. Resetting here
+            # keeps the guard correct if any of these jobs was generated
+            # before (the field would otherwise still hold the prior claim).
+            to_generate.write(
+                dict(_common, state="generating", started_processing_at=False)
+            )
             gen_ids = to_generate.ids
             _logger.info(
                 "[gohan] batch: %d job(s) already extracted -> PRD generation: %s",
@@ -1654,12 +1912,18 @@ class GohanJob(models.Model):
         Each successful invoke leaves the record in ``extracting`` (the
         webhook completes the lifecycle). Each failed invoke reverts the
         record to ``not_assigned`` with the AWS error captured.
+
+        Fix 5: invokes are dispatched in staggered waves of
+        ``_FANOUT_WAVE_SIZE`` with ``_FANOUT_WAVE_DELAY_S`` between waves so
+        a large batch does not spike AWS Lambda concurrency or trigger a
+        synchronized webhook-callback storm. This runs in a bg thread
+        (submitted via ``_submit_bg``), so the inter-wave sleeps never block
+        a request or the ORM.
         """
         from ..services.extraction_service import trigger_extraction
 
         ok_ids: list[int] = []
         failed: dict[int, str] = {}
-        max_workers = min(config["batch_concurrency"], len(record_ids)) or 1
 
         def _invoke_one(record_id: int) -> tuple[int, dict]:
             url = record_urls.get(record_id, "")
@@ -1675,28 +1939,48 @@ class GohanJob(models.Model):
             )
             return record_id, result
 
+        def _dispatch_wave(wave_ids):
+            wave_workers = min(config["batch_concurrency"], len(wave_ids)) or 1
+            with ThreadPoolExecutor(
+                max_workers=wave_workers, thread_name_prefix="gohan-fanout",
+            ) as pool:
+                futures = [pool.submit(_invoke_one, rid) for rid in wave_ids]
+                for future in as_completed(futures):
+                    try:
+                        record_id, result = future.result()
+                    except Exception as exc:
+                        _logger.exception("Fan-out worker crashed: %s", exc)
+                        continue
+                    if result.get("success"):
+                        ok_ids.append(record_id)
+                    else:
+                        failed[record_id] = result.get(
+                            "error", "Unknown error"
+                        )[:500]
+
+        total = len(record_ids)
+        n_waves = (total + _FANOUT_WAVE_SIZE - 1) // _FANOUT_WAVE_SIZE
         _logger.info(
-            "Batch fan-out: %d records, max_workers=%d, function=%s, region=%s",
-            len(record_ids), max_workers, config["function_name"], config["region"],
+            "Batch fan-out: %d record(s) in %d wave(s) of <=%d "
+            "(%ds between waves), function=%s, region=%s",
+            total, n_waves, _FANOUT_WAVE_SIZE, _FANOUT_WAVE_DELAY_S,
+            config["function_name"], config["region"],
         )
 
-        with ThreadPoolExecutor(
-            max_workers=max_workers, thread_name_prefix="gohan-fanout",
-        ) as pool:
-            futures = [pool.submit(_invoke_one, rid) for rid in record_ids]
-            for future in as_completed(futures):
-                try:
-                    record_id, result = future.result()
-                except Exception as exc:
-                    _logger.exception("Fan-out worker crashed: %s", exc)
-                    continue
-                if result.get("success"):
-                    ok_ids.append(record_id)
-                else:
-                    failed[record_id] = result.get("error", "Unknown error")[:500]
+        for wave_start in range(0, total, _FANOUT_WAVE_SIZE):
+            wave = record_ids[wave_start:wave_start + _FANOUT_WAVE_SIZE]
+            wave_num = wave_start // _FANOUT_WAVE_SIZE + 1
+            _logger.info(
+                "Batch fan-out: dispatching wave %d/%d (%d record(s))",
+                wave_num, n_waves, len(wave),
+            )
+            _dispatch_wave(wave)
+            if wave_start + _FANOUT_WAVE_SIZE < total:
+                time.sleep(_FANOUT_WAVE_DELAY_S)
 
         _logger.info(
-            "Batch fan-out done: %d invoked OK, %d failed", len(ok_ids), len(failed),
+            "Batch fan-out done: %d invoked OK, %d failed",
+            len(ok_ids), len(failed),
         )
 
         if failed:
@@ -2071,6 +2355,9 @@ class GohanJob(models.Model):
                 "started_at": fields.Datetime.now(),
                 "completed_at": False,
                 "last_heartbeat": fields.Datetime.now(),
+                # Cleared so the bg worker's re-entry guard re-claims this
+                # rerun — the field still holds the prior run's claim.
+                "started_processing_at": False,
             })
             db_name = self.env.cr.dbname
             record_id = self.id
@@ -2126,6 +2413,9 @@ class GohanJob(models.Model):
             "llm_attempts": 0,
             "error_message": False,
             "last_heartbeat": fields.Datetime.now(),
+            # Cleared so the bg worker's re-entry guard re-claims this
+            # regeneration — the field still holds the prior run's claim.
+            "started_processing_at": False,
         })
 
         if self.prd_prompt:
@@ -2365,6 +2655,9 @@ class GohanJob(models.Model):
             "state": "generating",
             "last_heartbeat": fields.Datetime.now(),
             "error_message": False,
+            # Cleared so the bg worker's re-entry guard claims this run
+            # (a job re-entering 'extracted' may still hold a prior claim).
+            "started_processing_at": False,
         })
 
         db_name = self.env.cr.dbname
@@ -2407,100 +2700,101 @@ class GohanJob(models.Model):
         from ..services.bedrock_service import get_credentials as _get_bedrock_credentials
         from ..services.qc_service import run_qc
 
-        try:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                record = env[self._name].browse(record_id)
-                if not record.exists():
-                    return
+        with _HeartbeatTicker(self, db_name, record_id, interval=60):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if not record.exists():
+                        return
 
-                ICP = env["ir.config_parameter"].sudo()
-                bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
-                config = {
-                    "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
-                    "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
-                    "bedrock_access_key": bedrock_access_key,
-                    "bedrock_secret_key": bedrock_secret_key,
-                    "s3_bucket": ICP.get_param("gohan.s3_bucket"),
-                    "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
-                    "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
-                    "s3_region": ICP.get_param("gohan.s3_region"),
-                }
-                job_data = {
-                    "prd_text": record.prd_text,
-                    "category_name": record.category_id.name if record.category_id else "Uncategorized",
-                    "url": record.url,
-                    "site_discovery_json": record.site_discovery_json,
-                    "screenshot_keys": record.screenshot_keys or [],
-                }
-                qc_prompt = record._get_qc_system_prompt()
+                    ICP = env["ir.config_parameter"].sudo()
+                    bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
+                    config = {
+                        "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
+                        "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
+                        "bedrock_access_key": bedrock_access_key,
+                        "bedrock_secret_key": bedrock_secret_key,
+                        "s3_bucket": ICP.get_param("gohan.s3_bucket"),
+                        "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
+                        "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
+                        "s3_region": ICP.get_param("gohan.s3_region"),
+                    }
+                    job_data = {
+                        "prd_text": record.prd_text,
+                        "category_name": record.category_id.name if record.category_id else "Uncategorized",
+                        "url": record.url,
+                        "site_discovery_json": record.site_discovery_json,
+                        "screenshot_keys": record.screenshot_keys or [],
+                    }
+                    qc_prompt = record._get_qc_system_prompt()
 
-            extraction_artifacts = {}
-            if job_data["site_discovery_json"]:
-                extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
+                extraction_artifacts = {}
+                if job_data["site_discovery_json"]:
+                    extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
 
-            # Download screenshots for QC vision
-            screenshot_blocks = []
-            if job_data["screenshot_keys"] and config["s3_bucket"]:
-                from ..services.s3_service import download_file_from_s3
-                import base64 as b64
-                MAX_SCREENSHOTS = 5
-                MAX_IMG_BYTES = 3_500_000
-                total_bytes = 0
-                for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
-                    try:
-                        img_bytes = download_file_from_s3(
-                            key=key, bucket=config["s3_bucket"],
-                            access_key_id=config["s3_key_id"],
-                            secret_key=config["s3_secret"],
-                            region=config["s3_region"],
-                        )
-                        if len(img_bytes) > MAX_IMG_BYTES:
-                            continue
-                        ext = key.rsplit(".", 1)[-1].lower()
-                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
-                        # Bedrock rejects images with any dimension > 8000 px.
-                        img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
-                        total_bytes += len(img_bytes)
-                        if total_bytes > 20_000_000:
-                            break
-                        screenshot_blocks.append({
-                            "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
-                        })
-                    except Exception:
-                        pass
+                # Download screenshots for QC vision
+                screenshot_blocks = []
+                if job_data["screenshot_keys"] and config["s3_bucket"]:
+                    from ..services.s3_service import download_file_from_s3
+                    import base64 as b64
+                    MAX_SCREENSHOTS = 5
+                    MAX_IMG_BYTES = 3_500_000
+                    total_bytes = 0
+                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                        try:
+                            img_bytes = download_file_from_s3(
+                                key=key, bucket=config["s3_bucket"],
+                                access_key_id=config["s3_key_id"],
+                                secret_key=config["s3_secret"],
+                                region=config["s3_region"],
+                            )
+                            if len(img_bytes) > MAX_IMG_BYTES:
+                                continue
+                            ext = key.rsplit(".", 1)[-1].lower()
+                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            # Bedrock rejects images with any dimension > 8000 px.
+                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
+                            total_bytes += len(img_bytes)
+                            if total_bytes > 20_000_000:
+                                break
+                            screenshot_blocks.append({
+                                "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
+                            })
+                        except Exception:
+                            pass
 
-            qc_result = run_qc(
-                prd_text=job_data["prd_text"],
-                extraction_data=extraction_artifacts,
-                site_discovery=job_data["site_discovery_json"] or {},
-                url=job_data["url"],
-                category=job_data["category_name"],
-                inference_arn=config["inference_arn"],
-                region=config["region"],
-                access_key_id=config["bedrock_access_key"],
-                secret_access_key=config["bedrock_secret_key"],
-                qc_system_prompt=qc_prompt,
-                screenshot_blocks=screenshot_blocks,
-            )
+                qc_result = run_qc(
+                    prd_text=job_data["prd_text"],
+                    extraction_data=extraction_artifacts,
+                    site_discovery=job_data["site_discovery_json"] or {},
+                    url=job_data["url"],
+                    category=job_data["category_name"],
+                    inference_arn=config["inference_arn"],
+                    region=config["region"],
+                    access_key_id=config["bedrock_access_key"],
+                    secret_access_key=config["bedrock_secret_key"],
+                    qc_system_prompt=qc_prompt,
+                    screenshot_blocks=screenshot_blocks,
+                )
 
-            self._write_with_cursor(db_name, record_id, {
-                "state": "done",
-                "qc_verdict": qc_result["verdict"],
-                "qc_report": qc_result["report"],
-            })
+                self._write_with_cursor(db_name, record_id, {
+                    "state": "done",
+                    "qc_verdict": qc_result["verdict"],
+                    "qc_report": qc_result["report"],
+                })
 
-        except Exception as exc:
-            _logger.exception("QC rerun failed for job %s", record_id)
-            self._write_with_cursor(db_name, record_id, {
-                "state": "done",
-                # Fail-closed: a QC error must not leave qc_verdict blank, or the
-                # job becomes unsubmittable with no clear recovery. Mirrors the
-                # fail-closed behaviour in _run_prd_generation_bg.
-                "qc_verdict": "not_shippable",
-                "qc_report": f"QC rerun error: {exc}",
-                "error_message": f"QC failed: {exc}",
-            })
+            except Exception as exc:
+                _logger.exception("QC rerun failed for job %s", record_id)
+                self._write_with_cursor(db_name, record_id, {
+                    "state": "done",
+                    # Fail-closed: a QC error must not leave qc_verdict blank, or the
+                    # job becomes unsubmittable with no clear recovery. Mirrors the
+                    # fail-closed behaviour in _run_prd_generation_bg.
+                    "qc_verdict": "not_shippable",
+                    "qc_report": f"QC rerun error: {exc}",
+                    "error_message": f"QC failed: {exc}",
+                })
 
     def action_download_zip(self):
         """Build and download a ZIP of the tasker deliverable package."""
@@ -3049,500 +3343,544 @@ class GohanJob(models.Model):
         from ..services.scoring_service import score_prd
         from ..services.s3_service import upload_prd_to_s3
 
-        try:
-            # === PHASE 1: Read config and extraction data ===
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                record = env[self._name].browse(record_id)
-                if not record.exists():
-                    return
+        with _HeartbeatTicker(self, db_name, record_id, interval=60):
+            try:
+                # === PHASE 1: Read config and extraction data ===
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+                    if not record.exists():
+                        return
 
-                ICP = env["ir.config_parameter"].sudo()
-                bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
-                _include_ss_raw = ICP.get_param("gohan.prd_include_screenshots", "True")
-                _include_ss = str(_include_ss_raw).strip().lower() not in ("false", "0", "no", "off", "")
-                config = {
-                    "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
-                    "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
-                    # Single-pass PRD generation by default: one Bedrock call,
-                    # no score-refinement loop. The retry loop inflated length
-                    # (each rewrite chased the density score); a single pass
-                    # follows the prompt's under-1000-word target directly.
-                    # Still overridable via the gohan.max_llm_attempts sysparam.
-                    "max_attempts": int(ICP.get_param("gohan.max_llm_attempts") or 1),
-                    "bedrock_access_key": bedrock_access_key,
-                    "bedrock_secret_key": bedrock_secret_key,
-                    "s3_bucket": ICP.get_param("gohan.s3_bucket"),
-                    "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
-                    "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
-                    "s3_region": ICP.get_param("gohan.s3_region"),
-                    "s3_folder": ICP.get_param("gohan.s3_folder") or "gohan",
-                    "cdn_url": ICP.get_param("gohan.s3_cdn_url"),
-                    "include_screenshots": _include_ss,
-                }
-                job_data = {
-                    "name": record.name,
-                    "prd_prompt": record.prd_prompt,
-                    "category_name": record.category_id.name if record.category_id else "Uncategorized",
-                    "url": record.url,
-                    "site_discovery_json": record.site_discovery_json,
-                    "user_id": record.user_id.id if record.user_id else False,
-                    "partner_id": record.user_id.partner_id.id if record.user_id and record.user_id.partner_id else False,
-                    "screenshot_keys": record.screenshot_keys or [],
-                    "asset_keys": record.asset_keys or [],
-                    # Tasker-approved SVG icons, fed to Bedrock as inline
-                    # markup. Empty when the review gate was skipped.
-                    "svg_icons": [
-                        {"name": a.name, "markup": a.svg_markup()}
-                        for a in record.asset_ids.filtered(
-                            lambda x: x.include_in_prd and x.asset_type == "svg"
-                        )
-                        if a.svg_markup()
-                    ],
-                }
-
-                prd_system_prompt = record._get_prd_system_prompt()
-                qc_system_prompt = record._get_qc_system_prompt()
-
-                if not config["inference_arn"]:
-                    record.write({
-                        "state": "failed",
-                        "error_message": "Bedrock inference ARN not configured",
-                        "completed_at": fields.Datetime.now(),
-                    })
-                    cr.commit()
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step="prd.config",
-                        status="error",
-                        message="Bedrock inference ARN not configured (check Gohan settings)",
+                    # --- Fix 4 re-entry guard ---
+                    # The watchdog's deferred-job pass may re-submit a job that
+                    # was admission-rejected OR is queued-but-slow. If the
+                    # original submission ALSO runs, we would double-run the
+                    # whole Bedrock pipeline. Claim the job with a row-locked
+                    # compare-and-set on started_processing_at: SELECT ... FOR
+                    # UPDATE serialises competing workers — the first to reach
+                    # here sets the mark and wins; any later worker sees it set
+                    # and bails before any Bedrock call. Callers reset
+                    # started_processing_at=False when they (re)trigger a run,
+                    # so a stale mark from a prior cycle never blocks a new one.
+                    cr.execute(
+                        "SELECT state, started_processing_at FROM gohan_job "
+                        "WHERE id = %s FOR UPDATE",
+                        (record_id,),
                     )
-                    return
-                if not job_data["prd_prompt"]:
-                    record.write({
-                        "state": "failed",
-                        "error_message": "No extraction data available for PRD generation",
-                        "completed_at": fields.Datetime.now(),
-                    })
-                    cr.commit()
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step="prd.config",
-                        status="error",
-                        message="No extraction data available — extraction Lambda never produced a prompt",
-                    )
-                    return
-
-                # Worker-pickup mark: this is the moment the bg worker
-                # actually started touching the job. The watchdog uses
-                # `started_processing_at` to distinguish "queued in _POOL,
-                # never touched" from "running and stuck". Without this
-                # mark a job that sat in the queue for 45+ min would be
-                # killed by the watchdog even though no real work was
-                # attempted on it yet.
-                record.write({
-                    "state": "generating",
-                    "started_processing_at": fields.Datetime.now(),
-                    "last_heartbeat": fields.Datetime.now(),
-                })
-                cr.commit()
-
-            self._append_pipeline_event(
-                db_name, record_id,
-                step="prd.config",
-                status="ok",
-                message="Configuration loaded; entering PRD generation",
-                max_attempts=config["max_attempts"],
-                inference_arn=config["inference_arn"],
-                region=config["region"],
-                category=job_data["category_name"],
-                screenshot_count=len(job_data["screenshot_keys"]),
-            )
-
-            # === PHASE 2: LLM generation loop ===
-            # Download screenshots from S3 for vision (shared by PRD gen + QC)
-            # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
-            # Operators can disable visual input entirely via
-            # `gohan.prd_include_screenshots` sysparam (default True). Set to
-            # False to send text-only — useful when iterating on the textual
-            # extraction quality without burning vision tokens.
-            screenshot_blocks = []
-            if config["include_screenshots"] and job_data["screenshot_keys"] and config["s3_bucket"]:
-                from ..services.s3_service import download_file_from_s3
-                import base64 as b64
-                MAX_SCREENSHOTS = 5
-                MAX_IMG_BYTES = 3_500_000  # 3.5MB (under Bedrock 3.75MB limit)
-                total_bytes = 0
-                for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
-                    try:
-                        img_bytes = download_file_from_s3(
-                            key=key,
-                            bucket=config["s3_bucket"],
-                            access_key_id=config["s3_key_id"],
-                            secret_key=config["s3_secret"],
-                            region=config["s3_region"],
+                    _claim_row = cr.fetchone()
+                    if not _claim_row:
+                        cr.commit()
+                        return
+                    _claim_state, _claim_spa = _claim_row
+                    if _claim_state not in ("generating", "scoring"):
+                        # Cancelled / failed / already done out from under us.
+                        _logger.info(
+                            "[gohan][job=%s] PRD worker: state=%s is not "
+                            "generating/scoring — skipping (already handled)",
+                            record_id, _claim_state,
                         )
-                        if len(img_bytes) > MAX_IMG_BYTES:
-                            _logger.info("Skipping oversized screenshot %s (%d bytes)", key, len(img_bytes))
-                            continue
-                        ext = key.rsplit(".", 1)[-1].lower()
-                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
-                        # Bedrock rejects images with any dimension > 8000 px.
-                        img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
-                        total_bytes += len(img_bytes)
-                        if total_bytes > 20_000_000:  # 20MB safety cap
-                            _logger.info("Screenshot total size cap reached, stopping")
-                            break
-                        screenshot_blocks.append({
-                            "image": {
-                                "format": fmt,
-                                "source": {"bytes": b64.b64encode(img_bytes).decode()},
-                            }
+                        cr.commit()
+                        return
+                    if _claim_spa:
+                        # Another worker already claimed and is running this job.
+                        _logger.warning(
+                            "[gohan][job=%s] PRD worker: already claimed "
+                            "(started_processing_at=%s) — skipping duplicate run",
+                            record_id, _claim_spa,
+                        )
+                        cr.commit()
+                        return
+                    # Claim it now, atomically, while the row lock is still held.
+                    cr.execute(
+                        "UPDATE gohan_job SET started_processing_at = "
+                        "(now() AT TIME ZONE 'UTC') WHERE id = %s",
+                        (record_id,),
+                    )
+                    cr.commit()
+
+                    ICP = env["ir.config_parameter"].sudo()
+                    bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
+                    _include_ss_raw = ICP.get_param("gohan.prd_include_screenshots", "True")
+                    _include_ss = str(_include_ss_raw).strip().lower() not in ("false", "0", "no", "off", "")
+                    config = {
+                        "inference_arn": ICP.get_param("gohan.bedrock_inference_arn"),
+                        "region": ICP.get_param("gohan.bedrock_region") or "us-east-1",
+                        # Single-pass PRD generation by default: one Bedrock call,
+                        # no score-refinement loop. The retry loop inflated length
+                        # (each rewrite chased the density score); a single pass
+                        # follows the prompt's under-1000-word target directly.
+                        # Still overridable via the gohan.max_llm_attempts sysparam.
+                        "max_attempts": int(ICP.get_param("gohan.max_llm_attempts") or 1),
+                        "bedrock_access_key": bedrock_access_key,
+                        "bedrock_secret_key": bedrock_secret_key,
+                        "s3_bucket": ICP.get_param("gohan.s3_bucket"),
+                        "s3_key_id": ICP.get_param("gohan.s3_access_key_id"),
+                        "s3_secret": ICP.get_param("gohan.s3_secret_access_key"),
+                        "s3_region": ICP.get_param("gohan.s3_region"),
+                        "s3_folder": ICP.get_param("gohan.s3_folder") or "gohan",
+                        "cdn_url": ICP.get_param("gohan.s3_cdn_url"),
+                        "include_screenshots": _include_ss,
+                    }
+                    job_data = {
+                        "name": record.name,
+                        "prd_prompt": record.prd_prompt,
+                        "category_name": record.category_id.name if record.category_id else "Uncategorized",
+                        "url": record.url,
+                        "site_discovery_json": record.site_discovery_json,
+                        "user_id": record.user_id.id if record.user_id else False,
+                        "partner_id": record.user_id.partner_id.id if record.user_id and record.user_id.partner_id else False,
+                        "screenshot_keys": record.screenshot_keys or [],
+                        "asset_keys": record.asset_keys or [],
+                        # Tasker-approved SVG icons, fed to Bedrock as inline
+                        # markup. Empty when the review gate was skipped.
+                        "svg_icons": [
+                            {"name": a.name, "markup": a.svg_markup()}
+                            for a in record.asset_ids.filtered(
+                                lambda x: x.include_in_prd and x.asset_type == "svg"
+                            )
+                            if a.svg_markup()
+                        ],
+                    }
+
+                    prd_system_prompt = record._get_prd_system_prompt()
+                    qc_system_prompt = record._get_qc_system_prompt()
+
+                    if not config["inference_arn"]:
+                        record.write({
+                            "state": "failed",
+                            "error_message": "Bedrock inference ARN not configured",
+                            "completed_at": fields.Datetime.now(),
                         })
-                    except Exception as img_exc:
-                        _logger.warning("Failed to download screenshot %s: %s", key, img_exc)
+                        cr.commit()
                         self._append_pipeline_event(
                             db_name, record_id,
-                            step="prd.screenshots.download",
-                            status="warn",
-                            message=f"Failed to download screenshot {key}: {img_exc}",
-                            key=key,
+                            step="prd.config",
+                            status="error",
+                            message="Bedrock inference ARN not configured (check Gohan settings)",
                         )
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step="prd.screenshots.download",
-                    status="ok",
-                    message=f"Attached {len(screenshot_blocks)}/{len(job_data['screenshot_keys'])} screenshots ({total_bytes / 1_000_000:.1f} MB)",
-                    attached=len(screenshot_blocks),
-                    available=len(job_data["screenshot_keys"]),
-                    total_bytes=total_bytes,
-                )
+                        return
+                    if not job_data["prd_prompt"]:
+                        record.write({
+                            "state": "failed",
+                            "error_message": "No extraction data available for PRD generation",
+                            "completed_at": fields.Datetime.now(),
+                        })
+                        cr.commit()
+                        self._append_pipeline_event(
+                            db_name, record_id,
+                            step="prd.config",
+                            status="error",
+                            message="No extraction data available — extraction Lambda never produced a prompt",
+                        )
+                        return
 
-            # Build multimodal content: screenshots + extraction text
-            content_blocks = list(screenshot_blocks)
-            content_blocks.append({"text": (
-                f"Below is the extracted website data. "
-                f"Write the complete PRD following all rules.\n\n"
-                f"---\n\n{job_data['prd_prompt']}"
-            )})
-            # Tasker-curated SVG UI icons — fed as inline markup so the model
-            # can reference the product's real iconography.
-            if job_data.get("svg_icons"):
-                icon_md = "\n\n".join(
-                    f"### {ic['name']}\n```svg\n{ic['markup']}\n```"
-                    for ic in job_data["svg_icons"]
-                )
-                content_blocks.append({"text": (
-                    "\n\n---\n\n## EXTRACTED UI ICONS (SVG)\n\n"
-                    "The following SVG icons were captured from the site and "
-                    "approved by the reviewer:\n\n" + icon_md
-                )})
-            messages = [{"role": "user", "content": content_blocks}]
-
-            best_prd_text = None
-            best_score = 0
-            best_grade = None
-            best_score_report = None
-
-            # Full transparency: capture every LLM interaction for audit.
-            llm_trace = {
-                "prd_system_prompt": prd_system_prompt,
-                "extraction_prompt": job_data["prd_prompt"],
-                "screenshots_attached": len(screenshot_blocks),
-                "attempts": [],
-                "qc": {},
-            }
-
-            for attempt in range(1, config["max_attempts"] + 1):
-                if self._is_cancelled(db_name, record_id):
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step=f"prd.attempt.{attempt}.generate",
-                        status="cancelled",
-                        message="Operator cancelled the job mid-generation",
-                    )
-                    self._write_with_cursor(db_name, record_id, {
-                        "state": "draft", "error_message": "Cancelled during generation",
-                        "completed_at": fields.Datetime.now(),
+                    # started_processing_at was already claimed by the re-entry
+                    # guard above (it is the watchdog's "running, not just
+                    # queued" signal). Here we only (re)affirm state and pulse
+                    # the heartbeat now that config has loaded cleanly.
+                    record.write({
+                        "state": "generating",
+                        "last_heartbeat": fields.Datetime.now(),
                     })
-                    return
-
-                self._write_with_cursor(db_name, record_id, {
-                    "last_heartbeat": fields.Datetime.now(),
-                })
+                    cr.commit()
 
                 self._append_pipeline_event(
                     db_name, record_id,
-                    step=f"prd.attempt.{attempt}.generate",
-                    status="started",
-                    message=f"Calling Bedrock for PRD attempt {attempt}/{config['max_attempts']}",
-                    attempt=attempt,
+                    step="prd.config",
+                    status="ok",
+                    message="Configuration loaded; entering PRD generation",
                     max_attempts=config["max_attempts"],
-                )
-
-                try:
-                    prd_text = generate_prd(
-                        inference_arn=config["inference_arn"],
-                        region=config["region"],
-                        system_prompt=prd_system_prompt,
-                        messages=messages,
-                        access_key_id=config["bedrock_access_key"],
-                        secret_access_key=config["bedrock_secret_key"],
-                    )
-                except Exception as gen_exc:
-                    _logger.warning(
-                        "LLM attempt %d/%d failed for job %s: %s",
-                        attempt, config["max_attempts"], job_data["name"], gen_exc,
-                    )
-                    self._append_pipeline_event(
-                        db_name, record_id,
-                        step=f"prd.attempt.{attempt}.generate",
-                        status="error" if attempt == config["max_attempts"] else "warn",
-                        message=f"Bedrock call failed: {gen_exc}",
-                        attempt=attempt,
-                    )
-                    if attempt == config["max_attempts"]:
-                        raise
-                    time.sleep(2 * attempt)
-                    continue
-
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step=f"prd.attempt.{attempt}.generate",
-                    status="ok",
-                    message=f"PRD attempt {attempt} produced {len(prd_text or '')} chars",
-                    attempt=attempt,
-                    chars=len(prd_text or ""),
-                )
-
-                score_report = score_prd(
-                    prd_text=prd_text,
-                    category=job_data["category_name"],
-                )
-                total_score = score_report["total_score"]
-
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step=f"prd.attempt.{attempt}.score",
-                    status="ok",
-                    message=f"Score = {total_score} / grade = {score_report.get('grade')}",
-                    attempt=attempt,
-                    score=total_score,
-                    grade=score_report.get("grade"),
-                )
-
-                self._write_with_cursor(db_name, record_id, {
-                    "llm_attempts": attempt,
-                })
-
-                llm_trace["attempts"].append({
-                    "attempt": attempt,
-                    "prd_text": prd_text,
-                    "score": total_score,
-                    "grade": score_report.get("grade"),
-                    "score_report": score_report,
-                })
-
-                # Keep the highest scorer; always keep *something* so a run that
-                # only produces rejected PRDs (score 0) still saves a PRD for the
-                # tasker to edit instead of crashing on upload with prd_text=None.
-                if best_prd_text is None or total_score > best_score:
-                    best_prd_text = prd_text
-                    best_score = total_score
-                    best_grade = score_report["grade"]
-                    best_score_report = score_report
-
-                if attempt < config["max_attempts"]:
-                    messages.append({"role": "assistant", "content": prd_text})
-                    feedback = self._build_feedback(score_report)
-                    messages.append({
-                        "role": "user",
-                        "content": (
-                            f"Score: {total_score} (attempt {attempt})\n"
-                            f"Feedback:\n{feedback}\n\n"
-                            "Fix all issues and rewrite the complete PRD."
-                        ),
-                    })
-
-            # Upload to S3
-            try:
-                prd_url = upload_prd_to_s3(
-                    prd_text=best_prd_text,
-                    job_name=job_data["name"],
-                    bucket=config["s3_bucket"],
-                    access_key_id=config["s3_key_id"],
-                    secret_key=config["s3_secret"],
-                    region=config["s3_region"],
-                    folder=config["s3_folder"],
-                    cdn_url=config["cdn_url"],
-                )
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step="prd.s3_upload",
-                    status="ok",
-                    message=f"PRD uploaded to S3",
-                    prd_url=prd_url,
-                )
-            except Exception as up_exc:
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step="prd.s3_upload",
-                    status="error",
-                    message=f"S3 upload failed: {up_exc}",
-                )
-                raise
-
-            # === PHASE 3: QC ===
-            # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
-            # call; without this pulse the gap from the last PRD-gen attempt
-            # to PHASE 4's final write was fully unmonitored — long QC calls
-            # could trip the watchdog while doing real work.
-            self._write_with_cursor(db_name, record_id, {
-                "state": "scoring",
-                "last_heartbeat": fields.Datetime.now(),
-            })
-            self._append_pipeline_event(
-                db_name, record_id,
-                step="qc.evaluate",
-                status="started",
-                message="Running Bedrock QC evaluation on best PRD",
-            )
-
-            qc_verdict = "not_shippable"
-            qc_report = ""
-            try:
-                from ..services.qc_service import run_qc
-
-                extraction_artifacts = {}
-                if job_data["site_discovery_json"]:
-                    extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
-
-                qc_result = run_qc(
-                    prd_text=best_prd_text,
-                    extraction_data=extraction_artifacts,
-                    site_discovery=job_data["site_discovery_json"] or {},
-                    url=job_data["url"],
-                    category=job_data["category_name"],
                     inference_arn=config["inference_arn"],
                     region=config["region"],
-                    access_key_id=config["bedrock_access_key"],
-                    secret_access_key=config["bedrock_secret_key"],
-                    qc_system_prompt=qc_system_prompt,
-                    screenshot_blocks=screenshot_blocks,
-                )
-                qc_verdict = qc_result["verdict"]
-                qc_report = qc_result["report"]
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step="qc.evaluate",
-                    status="ok",
-                    message=f"QC verdict: {qc_verdict}",
-                    verdict=qc_verdict,
-                )
-            except Exception as qc_exc:
-                _logger.warning(
-                    "QC failed for job %s: %s (fail-closed: not_shippable)",
-                    job_data["name"], qc_exc,
-                )
-                qc_verdict = "not_shippable"
-                qc_report = f"QC evaluation failed: {qc_exc}\n\nVerdict defaulted to NOT SHIPPABLE (fail-closed policy)."
-                self._append_pipeline_event(
-                    db_name, record_id,
-                    step="qc.evaluate",
-                    status="error",
-                    message=f"QC evaluation crashed (fail-closed): {qc_exc}",
+                    category=job_data["category_name"],
+                    screenshot_count=len(job_data["screenshot_keys"]),
                 )
 
-            llm_trace["qc"] = {
-                "qc_system_prompt": qc_system_prompt,
-                "verdict": qc_verdict,
-                "report": qc_report,
-            }
-
-            # === PHASE 4: Write final results ===
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                record = env[self._name].browse(record_id)
-
-                started = record.started_at
-                duration = (
-                    (fields.Datetime.now() - started).total_seconds()
-                    if started else 0
-                )
-
-                record.write({
-                    "state": "done",
-                    "prd_text": best_prd_text,
-                    "score": best_score,
-                    "grade": best_grade,
-                    "score_report_json": best_score_report,
-                    "prd_url": prd_url,
-                    "qc_verdict": qc_verdict,
-                    "qc_report": qc_report,
-                    "llm_trace_json": llm_trace,
-                    "completed_at": fields.Datetime.now(),
-                    "duration_seconds": duration,
-                })
-
-                try:
-                    env["bus.bus"]._sendone(
-                        "gohan_job_updates",
-                        "gohan/job_done",
-                        {"id": record_id, "name": job_data["name"]},
-                    )
-                except Exception:
-                    _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
-
-                if record.via_batch:
-                    record.write({
-                        "state": "not_assigned",
-                        "via_batch": False,
-                        "user_id": False,
-                    })
-                    _logger.info(
-                        "Batch pipeline done for job %s — reset to not_assigned",
-                        record_id,
+                # === PHASE 2: LLM generation loop ===
+                # Download screenshots from S3 for vision (shared by PRD gen + QC)
+                # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
+                # Operators can disable visual input entirely via
+                # `gohan.prd_include_screenshots` sysparam (default True). Set to
+                # False to send text-only — useful when iterating on the textual
+                # extraction quality without burning vision tokens.
+                screenshot_blocks = []
+                if config["include_screenshots"] and job_data["screenshot_keys"] and config["s3_bucket"]:
+                    from ..services.s3_service import download_file_from_s3
+                    import base64 as b64
+                    MAX_SCREENSHOTS = 5
+                    MAX_IMG_BYTES = 3_500_000  # 3.5MB (under Bedrock 3.75MB limit)
+                    total_bytes = 0
+                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
+                        try:
+                            img_bytes = download_file_from_s3(
+                                key=key,
+                                bucket=config["s3_bucket"],
+                                access_key_id=config["s3_key_id"],
+                                secret_key=config["s3_secret"],
+                                region=config["s3_region"],
+                            )
+                            if len(img_bytes) > MAX_IMG_BYTES:
+                                _logger.info("Skipping oversized screenshot %s (%d bytes)", key, len(img_bytes))
+                                continue
+                            ext = key.rsplit(".", 1)[-1].lower()
+                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            # Bedrock rejects images with any dimension > 8000 px.
+                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
+                            total_bytes += len(img_bytes)
+                            if total_bytes > 20_000_000:  # 20MB safety cap
+                                _logger.info("Screenshot total size cap reached, stopping")
+                                break
+                            screenshot_blocks.append({
+                                "image": {
+                                    "format": fmt,
+                                    "source": {"bytes": b64.b64encode(img_bytes).decode()},
+                                }
+                            })
+                        except Exception as img_exc:
+                            _logger.warning("Failed to download screenshot %s: %s", key, img_exc)
+                            self._append_pipeline_event(
+                                db_name, record_id,
+                                step="prd.screenshots.download",
+                                status="warn",
+                                message=f"Failed to download screenshot {key}: {img_exc}",
+                                key=key,
+                            )
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="prd.screenshots.download",
+                        status="ok",
+                        message=f"Attached {len(screenshot_blocks)}/{len(job_data['screenshot_keys'])} screenshots ({total_bytes / 1_000_000:.1f} MB)",
+                        attached=len(screenshot_blocks),
+                        available=len(job_data["screenshot_keys"]),
+                        total_bytes=total_bytes,
                     )
 
-                cr.commit()
+                # Build multimodal content: screenshots + extraction text
+                content_blocks = list(screenshot_blocks)
+                content_blocks.append({"text": (
+                    f"Below is the extracted website data. "
+                    f"Write the complete PRD following all rules.\n\n"
+                    f"---\n\n{job_data['prd_prompt']}"
+                )})
+                # Tasker-curated SVG UI icons — fed as inline markup so the model
+                # can reference the product's real iconography.
+                if job_data.get("svg_icons"):
+                    icon_md = "\n\n".join(
+                        f"### {ic['name']}\n```svg\n{ic['markup']}\n```"
+                        for ic in job_data["svg_icons"]
+                    )
+                    content_blocks.append({"text": (
+                        "\n\n---\n\n## EXTRACTED UI ICONS (SVG)\n\n"
+                        "The following SVG icons were captured from the site and "
+                        "approved by the reviewer:\n\n" + icon_md
+                    )})
+                messages = [{"role": "user", "content": content_blocks}]
 
-            self._append_pipeline_event(
-                db_name, record_id,
-                step="pipeline.complete",
-                status="ok",
-                message=f"Pipeline finished — score={best_score} grade={best_grade} verdict={qc_verdict}",
-                score=best_score,
-                grade=best_grade,
-                qc_verdict=qc_verdict,
-                duration_seconds=duration,
-            )
+                best_prd_text = None
+                best_score = 0
+                best_grade = None
+                best_score_report = None
 
-        except Exception as exc:
-            _logger.exception("[gohan][job=%s] PRD generation failed", record_id)
-            # Translate psycopg2 / connection-layer faults to a friendlier
-            # operator-facing message — the raw "Cursor already closed" or
-            # "connection already closed" texts are infrastructure noise that
-            # tell the user nothing actionable.
-            friendly_msg = self._friendly_pipeline_error(exc)
-            self._append_pipeline_event(
-                db_name, record_id,
-                step="pipeline.complete",
-                status="error",
-                message=f"PRD generation crashed: {friendly_msg}",
-            )
-            try:
-                fail_vals = {
-                    "state": "failed",
-                    "error_message": friendly_msg[:500],
-                    "completed_at": fields.Datetime.now(),
+                # Full transparency: capture every LLM interaction for audit.
+                llm_trace = {
+                    "prd_system_prompt": prd_system_prompt,
+                    "extraction_prompt": job_data["prd_prompt"],
+                    "screenshots_attached": len(screenshot_blocks),
+                    "attempts": [],
+                    "qc": {},
                 }
-                # Persist whatever LLM trace we accumulated before the failure.
-                _trace = locals().get("llm_trace")
-                if _trace:
-                    fail_vals["llm_trace_json"] = _trace
-                self._write_with_cursor(db_name, record_id, fail_vals)
-            except Exception:
-                _logger.error("[gohan][job=%s] failed to mark as failed", record_id)
+
+                for attempt in range(1, config["max_attempts"] + 1):
+                    if self._is_cancelled(db_name, record_id):
+                        self._append_pipeline_event(
+                            db_name, record_id,
+                            step=f"prd.attempt.{attempt}.generate",
+                            status="cancelled",
+                            message="Operator cancelled the job mid-generation",
+                        )
+                        self._write_with_cursor(db_name, record_id, {
+                            "state": "draft", "error_message": "Cancelled during generation",
+                            "completed_at": fields.Datetime.now(),
+                        })
+                        return
+
+                    self._write_with_cursor(db_name, record_id, {
+                        "last_heartbeat": fields.Datetime.now(),
+                    })
+
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step=f"prd.attempt.{attempt}.generate",
+                        status="started",
+                        message=f"Calling Bedrock for PRD attempt {attempt}/{config['max_attempts']}",
+                        attempt=attempt,
+                        max_attempts=config["max_attempts"],
+                    )
+
+                    try:
+                        prd_text = generate_prd(
+                            inference_arn=config["inference_arn"],
+                            region=config["region"],
+                            system_prompt=prd_system_prompt,
+                            messages=messages,
+                            access_key_id=config["bedrock_access_key"],
+                            secret_access_key=config["bedrock_secret_key"],
+                        )
+                    except Exception as gen_exc:
+                        _logger.warning(
+                            "LLM attempt %d/%d failed for job %s: %s",
+                            attempt, config["max_attempts"], job_data["name"], gen_exc,
+                        )
+                        self._append_pipeline_event(
+                            db_name, record_id,
+                            step=f"prd.attempt.{attempt}.generate",
+                            status="error" if attempt == config["max_attempts"] else "warn",
+                            message=f"Bedrock call failed: {gen_exc}",
+                            attempt=attempt,
+                        )
+                        if attempt == config["max_attempts"]:
+                            raise
+                        time.sleep(2 * attempt)
+                        continue
+
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step=f"prd.attempt.{attempt}.generate",
+                        status="ok",
+                        message=f"PRD attempt {attempt} produced {len(prd_text or '')} chars",
+                        attempt=attempt,
+                        chars=len(prd_text or ""),
+                    )
+
+                    score_report = score_prd(
+                        prd_text=prd_text,
+                        category=job_data["category_name"],
+                    )
+                    total_score = score_report["total_score"]
+
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step=f"prd.attempt.{attempt}.score",
+                        status="ok",
+                        message=f"Score = {total_score} / grade = {score_report.get('grade')}",
+                        attempt=attempt,
+                        score=total_score,
+                        grade=score_report.get("grade"),
+                    )
+
+                    self._write_with_cursor(db_name, record_id, {
+                        "llm_attempts": attempt,
+                    })
+
+                    llm_trace["attempts"].append({
+                        "attempt": attempt,
+                        "prd_text": prd_text,
+                        "score": total_score,
+                        "grade": score_report.get("grade"),
+                        "score_report": score_report,
+                    })
+
+                    # Keep the highest scorer; always keep *something* so a run that
+                    # only produces rejected PRDs (score 0) still saves a PRD for the
+                    # tasker to edit instead of crashing on upload with prd_text=None.
+                    if best_prd_text is None or total_score > best_score:
+                        best_prd_text = prd_text
+                        best_score = total_score
+                        best_grade = score_report["grade"]
+                        best_score_report = score_report
+
+                    if attempt < config["max_attempts"]:
+                        messages.append({"role": "assistant", "content": prd_text})
+                        feedback = self._build_feedback(score_report)
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                f"Score: {total_score} (attempt {attempt})\n"
+                                f"Feedback:\n{feedback}\n\n"
+                                "Fix all issues and rewrite the complete PRD."
+                            ),
+                        })
+
+                # Upload to S3
+                try:
+                    prd_url = upload_prd_to_s3(
+                        prd_text=best_prd_text,
+                        job_name=job_data["name"],
+                        bucket=config["s3_bucket"],
+                        access_key_id=config["s3_key_id"],
+                        secret_key=config["s3_secret"],
+                        region=config["s3_region"],
+                        folder=config["s3_folder"],
+                        cdn_url=config["cdn_url"],
+                    )
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="prd.s3_upload",
+                        status="ok",
+                        message=f"PRD uploaded to S3",
+                        prd_url=prd_url,
+                    )
+                except Exception as up_exc:
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="prd.s3_upload",
+                        status="error",
+                        message=f"S3 upload failed: {up_exc}",
+                    )
+                    raise
+
+                # === PHASE 3: QC ===
+                # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
+                # call; without this pulse the gap from the last PRD-gen attempt
+                # to PHASE 4's final write was fully unmonitored — long QC calls
+                # could trip the watchdog while doing real work.
+                self._write_with_cursor(db_name, record_id, {
+                    "state": "scoring",
+                    "last_heartbeat": fields.Datetime.now(),
+                })
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="qc.evaluate",
+                    status="started",
+                    message="Running Bedrock QC evaluation on best PRD",
+                )
+
+                qc_verdict = "not_shippable"
+                qc_report = ""
+                try:
+                    from ..services.qc_service import run_qc
+
+                    extraction_artifacts = {}
+                    if job_data["site_discovery_json"]:
+                        extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
+
+                    qc_result = run_qc(
+                        prd_text=best_prd_text,
+                        extraction_data=extraction_artifacts,
+                        site_discovery=job_data["site_discovery_json"] or {},
+                        url=job_data["url"],
+                        category=job_data["category_name"],
+                        inference_arn=config["inference_arn"],
+                        region=config["region"],
+                        access_key_id=config["bedrock_access_key"],
+                        secret_access_key=config["bedrock_secret_key"],
+                        qc_system_prompt=qc_system_prompt,
+                        screenshot_blocks=screenshot_blocks,
+                    )
+                    qc_verdict = qc_result["verdict"]
+                    qc_report = qc_result["report"]
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="qc.evaluate",
+                        status="ok",
+                        message=f"QC verdict: {qc_verdict}",
+                        verdict=qc_verdict,
+                    )
+                except Exception as qc_exc:
+                    _logger.warning(
+                        "QC failed for job %s: %s (fail-closed: not_shippable)",
+                        job_data["name"], qc_exc,
+                    )
+                    qc_verdict = "not_shippable"
+                    qc_report = f"QC evaluation failed: {qc_exc}\n\nVerdict defaulted to NOT SHIPPABLE (fail-closed policy)."
+                    self._append_pipeline_event(
+                        db_name, record_id,
+                        step="qc.evaluate",
+                        status="error",
+                        message=f"QC evaluation crashed (fail-closed): {qc_exc}",
+                    )
+
+                llm_trace["qc"] = {
+                    "qc_system_prompt": qc_system_prompt,
+                    "verdict": qc_verdict,
+                    "report": qc_report,
+                }
+
+                # === PHASE 4: Write final results ===
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    record = env[self._name].browse(record_id)
+
+                    started = record.started_at
+                    duration = (
+                        (fields.Datetime.now() - started).total_seconds()
+                        if started else 0
+                    )
+
+                    record.write({
+                        "state": "done",
+                        "prd_text": best_prd_text,
+                        "score": best_score,
+                        "grade": best_grade,
+                        "score_report_json": best_score_report,
+                        "prd_url": prd_url,
+                        "qc_verdict": qc_verdict,
+                        "qc_report": qc_report,
+                        "llm_trace_json": llm_trace,
+                        "completed_at": fields.Datetime.now(),
+                        "duration_seconds": duration,
+                    })
+
+                    try:
+                        env["bus.bus"]._sendone(
+                            "gohan_job_updates",
+                            "gohan/job_done",
+                            {"id": record_id, "name": job_data["name"]},
+                        )
+                    except Exception:
+                        _logger.debug("bus.bus notification failed for job %s (non-fatal)", record_id)
+
+                    if record.via_batch:
+                        record.write({
+                            "state": "not_assigned",
+                            "via_batch": False,
+                            "user_id": False,
+                        })
+                        _logger.info(
+                            "Batch pipeline done for job %s — reset to not_assigned",
+                            record_id,
+                        )
+
+                    cr.commit()
+
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="pipeline.complete",
+                    status="ok",
+                    message=f"Pipeline finished — score={best_score} grade={best_grade} verdict={qc_verdict}",
+                    score=best_score,
+                    grade=best_grade,
+                    qc_verdict=qc_verdict,
+                    duration_seconds=duration,
+                )
+
+            except Exception as exc:
+                _logger.exception("[gohan][job=%s] PRD generation failed", record_id)
+                # Translate psycopg2 / connection-layer faults to a friendlier
+                # operator-facing message — the raw "Cursor already closed" or
+                # "connection already closed" texts are infrastructure noise that
+                # tell the user nothing actionable.
+                friendly_msg = self._friendly_pipeline_error(exc)
+                self._append_pipeline_event(
+                    db_name, record_id,
+                    step="pipeline.complete",
+                    status="error",
+                    message=f"PRD generation crashed: {friendly_msg}",
+                )
+                try:
+                    fail_vals = {
+                        "state": "failed",
+                        "error_message": friendly_msg[:500],
+                        "completed_at": fields.Datetime.now(),
+                    }
+                    # Persist whatever LLM trace we accumulated before the failure.
+                    _trace = locals().get("llm_trace")
+                    if _trace:
+                        fail_vals["llm_trace_json"] = _trace
+                    self._write_with_cursor(db_name, record_id, fail_vals)
+                except Exception:
+                    _logger.error("[gohan][job=%s] failed to mark as failed", record_id)
 
     @staticmethod
     def _friendly_pipeline_error(exc):
@@ -3769,6 +4107,14 @@ class GohanJob(models.Model):
         generating_threshold = int(
             ICP.get_param("gohan.watchdog_generating_minutes", "45")
         )
+        # Fix 4 recovery — short threshold for re-submitting jobs that have
+        # no worker (admission-rejected, or queued in a deeply-backed-up
+        # pool). Must sit comfortably ABOVE realistic pool drain time and
+        # well BELOW generating_threshold so a recoverable job is retried,
+        # not failed.
+        deferred_threshold = int(
+            ICP.get_param("gohan.watchdog_deferred_minutes", "15")
+        )
 
         try:
             stale_extracting = self.search([
@@ -3824,6 +4170,63 @@ class GohanJob(models.Model):
                     f"Watchdog: {job.state} timed out "
                     f"(no progress for {generating_threshold}+ minutes)"
                 )
+
+            # ---- Fix 4 recovery: re-submit jobs that have no worker ----
+            # A job rejected by the _submit_bg admission semaphore is left
+            # in an active state with started_processing_at = False — the
+            # worker never ran, so it never claimed the job. That is the
+            # SAME column signature as a job legitimately still queued in
+            # _POOL, but a rejected job will NEVER self-recover whereas a
+            # queued job clears within the pool drain time (minutes). Past
+            # the SHORT deferred_threshold (default 15m, << the 45m fail
+            # threshold) the correct action for BOTH is the same: re-submit.
+            # Re-submission is safe — the PRD worker's row-locked re-entry
+            # guard means that even if the original queued submission also
+            # runs, exactly one worker wins. This domain is disjoint from
+            # stale_generating above (started_processing_at != False), so a
+            # job is never both failed and re-submitted in one tick.
+            #
+            # extracting is intentionally excluded: it is driven by Lambda
+            # + webhook + the S3 poller (not a _POOL worker that admission
+            # can reject), and re-submitting an invoke could double-fire the
+            # Lambda. Its Path-1 recovery above already covers it.
+            deferred = self.search([
+                ("state", "in", ("generating", "scoring")),
+                ("started_processing_at", "=", False),
+                (
+                    "last_heartbeat",
+                    "<",
+                    fields.Datetime.now() - timedelta(minutes=deferred_threshold),
+                ),
+            ])
+            db_name = self.env.cr.dbname
+            for job in deferred:
+                _logger.warning(
+                    "[gohan][job=%s] watchdog: %s with no worker for >%dmin "
+                    "(admission-rejected or pool-starved) — re-submitting",
+                    job.name, job.state, deferred_threshold,
+                )
+                # Pulse the heartbeat now so that if the re-submission is
+                # ALSO rejected (pool still full), this job is not re-picked
+                # until another deferred_threshold elapses — natural backoff
+                # instead of a tight re-submit loop every watchdog tick.
+                job.last_heartbeat = fields.Datetime.now()
+
+                def _resubmit(_rid=job.id):
+                    handle = _submit_bg(
+                        f"prd-gen[watchdog-resubmit,job={_rid}]",
+                        self._run_prd_generation_bg, db_name, _rid,
+                    )
+                    if handle is None:
+                        _logger.warning(
+                            "[gohan][job=%s] watchdog re-submission ALSO "
+                            "rejected (pool still full) — will retry on a "
+                            "later watchdog tick", _rid,
+                        )
+
+                # postcommit so the heartbeat pulse is durably committed
+                # before the re-submitted worker can race the cron's txn.
+                self.env.cr.postcommit.add(_resubmit)
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(987654321)")
 
@@ -4305,6 +4708,8 @@ class GohanJob(models.Model):
 
         if self.state in ("extracting", "failed"):
             write_vals["state"] = "generating"
+            # Cleared so the bg worker's re-entry guard claims this run.
+            write_vals["started_processing_at"] = False
 
         self.write(write_vals)
         self._notify_state_change(write_vals.get("state") or self.state)

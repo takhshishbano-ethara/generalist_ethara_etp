@@ -283,13 +283,75 @@ class TestWatchdogCron(GohanTestCase):
         self.assertIn("timed out", job.error_message)
 
     def test_marks_stale_generating_jobs_failed(self):
+        # A CLAIMED job (started_processing_at set) gone quiet past the fail
+        # threshold = a genuinely stuck running worker. Watchdog Path 2 fails
+        # it. Contrast with an *unclaimed* generating job, which the Fix 4
+        # deferred pass re-submits instead (see test below).
         old = fields.Datetime.now() - timedelta(minutes=120)
         job = self._create_job(
-            user_id=self.tasker.id, state="generating", last_heartbeat=old,
+            user_id=self.tasker.id, state="generating",
+            last_heartbeat=old, started_processing_at=old,
         )
         self.Job._cron_watchdog_stuck_jobs()
         job.invalidate_recordset()
         self.assertEqual(job.state, "failed")
+
+    def test_deferred_unclaimed_generating_job_resubmitted(self):
+        # Fix 4 recovery: a generating job with no worker
+        # (started_processing_at = False) idle past the short deferred
+        # threshold is RE-SUBMITTED, not failed.
+        stale = fields.Datetime.now() - timedelta(minutes=20)
+        job = self._create_job(
+            user_id=self.tasker.id, state="generating", last_heartbeat=stale,
+        )
+        with patch.object(self.env.cr, "postcommit") as mock_pc:
+            self.Job._cron_watchdog_stuck_jobs()
+        job.invalidate_recordset()
+        # Not failed — left in generating for the re-submitted worker.
+        self.assertEqual(job.state, "generating")
+        # Heartbeat pulsed forward (natural backoff against re-rejection).
+        self.assertGreater(job.last_heartbeat, stale)
+        # Exactly one re-submission queued on postcommit.
+        self.assertTrue(mock_pc.add.called)
+        resubmit_fn = mock_pc.add.call_args[0][0]
+        # Invoking it routes through _submit_bg with a watchdog-resubmit label.
+        with self._patch_submit_bg() as mock_submit:
+            resubmit_fn()
+        self.assertTrue(mock_submit.called)
+        self.assertIn("watchdog-resubmit", mock_submit.call_args[0][0])
+
+    def test_queued_generating_job_within_threshold_untouched(self):
+        # An unclaimed generating job only 5 min idle is presumed genuinely
+        # queued in the pool — well within drain time. The deferred pass must
+        # NOT re-submit it (that is the "don't disturb queued jobs" guard).
+        recent = fields.Datetime.now() - timedelta(minutes=5)
+        job = self._create_job(
+            user_id=self.tasker.id, state="generating", last_heartbeat=recent,
+        )
+        with patch.object(self.env.cr, "postcommit") as mock_pc:
+            self.Job._cron_watchdog_stuck_jobs()
+        job.invalidate_recordset()
+        self.assertEqual(job.state, "generating")
+        self.assertFalse(mock_pc.add.called)
+
+    def test_watchdog_routes_extracting_vs_generating(self):
+        # One run, two jobs: a stale extracting job goes to Path 1 (failed,
+        # no S3 rescue), while a stale unclaimed generating job goes to the
+        # Fix 4 deferred pass (re-submitted, still generating). Proves the
+        # deferred pass never touches extracting state.
+        old = fields.Datetime.now() - timedelta(minutes=120)
+        extracting = self._create_job(
+            user_id=self.tasker.id, state="extracting", last_heartbeat=old,
+        )
+        generating = self._create_job(
+            user_id=self.tasker.id, state="generating", last_heartbeat=old,
+        )
+        with patch.object(self.env.cr, "postcommit"):
+            self.Job._cron_watchdog_stuck_jobs()
+        extracting.invalidate_recordset()
+        generating.invalidate_recordset()
+        self.assertEqual(extracting.state, "failed")
+        self.assertEqual(generating.state, "generating")
 
     def test_fresh_jobs_untouched(self):
         job = self._create_job(
@@ -318,3 +380,139 @@ class TestActionDownloadZip(GohanTestCase):
         result = job.action_download_zip()
         self.assertEqual(result["type"], "ir.actions.act_url")
         self.assertIn("/web/content/", result["url"])
+
+
+@tagged("post_install", "-at_install", "gohan")
+class TestStartedProcessingReset(GohanTestCase):
+    """Fix 4: re-trigger actions must clear started_processing_at so the PRD
+    worker's re-entry guard re-claims the job (a stale claim from a prior run
+    would otherwise make the guard skip the new run)."""
+
+    def test_batch_generate_path_resets_started_processing_at(self):
+        self._set_param("gohan.lambda_function_name", "lev-extract")
+        old = fields.Datetime.now() - timedelta(minutes=120)
+        job = self._create_job(
+            prd_prompt="already extracted", started_processing_at=old,
+        )
+        with self._patch_submit_bg():
+            job.action_run_batch_concurrent()
+            self.env.cr.flush()
+        job.invalidate_recordset()
+        self.assertEqual(job.state, "generating")
+        self.assertFalse(job.started_processing_at)
+
+
+@tagged("post_install", "-at_install", "gohan")
+class TestAdmissionControl(GohanTestCase):
+    """Fix 4: _submit_bg refuses work once the in-flight + queued admission
+    cap is reached, instead of growing the pool queue without bound."""
+
+    def test_submit_bg_rejects_when_admission_full(self):
+        from odoo.addons.gohan.models import gohan_job
+
+        sem = gohan_job._ADMISSION_SEMAPHORE
+        drained = 0
+        try:
+            while sem.acquire(timeout=0):
+                drained += 1
+            self.assertGreater(drained, 0)
+            ran = []
+            result = gohan_job._submit_bg(
+                "test-rejected", lambda: ran.append(1)
+            )
+            # Rejected: returns None and the callable never runs.
+            self.assertIsNone(result)
+            self.assertEqual(ran, [])
+        finally:
+            for _ in range(drained):
+                sem.release()
+
+
+@tagged("post_install", "-at_install", "gohan")
+class TestHeartbeatManager(GohanTestCase):
+    """Fix 3: the shared heartbeat manager's registry mechanics."""
+
+    def test_register_tracks_jobs_and_starts_thread(self):
+        from odoo.addons.gohan.models.gohan_job import _HeartbeatManager
+
+        # Long interval so the daemon never ticks (no DB) during the test.
+        mgr = _HeartbeatManager(interval=3600)
+        try:
+            mgr.register("testdb", 101)
+            self.assertIn(("testdb", 101), mgr._active)
+            self.assertIsNotNone(mgr._thread)
+            self.assertTrue(mgr._thread.is_alive())
+            mgr.register("testdb", 102)
+            self.assertEqual(len(mgr._active), 2)
+            mgr.unregister("testdb", 101)
+            self.assertNotIn(("testdb", 101), mgr._active)
+            self.assertIn(("testdb", 102), mgr._active)
+        finally:
+            mgr._stop_event.set()
+
+    def test_register_is_reference_counted(self):
+        # Two workers can track the same job (Fix 4 re-submission race,
+        # poller/PRD overlap). The job must stay tracked until the LAST
+        # worker unregisters — not the first.
+        from odoo.addons.gohan.models.gohan_job import _HeartbeatManager
+
+        mgr = _HeartbeatManager(interval=3600)
+        try:
+            mgr.register("db", 1)
+            mgr.register("db", 1)
+            self.assertIn(("db", 1), mgr._active)
+            mgr.unregister("db", 1)
+            self.assertIn(("db", 1), mgr._active)  # one worker still on it
+            mgr.unregister("db", 1)
+            self.assertNotIn(("db", 1), mgr._active)  # last worker left
+        finally:
+            mgr._stop_event.set()
+
+    def test_register_ignores_blank_keys(self):
+        from odoo.addons.gohan.models.gohan_job import _HeartbeatManager
+
+        mgr = _HeartbeatManager(interval=3600)
+        mgr.register("", 1)
+        mgr.register("db", 0)
+        mgr.register("db", None)
+        self.assertEqual(len(mgr._active), 0)
+        # No registration happened, so no daemon thread was started.
+        self.assertIsNone(mgr._thread)
+
+
+@tagged("post_install", "-at_install", "gohan")
+class TestStaggeredFanout(GohanTestCase):
+    """Fix 5: the batch fan-out dispatches Lambda invokes in time-spaced
+    waves rather than all at once."""
+
+    def test_fanout_dispatches_in_waves(self):
+        from odoo.addons.gohan.models import gohan_job
+
+        wave_size = gohan_job._FANOUT_WAVE_SIZE
+        n = wave_size * 2 + 5  # spans 3 waves -> expect 2 inter-wave sleeps
+        record_ids = list(range(1, n + 1))
+        record_urls = {rid: "https://example.com" for rid in record_ids}
+        config = {
+            "batch_concurrency": 10,
+            "function_name": "fn",
+            "region": "us-east-1",
+            "access_key_id": "k",
+            "secret_access_key": "s",
+            "local_url": "",
+        }
+        n_waves = (n + wave_size - 1) // wave_size
+        expected_sleeps = n_waves - 1
+
+        with patch(
+            "odoo.addons.gohan.services.extraction_service.trigger_extraction",
+            return_value={"success": True},
+        ) as mock_trigger, patch(
+            "odoo.addons.gohan.models.gohan_job.time.sleep",
+        ) as mock_sleep:
+            self.Job._fanout_batch_extraction(
+                self.env.cr.dbname, record_ids, record_urls,
+                "https://example.com/webhook", config,
+            )
+
+        self.assertEqual(mock_trigger.call_count, n)
+        self.assertEqual(mock_sleep.call_count, expected_sleeps)
