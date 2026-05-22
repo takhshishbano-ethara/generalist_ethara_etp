@@ -10,6 +10,7 @@ _logger = logging.getLogger(__name__)
 _API_KEY_PARAM = "crowley.openrouter_api_key"
 _AWS_ACCESS_KEY_PARAM = "crowley.aws_access_key"
 _AWS_SECRET_KEY_PARAM = "crowley.aws_secret_key"
+_BEDROCK_API_KEY_PARAM = "crowley.bedrock_api_key"
 _WEBHOOK_SECRET_PARAM = "crowley.webhook_secret"
 _S3_CONNECTOR_PARAM = "crowley.s3_connector_id"
 _MASK = "********"
@@ -37,6 +38,17 @@ class ResConfigSettings(models.TransientModel):
     crowley_aws_secret_key = fields.Char(string="AWS Secret Access Key")
     crowley_aws_secret_key_is_set = fields.Boolean(
         string="AWS Secret Configured", compute="_compute_aws_secret_key_is_set"
+    )
+    crowley_bedrock_api_key = fields.Char(
+        string="Bedrock API Key",
+        help="AWS Bedrock API Key (starts with ABSK...). "
+             "Single-key alternative to AWS Access Key + Secret Key for "
+             "Bedrock auth. Preferred when set: no SigV4 signing, direct "
+             "HTTPS Bearer auth to bedrock-runtime endpoint.",
+    )
+    crowley_bedrock_api_key_is_set = fields.Boolean(
+        string="Bedrock API Key Configured",
+        compute="_compute_bedrock_api_key_is_set",
     )
     crowley_webhook_secret = fields.Char(string="Webhook HMAC Secret")
     crowley_webhook_secret_is_set = fields.Boolean(
@@ -89,10 +101,7 @@ class ResConfigSettings(models.TransientModel):
     crowley_bedrock_model_id = fields.Char(
         string="Enrichment Model ID (Bedrock)",
         config_parameter="crowley.bedrock_model_id",
-        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        help="Bedrock modelId for ENRICHMENT. Target: Claude Sonnet 4.6 — "
-             "paste the exact ARN here when AWS publishes it. Falls back to "
-             "Claude 3.5 Sonnet so the pipeline runs out of the box.",
+        help="Target: Claude Sonnet 4.6 — paste exact ARN when AWS publishes it.",
     )
     crowley_bedrock_max_retries = fields.Integer(
         string="Bedrock Max Retries",
@@ -121,14 +130,6 @@ class ResConfigSettings(models.TransientModel):
         help="OpenRouter model slug for the review. Default: Kimi K2 (latest). "
              "K2 is text-only; visual GV-* rules are marked N/A.",
     )
-    crowley_bedrock_review_model_id = fields.Char(
-        string="Review Model ID (Bedrock)",
-        config_parameter="crowley.bedrock_review_model_id",
-        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        help="Bedrock modelId used when Review Provider is 'AWS Bedrock'. "
-             "Vision-capable Claude (3.5 / 4.x) recommended.",
-    )
-
     # ── Generation defaults ───────────────────────────────────────────────
     crowley_default_resolution = fields.Selection(
         selection=[("480p", "480p"), ("720p", "720p"), ("1080p", "1080p")],
@@ -187,6 +188,12 @@ class ResConfigSettings(models.TransientModel):
                 credential_manager.get_encrypted_param(self.env, "crowley.aws_secret_key")
             )
 
+    def _compute_bedrock_api_key_is_set(self):
+        for rec in self:
+            rec.crowley_bedrock_api_key_is_set = bool(
+                credential_manager.get_encrypted_param(self.env, _BEDROCK_API_KEY_PARAM)
+            )
+
     def _compute_webhook_secret_is_set(self):
         for rec in self:
             rec.crowley_webhook_secret_is_set = bool(
@@ -222,6 +229,12 @@ class ResConfigSettings(models.TransientModel):
             self.env, _AWS_SECRET_KEY_PARAM
         )
         res["crowley_aws_secret_key"] = _MASK if existing_aws_secret else ""
+
+        # Bedrock API key: mask if set, empty otherwise.
+        existing_bedrock_api = credential_manager.get_encrypted_param(
+            self.env, _BEDROCK_API_KEY_PARAM
+        )
+        res["crowley_bedrock_api_key"] = _MASK if existing_bedrock_api else ""
 
         # Webhook secret: mask if set, empty otherwise.
         existing_webhook = credential_manager.get_encrypted_param(
@@ -264,6 +277,12 @@ class ResConfigSettings(models.TransientModel):
         if submitted_aws_secret and submitted_aws_secret != _MASK:
             credential_manager.set_encrypted_param(
                 self.env, _AWS_SECRET_KEY_PARAM, submitted_aws_secret,
+            )
+
+        submitted_bedrock_api = (self.crowley_bedrock_api_key or "").strip()
+        if submitted_bedrock_api and submitted_bedrock_api != _MASK:
+            credential_manager.set_encrypted_param(
+                self.env, _BEDROCK_API_KEY_PARAM, submitted_bedrock_api,
             )
 
         # Webhook secret: only write when user submitted a real new value.
