@@ -722,13 +722,11 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
         try:
             history = ws_client.fetch_history(limit=1000)
             if history and isinstance(history, list):
-                history = _filter_trajectory_messages(history)
-                if history:
-                    with Registry(db_name).cursor() as cr:
-                        env = api.Environment(cr, SUPERUSER_ID, {})
-                        env["kensei2.sandbox"].auto_process_save_trajectory(
-                            sandbox_id, turn_id, history,
-                        )
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    env["kensei2.sandbox"].auto_process_save_trajectory(
+                        sandbox_id, turn_id, history,
+                    )
         except Exception as e:
             _logger.warning(
                 "[BATCH] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
@@ -1145,13 +1143,11 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
         try:
             history = ws_client.fetch_history(limit=1000)
             if history and isinstance(history, list):
-                history = _filter_trajectory_messages(history)
-                if history:
-                    with Registry(db_name).cursor() as cr:
-                        env = api.Environment(cr, SUPERUSER_ID, {})
-                        env["kensei2.sandbox"].auto_process_save_trajectory(
-                            sandbox_id, turn_id, history,
-                        )
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    env["kensei2.sandbox"].auto_process_save_trajectory(
+                        sandbox_id, turn_id, history,
+                    )
         except Exception as e:
             _logger.warning(
                 "[BATCH-PROMPT] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
