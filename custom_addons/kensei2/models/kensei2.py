@@ -1157,6 +1157,19 @@ class Kensei2(models.Model):
     )
     task_description_error = fields.Text(string="Task Description Error")
 
+    test_code = fields.Text(string="Task Test Code (Generated)")
+    test_code_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Test Code Status",
+        default="idle",
+    )
+    test_code_error = fields.Text(string="Test Code Error")
+
     test_weights = fields.Text(string="Test Weights (JSON)")
     test_weights_status = fields.Selection(
         [

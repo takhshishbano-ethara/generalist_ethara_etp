@@ -298,6 +298,262 @@ def _generate_intent_tests_background(db_name, sandbox_id, prompt):
         )
 
 
+def _generate_task_tests_background(db_name, task_id):
+    """Background worker: generate unified tests at the TASK level (one set for all sandboxes).
+
+    Single LLM call produces {code, weights} JSON → full test file written to task record.
+    """
+    try:
+        from odoo.modules.module import get_module_path
+
+        module_path = get_module_path("kensei2")
+
+        # Phase 1: read inputs (short cursor)
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if not task.exists():
+                _logger.error("[TASK-TESTGEN] task %s does not exist", task_id)
+                return
+
+            task.write({"test_code_status": "generating"})
+
+            prompt = (task.batch_prompt or task.initial_prompt or "").strip()
+            task_toml = ""
+            try:
+                task_toml = task._build_harbor_task_toml() or ""
+            except Exception:
+                pass
+
+            ICP = env["ir.config_parameter"].sudo()
+            inference_arn = (
+                ICP.get_param("kensei2.test_gen_inference_arn")
+                or ICP.get_param("kensei2.bedrock_inference_arn")
+                or ""
+            ).strip()
+            region = (ICP.get_param("kensei2.bedrock_region") or "ap-south-1").strip()
+
+            dotenv = _load_dotenv()
+            api_key = (
+                dotenv.get("KENSEI2_AWS_BEARER_TOKEN")
+                or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")
+            ).strip()
+
+        # Pre-flight checks
+        if not prompt:
+            raise RuntimeError("No prompt available for test generation")
+        if not api_key:
+            raise RuntimeError("KENSEI2_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set")
+        if not inference_arn:
+            raise RuntimeError("Bedrock Inference ARN not configured in Settings > Kensei2")
+
+        # Discover services from environment/ dir
+        env_dir = os.path.join(module_path, "environment")
+        services = {}
+        if os.path.isdir(env_dir):
+            for entry in sorted(os.listdir(env_dir)):
+                svc_dir = os.path.join(env_dir, entry)
+                toml_path = os.path.join(svc_dir, "service.toml")
+                if os.path.isdir(svc_dir) and os.path.isfile(toml_path):
+                    svc_meta = _parse_service_toml_fallback(toml_path)
+                    if svc_meta:
+                        services[svc_meta["name"]] = {
+                            "env_var": svc_meta["env_var_name"],
+                            "port": svc_meta["port"],
+                        }
+
+        api_docs = ""
+        api_docs_path = os.path.join(module_path, "environment", "API_DOCUMENTATION.md")
+        if os.path.isfile(api_docs_path):
+            with open(api_docs_path, "r") as f:
+                api_docs = f.read()
+            if len(api_docs) > 30000:
+                api_docs = api_docs[:30000] + "\n\n... [truncated]"
+
+        # Load unified system prompt
+        prompt_file = os.path.join(module_path, "test_generation_system_prompt.md")
+        if not os.path.isfile(prompt_file):
+            raise RuntimeError("test_generation_system_prompt.md not found in kensei2 module")
+        with open(prompt_file, "r") as f:
+            system_prompt = f.read()
+
+        # Build user message
+        msg = []
+        msg.append("## Task Instruction (instruction.md)\n")
+        msg.append(
+            "Generate tests that verify the agent performed these actions correctly.\n\n"
+        )
+        msg.append(prompt[:8000] if len(prompt) > 8000 else prompt)
+        msg.append("\n")
+
+        if task_toml:
+            msg.append("\n## task.toml (distractor_skills and metadata)\n")
+            msg.append("```toml\n%s\n```\n" % task_toml)
+
+        msg.append("\n## Available Mock API Services\n")
+        if services:
+            for svc_name, info in services.items():
+                const_name = svc_name.upper().replace("-", "_") + "_URL"
+                msg.append(
+                    "- `%s` (env: `%s`, port %d) → use constant `%s`\n"
+                    % (svc_name, info["env_var"], info["port"], const_name)
+                )
+        else:
+            msg.append("No API services configured.\n")
+
+        msg.append("\n## Mock API Documentation (endpoints for verification)\n")
+        msg.append(api_docs)
+        user_message = "\n".join(msg)
+
+        # Phase 2: call LLM (no cursor held)
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        gen_start = time.time()
+        response_text, usage = _call_bedrock_converse(
+            api_key=api_key,
+            inference_arn=inference_arn,
+            region=region,
+            system_prompt=system_prompt,
+            user_message=user_message,
+            max_tokens=12000,
+            temperature=0.2,
+            timeout=300.0,
+        )
+        gen_duration_ms = (time.time() - gen_start) * 1000
+
+        # Parse JSON {code, weights}
+        cleaned = response_text.strip()
+        if cleaned.startswith("```"):
+            first_nl = cleaned.index("\n")
+            cleaned = cleaned[first_nl + 1:]
+            if cleaned.endswith("```"):
+                cleaned = cleaned[:-3].strip()
+
+        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+        if not json_match:
+            raise ValueError("No JSON object found in LLM response. Raw: %s" % cleaned[:500])
+
+        parsed = json.loads(json_match.group(0))
+        if not isinstance(parsed, dict):
+            raise ValueError("Expected JSON object with code+weights, got %s" % type(parsed).__name__)
+
+        llm_code = parsed.get("code", "")
+        weights = parsed.get("weights", {})
+
+        if not llm_code or not llm_code.strip():
+            raise ValueError("LLM returned empty test code")
+        if not isinstance(weights, dict):
+            weights = {}
+
+        # Build full test file (wrapper + LLM classes)
+        lines = [
+            '"""',
+            "Auto-generated test suite for verifying API state changes and task completion.",
+            '"""',
+            "",
+            "import json",
+            "import os",
+            "import subprocess",
+            "import sqlite3",
+            "from urllib.request import Request, urlopen",
+            "",
+            "import pytest",
+            "",
+        ]
+        for svc_name, info in services.items():
+            const_name = svc_name.upper().replace("-", "_") + "_URL"
+            lines.append(
+                '%s = os.environ.get("%s", "http://localhost:%d")'
+                % (const_name, info["env_var"], info["port"])
+            )
+        lines.extend(
+            [
+                "",
+                "",
+                "def _request(method, url, data=None):",
+                '    body = None',
+                '    headers = {"Accept": "application/json"}',
+                "    if data is not None:",
+                '        body = json.dumps(data).encode("utf-8")',
+                '        headers["Content-Type"] = "application/json"',
+                "    req = Request(url, data=body, method=method, headers=headers)",
+                "    with urlopen(req, timeout=30) as resp:",
+                '        return json.loads(resp.read().decode("utf-8"))',
+                "",
+                "",
+                "def api_get(base_url, endpoint):",
+                '    return _request("GET", f"{base_url}{endpoint}")',
+                "",
+                "",
+                "def api_post(base_url, endpoint, data):",
+                '    return _request("POST", f"{base_url}{endpoint}", data=data)',
+                "",
+                "",
+                "def read_file(path):",
+                "    with open(path) as f:",
+                "        return f.read()",
+                "",
+                "",
+                "def file_exists(path):",
+                "    return os.path.exists(path)",
+                "",
+                "",
+                "# --- Generated Test Classes ---",
+                "",
+            ]
+        )
+        lines.append(llm_code)
+        full_test_code = "\n".join(lines)
+        weights_json = json.dumps(weights, indent=2, ensure_ascii=False)
+
+        # Phase 3: write results
+        for attempt in range(3):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    task = env["kensei2.kensei2"].browse(task_id)
+                    if task.exists():
+                        task.write({
+                            "test_code": full_test_code,
+                            "test_code_status": "done",
+                            "test_code_error": False,
+                            "test_weights": weights_json,
+                            "test_weights_status": "done",
+                            "test_weights_error": False,
+                        })
+                break
+            except Exception as e:
+                if "serialize" in str(e).lower() and attempt < 2:
+                    time.sleep(1 + attempt)
+                    continue
+                raise
+
+        _logger.info(
+            "[TASK-TESTGEN] Tests generated for task %s: code=%d chars, weights=%d entries, "
+            "tokens_in=%d, tokens_out=%d, duration=%.0fms",
+            task_id,
+            len(full_test_code),
+            len(weights),
+            usage.get("input_tokens", 0),
+            usage.get("output_tokens", 0),
+            gen_duration_ms,
+        )
+
+    except Exception as e:
+        _logger.exception("[TASK-TESTGEN] Test generation failed for task %s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                task = env["kensei2.kensei2"].browse(task_id)
+                if task.exists():
+                    task.write({
+                        "test_code_status": "error",
+                        "test_code_error": str(e)[:1000],
+                    })
+        except Exception:
+            _logger.exception("[TASK-TESTGEN] Failed to write error status for task %s", task_id)
+
+
 def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
     """Background worker: start sandbox (docker compose or K8s), then notify via bus.bus."""
     final_status = "error"
@@ -645,13 +901,6 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
                 return result
             ws_url = ws_info["ws_url"]
             gateway_token = ws_info["gateway_token"]
-
-        test_gen_thread = threading.Thread(
-            target=_generate_intent_tests_background,
-            args=(db_name, sandbox_id, prompt),
-            daemon=True,
-        )
-        test_gen_thread.start()
 
         from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
 
@@ -1043,13 +1292,6 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
     ws_client = None
 
     try:
-        test_gen_thread = threading.Thread(
-            target=_generate_intent_tests_background,
-            args=(db_name, sandbox_id, prompt),
-            daemon=True,
-        )
-        test_gen_thread.start()
-
         from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
 
         attachments = None
@@ -1195,6 +1437,13 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
     )
     from concurrent.futures import as_completed
 
+    test_gen_thread = threading.Thread(
+        target=_generate_task_tests_background,
+        args=(db_name, task_id),
+        daemon=True,
+    )
+    test_gen_thread.start()
+
     futures = {}
     cancelled = False
     for i, sid in enumerate(sandbox_ids):
@@ -1252,6 +1501,33 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         "[BATCH-PROMPT] All workers done: task=%s completed=%d failed=%d",
         task_id, completed, failed,
     )
+
+    test_gen_thread.join(timeout=300)
+    if test_gen_thread.is_alive():
+        _logger.warning("[BATCH-PROMPT] Test gen thread still running after 300s, proceeding with stop")
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if task.exists() and task.test_code_status == "done" and task.test_code:
+                TestResult = env["kensei2.test.result"].sudo()
+                for sid in sandbox_ids:
+                    sandbox = env["kensei2.sandbox"].browse(sid)
+                    if sandbox.exists():
+                        TestResult.create({
+                            "sandbox_id": sid,
+                            "model_used": "task-level",
+                            "status": "pending",
+                            "test_code": task.test_code,
+                            "trajectory_index": 0,
+                        })
+                _logger.info(
+                    "[BATCH-PROMPT] Created %d test.result records from task-level test code",
+                    len(sandbox_ids),
+                )
+    except Exception:
+        _logger.exception("[BATCH-PROMPT] Failed to create test.result records for task %s", task_id)
 
     try:
         with Registry(db_name).cursor() as cr:
