@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="fenrir_task_view_list" model="ir.ui.view">
+        <field name="name">fenrir.task.list</field>
+        <field name="model">fenrir.task</field>
+        <field name="arch" type="xml">
+            <list string="Tasks">
+                <field name="sequence" widget="handle"/>
+                <field name="code"/>
+                <field name="category"/>
+                <field name="name"/>
+                <field name="title"/>
+                <field name="reviewer"/>
+                <field name="buyer"/>
+                <field name="pricing"/>
+                <field name="price_tier"/>
+                <field name="delivery_time"/>
+                <field name="seller_offer_count"/>
+                <field name="accepted_offer_count"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'approved' or status == 'completed'"
+                       decoration-warning="status == 'pending_review' or status == 'in_progress'"
+                       decoration-danger="status == 'cancelled'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fenrir_task_view_form" model="ir.ui.view">
+        <field name="name">fenrir.task.form</field>
+        <field name="model">fenrir.task</field>
+        <field name="arch" type="xml">
+            <form string="Task">
+                <header>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="draft,pending_review,approved,in_progress,completed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_seller_offers" type="object"
+                                class="oe_stat_button" icon="fa-handshake-o">
+                            <field name="seller_offer_count" widget="statinfo"
+                                   string="Sellers"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <label for="code" string="Task Code"/>
+                        <h1>
+                            <field name="code" placeholder="GDV-002"/>
+                        </h1>
+                        <h2>
+                            <field name="title" placeholder="Project title..."/>
+                        </h2>
+                    </div>
+                    <group>
+                        <group string="Classification">
+                            <field name="sequence"/>
+                            <field name="category"/>
+                            <field name="name"/>
+                            <field name="reviewer"/>
+                        </group>
+                        <group string="Buyer / Pricing">
+                            <field name="buyer"/>
+                            <field name="pricing"/>
+                            <field name="price_tier"/>
+                            <field name="delivery_time"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Overview" name="overview">
+                            <group>
+                                <field name="overview" nolabel="1"
+                                       placeholder="Project overview..."/>
+                            </group>
+                        </page>
+                        <page string="Scope of Work" name="scope">
+                            <group>
+                                <field name="scope_of_work" nolabel="1"
+                                       placeholder="Scope of work..."/>
+                            </group>
+                        </page>
+                        <page string="Company Details" name="company">
+                            <group>
+                                <field name="company_details" nolabel="1"
+                                       placeholder="Company details..."/>
+                            </group>
+                        </page>
+                        <page string="Resources" name="resources">
+                            <group>
+                                <field name="assets_url" widget="url"/>
+                                <field name="rubrics_url" widget="url"/>
+                                <field name="instruction_md_url" widget="url"/>
+                            </group>
+                        </page>
+                        <page string="Seller Offers" name="sellers">
+                            <field name="seller_offer_ids" mode="list,form">
+                                <list editable="bottom">
+                                    <field name="seller"/>
+                                    <field name="seller_profile" widget="url" optional="show"/>
+                                    <field name="received_custom_offer"/>
+                                    <field name="sellers_initial_ask"/>
+                                    <field name="negotiated_offer"/>
+                                    <field name="accepted"/>
+                                    <field name="final_payment_amount"/>
+                                    <field name="final_payment_currency"/>
+                                    <field name="delivery_received"/>
+                                    <field name="accepted_delivery"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Remarks" name="remarks">
+                            <group>
+                                <field name="remarks" nolabel="1"
+                                       placeholder="Internal remarks..."/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="fenrir_task_view_search" model="ir.ui.view">
+        <field name="name">fenrir.task.search</field>
+        <field name="model">fenrir.task</field>
+        <field name="arch" type="xml">
+            <search string="Tasks">
+                <field name="code"/>
+                <field name="name"/>
+                <field name="title"/>
+                <field name="category"/>
+                <field name="buyer"/>
+                <field name="reviewer"/>
+                <filter string="Approved" name="filter_approved"
+                        domain="[('status','=','approved')]"/>
+                <filter string="In Progress" name="filter_in_progress"
+                        domain="[('status','=','in_progress')]"/>
+                <filter string="Completed" name="filter_completed"
+                        domain="[('status','=','completed')]"/>
+                <filter string="Cancelled" name="filter_cancelled"
+                        domain="[('status','=','cancelled')]"/>
+                <group>
+                    <filter string="Category" name="group_category"
+                            context="{'group_by': 'category'}"/>
+                    <filter string="Status" name="group_status"
+                            context="{'group_by': 'status'}"/>
+                    <filter string="Reviewer" name="group_reviewer"
+                            context="{'group_by': 'reviewer'}"/>
+                    <filter string="Buyer" name="group_buyer"
+                            context="{'group_by': 'buyer'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="fenrir_task_view_kanban" model="ir.ui.view">
+        <field name="name">fenrir.task.kanban</field>
+        <field name="model">fenrir.task</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="status" class="o_kanban_small_column">
+                <field name="code"/>
+                <field name="title"/>
+                <field name="category"/>
+                <field name="buyer"/>
+                <field name="seller_offer_count"/>
+                <field name="status"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_card oe_kanban_global_click">
+                            <div class="o_kanban_record_top">
+                                <strong><field name="code"/></strong>
+                                <span class="float-end">
+                                    <field name="category"/>
+                                </span>
+                            </div>
+                            <div class="o_kanban_record_body">
+                                <field name="title"/>
+                            </div>
+                            <div class="o_kanban_record_bottom">
+                                <span>Buyer: <field name="buyer"/></span>
+                                <span class="float-end">
+                                    <i class="fa fa-handshake-o"/>
+                                    <field name="seller_offer_count"/>
+                                </span>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="fenrir_task_action" model="ir.actions.act_window">
+        <field name="name">Tasks</field>
+        <field name="res_model">fenrir.task</field>
+        <field name="view_mode">list,kanban,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a new Fenrir task
+            </p>
+            <p>
+                Track project briefs, reviewers, status, pricing tiers and the
+                full list of sellers approached for each task.
+            </p>
+        </field>
+    </record>
+
+</odoo>

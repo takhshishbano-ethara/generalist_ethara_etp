@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="fenrir_seller_offer_view_list" model="ir.ui.view">
+        <field name="name">fenrir.seller.offer.list</field>
+        <field name="model">fenrir.seller.offer</field>
+        <field name="arch" type="xml">
+            <list string="Seller Offers">
+                <field name="task_code"/>
+                <field name="category" optional="show"/>
+                <field name="seller"/>
+                <field name="seller_profile" widget="url" optional="hide"/>
+                <field name="received_custom_offer"/>
+                <field name="sellers_initial_ask"/>
+                <field name="negotiated_offer"/>
+                <field name="accepted"/>
+                <field name="final_payment_amount"/>
+                <field name="final_payment_currency"/>
+                <field name="delivery_received"/>
+                <field name="accepted_delivery"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="fenrir_seller_offer_view_form" model="ir.ui.view">
+        <field name="name">fenrir.seller.offer.form</field>
+        <field name="model">fenrir.seller.offer</field>
+        <field name="arch" type="xml">
+            <form string="Seller Offer">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="seller"/>
+                        <h1>
+                            <field name="seller" placeholder="Seller name / handle"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Task">
+                            <field name="task_id" options="{'no_create': True}"/>
+                            <field name="task_code" readonly="1"/>
+                            <field name="category" readonly="1"/>
+                        </group>
+                        <group string="Profile">
+                            <field name="seller_profile" widget="url"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Negotiation" name="negotiation">
+                            <group>
+                                <group string="Offer">
+                                    <field name="received_custom_offer"/>
+                                    <field name="sellers_initial_ask"/>
+                                    <field name="negotiated_offer"/>
+                                </group>
+                                <group string="Acceptance">
+                                    <field name="accepted"/>
+                                    <field name="final_payment_amount"/>
+                                    <field name="final_payment_currency"/>
+                                </group>
+                            </group>
+                            <group string="Conversation">
+                                <field name="conversation" nolabel="1"
+                                       placeholder="Paste Fiverr / chat transcript here..."/>
+                            </group>
+                        </page>
+                        <page string="Delivery" name="delivery">
+                            <group>
+                                <group>
+                                    <field name="delivery_received"/>
+                                    <field name="accepted_delivery"/>
+                                </group>
+                                <group>
+                                    <field name="deliverables_link" widget="url"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Artifacts" name="artifacts">
+                            <group>
+                                <group>
+                                    <field name="data_media"/>
+                                    <field name="resources"/>
+                                    <field name="environment"/>
+                                </group>
+                                <group>
+                                    <field name="test_unit_tests"/>
+                                    <field name="license_ref"/>
+                                </group>
+                            </group>
+                            <group string="Metadata.json">
+                                <field name="metadata_json" nolabel="1"
+                                       placeholder='{"key": "value"}'/>
+                            </group>
+                            <group string="Automated Checks">
+                                <field name="automated_checks" nolabel="1"
+                                       placeholder="Automated QC results..."/>
+                            </group>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes" nolabel="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="fenrir_seller_offer_view_search" model="ir.ui.view">
+        <field name="name">fenrir.seller.offer.search</field>
+        <field name="model">fenrir.seller.offer</field>
+        <field name="arch" type="xml">
+            <search string="Seller Offers">
+                <field name="seller"/>
+                <field name="task_id"/>
+                <field name="task_code"/>
+                <field name="category"/>
+                <filter string="Accepted" name="filter_accepted"
+                        domain="[('accepted','=','yes')]"/>
+                <filter string="Cancelled" name="filter_cancelled"
+                        domain="[('accepted','=','cancelled')]"/>
+                <filter string="Delivery Received" name="filter_delivered"
+                        domain="[('delivery_received','=','yes')]"/>
+                <group>
+                    <filter string="Task" name="group_task"
+                            context="{'group_by': 'task_id'}"/>
+                    <filter string="Category" name="group_category"
+                            context="{'group_by': 'category'}"/>
+                    <filter string="Acceptance" name="group_accepted"
+                            context="{'group_by': 'accepted'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="fenrir_seller_offer_action" model="ir.actions.act_window">
+        <field name="name">Seller Offers</field>
+        <field name="res_model">fenrir.seller.offer</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Record a new seller offer
+            </p>
+            <p>
+                Each seller approached for a task — initial ask, negotiated
+                price, conversation log, delivery state and final payment.
+            </p>
+        </field>
+    </record>
+
+</odoo>
