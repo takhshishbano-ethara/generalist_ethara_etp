@@ -102,7 +102,6 @@ export class CostingDashboard extends Component {
     getModelColor(model) {
         const colors = {
             claude: "#d97706",
-            glm: "#7c3aed",
             gpt: "#059669",
         };
         return colors[model] || "#6b7280";
