@@ -1682,6 +1682,67 @@ def _batch_export_trajectories(db_name, sandbox_ids, log_prefix="[BATCH]"):
                 "%s Trajectory export failed for sandbox %s", log_prefix, sid,
             )
 
+    # ── Recompute task-level token totals from stored trajectory entries ──
+    # Each sandbox's _export_trajectory_to_task() OVERWRITES the task token
+    # fields (designed for talos's 1-sandbox-per-model).  With kensei2's
+    # 16-sandbox batch, only the LAST sandbox's tokens survive.  Fix: after
+    # all exports, sum tokens_in/tokens_out from ALL trajectory entries per
+    # model and write the correct totals.
+    if not sandbox_ids:
+        return
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            sandbox = env["kensei2.sandbox"].browse(sandbox_ids[0])
+            if not sandbox.exists() or not sandbox.kensei2_id:
+                return
+            task = sandbox.kensei2_id
+
+            token_field_map = {
+                "claude": ("claude_input_tokens", "claude_output_tokens"),
+                "glm": ("glm_input_tokens", "glm_output_tokens"),
+                "gpt": ("gpt_input_tokens", "gpt_output_tokens"),
+                "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
+                "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
+                "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
+                "1pd": ("onePD_input_tokens", "onePD_output_tokens"),
+            }
+            token_updates = {}
+            for model_type, traj_field in TRAJECTORY_FIELD_MAP.items():
+                raw = task[traj_field] or ""
+                if not raw.strip():
+                    continue
+                try:
+                    entries = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(entries, list):
+                    continue
+                total_in = sum(
+                    int(e.get("tokens_in", 0) or 0)
+                    for e in entries if isinstance(e, dict)
+                )
+                total_out = sum(
+                    int(e.get("tokens_out", 0) or 0)
+                    for e in entries if isinstance(e, dict)
+                )
+                fields_pair = token_field_map.get(model_type)
+                if fields_pair:
+                    token_updates[fields_pair[0]] = total_in
+                    token_updates[fields_pair[1]] = total_out
+
+            if token_updates:
+                task.write(token_updates)
+                _logger.info(
+                    "%s Recomputed token totals for task %s: %s",
+                    log_prefix, task.id, token_updates,
+                )
+    except Exception:
+        _logger.exception(
+            "%s Token total recomputation failed for sandbox_ids=%s",
+            log_prefix, sandbox_ids[:3],
+        )
+
 
 def _batch_stop_single_sandbox(db_name, sandbox_id):
     try:
