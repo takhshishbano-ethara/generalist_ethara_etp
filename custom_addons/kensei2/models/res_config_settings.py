@@ -21,11 +21,6 @@ class Kensei2ConfigSettings(models.TransientModel):
         default="ap-south-1",
         help="AWS region for the Bedrock endpoint (e.g. ap-south-1).",
     )
-    kensei2_moonshot_api_key = fields.Char(
-        string="Moonshot API Key",
-        config_parameter="kensei2.moonshot_api_key",
-        help="API key for Moonshot (Kimi K2.6) used in sandbox trajectory generation.",
-    )
     kensei2_docker_available = fields.Boolean(
         string="Docker Available",
         compute="_compute_kensei2_docker_available",
@@ -62,34 +57,6 @@ class Kensei2ConfigSettings(models.TransientModel):
     kensei2_aws_bearer_token = fields.Char(
         string="AWS Bearer Token (Bedrock)",
         config_parameter="kensei2.aws_bearer_token",
-    )
-    kensei2_aws_region = fields.Char(
-        string="AWS Region",
-        config_parameter="kensei2.aws_region",
-        default="ap-south-1",
-    )
-    kensei2_bedrock_model_arn = fields.Char(
-        string="Bedrock Model ARN",
-        config_parameter="kensei2.bedrock_model_arn",
-        help="ARN for the Bedrock model used inside OpenClaw containers.",
-    )
-    kensei2_litellm_master_key = fields.Char(
-        string="LiteLLM Master Key",
-        config_parameter="kensei2.litellm_master_key",
-    )
-    kensei2_litellm_db_password = fields.Char(
-        string="LiteLLM DB Password",
-        config_parameter="kensei2.litellm_db_password",
-    )
-    kensei2_gog_client_secret = fields.Char(
-        string="Google OAuth Client Secret (JSON)",
-        config_parameter="kensei2.gog_client_secret",
-        help="Paste the full contents of client_secret.json from Google Cloud Console.",
-    )
-    kensei2_gog_keyring_password = fields.Char(
-        string="Gog Keyring Password",
-        config_parameter="kensei2.gog_keyring_password",
-        help="Password used to encrypt the gog file-based keyring.",
     )
     kensei2_batch_size = fields.Integer(
         string="Batch Size (Pods Per Model)",

@@ -1096,6 +1096,10 @@ def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_pa
     except Exception:
         _logger.exception("[BATCH] Failed to set stopping status for task %s", task_id)
 
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec).  Sequential to avoid concurrent task writes.
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH]")
+
     stop_futures = {}
     for i, sid in enumerate(sandbox_ids):
         if i > 0:
@@ -1115,8 +1119,6 @@ def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_pa
     except TimeoutError:
         _logger.error("[BATCH] Stop phase timed out for task %s", task_id)
         stop_errors.append("Stop phase timed out")
-
-    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH]")
 
     try:
         with Registry(db_name).cursor() as cr:
@@ -1544,6 +1546,10 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
     except Exception:
         _logger.exception("[BATCH-PROMPT] Failed to set stopping status for task %s", task_id)
 
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec).  Sequential to avoid concurrent task writes.
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-PROMPT]")
+
     stop_futures = {}
     for i, sid in enumerate(sandbox_ids):
         if i > 0:
@@ -1563,8 +1569,6 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
     except TimeoutError:
         _logger.error("[BATCH-PROMPT] Stop phase timed out for task %s", task_id)
         stop_errors.append("Stop phase timed out")
-
-    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-PROMPT]")
 
     try:
         with Registry(db_name).cursor() as cr:
@@ -1604,12 +1608,15 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
 
 
 def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id):
-    """Background worker: stop ALL sandboxes for a batch, then finalize status."""
     _logger.info(
         "[BATCH-STOP] Starting stop: task=%s, sandboxes=%d",
         task_id, len(sandbox_ids),
     )
     from concurrent.futures import as_completed
+
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec).  Sequential to avoid concurrent task writes.
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-STOP]")
 
     stop_futures = {}
     for i, sid in enumerate(sandbox_ids):
@@ -1634,8 +1641,6 @@ def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id)
             if not fut.done():
                 _logger.warning("[BATCH-STOP] Sandbox %s stop timed out, cancelling", sid)
                 fut.cancel()
-
-    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-STOP]")
 
     try:
         with Registry(db_name).cursor() as cr:
