@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="fenrir_root_menu"
+              name="Fenrir"
+              sequence="60"/>
+
+    <menuitem id="fenrir_tasks_menu"
+              name="Tasks"
+              parent="fenrir_root_menu"
+              action="fenrir_task_action"
+              sequence="10"/>
+
+    <menuitem id="fenrir_seller_offers_menu"
+              name="Seller Offers"
+              parent="fenrir_root_menu"
+              action="fenrir_seller_offer_action"
+              sequence="20"/>
+
+</odoo>
