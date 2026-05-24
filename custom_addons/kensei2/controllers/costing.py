@@ -104,6 +104,7 @@ def _task_row(task):
         "trajectories": _parse_trajectories(task),
         "test_results": test_results,
     }
+    return row
 
 
 class Kensei2CostingController(http.Controller):

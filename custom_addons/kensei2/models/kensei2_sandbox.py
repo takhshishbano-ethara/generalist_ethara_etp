@@ -1876,6 +1876,11 @@ def _replace_inline_media_with_s3(messages, task_id, env):
     """Walk trajectory messages and replace inline base64 / container paths with HTTPS download URLs.
 
     Mutates messages in-place. Handles wrapped (hint-wrapper) and unwrapped formats.
+    Handles three image storage formats:
+      1. OpenClaw direct: {"type": "image", "data": "base64...", "mimeType": "image/png"}
+      2. Anthropic source dict: {"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}}
+      3. Data URI string: {"type": "image", "source": "data:image/png;base64,..."}
+    Also recurses into nested content arrays (tool_result/toolResult blocks).
     """
     from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
 
@@ -1898,6 +1903,116 @@ def _replace_inline_media_with_s3(messages, task_id, env):
 
     replaced_count = 0
 
+    def _process_block(block):
+        nonlocal replaced_count
+        if not isinstance(block, dict):
+            return
+
+        block_type = block.get("type", "")
+
+        # Recurse into tool_result / toolResult nested content
+        if block_type in ("tool_result", "toolResult"):
+            nested_content = block.get("content")
+            if isinstance(nested_content, list):
+                for nested_block in nested_content:
+                    _process_block(nested_block)
+            return
+
+        if block_type not in _MEDIA_BLOCK_TYPES:
+            return
+
+        # --- Format 1: OpenClaw direct (data + mimeType on block, no source) ---
+        direct_data = block.get("data", "")
+        if direct_data and isinstance(direct_data, str) and not block.get("source"):
+            mime_type = block.get("mimeType", "") or block.get("media_type", "") or "application/octet-stream"
+            try:
+                file_bytes = base64_mod.b64decode(direct_data)
+            except Exception:
+                _logger.warning(
+                    "Failed to decode direct base64 data on block (type=%s, task=%s)",
+                    block_type, task_id,
+                )
+                return
+            ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+            if ext.startswith("."):
+                ext = ext[1:]
+            object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+            url = _upload_bytes_to_s3(
+                bucket, region, prefix, task_id, object_key,
+                file_bytes, mime_type, access_key, secret_key,
+            )
+            if url:
+                block.pop("data", None)
+                block.pop("mimeType", None)
+                block.pop("media_type", None)
+                block["source"] = {"type": "url", "url": url}
+                replaced_count += 1
+            return
+
+        # --- Format 2: Anthropic dict source ---
+        source = block.get("source", "")
+        if isinstance(source, dict):
+            src_type = source.get("type", "")
+            b64_data = source.get("data", "")
+            mime_type = source.get("media_type", "application/octet-stream")
+            if src_type == "base64" and b64_data:
+                try:
+                    file_bytes = base64_mod.b64decode(b64_data)
+                except Exception:
+                    _logger.warning(
+                        "Failed to decode base64 dict in trajectory block (type=%s, task=%s)",
+                        block_type, task_id,
+                    )
+                    return
+                ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+                if ext.startswith("."):
+                    ext = ext[1:]
+                object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+                url = _upload_bytes_to_s3(
+                    bucket, region, prefix, task_id, object_key,
+                    file_bytes, mime_type, access_key, secret_key,
+                )
+                if url:
+                    block["source"] = {"type": "url", "url": url}
+                    replaced_count += 1
+            return
+
+        # --- Format 3: String source (data URI or container path) ---
+        if not isinstance(source, str) or not source:
+            return
+
+        m = _DATA_URI_RE.match(source)
+        if m:
+            mime_type = m.group(1)
+            b64_data = m.group(2)
+            try:
+                file_bytes = base64_mod.b64decode(b64_data)
+            except Exception:
+                _logger.warning(
+                    "Failed to decode base64 in trajectory block (type=%s, task=%s)",
+                    block_type, task_id,
+                )
+                return
+            ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+            if ext.startswith("."):
+                ext = ext[1:]
+            object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+            url = _upload_bytes_to_s3(
+                bucket, region, prefix, task_id, object_key,
+                file_bytes, mime_type, access_key, secret_key,
+            )
+            if url:
+                block["source"] = url
+                replaced_count += 1
+            return
+
+        cm = _CONTAINER_PATH_RE.match(source)
+        if cm:
+            filename = os.path.basename(source)
+            output_key = "%s/output/tasks/%s/%s" % (prefix, task_id, filename)
+            block["source"] = _s3_https_url(bucket, region, output_key)
+            replaced_count += 1
+
     for msg_wrapper in messages:
         # Navigate into the actual message dict, handling both wrapped and unwrapped formats
         msg = msg_wrapper
@@ -1919,83 +2034,17 @@ def _replace_inline_media_with_s3(messages, task_id, env):
             continue
 
         for block in content:
-            if not isinstance(block, dict):
-                continue
-
-            block_type = block.get("type", "")
-            if block_type not in _MEDIA_BLOCK_TYPES:
-                continue
-
-            source = block.get("source", "")
-
-            # Handle Anthropic dict format: {"type": "base64", "media_type": "...", "data": "..."}
-            if isinstance(source, dict):
-                src_type = source.get("type", "")
-                b64_data = source.get("data", "")
-                mime_type = source.get("media_type", "application/octet-stream")
-                if src_type == "base64" and b64_data:
-                    try:
-                        file_bytes = base64_mod.b64decode(b64_data)
-                    except Exception:
-                        _logger.warning(
-                            "Failed to decode base64 dict in trajectory block (type=%s, task=%s)",
-                            block_type, task_id,
-                        )
-                        continue
-                    ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
-                    if ext.startswith("."):
-                        ext = ext[1:]
-                    object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
-                    url = _upload_bytes_to_s3(
-                        bucket, region, prefix, task_id, object_key,
-                        file_bytes, mime_type, access_key, secret_key,
-                    )
-                    if url:
-                        block["source"] = {"type": "url", "url": url}
-                        replaced_count += 1
-                continue
-
-            if not isinstance(source, str) or not source:
-                continue
-
-            m = _DATA_URI_RE.match(source)
-            if m:
-                mime_type = m.group(1)
-                b64_data = m.group(2)
-                try:
-                    file_bytes = base64_mod.b64decode(b64_data)
-                except Exception:
-                    _logger.warning(
-                        "Failed to decode base64 in trajectory block (type=%s, task=%s)",
-                        block_type, task_id,
-                    )
-                    continue
-
-                ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
-                if ext.startswith("."):
-                    ext = ext[1:]
-                object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
-                url = _upload_bytes_to_s3(
-                    bucket, region, prefix, task_id, object_key,
-                    file_bytes, mime_type, access_key, secret_key,
-                )
-                if url:
-                    block["source"] = url
-                    replaced_count += 1
-                continue
-
-            cm = _CONTAINER_PATH_RE.match(source)
-            if cm:
-                filename = os.path.basename(source)
-                output_key = "%s/output/tasks/%s/%s" % (prefix, task_id, filename)
-                block["source"] = _s3_https_url(bucket, region, output_key)
-                replaced_count += 1
-                continue
+            _process_block(block)
 
     if replaced_count:
         _logger.info(
             "Replaced %d inline media source(s) with HTTPS URLs (task=%s)",
             replaced_count, task_id,
+        )
+    else:
+        _logger.info(
+            "No inline media found to replace (task=%s, messages=%d)",
+            task_id, len(messages),
         )
 
     return messages
