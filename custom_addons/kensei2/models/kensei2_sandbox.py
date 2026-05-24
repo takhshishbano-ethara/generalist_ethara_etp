@@ -1927,6 +1927,34 @@ def _replace_inline_media_with_s3(messages, task_id, env):
                 continue
 
             source = block.get("source", "")
+
+            # Handle Anthropic dict format: {"type": "base64", "media_type": "...", "data": "..."}
+            if isinstance(source, dict):
+                src_type = source.get("type", "")
+                b64_data = source.get("data", "")
+                mime_type = source.get("media_type", "application/octet-stream")
+                if src_type == "base64" and b64_data:
+                    try:
+                        file_bytes = base64_mod.b64decode(b64_data)
+                    except Exception:
+                        _logger.warning(
+                            "Failed to decode base64 dict in trajectory block (type=%s, task=%s)",
+                            block_type, task_id,
+                        )
+                        continue
+                    ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+                    if ext.startswith("."):
+                        ext = ext[1:]
+                    object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+                    url = _upload_bytes_to_s3(
+                        bucket, region, prefix, task_id, object_key,
+                        file_bytes, mime_type, access_key, secret_key,
+                    )
+                    if url:
+                        block["source"] = {"type": "url", "url": url}
+                        replaced_count += 1
+                continue
+
             if not isinstance(source, str) or not source:
                 continue
 

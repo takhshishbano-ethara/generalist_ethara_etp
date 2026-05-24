@@ -97,7 +97,7 @@ def _task_row(task):
     tdt = tdi + tdo
     gdt = gdi + gdo
 
-    return {
+    row = {
         "task_id": task.id,
         "task_name": task.task_id or ("Task #%d" % task.id),
         "bedrock_input": bi,

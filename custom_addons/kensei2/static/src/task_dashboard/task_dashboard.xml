@@ -130,6 +130,24 @@
                                     <i class="fa fa-stop me-1"/>Stop Batch
                                 </t>
                             </button>
+                            <t t-if="this.canExportHarbor">
+                                <button class="o_kensei2_btn_batch_harbor"
+                                        t-on-click="onExportToHarbor"
+                                        t-att-disabled="state.harborExporting"
+                                        title="Export task to Harbor format in S3">
+                                    <t t-if="state.harborExporting">
+                                        <i class="fa fa-spinner fa-spin me-1"/>Exporting...
+                                    </t>
+                                    <t t-else="">
+                                        <i class="fa fa-cloud-upload me-1"/>Export Harbor
+                                    </t>
+                                </button>
+                                <button class="o_kensei2_btn_batch_harbor_dl"
+                                        t-on-click="onDownloadHarbor"
+                                        title="Download Harbor bundle as zip">
+                                    <i class="fa fa-download me-1"/>Download
+                                </button>
+                            </t>
                         </div>
                     </div>
                 </div>

@@ -83,6 +83,7 @@ export class TaskDashboard extends Component {
             activeTrajectoryTab: "claude",
             pendingPodActions: {},
             selectedSandboxId: null,
+            harborExporting: false,
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -491,6 +492,29 @@ export class TaskDashboard extends Component {
             const msg = e.data?.message || e.message || "Failed to stop batch";
             this.notification.add(msg, { type: "danger" });
         }
+    }
+
+    get canExportHarbor() {
+        return this.taskId && (this.batchStatus === "done" || this.batchStatus === "error");
+    }
+
+    async onExportToHarbor() {
+        if (!this.canExportHarbor) return;
+        this.state.harborExporting = true;
+        try {
+            await this.orm.call("kensei2.kensei2", "action_export_to_harbor", [[this.taskId]]);
+            this.notification.add("Harbor export started. Files will be uploaded to S3.", { type: "info" });
+        } catch (e) {
+            const msg = e.data?.message || e.message || "Export failed";
+            this.notification.add(msg, { type: "danger" });
+        } finally {
+            this.state.harborExporting = false;
+        }
+    }
+
+    onDownloadHarbor() {
+        if (!this.taskId) return;
+        window.open(`/kensei2/harbor/download/${this.taskId}`, "_blank");
     }
 
     podStatusClass(sandbox) {

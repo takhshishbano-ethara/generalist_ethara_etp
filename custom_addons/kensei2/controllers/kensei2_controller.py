@@ -200,14 +200,105 @@ class Kensei2Controller(http.Controller):
                 content_type='application/json', status=500
             )
 
+    @http.route('/kensei2/harbor/download/<int:task_id>', type='http', auth='user', methods=['GET'])
+    def download_harbor_task(self, task_id, **kwargs):
+        import io
+        import zipfile
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        user = request.env.user
+        is_ql = user.has_group('kensei2.group_kensei2_ql')
+        is_pl = user.has_group('kensei2.group_kensei2_pl')
+        if not (is_ql or is_pl):
+            return http.Response(
+                json.dumps({'error': 'Access denied. QL or PL role required.'}),
+                content_type='application/json', status=403
+            )
+
+        task = request.env["kensei2.kensei2"].sudo().browse(task_id)
+        if not task.exists():
+            return http.Response(
+                json.dumps({'error': 'Task not found.'}),
+                content_type='application/json', status=404
+            )
+
+        icp = request.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei2.s3_bucket") or ""
+        region = icp.get_param("kensei2.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei2.s3_prefix") or "Kensei2"
+        task_name = task.task_id or str(task_id)
+        task_prefix = "%s/harbor/%s/" % (prefix, task_name)
+
+        if not bucket:
+            return http.Response(
+                json.dumps({'error': 'S3 bucket not configured.'}),
+                content_type='application/json', status=400
+            )
+
+        access_key = os.environ.get("KENSEI2_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
+        secret_key = os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+
+        client_kwargs = {
+            "region_name": region,
+            "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        }
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+            all_keys = []
+            continuation_token = None
+            while True:
+                list_kwargs = {"Bucket": bucket, "Prefix": task_prefix, "MaxKeys": 1000}
+                if continuation_token:
+                    list_kwargs["ContinuationToken"] = continuation_token
+                resp = s3.list_objects_v2(**list_kwargs)
+                all_keys.extend(resp.get("Contents", []))
+                if resp.get("IsTruncated"):
+                    continuation_token = resp.get("NextContinuationToken")
+                else:
+                    break
+
+            if not all_keys:
+                return http.Response(
+                    json.dumps({'error': 'No Harbor export found for this task. Export first.'}),
+                    content_type='application/json', status=404
+                )
+
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for obj in all_keys:
+                    key = obj["Key"]
+                    rel_path = key[len(task_prefix):]
+                    if not rel_path:
+                        continue
+                    try:
+                        file_resp = s3.get_object(Bucket=bucket, Key=key)
+                        zf.writestr(rel_path, file_resp["Body"].read())
+                    except Exception:
+                        _logger.warning("Failed to fetch s3://%s/%s, skipping", bucket, key)
+
+            buf.seek(0)
+            zip_data = buf.getvalue()
+            filename = "harbor_%s.zip" % task_name
+            headers = [
+                ('Content-Type', 'application/zip'),
+                ('Content-Disposition', 'attachment; filename="%s"' % filename),
+                ('Content-Length', str(len(zip_data))),
+            ]
+            return request.make_response(zip_data, headers=headers)
+        except Exception as e:
+            _logger.exception("Harbor per-task download failed for task %s", task_id)
+            return http.Response(
+                json.dumps({'error': 'Download failed: %s' % str(e)}),
+                content_type='application/json', status=500
+            )
+
     @http.route('/kensei2/harbor/download', type='http', auth='user', methods=['GET'])
     def download_harbor_bundle(self, **kwargs):
-        """Download all Harbor task bundles from S3 as a single zip file.
-
-        Lists all objects under the harbor/ prefix in the configured S3 bucket,
-        fetches them, and streams back as a zip archive.
-        Restricted to QL/PL users.
-        """
         import io
         import zipfile
         import boto3
