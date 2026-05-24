@@ -40,7 +40,7 @@
       <field name="name">kensei2.kensei2.form</field>
       <field name="model">kensei2.kensei2</field>
       <field name="arch" type="xml">
-        <form>
+        <form class="o_kensei2_form_wide">
           <sheet>
             <div class="oe_button_box" name="button_box">
               <button class="oe_stat_button" name="action_generate_golden_trajectory"
@@ -83,22 +83,6 @@
                 <field name="employee_id" invisible="1"/>
                 <field name="user_id" readonly="not is_kensei2_admin"/>
                 <field name="email"/>
-                <field name="password" string="Google Password"/>
-                <field name="gog_auth" string="GOG Auth"/>
-                <field name="outlook_username"/>
-                <field name="outlook_password"/>
-                <field name="eventbrite_username"/>
-                <field name="eventbrite_password"/>
-                <field name="strava_username"/>
-                <field name="strava_password"/>
-                <field name="oura_username"/>
-                <field name="oura_password"/>
-                <field name="instagram_username"/>
-                <field name="instagram_password"/>
-                <field name="facebook_username"/>
-                <field name="facebook_password"/>
-                <field name="threads_username"/>
-                <field name="threads_password"/>
               </group>
             </group>
 
