@@ -168,7 +168,9 @@ class Kensei2CostingController(http.Controller):
             gpt = data["gpt_input"] + data["gpt_output"]
 
             tasks_sorted = sorted(
-                data["tasks"], key=lambda t: t["grand_total"], reverse=True
+                (t for t in data["tasks"] if t),
+                key=lambda t: t.get("grand_total", 0) or 0,
+                reverse=True,
             )
 
             row = {
