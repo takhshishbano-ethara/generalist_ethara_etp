@@ -88,7 +88,7 @@ def _task_row(task):
             tests_passed += r.get("tests_passed", 0) or 0
             tests_failed += r.get("tests_failed", 0) or 0
 
-    return {
+    row = {
         "task_id": task.id,
         "task_name": task.task_id or ("Task #%d" % task.id),
         "claude_input": ci,
@@ -104,6 +104,7 @@ def _task_row(task):
         "trajectories": _parse_trajectories(task),
         "test_results": test_results,
     }
+    return row
 
 
 class Kensei2CostingController(http.Controller):
