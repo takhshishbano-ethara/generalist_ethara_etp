@@ -74,14 +74,97 @@ def _parse_service_toml_fallback(path):
                     result[mapped] = val
     return result if result["name"] else None
 
-_SANDBOX_POOL_WORKERS = int(os.getenv("SANDBOX_POOL_WORKERS", "3"))
-_SANDBOX_POOL = ThreadPoolExecutor(
-    max_workers=_SANDBOX_POOL_WORKERS, thread_name_prefix="kensei2-sandbox"
-)
-_SANDBOX_STARTING = set()
-_SANDBOX_LOCK = threading.Lock()
+
+def _collect_mock_data_snapshot(env_dir, max_rows=3, max_services=10):
+    """Read CSV/JSON data files from each mock API service dir.
+
+    Returns a compact text snapshot of entity IDs and field structures
+    so the test-generation LLM can write assertions grounded in real data.
+    """
+    import csv as _csv
+
+    snapshot_parts = []
+    service_count = 0
+
+    for entry in sorted(os.listdir(env_dir)):
+        svc_dir = os.path.join(env_dir, entry)
+        if not os.path.isdir(svc_dir) or entry in ("skills", "__pycache__"):
+            continue
+        toml_path = os.path.join(svc_dir, "service.toml")
+        if not os.path.isfile(toml_path):
+            continue
+
+        service_count += 1
+        if service_count > max_services:
+            break
+
+        svc_lines = ["### %s" % entry]
+        file_count = 0
+
+        for fname in sorted(os.listdir(svc_dir)):
+            fpath = os.path.join(svc_dir, fname)
+            if not os.path.isfile(fpath):
+                continue
+
+            if fname.endswith(".csv"):
+                try:
+                    with open(fpath, "r", newline="", encoding="utf-8") as f:
+                        reader = _csv.DictReader(f)
+                        headers = reader.fieldnames or []
+                        rows = []
+                        for i, row in enumerate(reader):
+                            if i >= max_rows:
+                                break
+                            rows.append(row)
+                    if headers and rows:
+                        svc_lines.append("**%s** — columns: %s" % (fname, ", ".join(headers)))
+                        for row in rows[:2]:
+                            compact = {k: v[:60] if isinstance(v, str) and len(v) > 60
+                                        else v for k, v in list(row.items())[:8]}
+                            svc_lines.append("  row: %s" % json.dumps(compact, ensure_ascii=False))
+                        file_count += 1
+                except Exception:
+                    pass
+
+            elif fname.endswith(".json") and not fname.endswith("_postman_collection.json"):
+                try:
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                    if isinstance(data, dict):
+                        keys = list(data.keys())[:10]
+                        svc_lines.append("**%s** — top-level keys: %s" % (fname, ", ".join(keys)))
+                        for k in keys[:3]:
+                            val = data[k]
+                            if isinstance(val, str) and len(val) > 80:
+                                val = val[:80] + "..."
+                            elif isinstance(val, (list, dict)):
+                                val = "%s (len=%d)" % (type(val).__name__, len(val))
+                            svc_lines.append("  %s: %s" % (k, val))
+                    elif isinstance(data, list) and data:
+                        svc_lines.append("**%s** — array of %d items" % (fname, len(data)))
+                        if isinstance(data[0], dict):
+                            svc_lines.append("  sample keys: %s" % ", ".join(list(data[0].keys())[:8]))
+                    file_count += 1
+                except Exception:
+                    pass
+
+        if file_count > 0:
+            snapshot_parts.append("\n".join(svc_lines))
+
+    if not snapshot_parts:
+        return ""
+
+    header = (
+        "Below is a snapshot of the actual mock data files that each API service "
+        "serves. Use these REAL entity IDs, field names, and values when writing "
+        "assertions. Do NOT invent IDs or values — use the ones shown here or "
+        "check via API calls in your tests.\n"
+    )
+    return header + "\n\n" + "\n\n".join(snapshot_parts)
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Test generation lint validation (ported from kensei-harness)
 # ──────────────────────────────────────────────────────────────────────
 # Serialization-conflict retry helpers
 #
@@ -550,6 +633,51 @@ def _self_validate_tests(code, weights, has_api_services=False):
                 "else data" % paginated_misuse[:5]
             )
 
+    # L25: specific-value literal assertions on API response fields
+    # Detects `assert obj["field"] == "some string"` or `== 29.99` patterns
+    # that will fail when mock data differs from LLM's guesses.
+    # Exemptions: status codes, booleans, small integers (0-5), None checks,
+    # and known stable fields (status, type, kind, method).
+    _STABLE_FIELD_NAMES = {"status", "type", "kind", "method", "media_type", "status_code"}
+    literal_assertions = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert):
+            continue
+        test = node.test
+        if not isinstance(test, ast.Compare):
+            continue
+        if len(test.ops) != 1 or not isinstance(test.ops[0], (ast.Eq, ast.NotEq)):
+            continue
+        comparator = test.comparators[0]
+        if not isinstance(comparator, ast.Constant):
+            continue
+        val = comparator.value
+        if isinstance(val, bool) or val is None:
+            continue
+        if isinstance(val, int) and -1 <= val <= 5:
+            continue
+        left = test.left
+        field_name = ""
+        if isinstance(left, ast.Subscript) and isinstance(left.slice, ast.Constant):
+            field_name = str(left.slice.value).lower()
+        if field_name in _STABLE_FIELD_NAMES:
+            continue
+        if isinstance(val, str) and len(val) > 3:
+            literal_assertions.append('"%s"' % (val[:30] + "..." if len(val) > 30 else val))
+        elif isinstance(val, float):
+            literal_assertions.append(str(val))
+        elif isinstance(val, int):
+            literal_assertions.append(str(val))
+
+    if len(literal_assertions) > 3:
+        failures.append(
+            "L25: %d assertions compare API response fields to specific literal values: "
+            "%s — these WILL FAIL if mock data differs. Use type/range/presence checks "
+            "instead: isinstance(val, str), val > 0, 'key' in obj. Only assert exact "
+            "literals for values stated in the task instruction."
+            % (len(literal_assertions), ", ".join(literal_assertions[:5]))
+        )
+
     return failures
 
 
@@ -752,6 +880,13 @@ def _generate_task_tests_background(db_name, task_id):
 
         has_api_services = bool(services)
 
+        data_snapshot = ""
+        if has_api_services:
+            try:
+                data_snapshot = _collect_mock_data_snapshot(env_dir)
+            except Exception:
+                _logger.debug("[TASK-TESTGEN] data snapshot collection failed", exc_info=True)
+
         wrapper_lines = [
             '"""',
             "Auto-generated test suite for verifying API state changes and task completion.",
@@ -856,6 +991,10 @@ def _generate_task_tests_background(db_name, task_id):
 
             msg.append("\n## Mock API Documentation (endpoints for verification)\n")
             msg.append(api_docs)
+
+            if data_snapshot:
+                msg.append("\n\n## Mock Data Snapshot (REAL entity IDs and field values)\n")
+                msg.append(data_snapshot)
 
             if lint_failures:
                 if attempt >= 2:

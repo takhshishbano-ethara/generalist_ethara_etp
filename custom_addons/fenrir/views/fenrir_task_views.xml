@@ -6,18 +6,17 @@
         <field name="model">fenrir.task</field>
         <field name="arch" type="xml">
             <list string="Tasks">
-                <field name="sequence" widget="handle"/>
-                <field name="code"/>
-                <field name="category"/>
-                <field name="name"/>
+                <field name="code" decoration-bf="1"/>
+                <field name="category_id"/>
+                <field name="lead_user_id" options="{'no_open': True}"/>
                 <field name="title"/>
-                <field name="reviewer"/>
-                <field name="buyer"/>
-                <field name="pricing"/>
-                <field name="price_tier"/>
+                <field name="reviewer_id" widget="many2one_avatar_user"/>
+                <field name="buyer_id" widget="many2one_avatar_user"/>
+                <field name="pricing" sum="Total"/>
+                <field name="price_tier" optional="hide"/>
                 <field name="delivery_time"/>
-                <field name="seller_offer_count"/>
-                <field name="accepted_offer_count"/>
+                <field name="seller_offer_count" string="Sellers"/>
+                <field name="accepted_offer_count" string="Accepted" optional="hide"/>
                 <field name="status" widget="badge"
                        decoration-success="status == 'approved' or status == 'completed'"
                        decoration-warning="status == 'pending_review' or status == 'in_progress'"
@@ -43,78 +42,333 @@
                                    string="Sellers"/>
                         </button>
                     </div>
+
                     <div class="oe_title">
                         <label for="code" string="Task Code"/>
-                        <h1>
-                            <field name="code" placeholder="GDV-002"/>
+                        <h1 class="mb-0">
+                            <field name="code" placeholder="e.g. GDV-002"/>
                         </h1>
-                        <h2>
+                        <h2 class="text-muted mt-1">
                             <field name="title" placeholder="Project title..."/>
                         </h2>
                     </div>
+
                     <group>
-                        <group string="Classification">
-                            <field name="sequence"/>
-                            <field name="category"/>
-                            <field name="name"/>
-                            <field name="reviewer"/>
+                        <group string="Classification" name="group_classification">
+                            <field name="category_id" options="{'no_create_edit': True}"/>
+                            <field name="lead_user_id" options="{'no_open': True}"/>
+                            <field name="reviewer_id" widget="many2one_avatar_user"/>
                         </group>
-                        <group string="Buyer / Pricing">
-                            <field name="buyer"/>
-                            <field name="pricing"/>
+                        <group string="Buyer &amp; Pricing" name="group_pricing">
+                            <field name="buyer_id" widget="many2one_avatar_user"/>
+                            <field name="pricing" widget="float"/>
                             <field name="price_tier"/>
                             <field name="delivery_time"/>
                         </group>
                     </group>
-                    <notebook>
-                        <page string="Overview" name="overview">
-                            <group>
-                                <field name="overview" nolabel="1"
-                                       placeholder="Project overview..."/>
-                            </group>
-                        </page>
-                        <page string="Scope of Work" name="scope">
-                            <group>
-                                <field name="scope_of_work" nolabel="1"
-                                       placeholder="Scope of work..."/>
-                            </group>
-                        </page>
-                        <page string="Company Details" name="company">
-                            <group>
-                                <field name="company_details" nolabel="1"
-                                       placeholder="Company details..."/>
-                            </group>
-                        </page>
-                        <page string="Resources" name="resources">
-                            <group>
-                                <field name="assets_url" widget="url"/>
-                                <field name="rubrics_url" widget="url"/>
-                                <field name="instruction_md_url" widget="url"/>
-                            </group>
-                        </page>
-                        <page string="Seller Offers" name="sellers">
-                            <field name="seller_offer_ids" mode="list,form">
-                                <list editable="bottom">
-                                    <field name="seller"/>
-                                    <field name="seller_profile" widget="url" optional="show"/>
-                                    <field name="received_custom_offer"/>
-                                    <field name="sellers_initial_ask"/>
-                                    <field name="negotiated_offer"/>
-                                    <field name="accepted"/>
-                                    <field name="final_payment_amount"/>
-                                    <field name="final_payment_currency"/>
-                                    <field name="delivery_received"/>
-                                    <field name="accepted_delivery"/>
-                                </list>
-                            </field>
-                        </page>
-                        <page string="Remarks" name="remarks">
-                            <group>
-                                <field name="remarks" nolabel="1"
-                                       placeholder="Internal remarks..."/>
-                            </group>
-                        </page>
-                    </notebook>
+
+                    <separator string="Overview" name="sep_overview"/>
+                    <field name="overview" nolabel="1"
+                           placeholder="Brief project overview..."/>
+
+                    <separator string="Scope of Work" name="sep_scope"/>
+                    <field name="scope_of_work" nolabel="1"
+                           placeholder="What needs to be built / delivered..."/>
+
+                    <separator string="Company Details" name="sep_company"/>
+                    <field name="company_details" nolabel="1"
+                           placeholder="Company name, location, contact..."/>
+
+                    <separator string="Resources" name="sep_resources"/>
+                    <group>
+                        <field name="assets_url" widget="url" placeholder="https://..."/>
+                        <field name="rubrics_url" widget="url" placeholder="https://..."/>
+                        <field name="instruction_md_url" widget="url" placeholder="https://..."/>
+                    </group>
+                    <field name="instruction_notes"
+                           placeholder="Notes about instruction.md (used in license.json)..."/>
+
+                    <separator string="Rubrics" name="sep_rubrics"/>
+                    <field name="rubric_ids" nolabel="1" mode="kanban,list">
+                        <kanban class="o_kanban_dashboard">
+                            <field name="name"/>
+                            <field name="description"/>
+                            <field name="sequence"/>
+                            <templates>
+                                <t t-name="card">
+                                    <div class="oe_kanban_card oe_kanban_global_click p-2">
+                                        <div class="mb-1">
+                                            <strong class="text-truncate">
+                                                <field name="name" placeholder="Rubric name"/>
+                                            </strong>
+                                        </div>
+                                        <div class="text-muted small" t-if="record.description.raw_value">
+                                            <field name="description"/>
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <list editable="bottom" string="Rubrics">
+                            <field name="sequence" widget="handle"/>
+                            <field name="name" placeholder="Rubric name..."/>
+                            <field name="description" placeholder="What this measures..."/>
+                        </list>
+                        <form string="Rubric">
+                            <sheet>
+                                <div class="oe_title">
+                                    <label for="name"/>
+                                    <h1><field name="name" placeholder="Rubric name..."/></h1>
+                                </div>
+                                <group>
+                                    <field name="sequence"/>
+                                </group>
+                                <separator string="Description"/>
+                                <field name="description" nolabel="1"
+                                       placeholder="What this rubric measures..."/>
+                            </sheet>
+                        </form>
+                    </field>
+
+                    <separator string="Attachments" name="sep_attachments"/>
+                    <field name="attachment_ids" nolabel="1" mode="kanban,list">
+                        <kanban class="o_kanban_dashboard">
+                            <field name="file_name"/>
+                            <field name="attachment"/>
+                            <field name="description"/>
+                            <field name="sequence"/>
+                            <templates>
+                                <t t-name="card">
+                                    <div class="oe_kanban_card oe_kanban_global_click p-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="fa fa-paperclip fa-lg text-primary"/>
+                                            <strong class="text-truncate flex-grow-1">
+                                                <field name="file_name" placeholder="File name"/>
+                                            </strong>
+                                        </div>
+                                        <div class="text-muted small mt-1 text-truncate" t-if="record.description.raw_value">
+                                            <field name="description"/>
+                                        </div>
+                                        <div class="mt-2">
+                                            <field name="attachment" filename="file_name" widget="binary"/>
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <list editable="bottom" string="Attachments">
+                            <field name="sequence" widget="handle"/>
+                            <field name="file_name" placeholder="logo.png"/>
+                            <field name="folder"/>
+                            <field name="license"/>
+                            <field name="source_url" optional="hide"
+                                   placeholder="https://..."/>
+                            <field name="attachment" filename="file_name" string="File"/>
+                            <field name="description" optional="hide"
+                                   placeholder="Optional caption..."/>
+                            <field name="notes"
+                                   placeholder="Notes for license.json..."/>
+                        </list>
+                        <form string="Attachment">
+                            <sheet>
+                                <div class="oe_title">
+                                    <label for="file_name"/>
+                                    <h1><field name="file_name" placeholder="logo.png"/></h1>
+                                </div>
+                                <group>
+                                    <group string="Export">
+                                        <field name="folder"/>
+                                        <field name="license"/>
+                                        <field name="source_url"
+                                               placeholder="https://..."/>
+                                    </group>
+                                    <group string="Display">
+                                        <field name="description"
+                                               placeholder="Optional caption..."/>
+                                        <field name="sequence"/>
+                                    </group>
+                                </group>
+                                <separator string="File"/>
+                                <field name="attachment" filename="file_name"
+                                       nolabel="1" widget="binary"/>
+                                <separator string="Notes"/>
+                                <field name="notes" nolabel="1"
+                                       placeholder="Notes about this asset (used in license.json)..."/>
+                            </sheet>
+                        </form>
+                    </field>
+
+                    <separator string="Seller Offers" name="sep_sellers"/>
+                    <field name="seller_offer_ids" nolabel="1" mode="list,kanban">
+                        <kanban class="o_kanban_dashboard">
+                            <field name="seller_no"/>
+                            <field name="seller"/>
+                            <field name="received_custom_offer"/>
+                            <field name="sellers_initial_ask"/>
+                            <field name="negotiated_offer"/>
+                            <field name="accepted"/>
+                            <field name="final_payment_amount"/>
+                            <field name="final_payment_currency"/>
+                            <field name="delivery_received"/>
+                            <field name="accepted_delivery"/>
+                            <field name="overall_rating"/>
+                            <templates>
+                                <t t-name="card">
+                                    <div class="oe_kanban_card oe_kanban_global_click p-2">
+                                        <div class="d-flex justify-content-between align-items-start">
+                                            <h4 class="m-0">
+                                                Seller&#160;<field name="seller_no"/>
+                                            </h4>
+                                            <span t-attf-class="badge #{record.accepted.raw_value === 'yes' ? 'text-bg-success' : record.accepted.raw_value === 'cancelled' ? 'text-bg-danger' : 'text-bg-secondary'}">
+                                                <field name="accepted"/>
+                                            </span>
+                                        </div>
+                                        <div class="text-muted small text-truncate" t-if="record.seller.raw_value">
+                                            <field name="seller"/>
+                                        </div>
+                                        <hr class="my-2"/>
+                                        <div class="d-flex justify-content-between small">
+                                            <span>Initial:
+                                                <strong><field name="sellers_initial_ask"/></strong>
+                                            </span>
+                                            <span>Negotiated:
+                                                <strong><field name="negotiated_offer"/></strong>
+                                            </span>
+                                        </div>
+                                        <div class="d-flex justify-content-between small mt-1">
+                                            <span>Final:
+                                                <strong>
+                                                    <field name="final_payment_amount"/>
+                                                    <field name="final_payment_currency"/>
+                                                </strong>
+                                            </span>
+                                        </div>
+                                        <div class="small mt-2">
+                                            <span class="me-2">Delivery: <field name="delivery_received"/></span>
+                                            <span>Accepted: <field name="accepted_delivery"/></span>
+                                        </div>
+                                        <div class="small mt-1" t-if="record.overall_rating.raw_value">
+                                            <i class="fa fa-star text-warning me-1"/>
+                                            Overall: <strong><field name="overall_rating"/></strong>
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <list string="Seller Offers">
+                            <field name="seller_no" string="#" readonly="1"/>
+                            <field name="seller"/>
+                            <field name="received_custom_offer"/>
+                            <field name="sellers_initial_ask"/>
+                            <field name="negotiated_offer"/>
+                            <field name="accepted"/>
+                            <field name="final_payment_amount"/>
+                            <field name="final_payment_currency"/>
+                            <field name="delivery_received"/>
+                            <field name="accepted_delivery"/>
+                        </list>
+                        <form string="Seller Offer">
+                            <sheet>
+                                <div class="oe_title">
+                                    <label for="seller_no" string="Seller"/>
+                                    <h1>
+                                        Seller&#160;<field name="seller_no"
+                                                           readonly="1"
+                                                           class="oe_inline"/>
+                                    </h1>
+                                    <h2>
+                                        <field name="seller"
+                                               placeholder="Optional freelancer name..."/>
+                                    </h2>
+                                </div>
+
+                                <separator string="Offer"/>
+                                <group>
+                                    <group>
+                                        <field name="received_custom_offer"/>
+                                        <field name="sellers_initial_ask"/>
+                                        <field name="negotiated_offer"/>
+                                    </group>
+                                    <group>
+                                        <field name="accepted"/>
+                                        <field name="final_payment_amount"/>
+                                        <field name="final_payment_currency"/>
+                                    </group>
+                                </group>
+
+                                <separator string="Conversation"/>
+                                <field name="conversation" nolabel="1"
+                                       placeholder="Paste chat transcript here..."/>
+
+                                <separator string="Delivery"/>
+                                <group>
+                                    <group>
+                                        <field name="delivery_received"/>
+                                        <field name="accepted_delivery"/>
+                                    </group>
+                                    <group>
+                                        <field name="deliverables_link"
+                                               widget="url"/>
+                                    </group>
+                                </group>
+
+                                <separator string="Artifacts"/>
+                                <group>
+                                    <group>
+                                        <field name="data_media"/>
+                                        <field name="resources"/>
+                                        <field name="environment"/>
+                                    </group>
+                                    <group>
+                                        <field name="test_unit_tests"/>
+                                        <field name="license_ref"/>
+                                    </group>
+                                </group>
+
+                                <separator string="Metadata.json"/>
+                                <field name="metadata_json" nolabel="1"
+                                       placeholder='{"key": "value"}'/>
+
+                                <separator string="Automated Checks"/>
+                                <field name="automated_checks" nolabel="1"
+                                       placeholder="Automated QC results..."/>
+
+                                <separator string="Notes"/>
+                                <field name="notes" nolabel="1"/>
+
+                                <separator string="Rubric Scoring"/>
+                                <field name="rubric_score_ids" nolabel="1">
+                                    <list editable="bottom"
+                                          create="0" delete="0"
+                                          string="Rubric Scores">
+                                        <field name="rubric_id"
+                                               column_invisible="1"/>
+                                        <field name="rubric_sequence"
+                                               column_invisible="1"/>
+                                        <field name="rubric_name"
+                                               readonly="1" string="Rubric"/>
+                                        <field name="rubric_description"
+                                               readonly="1" string="Description"
+                                               optional="show"/>
+                                        <field name="rating"/>
+                                        <field name="justification"
+                                               placeholder="Reasoning..."/>
+                                    </list>
+                                </field>
+
+                                <separator string="Overall"/>
+                                <group>
+                                    <field name="overall_rating"/>
+                                    <field name="overall_justification"
+                                           placeholder="Overall reasoning..."/>
+                                </group>
+                            </sheet>
+                        </form>
+                    </field>
+
+                    <separator string="Remarks" name="sep_remarks"/>
+                    <field name="remarks" nolabel="1"
+                           placeholder="Internal remarks..."/>
                 </sheet>
                 <chatter/>
             </form>
@@ -127,11 +381,11 @@
         <field name="arch" type="xml">
             <search string="Tasks">
                 <field name="code"/>
-                <field name="name"/>
+                <field name="lead_user_id"/>
                 <field name="title"/>
-                <field name="category"/>
-                <field name="buyer"/>
-                <field name="reviewer"/>
+                <field name="category_id"/>
+                <field name="buyer_id"/>
+                <field name="reviewer_id"/>
                 <filter string="Approved" name="filter_approved"
                         domain="[('status','=','approved')]"/>
                 <filter string="In Progress" name="filter_in_progress"
@@ -142,13 +396,13 @@
                         domain="[('status','=','cancelled')]"/>
                 <group>
                     <filter string="Category" name="group_category"
-                            context="{'group_by': 'category'}"/>
+                            context="{'group_by': 'category_id'}"/>
                     <filter string="Status" name="group_status"
                             context="{'group_by': 'status'}"/>
                     <filter string="Reviewer" name="group_reviewer"
-                            context="{'group_by': 'reviewer'}"/>
+                            context="{'group_by': 'reviewer_id'}"/>
                     <filter string="Buyer" name="group_buyer"
-                            context="{'group_by': 'buyer'}"/>
+                            context="{'group_by': 'buyer_id'}"/>
                 </group>
             </search>
         </field>
@@ -161,8 +415,8 @@
             <kanban default_group_by="status" class="o_kanban_small_column">
                 <field name="code"/>
                 <field name="title"/>
-                <field name="category"/>
-                <field name="buyer"/>
+                <field name="category_id"/>
+                <field name="buyer_id"/>
                 <field name="seller_offer_count"/>
                 <field name="status"/>
                 <templates>
@@ -171,14 +425,14 @@
                             <div class="o_kanban_record_top">
                                 <strong><field name="code"/></strong>
                                 <span class="float-end">
-                                    <field name="category"/>
+                                    <field name="category_id"/>
                                 </span>
                             </div>
                             <div class="o_kanban_record_body">
                                 <field name="title"/>
                             </div>
                             <div class="o_kanban_record_bottom">
-                                <span>Buyer: <field name="buyer"/></span>
+                                <span>Buyer: <field name="buyer_id"/></span>
                                 <span class="float-end">
                                     <i class="fa fa-handshake-o"/>
                                     <field name="seller_offer_count"/>
@@ -191,17 +445,42 @@
         </field>
     </record>
 
+    <record id="fenrir_task_export_server_action" model="ir.actions.server">
+        <field name="name">Export Tasks</field>
+        <field name="model_id" ref="model_fenrir_task"/>
+        <field name="binding_model_id" ref="model_fenrir_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_export_task()</field>
+    </record>
+
     <record id="fenrir_task_action" model="ir.actions.act_window">
-        <field name="name">Tasks</field>
+        <field name="name">My Tasks</field>
         <field name="res_model">fenrir.task</field>
         <field name="view_mode">list,kanban,form</field>
+        <field name="domain">[('lead_user_id', '=', uid)]</field>
+        <field name="context">{'default_lead_user_id': uid}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 Create a new Fenrir task
             </p>
             <p>
-                Track project briefs, reviewers, status, pricing tiers and the
-                full list of sellers approached for each task.
+                Tasks you created. Track project briefs, reviewers, status,
+                pricing tiers and the full list of sellers approached.
+            </p>
+        </field>
+    </record>
+
+    <record id="fenrir_task_all_action" model="ir.actions.act_window">
+        <field name="name">All Tasks</field>
+        <field name="res_model">fenrir.task</field>
+        <field name="view_mode">list,kanban,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No tasks yet
+            </p>
+            <p>
+                Every task in the organization, across all users.
             </p>
         </field>
     </record>

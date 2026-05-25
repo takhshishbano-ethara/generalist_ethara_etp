@@ -10,7 +10,7 @@
     width: var(--ethara-sidebar-width);
     display: flex;
     flex-direction: column;
-    background: var(--ethara-surface);
+    background: var(--ethara-sidebar-bg, var(--ethara-surface));
     border-right: 1px solid var(--ethara-border);
     font-family: var(--ethara-font);
     z-index: 1041;
@@ -89,17 +89,27 @@
     .o_ethara_profile_actions {
         position: relative;
         display: grid;
-        grid-template-columns: repeat(6, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 6px;
         width: 100%;
         min-height: 34px;
     }
 
     .o_ethara_profile_actions.o_ethara_profile_actions_badges {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 12px;
-        padding: 0 22%;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+        padding: 0 10%;
         margin-top: 10px;
+    }
+
+    .o_ethara_quick_btn.o_ethara_quick_btn_logout {
+        color: #ef4444;
+
+        &:hover {
+            background: #ef4444;
+            border-color: #ef4444;
+            color: #fff;
+        }
     }
 
     .o_ethara_quick_btn {

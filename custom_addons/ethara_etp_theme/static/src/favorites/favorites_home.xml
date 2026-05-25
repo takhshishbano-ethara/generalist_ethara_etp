@@ -2,16 +2,36 @@
 <templates xml:space="preserve">
 
     <t t-name="ethara_etp_theme.FavoritesHome">
-        <div class="o_ethara_home">
+        <div class="o_ethara_home" t-att-class="{ o_ethara_home_has_bg: state.bgUrl }">
+            <div t-if="state.bgUrl" class="o_ethara_home_bg">
+                <video t-if="bgIsVideo"
+                       class="o_ethara_home_bg_media"
+                       t-att-src="state.bgUrl"
+                       autoplay="autoplay"
+                       muted="muted"
+                       loop="loop"
+                       playsinline="playsinline"/>
+                <img t-else=""
+                     class="o_ethara_home_bg_media"
+                     t-att-src="state.bgUrl"
+                     alt=""/>
+                <div class="o_ethara_home_overlay"/>
+            </div>
             <div class="o_ethara_home_inner">
 
                 <div class="o_ethara_home_header">
-                    <h1 class="o_ethara_home_title">
-                        Welcome back, <t t-esc="userName"/>
-                    </h1>
-                    <p class="o_ethara_home_subtitle">
-                        Your favorite menus, one click away.
-                    </p>
+                    <div class="o_ethara_home_header_left">
+                        <h1 class="o_ethara_home_title">
+                            Welcome back, <t t-esc="userName"/>
+                        </h1>
+                        <p class="o_ethara_home_subtitle">
+                            Your favorite menus, one click away.
+                        </p>
+                    </div>
+                    <div class="o_ethara_home_clock">
+                        <div class="o_ethara_home_time" t-esc="state.time"/>
+                        <div class="o_ethara_home_date" t-esc="state.date"/>
+                    </div>
                 </div>
 
                 <div t-if="state.favorites.length" class="o_ethara_home_grid">

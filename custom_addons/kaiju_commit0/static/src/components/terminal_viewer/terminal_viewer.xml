@@ -8,10 +8,7 @@
                         <i class="fa fa-terminal me-1"/>Terminal
                     </span>
                     <span t-if="lines.length > 0" class="c0-badge">
-                        <t t-esc="lines.length"/>/<t t-esc="allLines.length"/> lines
-                    </span>
-                    <span t-if="isRevealing" class="c0-badge c0-badge-live">
-                        <i class="fa fa-circle me-1"/>LIVE
+                        <t t-esc="lines.length"/> lines
                     </span>
                 </div>
                 <div class="c0-toolbar-right">
@@ -24,7 +21,7 @@
                     </button>
                 </div>
             </div>
-            <div class="c0-body" t-ref="termContainer">
+            <div class="c0-body">
                 <t t-if="isEmpty">
                     <div class="c0-empty">
                         <i class="fa fa-terminal fa-2x mb-2"/>

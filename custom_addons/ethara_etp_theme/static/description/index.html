@@ -21,6 +21,8 @@
       <span style="padding:10px 18px;background:#ffffff;color:#4f46e5;border-radius:8px;font-weight:600;font-size:14px;">Resizable Chatter</span>
       <span style="padding:10px 18px;background:#ffffff;color:#4f46e5;border-radius:8px;font-weight:600;font-size:14px;">Column Filters</span>
       <span style="padding:10px 18px;background:#ffffff;color:#4f46e5;border-radius:8px;font-weight:600;font-size:14px;">Mobile Ready</span>
+      <span style="padding:10px 18px;background:#ffffff;color:#4f46e5;border-radius:8px;font-weight:600;font-size:14px;">Live Clock</span>
+      <span style="padding:10px 18px;background:#ffffff;color:#4f46e5;border-radius:8px;font-weight:600;font-size:14px;">Dynamic Home Background</span>
     </div>
   </div>
 
@@ -82,11 +84,25 @@
         <div style="width:48px;height:48px;background:linear-gradient(135deg,#ec4899,#f97316);border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;">
           <span style="color:#ffffff;font-size:22px;">&#9733;</span>
         </div>
-        <h3 style="font-size:20px;font-weight:700;margin:0 0 10px 0;color:#111827;">Personal Favorites</h3>
+        <h3 style="font-size:20px;font-weight:700;margin:0 0 10px 0;color:#111827;">Personal Favorites Home</h3>
         <p style="color:#6b7280;font-size:15px;margin:0;">
           Pin any menu to a personal Favorites hub. Per-user, security-scoped, and
-          surfaced as a dedicated home action so each user lands on what matters
-          to them.
+          opened automatically on every login &mdash; users land straight on what
+          matters to them, with a live clock and full date in the corner.
+        </p>
+      </div>
+
+      <!-- Home Background -->
+      <div style="background:#ffffff;border:1px solid #e5e7eb;border-radius:16px;padding:32px;">
+        <div style="width:48px;height:48px;background:linear-gradient(135deg,#7c3aed,#06b6d4);border-radius:12px;display:flex;align-items:center;justify-content:center;margin-bottom:18px;">
+          <span style="color:#ffffff;font-size:22px;">&#127916;</span>
+        </div>
+        <h3 style="font-size:20px;font-weight:700;margin:0 0 10px 0;color:#111827;">Dynamic Home Background</h3>
+        <p style="color:#6b7280;font-size:15px;margin:0;">
+          Upload an image, GIF or short video and the Favorites Home plays it
+          full-bleed behind a soft dim overlay. Text flips to light, tiles get a
+          frosted-glass finish, and videos autoplay muted on loop &mdash; one
+          setting, brand-perfect landing page.
         </p>
       </div>
 
@@ -149,11 +165,12 @@
         <h3 style="font-size:20px;font-weight:700;margin:0 0 10px 0;color:#111827;">Profile Card &amp; Quick Actions</h3>
         <p style="color:#6b7280;font-size:15px;margin:0;">
           A theme-coloured card greets the user with avatar, name and a
-          time-of-day greeting, then offers eight one-click shortcuts:
-          language, company, debug, theme settings, sidebar pin, dark mode,
-          conversations and activities. Live unread / pending badges and a
-          toast notification on every change &mdash; and the entire top
-          Odoo bar is hidden so the workspace starts at the very top.
+          time-of-day greeting, then offers one-click shortcuts: profile
+          preferences, debug, theme settings, sidebar pin, dark mode,
+          conversations, activities and sign-out. Live unread / pending
+          badges and a toast notification on every change &mdash; and the
+          entire top Odoo bar is hidden so the workspace starts at the
+          very top.
         </p>
       </div>
 
@@ -407,6 +424,26 @@
           <li>Phone (&le;768px): slide-in drawer</li>
           <li>Hamburger toggle &amp; backdrop overlay</li>
           <li>Auto-closes on menu tap</li>
+        </ul>
+      </div>
+
+      <div style="background:#1e293b;padding:24px;border-radius:12px;border:1px solid #334155;">
+        <div style="font-size:14px;font-weight:700;color:#a5b4fc;margin-bottom:14px;letter-spacing:0.5px;">HOME PAGE</div>
+        <ul style="margin:0;padding-left:18px;font-size:14px;color:#cbd5e1;line-height:1.9;">
+          <li>Auto-redirect to Favorites on login</li>
+          <li>Live clock (12-hour, ticks every second)</li>
+          <li>Full date with weekday</li>
+          <li>Deep links &amp; refreshes preserved</li>
+        </ul>
+      </div>
+
+      <div style="background:#1e293b;padding:24px;border-radius:12px;border:1px solid #334155;">
+        <div style="font-size:14px;font-weight:700;color:#a5b4fc;margin-bottom:14px;letter-spacing:0.5px;">HOME BACKGROUND</div>
+        <ul style="margin:0;padding-left:18px;font-size:14px;color:#cbd5e1;line-height:1.9;">
+          <li>Image, GIF or short video upload</li>
+          <li>Full-bleed with dim overlay</li>
+          <li>Videos autoplay muted on loop</li>
+          <li>Tiles get frosted-glass finish</li>
         </ul>
       </div>
 

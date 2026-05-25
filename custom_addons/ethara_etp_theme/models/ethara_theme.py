@@ -153,6 +153,8 @@ class EtharaTheme(models.AbstractModel):
             active_bg = primary_soft
             active_fg = accent_fg
 
+        navbar_bg = self._color("navbar_bg", surface)
+
         css = (
             "html:root{"
             "--ethara-primary:%(primary)s;"
@@ -162,6 +164,7 @@ class EtharaTheme(models.AbstractModel):
             "--ethara-active-fg:%(active_fg)s;"
             "--ethara-bg:%(bg)s;"
             "--ethara-surface:%(surface)s;"
+            "--ethara-sidebar-bg:%(navbar_bg)s;"
             "--ethara-border:%(border)s;"
             "--ethara-hover:%(hover)s;"
             "--ethara-dot:%(dot)s;"
@@ -189,6 +192,7 @@ class EtharaTheme(models.AbstractModel):
             "active_fg": active_fg,
             "bg": bg,
             "surface": surface,
+            "navbar_bg": navbar_bg,
             "border": border,
             "hover": hover,
             "dot": dot,
@@ -227,6 +231,15 @@ class EtharaTheme(models.AbstractModel):
             "document.documentElement.dataset.etharaChatter = '%s';"
             % chatter_position
         )
+
+    @api.model
+    def get_favorites_bg(self):
+        params = self.env["ir.config_parameter"].sudo()
+        url = params.get_param("ethara_etp_theme.favorites_bg_url") or ""
+        if not url:
+            return False
+        mime = params.get_param("ethara_etp_theme.favorites_bg_mime") or ""
+        return {"url": url, "mime": mime}
 
     @api.model
     def get_menu_icons_script(self):

@@ -2,31 +2,21 @@
 
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
-
-const REVEAL_INTERVAL = 80;
+import { Component, onWillUnmount, useState } from "@odoo/owl";
 
 export class Commit0Terminal extends Component {
     static template = "kaiju_commit0.Commit0Terminal";
     static props = { ...standardFieldProps };
 
     setup() {
-        this._revealTimer = null;
         this._copyTimeout = null;
-        this.containerRef = useRef("termContainer");
 
         this.state = useState({
-            visibleLines: 0,
             copied: false,
             darkTheme: true,
         });
 
-        onMounted(() => {
-            this._revealAll();
-        });
-
         onWillUnmount(() => {
-            if (this._revealTimer) clearInterval(this._revealTimer);
             if (this._copyTimeout) clearTimeout(this._copyTimeout);
         });
     }
@@ -35,13 +25,9 @@ export class Commit0Terminal extends Component {
         return this.props.record.data[this.props.name] || "";
     }
 
-    get allLines() {
+    get lines() {
         if (!this.logText) return [];
         return this.logText.split("\n");
-    }
-
-    get lines() {
-        return this.allLines.slice(0, this.state.visibleLines);
     }
 
     get isEmpty() {
@@ -50,10 +36,6 @@ export class Commit0Terminal extends Component {
 
     get themeClass() {
         return this.state.darkTheme ? "c0-term-dark" : "c0-term-light";
-    }
-
-    get isRevealing() {
-        return this.state.visibleLines < this.allLines.length;
     }
 
     lineClass(line) {
@@ -71,32 +53,6 @@ export class Commit0Terminal extends Component {
             return "c0-line-step";
         }
         return "";
-    }
-
-    _revealAll() {
-        const total = this.allLines.length;
-        if (total === 0) {
-            this.state.visibleLines = 0;
-            return;
-        }
-        this.state.visibleLines = 0;
-        this._revealTimer = setInterval(() => {
-            this.state.visibleLines++;
-            this._scrollToBottom();
-            if (this.state.visibleLines >= total) {
-                clearInterval(this._revealTimer);
-                this._revealTimer = null;
-            }
-        }, REVEAL_INTERVAL);
-    }
-
-    _scrollToBottom() {
-        const el = this.containerRef.el;
-        if (el) {
-            requestAnimationFrame(() => {
-                el.scrollTop = el.scrollHeight;
-            });
-        }
     }
 
     async onCopy() {

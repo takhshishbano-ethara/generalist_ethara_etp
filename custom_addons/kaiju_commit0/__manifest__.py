@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Kaiju Commit0",
-    "version": "19.0.5.0.0",
+    "version": "19.0.6.0.0",
     "category": "Technical",
     "summary": "Commit0 evaluation runner — 2-phase pipeline (Build → Run) with Argo integration",
     "license": "LGPL-3",

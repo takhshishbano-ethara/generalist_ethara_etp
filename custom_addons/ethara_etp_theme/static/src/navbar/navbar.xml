@@ -28,14 +28,9 @@
                     </div>
                     <div class="o_ethara_profile_actions">
                         <button type="button" class="o_ethara_quick_btn"
-                                data-tooltip="Language" aria-label="Language"
-                                t-on-click="() => this.onQuickLanguage()">
-                            <i class="fa fa-language"/>
-                        </button>
-                        <button type="button" class="o_ethara_quick_btn"
-                                data-tooltip="Company" aria-label="Company"
-                                t-on-click="() => this.onQuickCompany()">
-                            <i class="fa fa-building-o"/>
+                                data-tooltip="Profile preferences" aria-label="Profile preferences"
+                                t-on-click="() => this.onQuickProfile()">
+                            <i class="fa fa-user-circle-o"/>
                         </button>
                         <button type="button" class="o_ethara_quick_btn"
                                 t-att-class="{ o_ethara_quick_btn_active: etharaIsDebug }"
@@ -78,6 +73,11 @@
                             <span t-if="etharaState.activitiesCount &gt; 0"
                                   class="o_ethara_quick_badge"
                                   t-esc="etharaState.activitiesCount"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn o_ethara_quick_btn_logout"
+                                data-tooltip="Sign out" aria-label="Sign out"
+                                t-on-click="() => this.onQuickLogout()">
+                            <i class="fa fa-sign-out"/>
                         </button>
                     </div>
                 </div>

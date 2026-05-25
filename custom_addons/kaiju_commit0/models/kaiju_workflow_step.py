@@ -15,7 +15,7 @@ class KaijuWorkflowStep(models.Model):
     _name = "kaiju.commit0.workflow.step"
     _description = "Kaiju Argo Workflow Step"
     _order = "step_order asc, started_at asc, id asc"
-    _rec_name = "display_name"
+    _rec_name = "step_name"
 
     name = fields.Char(
         string="Step",
@@ -26,7 +26,7 @@ class KaijuWorkflowStep(models.Model):
     # ── Argo identifiers ─────────────────────────────────────────────────────
 
     node_id = fields.Char(string="Node ID", required=True, index=True)
-    display_name = fields.Char(string="Display Name")
+    step_name = fields.Char(string="Step Name")
     pod_name = fields.Char(string="Pod Name")
     template_name = fields.Char(string="Template Name")
     node_type = fields.Char(string="Node Type", default="Pod")
@@ -144,16 +144,16 @@ class KaijuWorkflowStep(models.Model):
         ),
     ]
 
-    # ── Partial indexes for cron back-fill queries (Phase 1) ─────────────
+    # ── Partial indexes for "steps without logs" queries ──────────────────
     # Plain index on a Boolean is near-useless (planner prefers seqscan on 50/50
-    # split). Partial indexes only on rows where has_log IS FALSE — the rows the
-    # cron actually cares about — give cheap lookups even at 100k+ step records.
+    # split). Partial indexes only on rows where has_log IS FALSE give cheap
+    # lookups for the Sync Logs action even at 100k+ step records.
 
     def _auto_init(self):
         res = super()._auto_init()
         cr = self.env.cr
-        # Partial index on (build_id) WHERE has_log IS FALSE — supports the cron's
-        # terminal_incomplete domain ('step_ids.has_log','=',False) without scanning all rows.
+        # Partial index on (build_id) WHERE has_log IS FALSE — supports
+        # queries like "find builds with unfetched step logs" efficiently.
         cr.execute(
             f"""
             CREATE INDEX IF NOT EXISTS {self._table}_build_no_log_idx
@@ -172,10 +172,10 @@ class KaijuWorkflowStep(models.Model):
 
     # ── Computed ─────────────────────────────────────────────────────────────
 
-    @api.depends("display_name", "node_id")
+    @api.depends("step_name", "node_id")
     def _compute_name(self):
         for rec in self:
-            rec.name = rec.display_name or rec.node_id or "Step"
+            rec.name = rec.step_name or rec.node_id or "Step"
 
     @api.depends("build_id.workflow_name", "run_id.workflow_name")
     def _compute_workflow_name(self):

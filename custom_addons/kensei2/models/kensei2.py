@@ -92,6 +92,82 @@ def _get_test_weight_prompt():
     return _testweight_prompt_cache
 
 
+def _harbor_upload_single(bkt, rgn, pfx, files, ak, sk):
+    """Upload harbor files for a single task to S3.
+
+    Runs inside _BATCH_POOL (persistent thread pool) so it survives
+    Odoo HTTP worker recycling.
+    """
+    uploaded = 0
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        client_kwargs = {
+            "region_name": rgn,
+            "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        }
+        if ak and sk:
+            client_kwargs["aws_access_key_id"] = ak
+            client_kwargs["aws_secret_access_key"] = sk
+        s3 = boto3.client("s3", **client_kwargs)
+        for fm in files:
+            key = "%s/%s" % (pfx, fm["key"])
+            s3.put_object(
+                Bucket=bkt,
+                Key=key,
+                Body=fm["data"],
+                ContentType=fm["content_type"],
+            )
+            uploaded += 1
+        _logger.info(
+            "[HARBOR-EXPORT] Complete: s3://%s/%s/ (%d/%d files)",
+            bkt, pfx, uploaded, len(files),
+        )
+    except Exception:
+        _logger.exception(
+            "[HARBOR-EXPORT] Failed for task %s after %d files", pfx, uploaded
+        )
+
+
+def _harbor_upload_batch(bkt, rgn, uploads, ak, sk):
+    """Upload harbor files for multiple tasks to S3.
+
+    Runs inside _BATCH_POOL (persistent thread pool).
+    """
+    try:
+        import boto3
+        from botocore.config import Config as BotoConfig
+
+        client_kwargs = {
+            "region_name": rgn,
+            "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
+        }
+        if ak and sk:
+            client_kwargs["aws_access_key_id"] = ak
+            client_kwargs["aws_secret_access_key"] = sk
+        s3 = boto3.client("s3", **client_kwargs)
+        total_tasks = 0
+        total_files = 0
+        for pfx, files in uploads:
+            for fm in files:
+                key = "%s/%s" % (pfx, fm["key"])
+                s3.put_object(
+                    Bucket=bkt,
+                    Key=key,
+                    Body=fm["data"],
+                    ContentType=fm["content_type"],
+                )
+                total_files += 1
+            total_tasks += 1
+        _logger.info(
+            "[HARBOR-EXPORT] Mass export complete: %d tasks, %d files to s3://%s/",
+            total_tasks, total_files, bkt,
+        )
+    except Exception:
+        _logger.exception("[HARBOR-EXPORT] Mass export failed")
+
+
 def _run_golden_generation_background(db_name, task_id, notify_partner_id):
     try:
         # Phase 1: read all inputs
@@ -2162,7 +2238,6 @@ class Kensei2(models.Model):
         }
 
     def action_mass_export_to_harbor(self):
-        import threading
         from odoo.modules.module import get_module_path
         from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
         from .kensei2_sandbox import _load_dotenv
@@ -2389,39 +2464,11 @@ class Kensei2(models.Model):
             or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
         )
 
-        def _upload_batch(bkt, rgn, uploads, ak, sk):
-            try:
-                import boto3
-                from botocore.config import Config as BotoConfig
-                client_kwargs = {
-                    "region_name": rgn,
-                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
-                }
-                if ak and sk:
-                    client_kwargs["aws_access_key_id"] = ak
-                    client_kwargs["aws_secret_access_key"] = sk
-                s3 = boto3.client("s3", **client_kwargs)
-                total = 0
-                for pfx, files in uploads:
-                    for fm in files:
-                        key = "%s/%s" % (pfx, fm["key"])
-                        s3.put_object(
-                            Bucket=bkt,
-                            Key=key,
-                            Body=fm["data"],
-                            ContentType=fm["content_type"],
-                        )
-                    total += 1
-                _logger.info("Harbor mass export: %d tasks uploaded to s3://%s/", total, bkt)
-            except Exception:
-                _logger.exception("Harbor mass export failed")
-
-        thread = threading.Thread(
-            target=_upload_batch,
-            args=(bucket, region, all_uploads, access_key, secret_key),
-            daemon=True,
+        from .kensei2_sandbox import _BATCH_POOL
+        _BATCH_POOL.submit(
+            _harbor_upload_batch,
+            bucket, region, all_uploads, access_key, secret_key,
         )
-        thread.start()
 
         exported_recs = self.filtered(lambda r: r.initial_prompt)
         exported_recs.write({"task_status": "Submitted"})
@@ -2443,7 +2490,6 @@ class Kensei2(models.Model):
 
     def action_export_to_harbor(self):
         self.ensure_one()
-        import threading
         from odoo.modules.module import get_module_path
         from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
         from .kensei2_sandbox import _load_dotenv
@@ -2652,39 +2698,12 @@ class Kensei2(models.Model):
             or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
         )
 
-        def _upload(bkt, rgn, pfx, files, ak, sk):
-            try:
-                import boto3
-                from botocore.config import Config as BotoConfig
-                client_kwargs = {
-                    "region_name": rgn,
-                    "config": BotoConfig(retries={"max_attempts": 3, "mode": "adaptive"}),
-                }
-                if ak and sk:
-                    client_kwargs["aws_access_key_id"] = ak
-                    client_kwargs["aws_secret_access_key"] = sk
-                s3 = boto3.client("s3", **client_kwargs)
-                for fm in files:
-                    key = "%s/%s" % (pfx, fm["key"])
-                    s3.put_object(
-                        Bucket=bkt,
-                        Key=key,
-                        Body=fm["data"],
-                        ContentType=fm["content_type"],
-                    )
-                _logger.info(
-                    "Harbor export complete: s3://%s/%s/ (%d files)",
-                    bkt, pfx, len(files),
-                )
-            except Exception:
-                _logger.exception("Harbor export failed for task %s", pfx)
-
-        thread = threading.Thread(
-            target=_upload,
-            args=(bucket, region, s3_task_prefix, files_to_upload, access_key, secret_key),
-            daemon=True,
+        from .kensei2_sandbox import _BATCH_POOL
+        _BATCH_POOL.submit(
+            _harbor_upload_single,
+            bucket, region, s3_task_prefix,
+            files_to_upload, access_key, secret_key,
         )
-        thread.start()
 
         self.write({"task_status": "Submitted"})
 
@@ -2791,9 +2810,9 @@ class Kensei2(models.Model):
         lines.append("[multimodal]")
         dep_tags = []
         if self.l1_classification:
-            dep_tags.append(self.l1_classification)
+            dep_tags.append(self.l1_classification.name)
         if self.l2_classification:
-            dep_tags.append(self.l2_classification)
+            dep_tags.append(self.l2_classification.name)
         lines.append("dependency_tags = [%s]" % ", ".join('"%s"' % t for t in dep_tags))
         lines.append("")
 

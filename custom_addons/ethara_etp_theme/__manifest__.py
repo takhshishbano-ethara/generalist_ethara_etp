@@ -64,6 +64,7 @@ no new menus are created.
             'ethara_etp_theme/static/src/listview/column_filter.xml',
             'ethara_etp_theme/static/src/chatter/chatter_patch.js',
             'ethara_etp_theme/static/src/chatter/chatter_patch.xml',
+            'ethara_etp_theme/static/src/home_redirect/home_redirect.js',
         ],
         'web.assets_frontend': [
             'ethara_etp_theme/static/src/scss/variables.scss',
