@@ -98,7 +98,9 @@ class Kensei2Controller(http.Controller):
 
                     persona_name = (item.get('persona') or '').strip()
                     if persona_name:
-                        persona = Persona.search([('name', '=ilike', persona_name)], limit=1)
+                        # Normalize to match model's create/write (lowercase, spaces→hyphens)
+                        normalized_name = persona_name.strip().lower().replace(" ", "-")
+                        persona = Persona.search([('name', '=ilike', normalized_name)], limit=1)
                         if not persona:
                             persona = Persona.create({
                                 'name': persona_name,
