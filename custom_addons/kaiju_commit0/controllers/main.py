@@ -31,12 +31,14 @@ class KaijuCallbackController(http.Controller):
         existing_map = {
             s.node_id: s for s in Step.search([(parent_field, "=", parent_record.id)])
         }
+        upserted = 0
         for step_data in steps_data:
             if not isinstance(step_data, dict):
                 continue
             name = step_data.get("name") or ""
             order = step_data.get("order", 0)
-            if not name:
+            log_file = step_data.get("log_file") or ""
+            if not name or not log_file:
                 continue
             node_id = f"callback-{order}"
             phase_raw = (step_data.get("phase") or "Pending").capitalize()
@@ -50,7 +52,7 @@ class KaijuCallbackController(http.Controller):
             }
             phase = phase_map.get(phase_raw, "Pending")
             vals = {
-                "display_name": name,
+                "step_name": name,
                 "phase": phase,
                 "log_file": step_data.get("log_file", ""),
                 "step_order": order,
@@ -62,11 +64,13 @@ class KaijuCallbackController(http.Controller):
                 vals["node_id"] = node_id
                 vals[parent_field] = parent_record.id
                 Step.create(vals)
+            upserted += 1
         _logger.info(
-            "Upserted %d callback steps for %s (id=%s)",
-            len([s for s in steps_data if isinstance(s, dict) and s.get("name")]),
+            "Upserted %d callback steps for %s (id=%s, %d raw in payload)",
+            upserted,
             parent_record._name,
             parent_record.id,
+            len(steps_data),
         )
 
     @http.route(

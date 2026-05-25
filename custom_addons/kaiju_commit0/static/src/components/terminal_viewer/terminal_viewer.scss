@@ -4,8 +4,7 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    min-height: 300px;
-    max-height: 500px;
+    min-height: 200px;
 }
 
 .c0-toolbar {
@@ -39,15 +38,6 @@
     border-radius: 10px;
     font-size: 10px;
     font-weight: 600;
-}
-
-.c0-badge-live {
-    animation: c0-pulse 1.5s ease-in-out infinite;
-}
-
-@keyframes c0-pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.5; }
 }
 
 .c0-btn {
@@ -139,14 +129,6 @@
         border: 1px solid #30363d;
     }
 
-    .c0-badge-live {
-        background: #1c2d1f;
-        color: #3fb950;
-        border-color: #238636;
-
-        .fa-circle { color: #3fb950; font-size: 7px; }
-    }
-
     .c0-btn {
         background: transparent;
         color: #8b949e;
@@ -207,14 +189,6 @@
         background: #eef1f4;
         color: #656d76;
         border: 1px solid #d0d7de;
-    }
-
-    .c0-badge-live {
-        background: #dafbe1;
-        color: #1a7f37;
-        border-color: #82e596;
-
-        .fa-circle { color: #1a7f37; font-size: 7px; }
     }
 
     .c0-btn {
