@@ -24,12 +24,22 @@ class KaijuCallbackController(http.Controller):
             return False
         return token == expected
 
-    def _upsert_callback_steps(self, parent_record, steps_data, parent_field):
+    def _upsert_callback_steps(
+        self, parent_record, steps_data, parent_field, workflow_status=None
+    ):
         if not steps_data or not isinstance(steps_data, list):
             return
         Step = request.env["kaiju.commit0.workflow.step"].sudo()
         existing_map = {
             s.node_id: s for s in Step.search([(parent_field, "=", parent_record.id)])
+        }
+        phase_map = {
+            "Succeeded": "Succeeded",
+            "Failed": "Failed",
+            "Error": "Error",
+            "Running": "Running",
+            "Skipped": "Skipped",
+            "Omitted": "Omitted",
         }
         upserted = 0
         for step_data in steps_data:
@@ -42,14 +52,6 @@ class KaijuCallbackController(http.Controller):
                 continue
             node_id = f"callback-{order}"
             phase_raw = (step_data.get("phase") or "Pending").capitalize()
-            phase_map = {
-                "Succeeded": "Succeeded",
-                "Failed": "Failed",
-                "Error": "Error",
-                "Running": "Running",
-                "Skipped": "Skipped",
-                "Omitted": "Omitted",
-            }
             phase = phase_map.get(phase_raw, "Pending")
             vals = {
                 "step_name": name,
@@ -72,6 +74,34 @@ class KaijuCallbackController(http.Controller):
             parent_record.id,
             len(steps_data),
         )
+
+        # Phase inference: when the Argo API was unavailable in the exit
+        # hook, all phases arrive as "Unknown" which maps to "Pending".
+        # Infer correct phases from the overall workflow outcome.
+        if workflow_status and upserted:
+            pending = Step.search(
+                [
+                    (parent_field, "=", parent_record.id),
+                    ("phase", "=", "Pending"),
+                ],
+                order="step_order asc",
+            )
+            if pending:
+                if workflow_status == "success":
+                    pending.write({"phase": "Succeeded"})
+                else:
+                    # Failed workflow: earlier steps succeeded, last failed
+                    if len(pending) > 1:
+                        pending[:-1].write({"phase": "Succeeded"})
+                    pending[-1:].write({"phase": "Failed"})
+                _logger.info(
+                    "Inferred phase for %d step(s) from workflow_status=%s "
+                    "on %s (id=%s)",
+                    len(pending),
+                    workflow_status,
+                    parent_record._name,
+                    parent_record.id,
+                )
 
     @http.route(
         "/kaiju/callback/build", type="http", auth="none", methods=["POST"], csrf=False
@@ -160,7 +190,7 @@ class KaijuCallbackController(http.Controller):
                 }
             )
 
-        self._upsert_callback_steps(build, data.get("steps", []), "build_id")
+        self._upsert_callback_steps(build, data.get("steps", []), "build_id", status)
 
         _logger.info("Build callback processed: build=%s status=%s", build.name, status)
         return Response(
@@ -257,7 +287,7 @@ class KaijuCallbackController(http.Controller):
                 }
             )
 
-        self._upsert_callback_steps(run, data.get("steps", []), "run_id")
+        self._upsert_callback_steps(run, data.get("steps", []), "run_id", status)
 
         _logger.info("Run callback processed: run=%s status=%s", run.name, status)
         return Response(

@@ -494,14 +494,22 @@ class KaijuCommit0Run(models.Model):
             )
 
     def _reconcile_steps_from_manifest(self, s3, bucket, prefix):
-        """Ensure step records exist and have log_file via manifest.json.
+        """Ensure step records exist and have correct log_file, phase, and
+        step_name via manifest.json.
 
-        Handles two scenarios with a single S3 call:
+        Handles three scenarios with a single S3 call:
         - No step records → create from manifest (callback was lost)
-        - Steps exist without log_file → backfill (legacy data)
+        - Steps missing log_file → backfill from manifest
+        - Steps with stale phase/name (Argo API was unavailable in exit hook)
+          → patch from manifest data
         Skips silently if manifest.json is absent or all steps already OK.
         """
-        if self.step_ids and all(s.log_file for s in self.step_ids):
+        _VALID_PHASES = {"Succeeded", "Failed", "Error", "Skipped", "Omitted"}
+
+        needs_work = not self.step_ids or any(
+            not s.log_file or s.phase == "Pending" for s in self.step_ids
+        )
+        if not needs_work:
             return
 
         import json
@@ -541,25 +549,38 @@ class KaijuCommit0Run(models.Model):
                 )
             return
 
-        manifest_map = {}
+        manifest_by_name = {}
+        manifest_by_order = {}
         for entry in steps_data:
             name = entry.get("name", "")
-            log_file = entry.get("log_file", "")
-            if name and log_file:
-                manifest_map[name] = log_file
+            order = entry.get("order", 0)
+            if name:
+                manifest_by_name[name] = entry
+            if order:
+                manifest_by_order[order] = entry
 
         updated = 0
         for step in self.step_ids:
-            if step.log_file:
+            entry = manifest_by_name.get(step.step_name) or manifest_by_order.get(
+                step.step_order
+            )
+            if not entry:
                 continue
-            log_file = manifest_map.get(step.step_name)
-            if log_file:
-                step.write({"log_file": log_file})
+            vals = {}
+            if not step.log_file and entry.get("log_file"):
+                vals["log_file"] = entry["log_file"]
+            if step.phase == "Pending" and entry.get("phase") in _VALID_PHASES:
+                vals["phase"] = entry["phase"]
+            m_name = entry.get("name", "")
+            if m_name and step.step_name and len(step.step_name) > 40:
+                vals["step_name"] = m_name
+            if vals:
+                step.write(vals)
                 updated += 1
 
         if updated:
             _logger.info(
-                "Backfilled log_file on %d steps for %s from manifest",
+                "Reconciled %d steps for %s from manifest",
                 updated,
                 self.name,
             )
