@@ -429,7 +429,11 @@ assert record["status"] == "approved", f"expected approved, got {record['status'
 
 - Test method names: `test_<service>_<action>_<detail>` (e.g. `test_instagram_comment_created`). Always snake_case. Each method takes `self` and starts with `test_`.
 - NO module-level helpers (the harness template supplies them). NO imports inside your code. NO module-level constants.
-- Helpers available in the template: `api_get(base_url, endpoint)`, `api_post(base_url, endpoint, data)`, `read_file(path)`, `file_exists(path)`. The `json` module is also already imported.
+- Helpers available in the template (use EITHER convention — both work):
+  - Two-arg style: `api_get(base_url, endpoint)`, `api_post(base_url, endpoint, data)` — e.g. `api_get(INSTAGRAM_API_URL, "/audit/summary")`
+  - One-arg style: `_get(url)`, `_post(url, data)` — e.g. `_get(f"{INSTAGRAM_API_URL}/audit/summary")`
+  - File helpers: `read_file(path)`, `file_exists(path)`
+  - The `json` module is also already imported.
 - API base URLs are available as module-level constants: `<SERVICE_NAME>_URL` where `<SERVICE_NAME>` is the uppercased service name with hyphens replaced by underscores (e.g. service `instagram-api` → `INSTAGRAM_API_URL`). Reference these constants directly; do NOT call `os.environ`.
 - Every test method has a docstring describing what observable state it verifies.
 - One logical assertion group per test method. Independent tests — no fixtures, no shared mutable state.
@@ -447,7 +451,7 @@ Only these modules are available in the verifier environment:
 Do NOT import `openpyxl`, `pandas`, `numpy`, `requests`, `beautifulsoup4`, `lxml`, `PIL`/`Pillow`,
 or any other third-party package. For `.xlsx` files: use `zipfile` to open as ZIP archive
 and `xml.etree.ElementTree` to parse the shared strings XML inside it. For HTTP: use
-the provided `api_get`/`api_post` helpers (urllib-based).
+the provided `api_get`/`api_post` or `_get`/`_post` helpers (urllib-based).
 
 If you need `hashlib` inside a test method, import it locally: `import hashlib as _hl`.
 
@@ -516,7 +520,7 @@ Return ONLY a single JSON object with two keys, wrapped in a ```json fence:
 - [ ] Every test method starts with `test_`, takes `self`, is snake_case, has a docstring
 - [ ] Negative-test docstrings start with the required Convention B sentence verbatim
 - [ ] EVERY assert is phrased POSITIVELY — no `assert not`, no `== 0`, no `is None`, no `not in`
-- [ ] No `requests` import or call — only `api_get`/`api_post`
+- [ ] No `requests` import or call — only `api_get`/`api_post` or `_get`/`_post`
 - [ ] No `os.environ` lookups — use provided `<SERVICE_NAME>_URL` constants
 - [ ] No forbidden imports (pandas, openpyxl, numpy, beautifulsoup4, lxml, PIL) — stdlib only
 - [ ] Free-text fields asserted by lowercased keyword/substring, never full-string equality
