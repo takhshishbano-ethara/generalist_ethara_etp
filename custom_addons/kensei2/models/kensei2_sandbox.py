@@ -657,6 +657,28 @@ def _generate_intent_tests_background(db_name, sandbox_id, prompt):
         )
 
 
+_STRIP_IMPORT_RE = re.compile(
+    r"^(?:import\s+\w+|from\s+\w[\w.]*\s+import\s+.*)$",
+    re.MULTILINE,
+)
+_STRIP_HELPER_RE = re.compile(
+    r"^def\s+(?:_get|_post|_request|api_get|api_post|read_file|file_exists)\s*\(.*?(?=\nclass\s|\ndef\s[^_]|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+_STRIP_ENVIRON_RE = re.compile(
+    r"^[A-Z_]+_URL\s*=\s*os\.environ.*$",
+    re.MULTILINE,
+)
+
+
+def _sanitize_llm_test_code(code):
+    code = _STRIP_IMPORT_RE.sub("", code)
+    code = _STRIP_ENVIRON_RE.sub("", code)
+    code = _STRIP_HELPER_RE.sub("", code)
+    code = re.sub(r"\n{4,}", "\n\n\n", code)
+    return code.strip()
+
+
 def _generate_task_tests_background(db_name, task_id):
     try:
         from odoo.modules.module import get_module_path
@@ -766,11 +788,24 @@ def _generate_task_tests_background(db_name, task_id):
                 "",
                 "",
                 "def api_get(base_url, endpoint):",
+                '    """Two-arg helper: api_get(BASE_URL, "/path")."""',
                 '    return _request("GET", f"{base_url}{endpoint}")',
                 "",
                 "",
-                "def api_post(base_url, endpoint, data):",
+                "def api_post(base_url, endpoint, data=None):",
+                '    """Two-arg helper: api_post(BASE_URL, "/path", {...})."""',
                 '    return _request("POST", f"{base_url}{endpoint}", data=data)',
+                "",
+                "",
+                "# Compatibility aliases — accept a full URL (one argument)",
+                "def _get(url):",
+                '    """One-arg helper: _get(f"{BASE_URL}/path")."""',
+                '    return _request("GET", url)',
+                "",
+                "",
+                "def _post(url, data=None):",
+                '    """One-arg helper: _post(f"{BASE_URL}/path", {...})."""',
+                '    return _request("POST", url, data=data)',
                 "",
                 "",
                 "def read_file(path):",
@@ -900,6 +935,8 @@ def _generate_task_tests_background(db_name, task_id):
                 continue
             if not isinstance(weights, dict):
                 weights = {}
+
+            llm_code = _sanitize_llm_test_code(llm_code)
 
             try:
                 ast.parse(llm_code)
@@ -2473,17 +2510,20 @@ def _replace_inline_media_with_s3(messages, task_id, env):
     """
     from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
 
+    # Load .env to ensure S3 credentials are available in os.environ
+    dotenv = _load_dotenv()
+
     icp = env["ir.config_parameter"].sudo()
     bucket = icp.get_param("kensei2.s3_bucket") or S3_BUCKET
     region = icp.get_param("kensei2.s3_region") or "us-east-1"
     prefix = icp.get_param("kensei2.s3_prefix") or S3_KENSEI2_PREFIX
     access_key = (
-        os.environ.get("KENSEI2_S3_ACCESS_KEY_ID")
-        or os.environ.get("AWS_SECRET_KEY", "")
+        dotenv.get("KENSEI_S3_ACCESS_KEY_ID", "")
+        or os.environ.get("KENSEI_S3_ACCESS_KEY_ID", "")
     )
     secret_key = (
-        os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY")
-        or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        dotenv.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+        or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
     )
 
     if not bucket:
@@ -3131,24 +3171,34 @@ class Kensei2Sandbox(models.Model):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
+            # Usage can live at entry-level or inside entry.message
             usage = entry.get("usage") or {}
             msg = entry.get("message")
             if isinstance(msg, dict):
                 usage = usage or msg.get("usage") or {}
             if not usage:
                 continue
-            total_in += int(
-                usage.get("input_tokens", 0)
-                or usage.get("inputTokens", 0)
-                or usage.get("prompt_tokens", 0)
+            if not isinstance(usage, dict):
+                continue
+            # OpenClaw normalizes to "input"/"output" (bare names).
+            # LiteLLM / Anthropic / OpenAI use "_tokens" suffixed variants.
+            # Check ALL known field names to cover every provider format.
+            raw_in = (
+                usage.get("input")              # OpenClaw normalized
+                or usage.get("input_tokens")     # Anthropic
+                or usage.get("inputTokens")      # camelCase variant
+                or usage.get("prompt_tokens")    # OpenAI / LiteLLM
                 or 0
             )
-            total_out += int(
-                usage.get("output_tokens", 0)
-                or usage.get("outputTokens", 0)
-                or usage.get("completion_tokens", 0)
+            raw_out = (
+                usage.get("output")              # OpenClaw normalized
+                or usage.get("output_tokens")    # Anthropic
+                or usage.get("outputTokens")     # camelCase variant
+                or usage.get("completion_tokens") # OpenAI / LiteLLM
                 or 0
             )
+            total_in += int(raw_in)
+            total_out += int(raw_out)
         return total_in, total_out
 
     def _query_litellm_spend(self, window_start=None, window_end=None):
@@ -3202,6 +3252,7 @@ class Kensei2Sandbox(models.Model):
             )
             return 0, 0
 
+        url = base_url
         try:
             if not self.create_date:
                 return 0, 0
@@ -3281,18 +3332,135 @@ class Kensei2Sandbox(models.Model):
             return total_in, total_out
 
         except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode()[:500]
+            except Exception:
+                pass
             _logger.warning(
-                "LiteLLM spend API error for sandbox %s: %s %s",
-                self.id,
-                e.code,
-                e.reason,
+                "[TOKEN-LITELLM] HTTP %s %s for sandbox %s url=%s body=%s",
+                e.code, e.reason, self.id, url, body,
             )
             return 0, 0
         except Exception as e:
             _logger.warning(
-                "LiteLLM spend query failed for sandbox %s: %s",
-                self.id,
-                e,
+                "[TOKEN-LITELLM] Query failed for sandbox %s url=%s: %s",
+                self.id, url, e,
+            )
+            return 0, 0
+
+    def _query_litellm_spend_k8s(self):
+        """Query LiteLLM spend directly inside the pod via kubectl exec."""
+        self.ensure_one()
+        if self._deployment_mode() != "k8s":
+            return 0, 0
+
+        import hashlib
+
+        namespace = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("kensei2.k8s_namespace", "kensei2")
+            .strip()
+        ) or "kensei2"
+
+        dotenv = _load_dotenv()
+        litellm_key = (
+            dotenv.get("KENSEI2_LITELLM_MASTER_KEY")
+            or dotenv.get("LITELLM_MASTER_KEY", "")
+        ).strip()
+        if not litellm_key:
+            litellm_key = (
+                "sk-kensei2-%s" % self.docker_gateway_token[:16]
+                if self.docker_gateway_token
+                else ""
+            )
+        if not litellm_key:
+            return 0, 0
+
+        hashed_key = hashlib.sha256(litellm_key.encode("utf-8")).hexdigest()
+
+        try:
+            from kubernetes import client as k8s_client
+            from .kensei2_sandbox_k8s import _load_k8s_config
+
+            _load_k8s_config()
+        except Exception:
+            return 0, 0
+
+        label_selector = (
+            "app.kubernetes.io/name=kensei2-sandbox,task-id=%s" % self.id
+        )
+        try:
+            core_v1 = k8s_client.CoreV1Api()
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector,
+            )
+            pod_name = None
+            for pod in pods.items:
+                phase = (pod.status.phase or "").lower()
+                if phase not in ("failed", "unknown"):
+                    pod_name = pod.metadata.name
+                    break
+            if not pod_name:
+                _logger.warning(
+                    "[TOKEN-K8S] No pod found for sandbox %s", self.id,
+                )
+                return 0, 0
+        except Exception as e:
+            _logger.warning(
+                "[TOKEN-K8S] Pod lookup failed for sandbox %s: %s",
+                self.id, e,
+            )
+            return 0, 0
+
+        spend_url = "http://localhost:4000/spend/logs?api_key=%s" % hashed_key
+        node_script = (
+            "const http=require('http');"
+            "const opts={hostname:'localhost',port:4000,"
+            "path:'/spend/logs?api_key=%s',"
+            "headers:{Authorization:'Bearer %s'}};"
+            "http.get(opts,r=>{let d='';r.on('data',c=>d+=c);"
+            "r.on('end',()=>{process.stdout.write(d);process.exit(0)})});"
+            "setTimeout(()=>process.exit(1),10000)"
+        ) % (hashed_key, litellm_key)
+
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "exec", "-n", namespace, pod_name,
+                    "-c", "openclaw", "--",
+                    "node", "-e", node_script,
+                ],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                _logger.warning(
+                    "[TOKEN-K8S] kubectl exec failed for sandbox %s: rc=%d stderr=%s",
+                    self.id, result.returncode, result.stderr[:300],
+                )
+                return 0, 0
+
+            data = json.loads(result.stdout)
+            logs = data if isinstance(data, list) else data.get("data", [])
+
+            total_in = 0
+            total_out = 0
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                total_in += int(entry.get("prompt_tokens", 0) or 0)
+                total_out += int(entry.get("completion_tokens", 0) or 0)
+
+            _logger.info(
+                "[TOKEN-K8S] Direct query returned %d logs (in=%d, out=%d) sandbox %s",
+                len(logs), total_in, total_out, self.id,
+            )
+            return total_in, total_out
+        except Exception as e:
+            _logger.warning(
+                "[TOKEN-K8S] Direct LiteLLM query failed for sandbox %s: %s",
+                self.id, e,
             )
             return 0, 0
 
@@ -4254,6 +4422,9 @@ class Kensei2Sandbox(models.Model):
                         window_start=None, window_end=window_end
                     )
                     source = "litellm"
+                    if session_in == 0 and session_out == 0:
+                        session_in, session_out = self._query_litellm_spend_k8s()
+                        source = "litellm-k8s"
                     if session_in == 0 and session_out == 0 and jsonl_entries:
                         session_in, session_out = self._extract_tokens_from_jsonl(
                             jsonl_entries
