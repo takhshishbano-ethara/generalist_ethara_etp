@@ -258,26 +258,35 @@ class KaijuCommit0(models.Model):
         for rec in self:
             rec.is_build_running = rec.build_status == "running"
 
-    @api.depends("step_ids.phase", "step_ids.message", "step_ids.display_name")
+    @api.depends(
+        "step_ids.phase",
+        "step_ids.message",
+        "step_ids.step_name",
+        "step_ids.log_text",
+    )
     def _compute_error_summary(self):
-        """Find first failed step and surface its error message for quick triage."""
         for rec in self:
             failed = rec.step_ids.filtered(
                 lambda s: s.phase in ("Failed", "Error")
             ).sorted("started_at")
-            if failed:
-                first = failed[0]
-                step_label = first.display_name or first.node_id or "unknown"
-                msg = (first.message or "(no error message)").strip()
-                if len(msg) > 200:
-                    msg = msg[:197] + "…"
-                rec.error_summary = f"{step_label}: {msg}"
-            else:
+            if not failed:
                 rec.error_summary = False
+                continue
+            first = failed[0]
+            step_label = first.step_name or first.node_id or "unknown"
+            msg = (first.message or "").strip()
+            if not msg and first.log_text:
+                tail = [l for l in first.log_text.strip().splitlines() if l.strip()]
+                msg = tail[-1].strip() if tail else ""
+            if not msg:
+                msg = "Sync logs for details"
+            if len(msg) > 200:
+                msg = msg[:197] + "…"
+            rec.error_summary = f"{step_label}: {msg}"
 
     @api.depends(
         "step_ids.log_text",
-        "step_ids.display_name",
+        "step_ids.step_name",
         "step_ids.phase",
         "step_ids.started_at",
         "step_ids.finished_at",
@@ -293,7 +302,7 @@ class KaijuCommit0(models.Model):
             for i, step in enumerate(steps, start=1):
                 header_bits = [
                     f"[{i}/{len(steps)}]",
-                    step.display_name or step.node_id or "step",
+                    step.step_name or step.node_id or "step",
                     f"({step.phase or 'Pending'})",
                 ]
                 if step.started_at:
@@ -750,24 +759,61 @@ class KaijuCommit0(models.Model):
 
         Works on single record (form button) and multi-record (list
         Action menu).  Silently skips records without *s3_log_prefix*.
+        Uses savepoints so one record's failure doesn't abort the rest.
         """
+        from odoo.exceptions import UserError
+
         eligible = self.filtered(lambda r: r.s3_log_prefix)
         if not eligible:
-            from odoo.exceptions import UserError
-
             raise UserError(
                 "None of the selected builds have an S3 log prefix yet. "
                 "Logs are uploaded by the Argo exit hook on workflow completion."
             )
+        errors = []
         for rec in eligible:
-            rec._fetch_logs_from_s3()
+            try:
+                with self.env.cr.savepoint():
+                    rec._fetch_logs_from_s3()
+            except Exception as e:
+                errors.append(f"{rec.name}: {e}")
+                _logger.warning("Sync logs failed for %s: %s", rec.name, e)
+
+        if errors and len(errors) == len(eligible):
+            raise UserError(
+                f"All {len(errors)} sync(s) failed:\n\n" + "\n".join(errors)
+            )
+        if errors:
+            _logger.warning(
+                "Partial log sync: %d/%d failed:\n%s",
+                len(errors),
+                len(eligible),
+                "\n".join(errors),
+            )
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Partial Sync",
+                    "message": (
+                        f"Synced {len(eligible) - len(errors)} of "
+                        f"{len(eligible)} builds.  {len(errors)} failed "
+                        f"— check server logs for details."
+                    ),
+                    "type": "warning",
+                    "sticky": True,
+                    "next": {"type": "ir.actions.client", "tag": "reload"},
+                },
+            }
         return {"type": "ir.actions.client", "tag": "reload"}
 
     def action_sync_all_logs(self):
         """Sync logs for every terminal build that has an S3 log prefix.
 
         Intended as a bulk convenience action from the list-view header.
+        Uses savepoints so one record's failure doesn't abort the rest.
         """
+        from odoo.exceptions import UserError
+
         eligible = self.search(
             [
                 ("s3_log_prefix", "!=", False),
@@ -775,11 +821,42 @@ class KaijuCommit0(models.Model):
             ]
         )
         if not eligible:
-            from odoo.exceptions import UserError
-
             raise UserError("No completed builds need log syncing.")
+        errors = []
         for rec in eligible:
-            rec._fetch_logs_from_s3()
+            try:
+                with self.env.cr.savepoint():
+                    rec._fetch_logs_from_s3()
+            except Exception as e:
+                errors.append(f"{rec.name}: {e}")
+                _logger.warning("Sync all logs failed for %s: %s", rec.name, e)
+
+        if errors and len(errors) == len(eligible):
+            raise UserError(
+                f"All {len(errors)} sync(s) failed:\n\n" + "\n".join(errors)
+            )
+        if errors:
+            _logger.warning(
+                "Bulk log sync: %d/%d failed:\n%s",
+                len(errors),
+                len(eligible),
+                "\n".join(errors),
+            )
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Partial Sync",
+                    "message": (
+                        f"Synced {len(eligible) - len(errors)} of "
+                        f"{len(eligible)} builds.  {len(errors)} failed "
+                        f"— check server logs for details."
+                    ),
+                    "type": "warning",
+                    "sticky": True,
+                    "next": {"type": "ir.actions.client", "tag": "reload"},
+                },
+            }
         return {"type": "ir.actions.client", "tag": "reload"}
 
     def _parse_s3_log_location(self):
@@ -837,10 +914,10 @@ class KaijuCommit0(models.Model):
         except Exception as e:
             raise UserError(f"Failed to create S3 client: {e}")
 
-        if not self.step_ids:
-            self._discover_steps_from_manifest(s3, bucket, prefix)
+        self._reconcile_steps_from_manifest(s3, bucket, prefix)
 
         steps_with_logfile = [s for s in self.step_ids if s.log_file]
+
         if not steps_with_logfile:
             raise UserError(
                 f"No steps with log files found.\n\n"
@@ -869,12 +946,12 @@ class KaijuCommit0(models.Model):
             except Exception as e:
                 _logger.warning(
                     "S3 log fetch failed for step %s (key=s3://%s/%s): %s",
-                    step.display_name or step.node_id,
+                    step.step_name or step.node_id,
                     bucket,
                     key,
                     e,
                 )
-                errors.append(f"  {step.display_name or step.node_id}: {key} → {e}")
+                errors.append(f"  {step.step_name or step.node_id}: {key} → {e}")
                 failed += 1
 
         _logger.info(
@@ -890,12 +967,17 @@ class KaijuCommit0(models.Model):
                 f"All {failed} log downloads failed:\n\n" + "\n".join(errors)
             )
 
-    def _discover_steps_from_manifest(self, s3, bucket, prefix):
-        """Read manifest.json from S3 and create step records.
+    def _reconcile_steps_from_manifest(self, s3, bucket, prefix):
+        """Ensure step records exist and have log_file via manifest.json.
 
-        Used as a fallback when the callback's ``steps[]`` payload was
-        lost (network error, Odoo downtime, etc.).
+        Handles two scenarios with a single S3 call:
+        - No step records → create from manifest (callback was lost)
+        - Steps exist without log_file → backfill (legacy data)
+        Skips silently if manifest.json is absent or all steps already OK.
         """
+        if self.step_ids and all(s.log_file for s in self.step_ids):
+            return
+
         import json
 
         manifest_key = prefix + "manifest.json"
@@ -916,19 +998,44 @@ class KaijuCommit0(models.Model):
         if not steps_data:
             return
 
-        Step = self.env["kaiju.commit0.workflow.step"]
+        if not self.step_ids:
+            Step = self.env["kaiju.commit0.workflow.step"]
+            for entry in steps_data:
+                order = entry.get("order", 0)
+                Step.create(
+                    {
+                        "build_id": self.id,
+                        "node_id": f"manifest-{order}",
+                        "step_name": entry.get("name", f"step-{order}"),
+                        "phase": entry.get("phase", "Succeeded"),
+                        "log_file": entry.get("log_file", ""),
+                        "step_order": order,
+                        "node_type": "Pod",
+                    }
+                )
+            return
+
+        manifest_map = {}
         for entry in steps_data:
-            order = entry.get("order", 0)
-            Step.create(
-                {
-                    "build_id": self.id,
-                    "node_id": f"manifest-{order}",
-                    "display_name": entry.get("name", f"step-{order}"),
-                    "phase": entry.get("phase", "Succeeded"),
-                    "log_file": entry.get("log_file", ""),
-                    "step_order": order,
-                    "node_type": "Pod",
-                }
+            name = entry.get("name", "")
+            log_file = entry.get("log_file", "")
+            if name and log_file:
+                manifest_map[name] = log_file
+
+        updated = 0
+        for step in self.step_ids:
+            if step.log_file:
+                continue
+            log_file = manifest_map.get(step.step_name)
+            if log_file:
+                step.write({"log_file": log_file})
+                updated += 1
+
+        if updated:
+            _logger.info(
+                "Backfilled log_file on %d steps for %s from manifest",
+                updated,
+                self.name,
             )
 
     # ── Pipeline Metadata (S3 dataset_entries.json) ─────────────────────

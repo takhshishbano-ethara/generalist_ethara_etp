@@ -156,7 +156,7 @@
                                               decoration-warning="phase == 'Running'"
                                               decoration-success="phase == 'Succeeded'"
                                               decoration-muted="phase in ('Skipped', 'Omitted')">
-                                            <field name="display_name" string="Step"/>
+                                            <field name="step_name" string="Step"/>
                                             <field name="phase" widget="badge"
                                                    decoration-info="phase == 'Pending'"
                                                    decoration-warning="phase == 'Running'"
