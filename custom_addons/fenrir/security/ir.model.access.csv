@@ -1,5 +1,13 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_fenrir_task_user,fenrir.task.user,model_fenrir_task,base.group_user,1,1,1,0
-access_fenrir_task_manager,fenrir.task.manager,model_fenrir_task,base.group_system,1,1,1,1
+access_fenrir_task_manager,fenrir.task.manager,model_fenrir_task,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_seller_offer_user,fenrir.seller.offer.user,model_fenrir_seller_offer,base.group_user,1,1,1,0
-access_fenrir_seller_offer_manager,fenrir.seller.offer.manager,model_fenrir_seller_offer,base.group_system,1,1,1,1
+access_fenrir_seller_offer_manager,fenrir.seller.offer.manager,model_fenrir_seller_offer,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_category_user,fenrir.category.user,model_fenrir_category,base.group_user,1,0,0,0
+access_fenrir_category_manager,fenrir.category.manager,model_fenrir_category,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_rubric_user,fenrir.rubric.user,model_fenrir_rubric,base.group_user,1,1,1,1
+access_fenrir_rubric_manager,fenrir.rubric.manager,model_fenrir_rubric,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_rubric_score_user,fenrir.rubric.score.user,model_fenrir_rubric_score,base.group_user,1,1,1,1
+access_fenrir_rubric_score_manager,fenrir.rubric.score.manager,model_fenrir_rubric_score,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_task_attachment_user,fenrir.task.attachment.user,model_fenrir_task_attachment,base.group_user,1,1,1,1
+access_fenrir_task_attachment_manager,fenrir.task.attachment.manager,model_fenrir_task_attachment,fenrir.group_fenrir_manager,1,1,1,1

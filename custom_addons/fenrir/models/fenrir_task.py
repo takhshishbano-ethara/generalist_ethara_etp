@@ -1,29 +1,71 @@
+import base64
+import io
+import json
+import re
+import zipfile
+
 from odoo import api, fields, models
+from odoo.exceptions import UserError
+
+
+def _slug(name):
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", name or "").strip("_") or "file"
 
 
 class FenrirTask(models.Model):
     _name = "fenrir.task"
     _description = "Fenrir Task / Project Record"
     _inherit = ["mail.thread", "mail.activity.mixin"]
-    _order = "sequence, id"
+    _order = "code"
     _rec_name = "code"
 
-    sequence = fields.Integer(string="#", default=1, help="Row number (column 'x' in source sheet)")
     code = fields.Char(string="Task Code", required=True, copy=False, tracking=True,
                        help="Unique project reference, e.g. GDV-002")
-    category = fields.Char(string="Category", tracking=True)
-    name = fields.Char(string="Name", required=True, tracking=True,
-                      help="Project lead / contact name")
+    category_id = fields.Many2one(
+        comodel_name="fenrir.category",
+        string="Category",
+        tracking=True,
+        ondelete="restrict",
+    )
+    lead_user_id = fields.Many2one(
+        comodel_name="res.users",
+        string="Name",
+        default=lambda self: self.env.user,
+        readonly=True,
+        tracking=True,
+        help="Auto-filled with the user who created the record",
+    )
     title = fields.Char(string="Title", tracking=True)
     overview = fields.Text(string="Overview")
     scope_of_work = fields.Text(string="Scope of Work")
     company_details = fields.Text(string="Company Details")
 
     assets_url = fields.Char(string="Assets")
-    rubrics_url = fields.Char(string="Rubrics")
+    rubrics_url = fields.Char(string="Rubrics URL",
+                              help="External link to a rubric spec / doc")
     instruction_md_url = fields.Char(string="Instruction.md")
+    instruction_notes = fields.Text(
+        string="Instruction.md Notes",
+        help="Notes about instruction.md; emitted as the 'notes' field for "
+             "the instruction.md entry in license.json.",
+    )
 
-    reviewer = fields.Char(string="Reviewer", tracking=True)
+    rubric_ids = fields.One2many(
+        comodel_name="fenrir.rubric",
+        inverse_name="task_id",
+        string="Rubrics",
+    )
+    attachment_ids = fields.One2many(
+        comodel_name="fenrir.task.attachment",
+        inverse_name="task_id",
+        string="Attachments",
+    )
+
+    reviewer_id = fields.Many2one(
+        comodel_name="res.users",
+        string="Reviewer",
+        tracking=True,
+    )
     status = fields.Selection(
         selection=[
             ("draft", "Draft"),
@@ -39,16 +81,25 @@ class FenrirTask(models.Model):
     )
     remarks = fields.Text(string="Remarks")
 
-    buyer = fields.Char(string="Buyer", tracking=True)
-    pricing = fields.Char(string="Pricing",
-                          help="Buyer-side pricing, e.g. '$150' or '$150-$200'")
+    buyer_id = fields.Many2one(
+        comodel_name="res.users",
+        string="Buyer",
+        tracking=True,
+    )
+    pricing = fields.Float(string="Pricing", tracking=True,
+                           help="Buyer-side pricing")
     price_tier = fields.Char(string="Price Tier")
-    delivery_time = fields.Char(string="Delivery Time")
+    delivery_time = fields.Date(string="Delivery Time", tracking=True)
 
     seller_offer_ids = fields.One2many(
         comodel_name="fenrir.seller.offer",
         inverse_name="task_id",
         string="Seller Offers",
+    )
+    all_rubric_score_ids = fields.One2many(
+        comodel_name="fenrir.rubric.score",
+        inverse_name="task_id",
+        string="Per-Seller Rubric Scoring",
     )
     seller_offer_count = fields.Integer(
         string="Sellers", compute="_compute_seller_offer_count")
@@ -75,4 +126,158 @@ class FenrirTask(models.Model):
             "view_mode": "list,form",
             "domain": [("task_id", "=", self.id)],
             "context": {"default_task_id": self.id},
+        }
+
+    def action_export_task(self):
+        tasks = self._exportable_tasks()
+        zip_buf = io.BytesIO()
+        with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for task in tasks:
+                task._write_rich_export(zf, _slug(task.code))
+        return self._build_zip_download(zip_buf.getvalue(),
+                                        self._zip_name(tasks, "fenrir_tasks"))
+
+    def _exportable_tasks(self):
+        tasks = self.filtered("code")
+        if not tasks:
+            raise UserError("Select at least one task with a code to export.")
+        return tasks
+
+    @staticmethod
+    def _zip_name(tasks, fallback):
+        if len(tasks) == 1:
+            return f"{_slug(tasks.code)}.zip"
+        return f"{fallback}_{len(tasks)}.zip"
+
+    def _write_rich_export(self, zf, root):
+        self.ensure_one()
+        task_meta = {
+            "task_id": self.code,
+            "title": self.title or "",
+            "category": self.category_id.name or "",
+            "price_bracket": self.price_tier or "",
+            "pricing": self.pricing,
+            "delivery_time": self.delivery_time.isoformat() if self.delivery_time else None,
+            "status": self.status,
+            "lead_user": self.lead_user_id.name or "",
+            "reviewer": self.reviewer_id.name or "",
+            "buyer": self.buyer_id.name or "",
+            "recreation_notes": self.scope_of_work or "",
+            "assets_url": self.assets_url or "",
+            "rubrics_url": self.rubrics_url or "",
+            "instruction_md_url": self.instruction_md_url or "",
+        }
+        zf.writestr(f"{root}/task_metadata.json",
+                   json.dumps(task_meta, indent=2, default=str))
+        zf.writestr(f"{root}/instruction.md", self._build_instruction_md(include_remarks=True))
+        zf.writestr(f"{root}/rubrics.json",
+                   json.dumps([
+                       {"sequence": r.sequence,
+                        "name": r.name or "",
+                        "description": r.description or ""}
+                       for r in self.rubric_ids.sorted("sequence")
+                   ], indent=2))
+        zf.writestr(f"{root}/license.json",
+                   json.dumps(self._build_license_doc(), indent=2))
+
+        for att in self.attachment_ids:
+            if not att.attachment:
+                continue
+            file_bytes = base64.b64decode(att.attachment)
+            safe_name = _slug(att.file_name or f"attachment_{att.id}")
+            folder = att.folder or "resources"
+            zf.writestr(f"{root}/{folder}/{safe_name}", file_bytes)
+
+        for offer in self.seller_offer_ids.sorted("seller_no"):
+            seller_dir = f"{root}/submissions/seller_{offer.seller_no or offer.id}"
+            meta = {
+                "task_id": self.code,
+                "seller_number": offer.seller_no,
+                "seller_username": offer.seller or "",
+                "received_custom_offer": offer.received_custom_offer,
+                "sellers_initial_ask": offer.sellers_initial_ask,
+                "negotiated_offer": offer.negotiated_offer or "",
+                "accepted": offer.accepted,
+                "price_paid_usd": offer.final_payment_amount,
+                "currency": offer.final_payment_currency or "",
+                "delivery_received": offer.delivery_received,
+                "accepted_delivery": offer.accepted_delivery,
+                "deliverables_link": offer.deliverables_link or "",
+                "order_date": offer.create_date.isoformat() if offer.create_date else None,
+                "notes": offer.notes or "",
+            }
+            zf.writestr(f"{seller_dir}/metadata.json",
+                       json.dumps(meta, indent=2, default=str))
+            zf.writestr(f"{seller_dir}/ratings.json",
+                       json.dumps(self._build_ratings(offer), indent=2, default=str))
+            if offer.conversation:
+                zf.writestr(f"{seller_dir}/conversation.txt", offer.conversation)
+            if offer.automated_checks:
+                zf.writestr(f"{seller_dir}/automated_checks.txt", offer.automated_checks)
+            if offer.metadata_json:
+                zf.writestr(f"{seller_dir}/extra_metadata.json", offer.metadata_json)
+
+    def _build_license_doc(self):
+        self.ensure_one()
+        assets = [{
+            "file_name": "instruction.md",
+            "location": "root",
+            "license": "Self-created",
+            "source_url": None,
+            "notes": self.instruction_notes or f"Task instructions for {self.code}.",
+        }]
+        for att in self.attachment_ids:
+            assets.append({
+                "file_name": att.file_name or f"attachment_{att.id}",
+                "location": f"{att.folder or 'resources'}/",
+                "license": att.license_label(),
+                "source_url": att.source_url or None,
+                "notes": att.notes or "",
+            })
+        return {"task_id": self.code, "assets": assets}
+
+    def _build_instruction_md(self, include_remarks=False):
+        self.ensure_one()
+        parts = [f"# {self.title or self.code}\n"]
+        if self.overview:
+            parts.append("## Overview\n\n" + self.overview)
+        if self.scope_of_work:
+            parts.append("## Scope of Work\n\n" + self.scope_of_work)
+        if self.company_details:
+            parts.append("## Company Details\n\n" + self.company_details)
+        if include_remarks and self.remarks:
+            parts.append("## Remarks\n\n" + self.remarks)
+        return "\n\n".join(parts) + "\n"
+
+    @staticmethod
+    def _build_ratings(offer):
+        return {
+            "overall_score": offer.overall_rating,
+            "justification": offer.overall_justification or "",
+            "rubric_evaluation": [
+                {
+                    "rubric_name": s.rubric_name or "",
+                    "rubric_description": s.rubric_description or "",
+                    "score": s.rating,
+                    "justification": s.justification or "",
+                }
+                for s in offer.rubric_score_ids.sorted("rubric_sequence")
+            ],
+            "rater_id": offer.write_uid.login or "",
+            "rating_date": offer.write_date.date().isoformat() if offer.write_date else None,
+        }
+
+    def _build_zip_download(self, zip_bytes, filename):
+        attachment = self.env["ir.attachment"].create({
+            "name": filename,
+            "type": "binary",
+            "datas": base64.b64encode(zip_bytes),
+            "res_model": self._name,
+            "res_id": self[:1].id or False,
+            "mimetype": "application/zip",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
         }
