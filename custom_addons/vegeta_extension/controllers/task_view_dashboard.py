@@ -44,7 +44,7 @@ def _parse_selection(model, field_name, raw, label):
 
 def _build_task_view_domain(env, params):
     domain = []
-    Job = env["gohan.job"]
+    Job = env["vegeta.job"]
 
     raw_start = (params.get("start_date") or "").strip()
     raw_end = (params.get("end_date") or "").strip()
@@ -71,14 +71,6 @@ def _build_task_view_domain(env, params):
             return None, error
         if values:
             domain.append(("state", "in", values))
-
-    raw_eq_tier = (params.get("eq_tier") or "").strip()
-    if raw_eq_tier:
-        values, error = _parse_selection(Job, "eq_tier", raw_eq_tier, "eq_tier")
-        if error is not None:
-            return None, error
-        if values:
-            domain.append(("eq_tier", "in", values))
 
     raw_verdict = (params.get("qc_verdict") or "").strip()
     if raw_verdict:
@@ -141,7 +133,7 @@ def _resolve_order(params):
     return f"{SORT_FIELDS[raw_sort]} {direction}, id desc", None
 
 
-def _serialize(job, verdict_labels, eq_labels):
+def _serialize(job, verdict_labels):
     return {
         "id": job.id,
         "task_name": job.site_name or job.url or "",
@@ -155,17 +147,15 @@ def _serialize(job, verdict_labels, eq_labels):
         "qc_verdict_label": verdict_labels.get(job.qc_verdict, ""),
         "tasker_name": job.user_id.name or "",
         "created_date": job.create_date.isoformat() if job.create_date else None,
-        "eq_tier": job.eq_tier or "",
-        "eq_tier_label": eq_labels.get(job.eq_tier, ""),
         "added_by": job.create_uid.name or "",
         "url_added": bool(job.url),
     }
 
 
-class GohanTaskViewDashboardController(http.Controller):
+class VegetaTaskViewDashboardController(http.Controller):
 
     @http.route(
-        "/api/v1/gohan_ext/task_view_dashboard",
+        "/api/v1/vegeta_ext/task_view_dashboard",
         type="http",
         auth="none",
         methods=["GET"],
@@ -173,12 +163,12 @@ class GohanTaskViewDashboardController(http.Controller):
         cors="*",
     )
     @validate_token
-    def gohan_ext_task_view_dashboard(self, **kwargs):
-        """Paginated, filterable, sortable task listing for gohan.job."""
+    def vegeta_ext_task_view_dashboard(self, **kwargs):
+        """Paginated, filterable, sortable task listing for vegeta.job."""
         env = request.env
         if _user_role_tag(env) is None:
             return return_Response(
-                message="You are not allowed to access Gohan task view.",
+                message="You are not allowed to access Vegeta task view.",
                 status=403,
             )
 
@@ -197,12 +187,11 @@ class GohanTaskViewDashboardController(http.Controller):
         limit = min(max(1, _coerce_int(params.get("limit"), DEFAULT_LIMIT)), MAX_LIMIT)
         offset = (page - 1) * limit
 
-        Job = env["gohan.job"].sudo()
+        Job = env["vegeta.job"].sudo()
         total = Job.search_count(domain)
         records = Job.search(domain, limit=limit, offset=offset, order=order)
         verdict_labels = dict(Job._fields["qc_verdict"].selection)
-        eq_labels = dict(Job._fields["eq_tier"].selection)
-        tasks = [_serialize(job, verdict_labels, eq_labels) for job in records]
+        tasks = [_serialize(job, verdict_labels) for job in records]
         total_pages = (total + limit - 1) // limit if total else 0
         data = {
             "columns": [{"key": "seq", "label": "Seq.", "type": "string"},
@@ -216,7 +205,6 @@ class GohanTaskViewDashboardController(http.Controller):
                         {"key": "tasker_name", "label": "Tasker", "type": "string"},
                         {"key": "created_date", "label": "Created", "type": "string"}],
             "rows": tasks,
-            # "tasks": tasks,
             "pagination": {
                 "total_records": total,
                 "page": page,

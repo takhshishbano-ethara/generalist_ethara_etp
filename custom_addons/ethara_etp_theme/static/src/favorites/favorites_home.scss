@@ -1,0 +1,148 @@
+// =====================================================================
+//  Ethara ETP Theme — Favorites Home page
+// =====================================================================
+
+.o_ethara_home {
+    min-height: 100%;
+    background: var(--ethara-bg);
+    font-family: var(--ethara-font);
+}
+
+.o_ethara_home_inner {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 40px 32px 56px;
+}
+
+.o_ethara_home_header {
+    margin-bottom: 28px;
+}
+
+.o_ethara_home_title {
+    margin: 0;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--ethara-text);
+}
+
+.o_ethara_home_subtitle {
+    margin: 4px 0 0;
+    font-size: 14px;
+    color: var(--ethara-text-muted);
+}
+
+.o_ethara_home_grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+}
+
+.o_ethara_home_tile {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    background: var(--ethara-surface);
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius-lg);
+    box-shadow: var(--ethara-shadow);
+    cursor: pointer;
+    transition: transform var(--ethara-transition-fast) ease,
+                box-shadow var(--ethara-transition-fast) ease,
+                border-color var(--ethara-transition-fast) ease;
+
+    &:hover {
+        transform: translateY(-2px);
+        box-shadow: var(--ethara-shadow-lg);
+        border-color: var(--ethara-primary);
+
+        .o_ethara_home_tile_star { opacity: 1; }
+    }
+}
+
+.o_ethara_home_tile_icon {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--ethara-radius);
+    overflow: hidden;
+
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+    i {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        border-radius: var(--ethara-radius);
+        font-size: 20px;
+    }
+}
+
+.o_ethara_home_tile_text {
+    flex: 1 1 auto;
+    overflow: hidden;
+}
+
+.o_ethara_home_tile_name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ethara-text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.o_ethara_home_tile_app {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--ethara-text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.o_ethara_home_tile_star {
+    flex: 0 0 auto;
+    font-size: 14px;
+    color: var(--ethara-primary);
+    opacity: 0;
+    transition: opacity var(--ethara-transition-fast) ease,
+                transform var(--ethara-transition-fast) ease;
+
+    &:hover { transform: scale(1.2); }
+}
+
+.o_ethara_home_empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 80px 20px;
+    text-align: center;
+    color: var(--ethara-text-muted);
+
+    i {
+        font-size: 48px;
+        color: var(--ethara-text-faint);
+        margin-bottom: 16px;
+    }
+    h2 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--ethara-text);
+    }
+    p {
+        margin: 0;
+        max-width: 360px;
+        font-size: 13.5px;
+    }
+}

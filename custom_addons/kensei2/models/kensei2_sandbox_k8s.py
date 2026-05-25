@@ -790,12 +790,25 @@ class Kensei2SandboxK8s(models.AbstractModel):
         overlay_extensions = {".csv", ".json", ".py", ".txt"}
         result = {}
 
+        # Read shared tracking middleware once — inject into every service CM
+        tracker_path = os.path.join(env_dir, "tracking_middleware.py")
+        tracker_content = None
+        if os.path.isfile(tracker_path):
+            try:
+                with open(tracker_path, "r", encoding="utf-8") as f:
+                    tracker_content = f.read()
+            except (UnicodeDecodeError, OSError):
+                _logger.warning("Failed to read tracking_middleware.py")
+
         for entry in sorted(os.listdir(env_dir)):
             svc_dir = os.path.join(env_dir, entry)
             if not os.path.isfile(os.path.join(svc_dir, "service.toml")):
                 continue
 
             data = {}
+            # Inject tracking middleware (from parent env dir) first
+            if tracker_content:
+                data["tracking_middleware.py"] = tracker_content
             for fname in sorted(os.listdir(svc_dir)):
                 fpath = os.path.join(svc_dir, fname)
                 if not os.path.isfile(fpath):

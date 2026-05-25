@@ -1,0 +1,74 @@
+// =====================================================================
+//  Ethara ETP Theme — design tokens
+//
+//  These :root values are the built-in defaults. They are overridden at
+//  runtime by the dynamic <style> injected from the theme settings
+//  (Settings > Ethara Theme) - see views/webclient_templates.xml.
+// =====================================================================
+:root {
+    // --- Brand accent ------------------------------------------------
+    --ethara-primary:           #6366f1;  // indigo-500
+    --ethara-primary-dark:      #4f46e5;  // indigo-600
+    --ethara-primary-soft:      #eef2ff;  // indigo-50
+
+    // --- Active / highlighted item ----------------------------------
+    --ethara-active-bg:         #eef2ff;  // background of the active item
+    --ethara-active-fg:         #4f46e5;  // text of the active item
+
+    // --- Surfaces ----------------------------------------------------
+    --ethara-bg:                #f6f7fb;  // page background
+    --ethara-surface:           #ffffff;  // cards / sidebar / navbar
+    --ethara-border:            #e5e7eb;  // hairline borders
+    --ethara-hover:             #f3f4f6;  // hover background
+    --ethara-dot:               #d1d5db;  // inactive nav marker
+
+    // --- Text --------------------------------------------------------
+    --ethara-text:              #1f2937;  // gray-800
+    --ethara-text-muted:        #6b7280;  // gray-500
+    --ethara-text-faint:        #9ca3af;  // gray-400
+
+    // --- Layout ------------------------------------------------------
+    --ethara-sidebar-width:     240px;
+    --ethara-sidebar-collapsed: 64px;
+    --ethara-navbar-height:     48px;
+    --ethara-sidebar-start:     expanded;
+
+    // --- Shape & elevation ------------------------------------------
+    --ethara-radius:            10px;
+    --ethara-radius-lg:         12px;
+    --ethara-shadow:            0 1px 3px rgba(16, 24, 40, .07);
+    --ethara-shadow-lg:         0 12px 32px rgba(16, 24, 40, .16);
+
+    // --- Density -----------------------------------------------------
+    --ethara-density-y:         8px;
+
+    // --- Motion & type ----------------------------------------------
+    --ethara-font:              'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --ethara-transition:        0.18s;
+    --ethara-transition-fast:   0.12s;
+}
+
+// =====================================================================
+//  Dark mode — per-user override toggled from the sidebar footer.
+//  `html.o_ethara_dark:root` (specificity 0,2,1) overrides both the
+//  static `:root` defaults and the runtime `html:root` <style> block.
+// =====================================================================
+html.o_ethara_dark:root {
+    color-scheme: dark;
+
+    --ethara-primary-soft:  #2c2b52;
+    --ethara-active-bg:     #2c2b52;
+    --ethara-active-fg:     #c7d2fe;
+
+    --ethara-bg:            #0f1117;
+    --ethara-surface:       #181b23;
+    --ethara-border:        #2a2e3a;
+    --ethara-hover:         #242834;
+    --ethara-dot:           #3a4050;
+
+    --ethara-text:          #e6e8ee;
+    --ethara-text-muted:    #9aa1b1;
+    --ethara-text-faint:    #6b7280;
+
+    --ethara-shadow-lg:     0 12px 32px rgba(0, 0, 0, .55);
+}

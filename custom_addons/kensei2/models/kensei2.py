@@ -2146,6 +2146,7 @@ class Kensei2(models.Model):
         import threading
         from odoo.modules.module import get_module_path
         from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
+        from .kensei2_sandbox import _load_dotenv
 
         icp = self.env["ir.config_parameter"].sudo()
         bucket = icp.get_param("kensei2.s3_bucket") or S3_BUCKET
@@ -2196,69 +2197,97 @@ class Kensei2(models.Model):
             files = []
 
             files.append({
-                "key": "instruction.md",
+                "key": "prompt.txt",
+                "data": (rec.initial_prompt or "").encode("utf-8"),
+                "content_type": "text/plain",
+            })
+
+            rubric_export = "[]"
+            if rec.rubrics:
+                rubric_export = rec._transform_rubrics_for_export(rec.rubrics)
+            files.append({
+                "key": "rubric.json",
+                "data": rubric_export.encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+            golden_parsed = {}
+            golden_data = getattr(rec, "golden_trajectory", None)
+            if golden_data:
+                try:
+                    golden_parsed = json.loads(golden_data)
+                    if isinstance(golden_parsed, list) and golden_parsed:
+                        golden_parsed = golden_parsed[0]
+                except (json.JSONDecodeError, TypeError):
+                    golden_parsed = {}
+            files.append({
+                "key": "golden_trajectory.json",
+                "data": json.dumps(golden_parsed, indent=2, ensure_ascii=False).encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+            files.append({
+                "key": "data/instruction.md",
                 "data": (rec.initial_prompt or "").encode("utf-8"),
                 "content_type": "text/markdown",
             })
 
             task_toml = rec._build_harbor_task_toml()
             files.append({
-                "key": "task.toml",
+                "key": "data/task.toml",
                 "data": task_toml.encode("utf-8"),
                 "content_type": "text/plain",
             })
 
             for ef in env_files:
                 files.append({
-                    "key": "environment/%s" % ef["rel"],
+                    "key": "data/environment/%s" % ef["rel"],
                     "data": ef["data"],
                     "content_type": ef["content_type"],
                 })
 
             files.append({
-                "key": "environment/Dockerfile",
+                "key": "data/environment/Dockerfile",
                 "data": rec._generate_harbor_dockerfile(env_dir).encode("utf-8"),
                 "content_type": "text/plain",
             })
             files.append({
-                "key": "environment/docker-compose.yaml",
+                "key": "data/environment/docker-compose.yaml",
                 "data": rec._generate_harbor_docker_compose(env_dir).encode("utf-8"),
                 "content_type": "text/yaml",
             })
 
-            test_code = rec._get_best_test_code()
-            if test_code:
-                files.append({
-                    "key": "tests/test.sh",
-                    "data": rec._generate_harbor_test_sh().encode("utf-8"),
-                    "content_type": "text/plain",
-                })
-                files.append({
-                    "key": "tests/test_outputs.py",
-                    "data": test_code.encode("utf-8"),
-                    "content_type": "text/plain",
-                })
+            files.append({
+                "key": "data/tests/test.sh",
+                "data": rec._generate_harbor_test_sh().encode("utf-8"),
+                "content_type": "text/plain",
+            })
 
-            if rec.rubrics:
-                files.append({
-                    "key": "rubrics.json",
-                    "data": self._transform_rubrics_for_export(rec.rubrics).encode("utf-8"),
-                    "content_type": "application/json",
-                })
+            test_code = rec.test_code or rec._get_best_test_code() or ""
+            files.append({
+                "key": "data/tests/test_outputs.py",
+                "data": test_code.encode("utf-8"),
+                "content_type": "text/plain",
+            })
 
-            if rec.test_weights:
-                files.append({
-                    "key": "tests/test_weights.json",
-                    "data": rec.test_weights.encode("utf-8"),
-                    "content_type": "application/json",
-                })
+            weights_data = rec.test_weights or "{}"
+            files.append({
+                "key": "data/tests/test_weights.json",
+                "data": weights_data.encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+            files.append({
+                "key": "data/solution/solve.sh",
+                "data": rec._generate_harbor_solve_sh(env_dir).encode("utf-8"),
+                "content_type": "text/plain",
+            })
 
             trajectory_fields = {
                 "claude": "claude_trajectory",
-                "kimi": "glm_trajectory",
                 "gpt": "gpt_trajectory",
-                "golden": "golden_trajectory",
             }
+            model_pass_data = {}
             for traj_name, field_name in trajectory_fields.items():
                 traj_data = getattr(rec, field_name, None)
                 if not traj_data:
@@ -2272,7 +2301,7 @@ class Kensei2(models.Model):
                 for idx, session_entry in enumerate(sessions, start=1):
                     session_json = json.dumps(session_entry, indent=2, ensure_ascii=False)
                     files.append({
-                        "key": "trajectories/%s/session_%02d.json" % (traj_name, idx),
+                        "key": "trajectories/%s/run_%d/output.json" % (traj_name, idx),
                         "data": session_json.encode("utf-8"),
                         "content_type": "application/json",
                     })
@@ -2283,26 +2312,44 @@ class Kensei2(models.Model):
                 ("trajectory_index", ">", 0),
             ])
             for tr in test_results:
-                test_data = {
-                    "model_type": tr.model_type,
-                    "session_index": tr.trajectory_index,
-                    "status": tr.status,
-                    "tests_total": tr.tests_total,
-                    "tests_passed": tr.tests_passed,
-                    "tests_failed": tr.tests_failed,
-                    "tests_errored": tr.tests_errored,
-                    "test_code": tr.test_code or "",
-                    "test_output": tr.test_output or "",
-                    "duration_generation_ms": tr.duration_generation_ms,
-                    "duration_execution_ms": tr.duration_execution_ms,
-                    "model_used": tr.model_used or "",
-                    "created_at": tr.create_date.isoformat() if tr.create_date else "",
+                run_idx = tr.trajectory_index
+                model = tr.model_type
+                verifier_prefix = "trajectories/%s/run_%d/task_output/logs/verifier" % (model, run_idx)
+
+                reward = rec._compute_test_reward(tr)
+                files.append({
+                    "key": "%s/reward.txt" % verifier_prefix,
+                    "data": str(reward).encode("utf-8"),
+                    "content_type": "text/plain",
+                })
+
+                ctrf = rec._build_ctrf_from_test_result(tr)
+                files.append({
+                    "key": "%s/ctrf.json" % verifier_prefix,
+                    "data": json.dumps(ctrf, indent=2, ensure_ascii=False).encode("utf-8"),
+                    "content_type": "application/json",
+                })
+
+                model_pass_data.setdefault(model, []).append({
+                    "run_index": run_idx,
+                    "tests_total": tr.tests_total or 0,
+                    "tests_passed": tr.tests_passed or 0,
+                    "tests_failed": tr.tests_failed or 0,
+                    "reward": reward,
+                })
+
+            for model_name, runs in model_pass_data.items():
+                n = len(runs)
+                avg_reward = round(sum(r["reward"] for r in runs) / n, 4) if n else 0.0
+                pass_summary = {
+                    "model": model_name,
+                    "runs": n,
+                    "average_reward": avg_reward,
+                    "per_run": runs,
                 }
                 files.append({
-                    "key": "trajectories/%s/session_%02d_test.json" % (
-                        tr.model_type, tr.trajectory_index
-                    ),
-                    "data": json.dumps(test_data, indent=2, ensure_ascii=False).encode("utf-8"),
+                    "key": "trajectories/%s/pass_summary.json" % model_name,
+                    "data": json.dumps(pass_summary, indent=2, ensure_ascii=False).encode("utf-8"),
                     "content_type": "application/json",
                 })
 
@@ -2313,8 +2360,15 @@ class Kensei2(models.Model):
                 "No exportable tasks. All selected tasks are missing Initial Prompt."
             )
 
-        access_key = os.environ.get("KENSEI2_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
-        secret_key = os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        dotenv = _load_dotenv()
+        access_key = (
+            dotenv.get("KENSEI_S3_ACCESS_KEY_ID", "")
+            or os.environ.get("KENSEI_S3_ACCESS_KEY_ID", "")
+        )
+        secret_key = (
+            dotenv.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+            or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+        )
 
         def _upload_batch(bkt, rgn, uploads, ak, sk):
             try:
@@ -2373,6 +2427,7 @@ class Kensei2(models.Model):
         import threading
         from odoo.modules.module import get_module_path
         from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
+        from .kensei2_sandbox import _load_dotenv
 
         if not self.initial_prompt:
             raise UserError("Cannot export: Initial Prompt (instruction) is empty.")
@@ -2391,14 +2446,44 @@ class Kensei2(models.Model):
         files_to_upload = []
 
         files_to_upload.append({
-            "key": "instruction.md",
+            "key": "prompt.txt",
+            "data": (self.initial_prompt or "").encode("utf-8"),
+            "content_type": "text/plain",
+        })
+
+        rubric_export = "[]"
+        if self.rubrics:
+            rubric_export = self._transform_rubrics_for_export(self.rubrics)
+        files_to_upload.append({
+            "key": "rubric.json",
+            "data": rubric_export.encode("utf-8"),
+            "content_type": "application/json",
+        })
+
+        golden_parsed = {}
+        golden_data = getattr(self, "golden_trajectory", None)
+        if golden_data:
+            try:
+                golden_parsed = json.loads(golden_data)
+                if isinstance(golden_parsed, list) and golden_parsed:
+                    golden_parsed = golden_parsed[0]
+            except (json.JSONDecodeError, TypeError):
+                golden_parsed = {}
+        files_to_upload.append({
+            "key": "golden_trajectory.json",
+            "data": json.dumps(golden_parsed, indent=2, ensure_ascii=False).encode("utf-8"),
+            "content_type": "application/json",
+        })
+
+        files_to_upload.append({
+            "key": "data/instruction.md",
             "data": (self.initial_prompt or "").encode("utf-8"),
             "content_type": "text/markdown",
         })
 
         task_toml = self._build_harbor_task_toml()
         files_to_upload.append({
-            "key": "task.toml",
+            "key": "data/task.toml",
             "data": task_toml.encode("utf-8"),
             "content_type": "text/plain",
         })
@@ -2425,56 +2510,54 @@ class Kensei2(models.Model):
                     elif fname.endswith(".yaml") or fname.endswith(".yml"):
                         content_type = "text/yaml"
                     files_to_upload.append({
-                        "key": "environment/%s" % rel_path,
+                        "key": "data/environment/%s" % rel_path,
                         "data": data,
                         "content_type": content_type,
                     })
 
         files_to_upload.append({
-            "key": "environment/Dockerfile",
+            "key": "data/environment/Dockerfile",
             "data": self._generate_harbor_dockerfile(env_dir).encode("utf-8"),
             "content_type": "text/plain",
         })
         files_to_upload.append({
-            "key": "environment/docker-compose.yaml",
+            "key": "data/environment/docker-compose.yaml",
             "data": self._generate_harbor_docker_compose(env_dir).encode("utf-8"),
             "content_type": "text/yaml",
         })
 
-        test_code = self._get_best_test_code()
-        if test_code:
-            files_to_upload.append({
-                "key": "tests/test.sh",
-                "data": self._generate_harbor_test_sh().encode("utf-8"),
-                "content_type": "text/plain",
-            })
-            files_to_upload.append({
-                "key": "tests/test_outputs.py",
-                "data": test_code.encode("utf-8"),
-                "content_type": "text/plain",
-            })
+        files_to_upload.append({
+            "key": "data/tests/test.sh",
+            "data": self._generate_harbor_test_sh().encode("utf-8"),
+            "content_type": "text/plain",
+        })
 
-        if self.rubrics:
-            files_to_upload.append({
-                "key": "rubrics.json",
-                "data": self._transform_rubrics_for_export(self.rubrics).encode("utf-8"),
-                "content_type": "application/json",
-            })
+        test_code = self.test_code or self._get_best_test_code() or ""
+        files_to_upload.append({
+            "key": "data/tests/test_outputs.py",
+            "data": test_code.encode("utf-8"),
+            "content_type": "text/plain",
+        })
 
-        if self.test_weights:
-            files_to_upload.append({
-                "key": "tests/test_weights.json",
-                "data": self.test_weights.encode("utf-8"),
-                "content_type": "application/json",
-            })
+        weights_data = self.test_weights or "{}"
+        files_to_upload.append({
+            "key": "data/tests/test_weights.json",
+            "data": weights_data.encode("utf-8"),
+            "content_type": "application/json",
+        })
 
-        # Trajectories — per-model folder with separate JSON per session
+        files_to_upload.append({
+            "key": "data/solution/solve.sh",
+            "data": self._generate_harbor_solve_sh(env_dir).encode("utf-8"),
+            "content_type": "text/plain",
+        })
+
         trajectory_fields = {
             "claude": "claude_trajectory",
-            "kimi": "glm_trajectory",
             "gpt": "gpt_trajectory",
-            "golden": "golden_trajectory",
         }
+        model_pass_data = {}
+
         for traj_name, field_name in trajectory_fields.items():
             traj_data = getattr(self, field_name, None)
             if not traj_data:
@@ -2488,7 +2571,7 @@ class Kensei2(models.Model):
             for idx, session_entry in enumerate(sessions, start=1):
                 session_json = json.dumps(session_entry, indent=2, ensure_ascii=False)
                 files_to_upload.append({
-                    "key": "trajectories/%s/session_%02d.json" % (traj_name, idx),
+                    "key": "trajectories/%s/run_%d/output.json" % (traj_name, idx),
                     "data": session_json.encode("utf-8"),
                     "content_type": "application/json",
                 })
@@ -2499,31 +2582,56 @@ class Kensei2(models.Model):
             ("trajectory_index", ">", 0),
         ])
         for tr in test_results:
-            test_data = {
-                "model_type": tr.model_type,
-                "session_index": tr.trajectory_index,
-                "status": tr.status,
-                "tests_total": tr.tests_total,
-                "tests_passed": tr.tests_passed,
-                "tests_failed": tr.tests_failed,
-                "tests_errored": tr.tests_errored,
-                "test_code": tr.test_code or "",
-                "test_output": tr.test_output or "",
-                "duration_generation_ms": tr.duration_generation_ms,
-                "duration_execution_ms": tr.duration_execution_ms,
-                "model_used": tr.model_used or "",
-                "created_at": tr.create_date.isoformat() if tr.create_date else "",
-            }
+            run_idx = tr.trajectory_index
+            model = tr.model_type
+            verifier_prefix = "trajectories/%s/run_%d/task_output/logs/verifier" % (model, run_idx)
+
+            reward = self._compute_test_reward(tr)
             files_to_upload.append({
-                "key": "trajectories/%s/session_%02d_test.json" % (
-                    tr.model_type, tr.trajectory_index
-                ),
-                "data": json.dumps(test_data, indent=2, ensure_ascii=False).encode("utf-8"),
+                "key": "%s/reward.txt" % verifier_prefix,
+                "data": str(reward).encode("utf-8"),
+                "content_type": "text/plain",
+            })
+
+            ctrf = self._build_ctrf_from_test_result(tr)
+            files_to_upload.append({
+                "key": "%s/ctrf.json" % verifier_prefix,
+                "data": json.dumps(ctrf, indent=2, ensure_ascii=False).encode("utf-8"),
                 "content_type": "application/json",
             })
 
-        access_key = os.environ.get("KENSEI2_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
-        secret_key = os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+            model_pass_data.setdefault(model, []).append({
+                "run_index": run_idx,
+                "tests_total": tr.tests_total or 0,
+                "tests_passed": tr.tests_passed or 0,
+                "tests_failed": tr.tests_failed or 0,
+                "reward": reward,
+            })
+
+        for model_name, runs in model_pass_data.items():
+            n = len(runs)
+            avg_reward = round(sum(r["reward"] for r in runs) / n, 4) if n else 0.0
+            pass_summary = {
+                "model": model_name,
+                "runs": n,
+                "average_reward": avg_reward,
+                "per_run": runs,
+            }
+            files_to_upload.append({
+                "key": "trajectories/%s/pass_summary.json" % model_name,
+                "data": json.dumps(pass_summary, indent=2, ensure_ascii=False).encode("utf-8"),
+                "content_type": "application/json",
+            })
+
+        dotenv = _load_dotenv()
+        access_key = (
+            dotenv.get("KENSEI_S3_ACCESS_KEY_ID", "")
+            or os.environ.get("KENSEI_S3_ACCESS_KEY_ID", "")
+        )
+        secret_key = (
+            dotenv.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+            or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+        )
 
         def _upload(bkt, rgn, pfx, files, ak, sk):
             try:
@@ -2655,6 +2763,34 @@ class Kensei2(models.Model):
         lines.append("retries = 3")
         lines.append("")
 
+        if env_vars:
+            lines.append("[solution.env]")
+            for k, v in env_vars.items():
+                lines.append('%s = "%s"' % (k, v))
+            lines.append("")
+
+        lines.append("[multimodal]")
+        dep_tags = []
+        if self.l1_classification:
+            dep_tags.append(self.l1_classification)
+        if self.l2_classification:
+            dep_tags.append(self.l2_classification)
+        lines.append("dependency_tags = [%s]" % ", ".join('"%s"' % t for t in dep_tags))
+        lines.append("")
+
+        lines.append("[evaluation]")
+        lines.append("pass_at_k = 8")
+        lines.append("")
+
+        lines.append("[dimensions]")
+        lines.append('complex = "medium"')
+        lines.append('long_horizon = "false"')
+        lines.append('objective = "true"')
+        lines.append('multimodal = "%s"' % ("true" if dep_tags else "false"))
+        lines.append('cross_modal_cross_api = "false"')
+        lines.append('asset_complexity = "low"')
+        lines.append("")
+
         return "\n".join(lines) + "\n"
 
     def _collect_harbor_skills(self):
@@ -2775,55 +2911,75 @@ class Kensei2(models.Model):
         return "\n".join(lines) + "\n"
 
     def _generate_harbor_test_sh(self):
-        if self.test_weights:
-            return (
-                "#!/bin/bash\n"
-                "\n"
-                "apt-get update && apt-get install -y curl python3\n"
-                "curl -LsSf https://astral.sh/uv/0.9.7/install.sh | sh\n"
-                "source $HOME/.local/bin/env\n"
-                "\n"
-                "uvx --with pytest==8.4.1 pytest /tests/test_outputs.py -rA --tb=no -q > /tmp/pytest_output.txt 2>&1\n"
-                "\n"
-                "python3 - <<'SCORING_EOF'\n"
-                "import json, re, sys\n"
-                "\n"
-                "with open('/tests/test_weights.json') as f:\n"
-                "    weights = {w['test_name']: w['weight'] for w in json.load(f)}\n"
-                "\n"
-                "with open('/tmp/pytest_output.txt') as f:\n"
-                "    output = f.read()\n"
-                "\n"
-                "passed = set(re.findall(r'(test_\\w+) PASSED', output))\n"
-                "failed = set(re.findall(r'(test_\\w+) FAILED', output))\n"
-                "all_tests = passed | failed\n"
-                "\n"
-                "pos_sum = sum(w for t, w in weights.items() if w > 0)\n"
-                "if pos_sum == 0:\n"
-                "    reward = 1.0 if not failed else 0.0\n"
-                "else:\n"
-                "    earned = sum(weights.get(t, 0) for t in passed)\n"
-                "    penalty = sum(weights.get(t, 0) for t in failed if weights.get(t, 0) < 0)\n"
-                "    reward = max(0.0, min(1.0, (earned + penalty) / pos_sum))\n"
-                "\n"
-                "with open('/logs/verifier/reward.txt', 'w') as f:\n"
-                "    f.write(str(round(reward, 4)))\n"
-                "SCORING_EOF\n"
-            )
         return (
-            "#!/bin/bash\n"
+            "#!/usr/bin/env bash\n"
             "\n"
-            "apt-get update && apt-get install -y curl\n"
-            "curl -LsSf https://astral.sh/uv/0.9.7/install.sh | sh\n"
+            "apt-get update && apt-get install -y curl > /dev/null 2>&1\n"
+            "curl -LsSf https://astral.sh/uv/0.9.7/install.sh | sh > /dev/null 2>&1\n"
             "source $HOME/.local/bin/env\n"
             "\n"
-            "uvx --with pytest==8.4.1 pytest /tests/test_outputs.py -rA\n"
+            "mkdir -p /logs/verifier\n"
             "\n"
-            "if [ $? -eq 0 ]; then\n"
-            "  echo 1 > /logs/verifier/reward.txt\n"
-            "else\n"
-            "  echo 0 > /logs/verifier/reward.txt\n"
-            "fi\n"
+            "uvx --with pytest==8.4.1 --with pytest-json-ctrf==0.3.5 --with requests pytest \\\n"
+            "    --ctrf /logs/verifier/ctrf.json \\\n"
+            "    tests/test_outputs.py -rA\n"
+            "PYTEST_EXIT=$?\n"
+            "\n"
+            "python3 - <<'PYEOF' > /logs/verifier/reward.txt 2>/dev/null || echo 0 > /logs/verifier/reward.txt\n"
+            "import json\n"
+            "from pathlib import Path\n"
+            "\n"
+            "ctrf_path = Path('/logs/verifier/ctrf.json')\n"
+            "weights_path = Path('tests/test_weights.json')\n"
+            "\n"
+            "if not ctrf_path.exists():\n"
+            "    print(0.0)\n"
+            "    raise SystemExit(0)\n"
+            "\n"
+            "ctrf = json.loads(ctrf_path.read_text())\n"
+            "results = ctrf.get('results', {}) if isinstance(ctrf, dict) else {}\n"
+            "tests = results.get('tests', []) if isinstance(results, dict) else []\n"
+            "\n"
+            "weights = {}\n"
+            "if weights_path.exists():\n"
+            "    try:\n"
+            "        raw = json.loads(weights_path.read_text())\n"
+            "        if isinstance(raw, dict):\n"
+            "            weights = {k: int(v) for k, v in raw.items() if isinstance(v, (int, float))}\n"
+            "        elif isinstance(raw, list):\n"
+            "            for entry in raw:\n"
+            "                if isinstance(entry, dict) and 'test_name' in entry:\n"
+            "                    weights[entry['test_name']] = int(entry.get('weight', 0))\n"
+            "    except Exception:\n"
+            "        pass\n"
+            "\n"
+            "def weight_for(name):\n"
+            "    bare = name.rsplit('::', 1)[-1]\n"
+            "    return weights.get(bare, weights.get(name, 0))\n"
+            "\n"
+            "pos_total = 0\n"
+            "pos_earned = 0\n"
+            "neg_penalty = 0\n"
+            "for t in tests:\n"
+            "    if not isinstance(t, dict):\n"
+            "        continue\n"
+            "    name = t.get('name', '')\n"
+            "    status = t.get('status', '')\n"
+            "    w = weight_for(name)\n"
+            "    if w > 0:\n"
+            "        pos_total += w\n"
+            "        if status == 'passed':\n"
+            "            pos_earned += w\n"
+            "    elif w < 0 and status == 'passed':\n"
+            "        neg_penalty += abs(w)\n"
+            "\n"
+            "if pos_total <= 0:\n"
+            "    total = sum(1 for t in tests if isinstance(t, dict))\n"
+            "    passed = sum(1 for t in tests if isinstance(t, dict) and t.get('status') == 'passed')\n"
+            "    print(round(passed / total, 4) if total else 0.0)\n"
+            "else:\n"
+            "    print(round(max(0.0, (pos_earned - neg_penalty) / pos_total), 4))\n"
+            "PYEOF\n"
         )
 
     def _get_best_test_code(self):
@@ -2864,6 +3020,112 @@ class Kensei2(models.Model):
                 "number": "R%d" % (i + 1),
             })
         return json.dumps(export_rubrics, ensure_ascii=False, indent=2)
+
+    def _compute_test_reward(self, test_result):
+        if not self.test_weights:
+            total = test_result.tests_total or 0
+            passed = test_result.tests_passed or 0
+            return round(passed / total, 4) if total else 0.0
+
+        try:
+            raw = json.loads(self.test_weights)
+            weights = {}
+            if isinstance(raw, dict):
+                weights = {k: int(v) for k, v in raw.items() if isinstance(v, (int, float))}
+            elif isinstance(raw, list):
+                for entry in raw:
+                    if isinstance(entry, dict) and "test_name" in entry:
+                        weights[entry["test_name"]] = int(entry.get("weight", 0))
+        except (json.JSONDecodeError, TypeError):
+            total = test_result.tests_total or 0
+            passed = test_result.tests_passed or 0
+            return round(passed / total, 4) if total else 0.0
+
+        scores = {}
+        if test_result.test_scores:
+            try:
+                scores = json.loads(test_result.test_scores)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        pos_total = 0
+        pos_earned = 0
+        neg_penalty = 0
+        for test_name, w in weights.items():
+            status = scores.get(test_name, "failed")
+            if w > 0:
+                pos_total += w
+                if status == "passed":
+                    pos_earned += w
+            elif w < 0 and status == "passed":
+                neg_penalty += abs(w)
+
+        if pos_total <= 0:
+            total = test_result.tests_total or 0
+            passed = test_result.tests_passed or 0
+            return round(passed / total, 4) if total else 0.0
+
+        return round(max(0.0, (pos_earned - neg_penalty) / pos_total), 4)
+
+    def _build_ctrf_from_test_result(self, test_result):
+        tests = []
+        if test_result.test_scores:
+            try:
+                scores = json.loads(test_result.test_scores)
+                for test_name, status in scores.items():
+                    tests.append({
+                        "name": test_name,
+                        "status": status if status in ("passed", "failed") else "failed",
+                        "duration": 0,
+                    })
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        if not tests:
+            for _ in range(test_result.tests_passed or 0):
+                tests.append({"name": "test_unknown", "status": "passed", "duration": 0})
+            for _ in range(test_result.tests_failed or 0):
+                tests.append({"name": "test_unknown", "status": "failed", "duration": 0})
+
+        return {
+            "results": {
+                "tool": {"name": "pytest", "version": "8.4.1"},
+                "summary": {
+                    "tests": test_result.tests_total or 0,
+                    "passed": test_result.tests_passed or 0,
+                    "failed": test_result.tests_failed or 0,
+                    "pending": 0,
+                    "skipped": 0,
+                    "other": test_result.tests_errored or 0,
+                },
+                "tests": tests,
+            },
+        }
+
+    def _generate_harbor_solve_sh(self, env_dir):
+        env_vars = self._collect_harbor_env_vars()
+        lines = [
+            "#!/usr/bin/env bash",
+            "set -euo pipefail",
+            "",
+            "python3 - <<'PY'",
+            "import os, json, urllib.request",
+            "",
+        ]
+        for env_key in sorted(env_vars.keys()):
+            val = env_vars[env_key]
+            lines.append(
+                "%s = os.environ.get('%s', '%s').rstrip('/')"
+                % (env_key.lower(), env_key, val)
+            )
+        lines.append("")
+        lines.append(
+            "print('Solution not yet implemented "
+            "-- populate with API calls from golden trajectory.')"
+        )
+        lines.append("PY")
+        lines.append("")
+        return "\n".join(lines)
 
     def _collect_harbor_env_vars(self):
         from odoo.modules.module import get_module_path

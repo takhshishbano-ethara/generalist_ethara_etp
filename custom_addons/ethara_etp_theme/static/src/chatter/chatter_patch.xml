@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+
+    <t t-name="ethara_etp_theme.ChatterResize"
+       t-inherit="mail.Chatter" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('o-mail-Chatter')]" position="inside">
+            <div t-if="props.isChatterAside"
+                 class="o_ethara_chatter_resize_handle"
+                 title="Drag to resize chatter — double-click to reset"
+                 t-on-pointerdown="onEtharaResizeStart"
+                 t-on-dblclick="onEtharaResizeDoubleClick"/>
+        </xpath>
+    </t>
+
+</templates>

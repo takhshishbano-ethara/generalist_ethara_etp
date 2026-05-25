@@ -1,0 +1,108 @@
+// =====================================================================
+//  Ethara ETP Theme — global backend restyle
+// =====================================================================
+
+.o_web_client {
+    font-family: var(--ethara-font);
+    color: var(--ethara-text);
+    background-color: var(--ethara-bg);
+}
+
+// --- Layout: make room for the fixed left sidebar --------------------
+.o_navbar,
+.o_action_manager {
+    margin-left: var(--ethara-sidebar-width);
+    transition: margin-left var(--ethara-transition) ease;
+}
+
+body.o_ethara_sidebar_collapsed {
+    .o_navbar,
+    .o_action_manager {
+        margin-left: var(--ethara-sidebar-collapsed);
+    }
+}
+
+// --- Top navbar ------------------------------------------------------
+.o_main_navbar {
+    min-height: var(--ethara-navbar-height);
+    height: var(--ethara-navbar-height);
+    background-color: var(--ethara-surface) !important;
+    border-bottom: 1px solid var(--ethara-border);
+    color: var(--ethara-text);
+    box-shadow: none;
+
+    // Top-level menus now live in the sidebar.
+    .o_navbar_apps_menu,
+    .o_menu_sections,
+    .o_menu_brand {
+        display: none !important;
+    }
+
+    // Keep systray / breadcrumb readable on the new white bar.
+    a,
+    button,
+    .o-dropdown,
+    .o_menu_systray,
+    .o_navbar_breadcrumbs {
+        color: var(--ethara-text) !important;
+    }
+    .breadcrumb-item.active { color: var(--ethara-text-muted) !important; }
+}
+
+// --- Surfaces --------------------------------------------------------
+.o_action_manager { background-color: var(--ethara-bg); }
+
+.o_control_panel {
+    background-color: var(--ethara-surface);
+    border-bottom: 1px solid var(--ethara-border);
+}
+
+.o_form_view {
+    .o_form_sheet_bg { background-color: var(--ethara-bg); }
+
+    .o_form_sheet {
+        background-color: var(--ethara-surface);
+        border: 1px solid var(--ethara-border);
+        border-radius: var(--ethara-radius-lg);
+        box-shadow: var(--ethara-shadow);
+    }
+}
+
+// --- Controls --------------------------------------------------------
+.btn { border-radius: var(--ethara-radius); }
+
+.btn-primary {
+    background-color: var(--ethara-primary);
+    border-color: var(--ethara-primary);
+
+    &:hover,
+    &:focus,
+    &:active,
+    &:focus-visible {
+        background-color: var(--ethara-primary-dark) !important;
+        border-color: var(--ethara-primary-dark) !important;
+    }
+}
+
+.btn-link { color: var(--ethara-primary); }
+
+// --- Settings: Login Page block ---------------------------------------
+//  The Login Template picker is much taller than the Image upload, so
+//  the default settings grid leaves whitespace below the Image and
+//  pushes the Live Preview to a fresh "section" under the Template.
+//  Re-layout the block with explicit grid areas so Template spans the
+//  left column, Image stays top-right, and the Preview fills the empty
+//  space directly below the Image.
+.app_settings_block:has(> #ethara_login_template_setting),
+.o_settings_container:has(> #ethara_login_template_setting) {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+        "tpl img"
+        "tpl prv";
+    align-items: start;
+    gap: 1rem;
+}
+#ethara_login_template_setting { grid-area: tpl; max-width: 100%; }
+#ethara_login_image_setting    { grid-area: img; max-width: 100%; }
+#ethara_login_preview_setting  { grid-area: prv; max-width: 100%; }

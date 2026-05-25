@@ -1,0 +1,82 @@
+// Ethara ETP Theme — per-column filter row styling.
+//
+// The row sits inside <thead> directly under the header row. Cells are
+// kept slim so column alignment with the data rows below is preserved.
+
+.o_list_renderer .o_list_table > thead > tr.o_ethara_column_filter_row {
+    background: var(--ethara-surface, #fff);
+
+    > th {
+        padding: 4px 6px;
+        font-weight: 400;
+        border-top: 1px solid var(--ethara-border, #e5e7eb);
+        border-bottom: 1px solid var(--ethara-border, #e5e7eb);
+        background: inherit;
+        position: sticky;
+        top: var(--ethara-listview-header-h, 32px);
+        z-index: 1;
+        vertical-align: middle;
+
+        &.o_ethara_filter_blank {
+            padding: 0;
+        }
+    }
+
+    .o_ethara_filter_input {
+        width: 100%;
+        min-width: 0;
+        height: 26px;
+        padding: 2px 8px;
+        font-size: 0.85rem;
+        line-height: 1.2;
+        color: var(--ethara-text, #1f2937);
+        background: var(--ethara-bg, #f6f7fb);
+        border: 1px solid transparent;
+        border-radius: calc(var(--ethara-radius, 10px) - 4px);
+        outline: none;
+        transition: background var(--ethara-transition-fast, 0.12s) ease,
+                    border-color var(--ethara-transition-fast, 0.12s) ease;
+
+        &::placeholder {
+            color: var(--ethara-text-faint, #9ca3af);
+        }
+
+        &:hover {
+            background: var(--ethara-hover, #f3f4f6);
+        }
+
+        &:focus,
+        &:focus-visible {
+            background: var(--ethara-surface, #fff);
+            border-color: var(--ethara-primary, #6366f1);
+        }
+    }
+
+    select.o_ethara_filter_input {
+        appearance: none;
+        background-image:
+            linear-gradient(45deg, transparent 50%, var(--ethara-text-muted, #6b7280) 50%),
+            linear-gradient(135deg, var(--ethara-text-muted, #6b7280) 50%, transparent 50%);
+        background-position:
+            calc(100% - 14px) 50%,
+            calc(100% - 9px) 50%;
+        background-size: 5px 5px, 5px 5px;
+        background-repeat: no-repeat;
+        padding-right: 22px;
+    }
+
+    .o_ethara_filter_placeholder {
+        display: block;
+        height: 26px;
+    }
+}
+
+// Slightly tighter in compact density
+html[style*="--ethara-density-y: 4px"] {
+    .o_list_renderer .o_list_table > thead > tr.o_ethara_column_filter_row {
+        > th { padding: 2px 4px; }
+        .o_ethara_filter_input,
+        .o_ethara_filter_placeholder { height: 22px; }
+        .o_ethara_filter_input { font-size: 0.8rem; padding: 1px 6px; }
+    }
+}

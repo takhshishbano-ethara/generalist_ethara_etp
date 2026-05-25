@@ -130,6 +130,7 @@ def _serialize_task(job, base_url):
         "name": job.site_name or job.url or "",
         "category": job.category_id.name or "",
         "score": job.score or 0.0,
+        "state": job.state or "",
         "assets_count": len(asset_keys),
         "asset_file_links": asset_links,
         "assigned_ql_name": job.user_id.employee_id.task_forge_qr_id.name or "",
@@ -178,12 +179,19 @@ class LeviathanTaskViewController(http.Controller):
 
         base_url = _s3_base_url(env)
         tasks = [_serialize_task(job, base_url) for job in records]
-
         return return_Response(
             message="OK",
             status=200,
             data={
-                "tasks": tasks,
+                "columns": [{"key": "seq", "label": "Seq.", "type": "string"},
+                            {"key": "name", "label": "Task", "type": "string"},
+                            {"key": "category", "label": "Category", "type": "string"},
+                            {"key": "state", "label": "Status", "type": "string"},
+                            {"key": "score", "label": "QC", "type": "string"},
+                            {"key": "assets_count", "label": "Assets", "type": "number"},
+                            {"key": "assigned_ql_name", "label": "Assigned QL", "type": "string"},
+                            {"key": "created_by", "label": "Created", "type": "string"}],
+                "rows": tasks,
                 "total_records": total,
                 "page": page,
                 "limit": limit,

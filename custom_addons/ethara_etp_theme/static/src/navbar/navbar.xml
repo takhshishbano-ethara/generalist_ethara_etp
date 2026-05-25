@@ -1,0 +1,245 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+
+    <t t-inherit="web.NavBar" t-inherit-mode="extension">
+        <xpath expr="//nav[hasclass('o_main_navbar')]" position="after">
+            <aside class="o_ethara_sidebar">
+
+                <div class="o_ethara_brand">
+                    <img class="o_ethara_brand_mark"
+                         t-att-src="etharaCompanyLogo"
+                         t-att-alt="etharaCompanyName"
+                         t-att-title="etharaCompanyName"/>
+                    <button type="button" class="o_ethara_expand_btn"
+                            data-tooltip="Expand sidebar"
+                            aria-label="Expand sidebar"
+                            t-on-click="() => this.toggleSidebar()">
+                        <i class="fa fa-chevron-right"/>
+                    </button>
+                </div>
+
+                <div class="o_ethara_profile_card">
+                    <div class="o_ethara_profile_top">
+                        <img class="o_ethara_profile_avatar"
+                             t-att-src="etharaUserAvatar"
+                             t-att-alt="etharaUserName"/>
+                        <div class="o_ethara_profile_name" t-esc="etharaUserName"/>
+                        <div class="o_ethara_profile_greeting" t-esc="etharaGreeting"/>
+                    </div>
+                    <div class="o_ethara_profile_actions">
+                        <button type="button" class="o_ethara_quick_btn"
+                                data-tooltip="Language" aria-label="Language"
+                                t-on-click="() => this.onQuickLanguage()">
+                            <i class="fa fa-language"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                data-tooltip="Company" aria-label="Company"
+                                t-on-click="() => this.onQuickCompany()">
+                            <i class="fa fa-building-o"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                t-att-class="{ o_ethara_quick_btn_active: etharaIsDebug }"
+                                t-att-data-tooltip="etharaIsDebug ? 'Deactivate debug mode' : 'Activate debug mode'"
+                                aria-label="Toggle debug mode"
+                                t-on-click="() => this.onQuickDebug()">
+                            <i class="fa fa-code"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                data-tooltip="Theme Settings" aria-label="Theme settings"
+                                t-on-click="() => this.onQuickThemeSettings()">
+                            <i class="fa fa-cog"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                t-att-data-tooltip="etharaState.collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+                                aria-label="Toggle sidebar"
+                                t-on-click="() => this.toggleSidebar()">
+                            <i class="fa" t-att-class="etharaState.collapsed ? 'fa-thumb-tack' : 'fa-lock'"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                t-att-data-tooltip="etharaState.darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+                                aria-label="Toggle dark mode"
+                                t-on-click="() => this.toggleDarkMode()">
+                            <i class="fa" t-att-class="etharaState.darkMode ? 'fa-sun-o' : 'fa-lightbulb-o'"/>
+                        </button>
+                    </div>
+                    <div class="o_ethara_profile_actions o_ethara_profile_actions_badges">
+                        <button type="button" class="o_ethara_quick_btn o_ethara_quick_btn_badge"
+                                data-tooltip="Conversations" aria-label="Conversations"
+                                t-on-click="() => this.onQuickConversations()">
+                            <i class="fa fa-comments-o"/>
+                            <span t-if="etharaState.conversationsCount &gt; 0"
+                                  class="o_ethara_quick_badge"
+                                  t-esc="etharaState.conversationsCount"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn o_ethara_quick_btn_badge"
+                                data-tooltip="Activities" aria-label="Activities"
+                                t-on-click="() => this.onQuickActivities()">
+                            <i class="fa fa-clock-o"/>
+                            <span t-if="etharaState.activitiesCount &gt; 0"
+                                  class="o_ethara_quick_badge"
+                                  t-esc="etharaState.activitiesCount"/>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="o_ethara_search">
+                    <i class="o_ethara_search_icon fa fa-search"/>
+                    <input type="text" class="o_ethara_search_input"
+                           placeholder="Search menus..."
+                           t-att-value="etharaState.searchQuery"
+                           t-on-input="onSearchInput"/>
+                    <i t-if="etharaState.searchQuery"
+                       class="o_ethara_search_clear fa fa-times"
+                       t-on-click="() => this.clearSearch()"/>
+                </div>
+
+                <div class="o_ethara_nav">
+                    <t t-if="etharaState.searchQuery">
+                        <t t-set="searchResults" t-value="etharaSearchResults"/>
+                        <div class="o_ethara_section_label">Results</div>
+                        <t t-if="searchResults.length">
+                            <t t-foreach="searchResults" t-as="result"
+                               t-key="result.node.id">
+                                <div class="o_ethara_result"
+                                     t-on-click="() => this.onSearchResultClick(result.node)">
+                                    <span class="o_ethara_result_name"
+                                          t-esc="result.node.name"/>
+                                    <span t-if="result.path"
+                                          class="o_ethara_result_path"
+                                          t-esc="result.path"/>
+                                </div>
+                            </t>
+                        </t>
+                        <div t-else="" class="o_ethara_no_results">No menus found</div>
+                    </t>
+
+                    <t t-else="">
+                    <div class="o_ethara_app_header o_ethara_home_row"
+                         t-on-click="() => this.openHome()">
+                        <span class="o_ethara_app_icon o_ethara_home_icon">
+                            <i class="fa fa-home"/>
+                        </span>
+                        <span class="o_ethara_app_name">Home</span>
+                    </div>
+
+                    <t t-if="favoriteMenus.length">
+                        <div class="o_ethara_section_label">Favorites</div>
+                        <t t-foreach="favoriteMenus" t-as="fav" t-key="fav.id">
+                            <div class="o_ethara_navitem o_ethara_favitem"
+                                 t-att-class="{ o_ethara_navitem_active: isMenuActive(fav) }"
+                                 t-on-click="() => this.openFavorite(fav)">
+                                <t t-set="favIcon" t-value="getFavoriteIcon(fav)"/>
+                                <span class="o_ethara_favitem_icon">
+                                    <img t-if="favIcon.type === 'image'"
+                                         t-att-src="favIcon.src"
+                                         t-att-alt="fav.name"/>
+                                    <i t-else=""
+                                       t-att-class="favIcon.iconClass"
+                                       t-attf-style="color: {{favIcon.color}}; background: {{favIcon.backgroundColor}};"/>
+                                </span>
+                                <span class="o_ethara_navitem_label" t-esc="fav.name"/>
+                                <i class="o_ethara_star o_ethara_star_on fa fa-star"
+                                   title="Remove from favorites"
+                                   t-on-click.stop="() => this.toggleFavorite(fav)"/>
+                            </div>
+                        </t>
+                    </t>
+
+                    <div class="o_ethara_section_label">Main</div>
+
+                    <t t-foreach="sidebarApps" t-as="app" t-key="app.id">
+                        <div class="o_ethara_app">
+
+                            <div class="o_ethara_app_header"
+                                 t-att-class="{ o_ethara_active: isAppActive(app) }"
+                                 t-on-click="() => this.onSidebarAppClick(app)">
+                                <t t-set="appIcon" t-value="getAppIcon(app)"/>
+                                <span class="o_ethara_app_icon">
+                                    <img t-if="appIcon.type === 'image'"
+                                         t-att-src="appIcon.src"
+                                         t-att-alt="app.name"/>
+                                    <i t-else=""
+                                       t-att-class="appIcon.iconClass"
+                                       t-attf-style="color: {{appIcon.color}}; background: {{appIcon.backgroundColor}};"/>
+                                </span>
+                                <span class="o_ethara_app_name" t-esc="app.name"/>
+                                <i class="o_ethara_star fa"
+                                   t-att-class="isFavorite(app) ? 'fa-star o_ethara_star_on' : 'fa-star-o'"
+                                   title="Toggle favorite"
+                                   t-on-click.stop="() => this.toggleFavorite(app)"/>
+                                <i t-if="getAppSections(app).length"
+                                   class="o_ethara_caret fa fa-angle-right"
+                                   t-att-class="{ o_ethara_caret_open: isSectionExpanded(app) }"
+                                   t-on-click.stop="() => this.toggleSection(app)"/>
+                            </div>
+
+                            <div t-if="getAppSections(app).length"
+                                 class="o_ethara_submenu"
+                                 t-att-class="{ o_ethara_open: isSectionExpanded(app) }">
+                                <div class="o_ethara_submenu_inner">
+                                    <t t-foreach="getAppSections(app)" t-as="section"
+                                       t-key="section.id">
+                                        <t t-call="ethara_etp_theme.SidebarMenuNode">
+                                            <t t-set="node" t-value="section"/>
+                                        </t>
+                                    </t>
+                                </div>
+                            </div>
+
+                        </div>
+                    </t>
+                    </t>
+                </div>
+
+            </aside>
+
+            <button type="button" class="o_ethara_mobile_toggle"
+                    aria-label="Toggle navigation"
+                    t-on-click="() => this.toggleMobileSidebar()">
+                <i class="fa" t-att-class="etharaState.mobileOpen ? 'fa-times' : 'fa-bars'"/>
+            </button>
+
+            <div class="o_ethara_mobile_backdrop"
+                 t-att-class="{ o_ethara_mobile_backdrop_visible: etharaState.mobileOpen }"
+                 t-on-click="() => this.closeMobileSidebar()"/>
+        </xpath>
+    </t>
+
+    <t t-name="ethara_etp_theme.SidebarMenuNode">
+        <t t-if="node.childrenTree.length">
+            <div class="o_ethara_subgroup"
+                 t-att-class="{ o_ethara_subgroup_open: isNodeExpanded(node), o_ethara_subgroup_active: isSubgroupActive(node) }"
+                 t-on-click="() => this.toggleNode(node)">
+                <i class="o_ethara_subgroup_caret fa fa-angle-right"/>
+                <span class="o_ethara_subgroup_label" t-esc="node.name"/>
+                <i class="o_ethara_star fa"
+                   t-att-class="isFavorite(node) ? 'fa-star o_ethara_star_on' : 'fa-star-o'"
+                   title="Toggle favorite"
+                   t-on-click.stop="() => this.toggleFavorite(node)"/>
+            </div>
+            <div class="o_ethara_submenu"
+                 t-att-class="{ o_ethara_open: isNodeExpanded(node) }">
+                <div class="o_ethara_submenu_inner">
+                    <t t-foreach="node.childrenTree" t-as="child" t-key="child.id">
+                        <t t-call="ethara_etp_theme.SidebarMenuNode">
+                            <t t-set="node" t-value="child"/>
+                        </t>
+                    </t>
+                </div>
+            </div>
+        </t>
+        <t t-else="">
+            <div class="o_ethara_navitem"
+                 t-att-class="{ o_ethara_navitem_active: isMenuActive(node) }"
+                 t-on-click="() => this.onSidebarMenuClick(node)">
+                <span class="o_ethara_navitem_dot"/>
+                <span class="o_ethara_navitem_label" t-esc="node.name"/>
+                <i class="o_ethara_star fa"
+                   t-att-class="isFavorite(node) ? 'fa-star o_ethara_star_on' : 'fa-star-o'"
+                   title="Toggle favorite"
+                   t-on-click.stop="() => this.toggleFavorite(node)"/>
+            </div>
+        </t>
+    </t>
+
+</templates>

@@ -1,3 +1,4 @@
+import ast
 import base64 as base64_mod
 import json
 import logging
@@ -194,6 +195,364 @@ TRAJECTORY_FIELD_MAP = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Test generation lint validation (ported from kensei-harness)
+# ──────────────────────────────────────────────────────────────────────
+
+MAX_TESTGEN_ATTEMPTS = 3
+
+_ALLOWED_WEIGHTS = {50, 30, 10, -10, -30, -50}
+
+_FORBIDDEN_POLARITY_PATTERNS = (
+    re.compile(r"\bassert\s+not\b"),
+    re.compile(r"==\s*0\b"),
+    re.compile(r"\bis\s+None\b"),
+    re.compile(r"\bnot\s+in\b"),
+)
+
+_LAZY_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "if", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be", "been",
+    "this", "that", "these", "those", "it", "its", "they", "them", "their",
+    "data", "file", "files", "value", "values", "row", "rows", "column",
+    "result", "results", "report", "output", "input", "name", "type",
+    "code", "id", "test", "check", "task", "user", "item", "field", "key",
+    "list", "table", "text", "info", "details", "summary", "content",
+    "response", "request", "true", "false", "none", "null", "yes", "no",
+    "object", "array", "string", "number", "json", "csv", "header",
+    "line", "lines", "page", "section", "title", "label",
+    "html", "body", "tr", "td", "th", "div", "span",
+    "new", "old", "all", "some", "any", "each", "many", "more", "most",
+    "only", "also", "just", "very", "much", "such",
+    "make", "use", "see", "show", "set", "get", "find", "go", "run",
+})
+
+_TRIVIALITY_PATTERNS = (
+    re.compile(r"len\s*\(\s*lines\s*\)\s*>=?\s*\d"),
+    re.compile(r"len\s*\(\s*content\s*\)\s*>\s*0"),
+    re.compile(r"getsize\s*\([^)]+\)\s*>\s*0"),
+    re.compile(r"len\s*\([^)]+\)\s*>\s*0\b"),
+)
+
+_ALLOWED_IMPORTS = frozenset({
+    "json", "os", "subprocess", "sqlite3", "urllib", "pytest", "hashlib",
+    "re", "csv", "io", "pathlib", "struct", "base64", "datetime", "math",
+    "collections", "itertools", "functools", "string", "textwrap",
+    "xml", "zipfile", "gzip", "shutil", "glob", "tempfile", "copy",
+})
+
+_SAFE_FALLBACK_STUB = '''\
+class TestBehavioralFallback:
+    """Fallback: testgen LLM produced unparseable output after all retries."""
+
+    def test_placeholder(self):
+        assert True
+
+
+class TestNegativeWeightFallback:
+    """Negative weight fallback stub."""
+
+    def test_placeholder_negative(self):
+        assert True
+'''
+
+
+def _collect_test_functions(tree):
+    """Collect all test_* FunctionDef nodes from an AST tree."""
+    return [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
+
+
+def _function_has_assert(func):
+    """Check if a function AST node contains at least one assert statement."""
+    return any(isinstance(n, ast.Assert) for n in ast.walk(func))
+
+
+def _function_passes_empty_files(func):
+    """L16: True if every assert in the function is just file_exists(...)."""
+    asserts = [n for n in ast.walk(func) if isinstance(n, ast.Assert)]
+    if not asserts:
+        return False
+    for node in asserts:
+        test = node.test
+        if (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Is)
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value is True
+        ):
+            test = test.left
+        if not (
+            isinstance(test, ast.Call)
+            and isinstance(test.func, ast.Name)
+            and test.func.id == "file_exists"
+        ):
+            return False
+    return True
+
+
+def _auto_repair_truncated_python(code):
+    """Close unbalanced strings/brackets at EOF so truncated LLM output parses.
+
+    Returns repaired code on success, or None if unrepairable.
+    """
+    if not code:
+        return None
+    try:
+        ast.parse(code)
+        return code
+    except SyntaxError:
+        pass
+
+    pairs = {"(": ")", "[": "]", "{": "}"}
+
+    def _scan(src):
+        stack = []
+        in_s = False
+        trp = False
+        q = ""
+        start = -1
+        i = 0
+        n = len(src)
+        while i < n:
+            ch = src[i]
+            if in_s:
+                if trp:
+                    if src[i:i + 3] == q * 3:
+                        in_s = False
+                        trp = False
+                        i += 3
+                        continue
+                    i += 1
+                    continue
+                if ch == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == q:
+                    in_s = False
+                elif ch == "\n":
+                    in_s = False
+                i += 1
+                continue
+            if ch == "#":
+                while i < n and src[i] != "\n":
+                    i += 1
+                continue
+            if ch in ('"', "'"):
+                if src[i:i + 3] in ('"""', "'''"):
+                    in_s = True
+                    trp = True
+                    q = ch
+                    start = i
+                    i += 3
+                    continue
+                in_s = True
+                trp = False
+                q = ch
+                start = i
+                i += 1
+                continue
+            if ch in "([{":
+                stack.append(pairs[ch])
+            elif ch in ")]}":
+                if stack and stack[-1] == ch:
+                    stack.pop()
+            i += 1
+        return in_s, trp, q, start, stack
+
+    in_string, triple, quote, str_start, bracket_stack = _scan(code)
+
+    suffix = ""
+    if in_string:
+        suffix = (quote * 3) if triple else quote
+    while bracket_stack:
+        suffix += bracket_stack.pop()
+
+    if suffix:
+        repaired = code + suffix
+        try:
+            ast.parse(repaired)
+            return repaired
+        except SyntaxError:
+            pass
+
+    if in_string and str_start >= 0:
+        trunc = code[:str_start].rstrip()
+        while trunc and trunc[-1] in ", \t\n":
+            trunc = trunc[:-1]
+        in_s2, _, _, _, stack2 = _scan(trunc)
+        if not in_s2:
+            suffix2 = ""
+            while stack2:
+                suffix2 += stack2.pop()
+            repaired = trunc + suffix2
+            try:
+                ast.parse(repaired)
+                return repaired
+            except SyntaxError:
+                pass
+
+    return None
+
+
+def _self_validate_tests(code, weights, has_api_services=False):
+    """Run deterministic lints on generated test code. Returns list of failure strings.
+
+    Ported from kensei-harness L1-L24 (subset applicable without extracted values).
+    Empty list means the draft passes all lints.
+    """
+    failures = []
+
+    # L15: must parse — if not, none of the other lints can run
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return ["L15: emitted code is not valid Python: %s" % exc]
+
+    # L1: forbidden polarity (Convention B)
+    seen_polarity = set()
+    for pat in _FORBIDDEN_POLARITY_PATTERNS:
+        for m in pat.finditer(code):
+            tok = m.group(0)
+            if tok not in seen_polarity:
+                seen_polarity.add(tok)
+                failures.append(
+                    "L1: forbidden assertion polarity '%s' — rephrase positively, "
+                    "encode bad behavior with a negative weight" % tok
+                )
+
+    # L3: lazy substrings
+    lazy_pattern = re.compile(r'"([a-z]{2,})"\s+in\s+[A-Za-z_][\w.\[\]]*(?:\.lower\(\))?')
+    lazy_hits = []
+    for m in lazy_pattern.finditer(code):
+        word = m.group(1).lower()
+        if word in _LAZY_STOPWORDS:
+            lazy_hits.append(word)
+    if lazy_hits:
+        failures.append(
+            "L3: lazy single-word substring assertion(s) on common stopwords: %s. "
+            "Assert on specific deterministic values instead." % sorted(set(lazy_hits))[:5]
+        )
+
+    # L4: weights integrity
+    if weights:
+        bad = {n: w for n, w in weights.items() if w not in _ALLOWED_WEIGHTS}
+        if bad:
+            failures.append("L4: weight values outside the allowed set {50,30,10,-10,-30,-50}: %s" % bad)
+
+    # L5: class prefix invariants
+    class_names = [n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    bad_classes = [c for c in class_names if not (
+        c.startswith("TestBehavioral") or c.startswith("TestOutcome") or c.startswith("TestNegativeWeight")
+    )]
+    if bad_classes:
+        failures.append(
+            "L5: class names not matching required prefixes "
+            "(TestBehavioral*, TestOutcome*, TestNegativeWeight*): %s" % bad_classes
+        )
+
+    # L7: TestNegativeWeight required always
+    if not any(c.startswith("TestNegativeWeight") for c in class_names):
+        failures.append("L7: no TestNegativeWeight* class emitted — mandatory for every task")
+
+    # L8: at least one SERVICE_URL ref when APIs listed
+    if has_api_services and not re.search(r"\b[A-Z][A-Z0-9_]*_URL\b", code):
+        failures.append(
+            "L8: API services are listed but no <SERVICE>_URL constant is referenced"
+        )
+
+    # L12: triviality patterns
+    for pat in _TRIVIALITY_PATTERNS:
+        m = pat.search(code)
+        if m:
+            failures.append(
+                "L12: triviality pattern '%s' — assert on a specific value, not on existence/non-emptiness"
+                % m.group(0)
+            )
+            break
+
+    # L14: every test function must have at least one assert
+    test_funcs = _collect_test_functions(tree)
+    no_assert = [f.name for f in test_funcs if not _function_has_assert(f)]
+    if no_assert:
+        failures.append("L14: test function(s) with NO assert statement: %s" % no_assert)
+
+    # L16: no-op exploit — file_exists-only tests should not exceed 25% of positive weight
+    if weights:
+        passes_empty = []
+        for func in test_funcs:
+            if _function_passes_empty_files(func):
+                passes_empty.append(func.name)
+        total_positive = sum(w for w in weights.values() if w > 0)
+        passes_empty_positive = sum(
+            weights.get(name, 0) for name in passes_empty if weights.get(name, 0) > 0
+        )
+        if total_positive > 0:
+            ratio = passes_empty_positive / total_positive
+            if ratio >= 0.25:
+                failures.append(
+                    "L16: no-op exploit risk — tests that pass on empty files sum to "
+                    "%d/%d positive weight (%.0f%%); replace file_exists-only tests with "
+                    "content/value assertions: %s" % (
+                        passes_empty_positive, total_positive, ratio * 100, passes_empty[:5]
+                    )
+                )
+
+    # L21: forbidden imports
+    forbidden_imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mod = alias.name.split(".")[0]
+                if mod not in _ALLOWED_IMPORTS:
+                    forbidden_imports.append(mod)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                mod = node.module.split(".")[0]
+                if mod not in _ALLOWED_IMPORTS:
+                    forbidden_imports.append(mod)
+    if forbidden_imports:
+        failures.append(
+            "L21: forbidden import(s) not available in verifier environment: %s. "
+            "Only stdlib modules are available." % sorted(set(forbidden_imports))
+        )
+
+    # L22: API response shape misuse — iterating api_get/api_post directly
+    audit_iter_pattern = re.compile(r"for\s+\w+\s+in\s+(api_get|api_post)\s*\([^)]*\)\s*")
+    if audit_iter_pattern.search(code):
+        failures.append(
+            "L22: potential dict-as-list iteration — code directly iterates the return of "
+            "api_get/api_post. Assign to a variable first, unwrap with .get('results', data) "
+            "for business endpoints."
+        )
+
+    # L24: paginated API response envelope misuse
+    if has_api_services:
+        api_call_pat = re.compile(r'(\w+)\s*=\s*api_get\s*\([^)]*"/v1/[^"]*"[^)]*\)')
+        unwrap_pat = re.compile(r'\.get\s*\(\s*["\']results["\']\s*[,)]')
+        paginated_misuse = []
+        for match in api_call_pat.finditer(code):
+            var_name = match.group(1)
+            after = code[match.end():match.end() + 500]
+            isinstance_check = re.search(
+                r"assert\s+isinstance\s*\(\s*%s\s*,\s*list\s*\)" % re.escape(var_name),
+                after,
+            )
+            if isinstance_check:
+                has_unwrap = unwrap_pat.search(code[match.start():match.end() + 500])
+                if not has_unwrap:
+                    paginated_misuse.append(var_name)
+        if paginated_misuse:
+            failures.append(
+                "L24: paginated API response not unwrapped — %s use "
+                "isinstance(var, list) directly on api_get result without handling "
+                "the paginated envelope. Use: data.get('results', data) if isinstance(data, dict) "
+                "else data" % paginated_misuse[:5]
+            )
+
+    return failures
+
+
 def _mark_task_description_status(db_name, task_id, field_name, status, entry_index=-1):
     """Update the task_description_status on a trajectory entry."""
     try:
@@ -298,17 +657,34 @@ def _generate_intent_tests_background(db_name, sandbox_id, prompt):
         )
 
 
-def _generate_task_tests_background(db_name, task_id):
-    """Background worker: generate unified tests at the TASK level (one set for all sandboxes).
+_STRIP_IMPORT_RE = re.compile(
+    r"^(?:import\s+\w+|from\s+\w[\w.]*\s+import\s+.*)$",
+    re.MULTILINE,
+)
+_STRIP_HELPER_RE = re.compile(
+    r"^def\s+(?:_get|_post|_request|api_get|api_post|read_file|file_exists)\s*\(.*?(?=\nclass\s|\ndef\s[^_]|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+_STRIP_ENVIRON_RE = re.compile(
+    r"^[A-Z_]+_URL\s*=\s*os\.environ.*$",
+    re.MULTILINE,
+)
 
-    Single LLM call produces {code, weights} JSON → full test file written to task record.
-    """
+
+def _sanitize_llm_test_code(code):
+    code = _STRIP_IMPORT_RE.sub("", code)
+    code = _STRIP_ENVIRON_RE.sub("", code)
+    code = _STRIP_HELPER_RE.sub("", code)
+    code = re.sub(r"\n{4,}", "\n\n\n", code)
+    return code.strip()
+
+
+def _generate_task_tests_background(db_name, task_id):
     try:
         from odoo.modules.module import get_module_path
 
         module_path = get_module_path("kensei2")
 
-        # Phase 1: read inputs (short cursor)
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
             task = env["kensei2.kensei2"].browse(task_id)
@@ -339,7 +715,6 @@ def _generate_task_tests_background(db_name, task_id):
                 or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")
             ).strip()
 
-        # Pre-flight checks
         if not prompt:
             raise RuntimeError("No prompt available for test generation")
         if not api_key:
@@ -347,7 +722,6 @@ def _generate_task_tests_background(db_name, task_id):
         if not inference_arn:
             raise RuntimeError("Bedrock Inference ARN not configured in Settings > Kensei2")
 
-        # Discover services from environment/ dir
         env_dir = os.path.join(module_path, "environment")
         services = {}
         if os.path.isdir(env_dir):
@@ -370,83 +744,15 @@ def _generate_task_tests_background(db_name, task_id):
             if len(api_docs) > 30000:
                 api_docs = api_docs[:30000] + "\n\n... [truncated]"
 
-        # Load unified system prompt
         prompt_file = os.path.join(module_path, "test_generation_system_prompt.md")
         if not os.path.isfile(prompt_file):
             raise RuntimeError("test_generation_system_prompt.md not found in kensei2 module")
         with open(prompt_file, "r") as f:
             system_prompt = f.read()
 
-        # Build user message
-        msg = []
-        msg.append("## Task Instruction (instruction.md)\n")
-        msg.append(
-            "Generate tests that verify the agent performed these actions correctly.\n\n"
-        )
-        msg.append(prompt[:8000] if len(prompt) > 8000 else prompt)
-        msg.append("\n")
+        has_api_services = bool(services)
 
-        if task_toml:
-            msg.append("\n## task.toml (distractor_skills and metadata)\n")
-            msg.append("```toml\n%s\n```\n" % task_toml)
-
-        msg.append("\n## Available Mock API Services\n")
-        if services:
-            for svc_name, info in services.items():
-                const_name = svc_name.upper().replace("-", "_") + "_URL"
-                msg.append(
-                    "- `%s` (env: `%s`, port %d) → use constant `%s`\n"
-                    % (svc_name, info["env_var"], info["port"], const_name)
-                )
-        else:
-            msg.append("No API services configured.\n")
-
-        msg.append("\n## Mock API Documentation (endpoints for verification)\n")
-        msg.append(api_docs)
-        user_message = "\n".join(msg)
-
-        # Phase 2: call LLM (no cursor held)
-        from ..controllers.llm_assisst_qc import _call_bedrock_converse
-
-        gen_start = time.time()
-        response_text, usage = _call_bedrock_converse(
-            api_key=api_key,
-            inference_arn=inference_arn,
-            region=region,
-            system_prompt=system_prompt,
-            user_message=user_message,
-            max_tokens=12000,
-            temperature=0.2,
-            timeout=300.0,
-        )
-        gen_duration_ms = (time.time() - gen_start) * 1000
-
-        # Parse JSON {code, weights}
-        cleaned = response_text.strip()
-        if cleaned.startswith("```"):
-            first_nl = cleaned.index("\n")
-            cleaned = cleaned[first_nl + 1:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3].strip()
-
-        json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
-        if not json_match:
-            raise ValueError("No JSON object found in LLM response. Raw: %s" % cleaned[:500])
-
-        parsed = json.loads(json_match.group(0))
-        if not isinstance(parsed, dict):
-            raise ValueError("Expected JSON object with code+weights, got %s" % type(parsed).__name__)
-
-        llm_code = parsed.get("code", "")
-        weights = parsed.get("weights", {})
-
-        if not llm_code or not llm_code.strip():
-            raise ValueError("LLM returned empty test code")
-        if not isinstance(weights, dict):
-            weights = {}
-
-        # Build full test file (wrapper + LLM classes)
-        lines = [
+        wrapper_lines = [
             '"""',
             "Auto-generated test suite for verifying API state changes and task completion.",
             '"""',
@@ -462,11 +768,11 @@ def _generate_task_tests_background(db_name, task_id):
         ]
         for svc_name, info in services.items():
             const_name = svc_name.upper().replace("-", "_") + "_URL"
-            lines.append(
+            wrapper_lines.append(
                 '%s = os.environ.get("%s", "http://localhost:%d")'
                 % (const_name, info["env_var"], info["port"])
             )
-        lines.extend(
+        wrapper_lines.extend(
             [
                 "",
                 "",
@@ -482,11 +788,24 @@ def _generate_task_tests_background(db_name, task_id):
                 "",
                 "",
                 "def api_get(base_url, endpoint):",
+                '    """Two-arg helper: api_get(BASE_URL, "/path")."""',
                 '    return _request("GET", f"{base_url}{endpoint}")',
                 "",
                 "",
-                "def api_post(base_url, endpoint, data):",
+                "def api_post(base_url, endpoint, data=None):",
+                '    """Two-arg helper: api_post(BASE_URL, "/path", {...})."""',
                 '    return _request("POST", f"{base_url}{endpoint}", data=data)',
+                "",
+                "",
+                "# Compatibility aliases — accept a full URL (one argument)",
+                "def _get(url):",
+                '    """One-arg helper: _get(f"{BASE_URL}/path")."""',
+                '    return _request("GET", url)',
+                "",
+                "",
+                "def _post(url, data=None):",
+                '    """One-arg helper: _post(f"{BASE_URL}/path", {...})."""',
+                '    return _request("POST", url, data=data)',
                 "",
                 "",
                 "def read_file(path):",
@@ -498,16 +817,190 @@ def _generate_task_tests_background(db_name, task_id):
                 "    return os.path.exists(path)",
                 "",
                 "",
-                "# --- Generated Test Classes ---",
-                "",
             ]
         )
-        lines.append(llm_code)
-        full_test_code = "\n".join(lines)
-        weights_json = json.dumps(weights, indent=2, ensure_ascii=False)
+        wrapper_prefix = "\n".join(wrapper_lines)
 
-        # Phase 3: write results
-        for attempt in range(3):
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        gen_start = time.time()
+        best_code = ""
+        best_weights = {}
+        best_failures = []
+        lint_failures = []
+        total_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        for attempt in range(1, MAX_TESTGEN_ATTEMPTS + 1):
+            msg = []
+            msg.append("## Task Instruction (instruction.md)\n")
+            msg.append(
+                "Generate tests that verify the agent performed these actions correctly.\n\n"
+            )
+            msg.append(prompt[:8000] if len(prompt) > 8000 else prompt)
+            msg.append("\n")
+
+            if task_toml:
+                msg.append("\n## task.toml (distractor_skills and metadata)\n")
+                msg.append("```toml\n%s\n```\n" % task_toml)
+
+            msg.append("\n## Available Mock API Services\n")
+            if services:
+                for svc_name, info in services.items():
+                    const_name = svc_name.upper().replace("-", "_") + "_URL"
+                    msg.append(
+                        "- `%s` (env: `%s`, port %d) → use constant `%s`\n"
+                        % (svc_name, info["env_var"], info["port"], const_name)
+                    )
+            else:
+                msg.append("No API services configured.\n")
+
+            msg.append("\n## Mock API Documentation (endpoints for verification)\n")
+            msg.append(api_docs)
+
+            if lint_failures:
+                if attempt >= 2:
+                    lint_failures = [
+                        "THIS IS RETRY %d/%d. The previous draft had these issues. "
+                        "Read each lint message LITERALLY. Do NOT repeat the same mistakes."
+                        % (attempt, MAX_TESTGEN_ATTEMPTS),
+                        "",
+                    ] + lint_failures
+                msg.append("\n\n## LINT FAILURES FROM PREVIOUS ATTEMPT (fix ALL of these)\n")
+                for fail in lint_failures:
+                    msg.append("- %s\n" % fail)
+
+            user_message = "\n".join(msg)
+
+            try:
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    max_tokens=12000,
+                    temperature=0.2,
+                    timeout=300.0,
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "[TASK-TESTGEN] LLM call failed on attempt %d/%d for task %s: %s",
+                    attempt, MAX_TESTGEN_ATTEMPTS, task_id, exc,
+                )
+                if best_code:
+                    break
+                continue
+
+            total_usage["input_tokens"] += usage.get("input_tokens", 0)
+            total_usage["output_tokens"] += usage.get("output_tokens", 0)
+
+            cleaned = response_text.strip()
+            if cleaned.startswith("```"):
+                try:
+                    first_nl = cleaned.index("\n")
+                    cleaned = cleaned[first_nl + 1:]
+                except ValueError:
+                    pass
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].strip()
+
+            json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if not json_match:
+                _logger.warning(
+                    "[TASK-TESTGEN] No JSON in LLM response on attempt %d for task %s",
+                    attempt, task_id,
+                )
+                lint_failures = ["No JSON object found in LLM response — emit valid {code, weights} JSON"]
+                continue
+
+            try:
+                parsed = json.loads(json_match.group(0))
+            except json.JSONDecodeError as exc:
+                _logger.warning(
+                    "[TASK-TESTGEN] JSON parse failed on attempt %d for task %s: %s",
+                    attempt, task_id, exc,
+                )
+                lint_failures = ["JSON parse error: %s — emit valid JSON" % exc]
+                continue
+
+            if not isinstance(parsed, dict):
+                lint_failures = ["Expected JSON object with code+weights, got %s" % type(parsed).__name__]
+                continue
+
+            llm_code = parsed.get("code", "")
+            weights = parsed.get("weights", {})
+
+            if not llm_code or not llm_code.strip():
+                lint_failures = ["LLM returned empty test code"]
+                continue
+            if not isinstance(weights, dict):
+                weights = {}
+
+            llm_code = _sanitize_llm_test_code(llm_code)
+
+            try:
+                ast.parse(llm_code)
+            except SyntaxError:
+                repaired = _auto_repair_truncated_python(llm_code)
+                if repaired is not None:
+                    _logger.info(
+                        "[TASK-TESTGEN] Auto-repaired truncated code on attempt %d for task %s",
+                        attempt, task_id,
+                    )
+                    llm_code = repaired
+
+            clean_weights = {}
+            for name, w in weights.items():
+                if isinstance(name, str) and isinstance(w, int) and w in _ALLOWED_WEIGHTS:
+                    clean_weights[name] = w
+            weights = clean_weights or weights
+
+            failures = _self_validate_tests(llm_code, weights, has_api_services=has_api_services)
+
+            if not best_code or len(failures) < len(best_failures):
+                best_code = llm_code
+                best_weights = weights
+                best_failures = failures
+
+            if not failures:
+                _logger.info(
+                    "[TASK-TESTGEN] Passed all lints on attempt %d for task %s", attempt, task_id
+                )
+                break
+
+            _logger.info(
+                "[TASK-TESTGEN] Attempt %d/%d failed %d lints for task %s: %s",
+                attempt, MAX_TESTGEN_ATTEMPTS, len(failures), task_id,
+                "; ".join(failures[:3]),
+            )
+            lint_failures = failures
+
+        gen_duration_ms = (time.time() - gen_start) * 1000
+
+        if best_code:
+            try:
+                ast.parse(best_code)
+            except SyntaxError:
+                repaired = _auto_repair_truncated_python(best_code)
+                if repaired is not None:
+                    _logger.warning("[TASK-TESTGEN] Final auto-repair applied for task %s", task_id)
+                    best_code = repaired
+                else:
+                    _logger.error(
+                        "[TASK-TESTGEN] Best draft unparseable after auto-repair for task %s; using fallback",
+                        task_id,
+                    )
+                    best_code = _SAFE_FALLBACK_STUB
+                    best_weights = {"test_placeholder": 10, "test_placeholder_negative": -10}
+        else:
+            _logger.error("[TASK-TESTGEN] All attempts produced no code for task %s; using fallback", task_id)
+            best_code = _SAFE_FALLBACK_STUB
+            best_weights = {"test_placeholder": 10, "test_placeholder_negative": -10}
+
+        full_test_code = wrapper_prefix + best_code
+        weights_json = json.dumps(best_weights, indent=2, ensure_ascii=False)
+
+        for write_attempt in range(3):
             try:
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
@@ -523,20 +1016,21 @@ def _generate_task_tests_background(db_name, task_id):
                         })
                 break
             except Exception as e:
-                if "serialize" in str(e).lower() and attempt < 2:
-                    time.sleep(1 + attempt)
+                if "serialize" in str(e).lower() and write_attempt < 2:
+                    time.sleep(1 + write_attempt)
                     continue
                 raise
 
         _logger.info(
             "[TASK-TESTGEN] Tests generated for task %s: code=%d chars, weights=%d entries, "
-            "tokens_in=%d, tokens_out=%d, duration=%.0fms",
+            "tokens_in=%d, tokens_out=%d, duration=%.0fms, lint_failures=%d",
             task_id,
             len(full_test_code),
-            len(weights),
-            usage.get("input_tokens", 0),
-            usage.get("output_tokens", 0),
+            len(best_weights),
+            total_usage.get("input_tokens", 0),
+            total_usage.get("output_tokens", 0),
             gen_duration_ms,
+            len(best_failures),
         )
 
     except Exception as e:
@@ -1629,19 +2123,28 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
             task = env["kensei2.kensei2"].browse(task_id)
             if task.exists() and task.test_code_status == "done" and task.test_code:
                 TestResult = env["kensei2.test.result"].sudo()
+                # Assign 1-based trajectory_index per model type so harbor
+                # export ("trajectory_index", ">", 0) includes these records
+                # and they map to the correct trajectories/<model>/run_N/.
+                model_counters = {}
+                created = 0
                 for sid in sandbox_ids:
                     sandbox = env["kensei2.sandbox"].browse(sid)
                     if sandbox.exists():
+                        mt = sandbox.model_type or "unknown"
+                        model_counters[mt] = model_counters.get(mt, 0) + 1
                         TestResult.create({
                             "sandbox_id": sid,
                             "model_used": "task-level",
                             "status": "pending",
                             "test_code": task.test_code,
-                            "trajectory_index": 0,
+                            "trajectory_index": model_counters[mt],
                         })
+                        created += 1
                 _logger.info(
-                    "[BATCH-PROMPT] Created %d test.result records from task-level test code",
-                    len(sandbox_ids),
+                    "[BATCH-PROMPT] Created %d test.result records from task-level test code "
+                    "(per-model counts: %s)",
+                    created, model_counters,
                 )
     except Exception:
         _logger.exception("[BATCH-PROMPT] Failed to create test.result records for task %s", task_id)
@@ -2266,17 +2769,20 @@ def _replace_inline_media_with_s3(messages, task_id, env):
     """
     from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
 
+    # Load .env to ensure S3 credentials are available in os.environ
+    dotenv = _load_dotenv()
+
     icp = env["ir.config_parameter"].sudo()
     bucket = icp.get_param("kensei2.s3_bucket") or S3_BUCKET
     region = icp.get_param("kensei2.s3_region") or "us-east-1"
     prefix = icp.get_param("kensei2.s3_prefix") or S3_KENSEI2_PREFIX
     access_key = (
-        os.environ.get("KENSEI2_S3_ACCESS_KEY_ID")
-        or os.environ.get("AWS_SECRET_KEY", "")
+        dotenv.get("KENSEI_S3_ACCESS_KEY_ID", "")
+        or os.environ.get("KENSEI_S3_ACCESS_KEY_ID", "")
     )
     secret_key = (
-        os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY")
-        or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        dotenv.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+        or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
     )
 
     if not bucket:
@@ -2692,12 +3198,9 @@ class Kensei2Sandbox(models.Model):
         self.ensure_one()
         try:
             from kubernetes import client as k8s_client
-            from kubernetes import config as k8s_config
+            from .kensei2_sandbox_k8s import _load_k8s_config
 
-            try:
-                k8s_config.load_incluster_config()
-            except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+            _load_k8s_config()
         except Exception:
             _logger.warning(
                 "K8s not available for JSONL extraction (sandbox=%s)", self.id
@@ -2927,24 +3430,34 @@ class Kensei2Sandbox(models.Model):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
+            # Usage can live at entry-level or inside entry.message
             usage = entry.get("usage") or {}
             msg = entry.get("message")
             if isinstance(msg, dict):
                 usage = usage or msg.get("usage") or {}
             if not usage:
                 continue
-            total_in += int(
-                usage.get("input_tokens", 0)
-                or usage.get("inputTokens", 0)
-                or usage.get("prompt_tokens", 0)
+            if not isinstance(usage, dict):
+                continue
+            # OpenClaw normalizes to "input"/"output" (bare names).
+            # LiteLLM / Anthropic / OpenAI use "_tokens" suffixed variants.
+            # Check ALL known field names to cover every provider format.
+            raw_in = (
+                usage.get("input")              # OpenClaw normalized
+                or usage.get("input_tokens")     # Anthropic
+                or usage.get("inputTokens")      # camelCase variant
+                or usage.get("prompt_tokens")    # OpenAI / LiteLLM
                 or 0
             )
-            total_out += int(
-                usage.get("output_tokens", 0)
-                or usage.get("outputTokens", 0)
-                or usage.get("completion_tokens", 0)
+            raw_out = (
+                usage.get("output")              # OpenClaw normalized
+                or usage.get("output_tokens")    # Anthropic
+                or usage.get("outputTokens")     # camelCase variant
+                or usage.get("completion_tokens") # OpenAI / LiteLLM
                 or 0
             )
+            total_in += int(raw_in)
+            total_out += int(raw_out)
         return total_in, total_out
 
     def _query_litellm_spend(self, window_start=None, window_end=None):
@@ -2998,6 +3511,7 @@ class Kensei2Sandbox(models.Model):
             )
             return 0, 0
 
+        url = base_url
         try:
             if not self.create_date:
                 return 0, 0
@@ -3077,18 +3591,135 @@ class Kensei2Sandbox(models.Model):
             return total_in, total_out
 
         except urllib.error.HTTPError as e:
+            body = ""
+            try:
+                body = e.read().decode()[:500]
+            except Exception:
+                pass
             _logger.warning(
-                "LiteLLM spend API error for sandbox %s: %s %s",
-                self.id,
-                e.code,
-                e.reason,
+                "[TOKEN-LITELLM] HTTP %s %s for sandbox %s url=%s body=%s",
+                e.code, e.reason, self.id, url, body,
             )
             return 0, 0
         except Exception as e:
             _logger.warning(
-                "LiteLLM spend query failed for sandbox %s: %s",
-                self.id,
-                e,
+                "[TOKEN-LITELLM] Query failed for sandbox %s url=%s: %s",
+                self.id, url, e,
+            )
+            return 0, 0
+
+    def _query_litellm_spend_k8s(self):
+        """Query LiteLLM spend directly inside the pod via kubectl exec."""
+        self.ensure_one()
+        if self._deployment_mode() != "k8s":
+            return 0, 0
+
+        import hashlib
+
+        namespace = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("kensei2.k8s_namespace", "kensei2")
+            .strip()
+        ) or "kensei2"
+
+        dotenv = _load_dotenv()
+        litellm_key = (
+            dotenv.get("KENSEI2_LITELLM_MASTER_KEY")
+            or dotenv.get("LITELLM_MASTER_KEY", "")
+        ).strip()
+        if not litellm_key:
+            litellm_key = (
+                "sk-kensei2-%s" % self.docker_gateway_token[:16]
+                if self.docker_gateway_token
+                else ""
+            )
+        if not litellm_key:
+            return 0, 0
+
+        hashed_key = hashlib.sha256(litellm_key.encode("utf-8")).hexdigest()
+
+        try:
+            from kubernetes import client as k8s_client
+            from .kensei2_sandbox_k8s import _load_k8s_config
+
+            _load_k8s_config()
+        except Exception:
+            return 0, 0
+
+        label_selector = (
+            "app.kubernetes.io/name=kensei2-sandbox,task-id=%s" % self.id
+        )
+        try:
+            core_v1 = k8s_client.CoreV1Api()
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector,
+            )
+            pod_name = None
+            for pod in pods.items:
+                phase = (pod.status.phase or "").lower()
+                if phase not in ("failed", "unknown"):
+                    pod_name = pod.metadata.name
+                    break
+            if not pod_name:
+                _logger.warning(
+                    "[TOKEN-K8S] No pod found for sandbox %s", self.id,
+                )
+                return 0, 0
+        except Exception as e:
+            _logger.warning(
+                "[TOKEN-K8S] Pod lookup failed for sandbox %s: %s",
+                self.id, e,
+            )
+            return 0, 0
+
+        spend_url = "http://localhost:4000/spend/logs?api_key=%s" % hashed_key
+        node_script = (
+            "const http=require('http');"
+            "const opts={hostname:'localhost',port:4000,"
+            "path:'/spend/logs?api_key=%s',"
+            "headers:{Authorization:'Bearer %s'}};"
+            "http.get(opts,r=>{let d='';r.on('data',c=>d+=c);"
+            "r.on('end',()=>{process.stdout.write(d);process.exit(0)})});"
+            "setTimeout(()=>process.exit(1),10000)"
+        ) % (hashed_key, litellm_key)
+
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "exec", "-n", namespace, pod_name,
+                    "-c", "openclaw", "--",
+                    "node", "-e", node_script,
+                ],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                _logger.warning(
+                    "[TOKEN-K8S] kubectl exec failed for sandbox %s: rc=%d stderr=%s",
+                    self.id, result.returncode, result.stderr[:300],
+                )
+                return 0, 0
+
+            data = json.loads(result.stdout)
+            logs = data if isinstance(data, list) else data.get("data", [])
+
+            total_in = 0
+            total_out = 0
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                total_in += int(entry.get("prompt_tokens", 0) or 0)
+                total_out += int(entry.get("completion_tokens", 0) or 0)
+
+            _logger.info(
+                "[TOKEN-K8S] Direct query returned %d logs (in=%d, out=%d) sandbox %s",
+                len(logs), total_in, total_out, self.id,
+            )
+            return total_in, total_out
+        except Exception as e:
+            _logger.warning(
+                "[TOKEN-K8S] Direct LiteLLM query failed for sandbox %s: %s",
+                self.id, e,
             )
             return 0, 0
 
@@ -4267,6 +4898,9 @@ class Kensei2Sandbox(models.Model):
                         window_start=None, window_end=window_end
                     )
                     source = "litellm"
+                    if session_in == 0 and session_out == 0:
+                        session_in, session_out = self._query_litellm_spend_k8s()
+                        source = "litellm-k8s"
                     if session_in == 0 and session_out == 0 and jsonl_entries:
                         session_in, session_out = self._extract_tokens_from_jsonl(
                             jsonl_entries
@@ -5469,17 +6103,15 @@ class Kensei2Sandbox(models.Model):
 
     def _collect_audit_k8s(self, services):
         try:
-            from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes import client as k8s_client
             from kubernetes.stream import stream as k8s_stream
+            from .kensei2_sandbox_k8s import _load_k8s_config
         except ImportError:
             _logger.debug("kubernetes package not available, skipping K8s audit collection")
             return
 
         try:
-            try:
-                k8s_config.load_incluster_config()
-            except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+            _load_k8s_config()
         except Exception as exc:
             _logger.warning(
                 "K8s audit: load_k8s_config failed (sandbox=%s): %s",
@@ -6004,16 +6636,14 @@ class Kensei2Sandbox(models.Model):
     def _execute_tests_k8s(self, test_code):
         """Execute tests inside the K8s sandbox pod."""
         try:
-            from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes import client as k8s_client
             from kubernetes.stream import stream as k8s_stream
+            from .kensei2_sandbox_k8s import _load_k8s_config
         except ImportError:
             return "ERROR: kubernetes package not available"
 
         try:
-            try:
-                k8s_config.load_incluster_config()
-            except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+            _load_k8s_config()
         except Exception as exc:
             _logger.warning("K8s test exec: load_k8s_config failed: %s", exc)
             return "ERROR: K8s config not available: %s" % str(exc)[:200]

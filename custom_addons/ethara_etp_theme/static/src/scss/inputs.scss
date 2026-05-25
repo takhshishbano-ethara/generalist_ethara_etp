@@ -1,0 +1,116 @@
+// =====================================================================
+//  Ethara ETP Theme — visual input styling
+//
+//  Four selectable field styles for backend form inputs. The chosen
+//  style is set in Settings > Ethara Theme > Appearance and applied as
+//  an "o_ethara_input_<style>" class on <html> by navbar_patch.js.
+//
+//  Per user preference, ALL borders are stripped from inputs across
+//  every style. The styles differentiate via background fill only, and
+//  focus state is indicated by a subtle background change — never a
+//  border. Invalid fields keep Odoo's own error highlight.
+// =====================================================================
+
+// --- Outlined --------------------------------------------------------
+html.o_ethara_input_outlined {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: var(--ethara-surface) !important;
+        border: 0 !important;
+        border-radius: var(--ethara-radius) !important;
+        box-shadow: none !important;
+        transition: background-color var(--ethara-transition-fast) ease;
+
+        &:hover {
+            background-color: var(--ethara-hover) !important;
+        }
+        &:focus {
+            background-color: var(--ethara-active-bg) !important;
+        }
+    }
+}
+
+// --- Filled ----------------------------------------------------------
+html.o_ethara_input_filled {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: var(--ethara-hover) !important;
+        border: 0 !important;
+        border-radius: var(--ethara-radius) !important;
+        box-shadow: none !important;
+        transition: background-color var(--ethara-transition-fast) ease;
+
+        &:hover {
+            background-color: var(--ethara-active-bg) !important;
+        }
+        &:focus {
+            background-color: var(--ethara-surface) !important;
+        }
+    }
+}
+
+// --- Underline -------------------------------------------------------
+html.o_ethara_input_underline {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: transparent !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        transition: background-color var(--ethara-transition-fast) ease;
+
+        &:hover {
+            background-color: var(--ethara-hover) !important;
+        }
+        &:focus {
+            background-color: var(--ethara-active-bg) !important;
+        }
+    }
+}
+
+// --- Soft (default) --------------------------------------------------
+html.o_ethara_input_soft {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: var(--ethara-bg) !important;
+        border: 0 !important;
+        border-radius: var(--ethara-radius) !important;
+        box-shadow: none !important;
+        transition: background-color var(--ethara-transition-fast) ease;
+
+        &:hover {
+            background-color: var(--ethara-hover) !important;
+        }
+        &:focus {
+            background-color: var(--ethara-surface) !important;
+        }
+    }
+}
+
+// --- Universal border kill ------------------------------------------
+//  Catches every Odoo input chrome the four style blocks above don't
+//  reach: autocomplete wrappers (m2o / m2m_tags chip area), inputs
+//  outside .o_form_view (search bar, dialogs, settings), <select> and
+//  <textarea> elements, and date/time pickers. Backgrounds and focus
+//  feedback are preserved by the style blocks above; this rule only
+//  strips border lines and the focus ring.
+.o_form_view .o_field_widget .o_input_dropdown,
+.o_form_view .o_field_widget .o_input_dropdown .o_input,
+.o_field_widget .o_input,
+.o_field_widget input,
+.o_field_widget textarea,
+.o_field_widget select,
+.o_searchview_input,
+.modal .o_input,
+.modal input.form-control,
+.modal textarea.form-control,
+.o_settings_container .o_input {
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+
+    &:hover,
+    &:focus,
+    &:focus-visible,
+    &:focus-within {
+        border: 0 !important;
+        box-shadow: none !important;
+        outline: 0 !important;
+    }
+}

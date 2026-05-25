@@ -315,6 +315,11 @@ class TaskForgeProjectController(http.Controller):
                 team_role_message += f"{len(project.project_swe)}, SWE"
                 team_member_ids.extend(project.project_swe.ids)
 
+            tpm_ids = list(set(project.project_lead.mapped('task_forge_tpm_id').ids))
+            if tpm_ids:
+                team_role_message += f"{len(tpm_ids)}, TPM"
+                team_member_ids.extend(tpm_ids)
+
             state_list = ['in_progress', 'completed', 'blocker', 'returned', 'ack', 'escalated', 'overdue']
             task_progress_grouped = TaskLog.read_group(
                 domain=[('project_id', '=', project_id)],
@@ -531,6 +536,13 @@ class TaskForgeProjectController(http.Controller):
 
             # 2. Get team members
             team_ids = project.project_lead | project.project_qc_reviewer | project.project_tasker
+
+            cto_role = request.env.ref('api_auth_gateway.role_cto_technical', raise_if_not_found=False)
+            tpm_role = request.env.ref('api_auth_gateway.role_tpm_technical', raise_if_not_found=False)
+            allowed_role_ids = [r.id for r in (cto_role, tpm_role) if r]
+            caller_role_id = request.env.user.user_role.id if request.env.user.user_role else False
+            if caller_role_id and caller_role_id in allowed_role_ids:
+                team_ids = team_ids | project.project_lead.mapped('task_forge_tpm_id')
 
             # 3. Build domain (IMPORTANT FIX)
             domain = [('id', 'in', team_ids.ids)]
