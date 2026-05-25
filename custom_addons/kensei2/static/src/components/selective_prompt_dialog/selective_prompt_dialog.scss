@@ -1,0 +1,139 @@
+.o_kensei2_sel_overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1080;
+}
+
+.o_kensei2_sel_dialog {
+    background: #fff;
+    width: 640px;
+    max-width: 92vw;
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    border-radius: 12px;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.25);
+    overflow: hidden;
+}
+
+.o_kensei2_sel_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.o_kensei2_sel_body {
+    padding: 16px 18px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.o_kensei2_sel_prompt {
+    resize: vertical;
+    min-height: 76px;
+}
+
+.o_kensei2_sel_list_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 4px;
+}
+
+.o_kensei2_sel_pod_list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 6px;
+    background: #f8fafc;
+}
+
+.o_kensei2_sel_pod_row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #fff;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s, border-color 0.15s;
+
+    &:hover {
+        background: #eef2ff;
+    }
+
+    input[type="checkbox"] {
+        margin: 0;
+    }
+}
+
+.o_kensei2_sel_pod_active {
+    border-color: #6366f1;
+    background: #eef2ff;
+
+    &:hover {
+        background: #e0e7ff;
+    }
+}
+
+.o_kensei2_sel_pod_dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.o_kensei2_sel_pod_label {
+    font-weight: 600;
+}
+
+.o_kensei2_sel_pod_session {
+    font-size: 0.85em;
+}
+
+.o_kensei2_sel_pod_status {
+    margin-left: auto;
+    color: #0ea5e9;
+    font-size: 0.85em;
+}
+
+.o_kensei2_sel_empty {
+    color: #64748b;
+    padding: 16px;
+    text-align: center;
+    border: 1px dashed #cbd5e1;
+    border-radius: 8px;
+}
+
+.o_kensei2_sel_error {
+    color: #b91c1c;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    padding: 8px 10px;
+    border-radius: 6px;
+    font-size: 0.9em;
+}
+
+.o_kensei2_sel_footer {
+    display: flex;
+    align-items: center;
+    padding: 12px 18px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+    gap: 12px;
+}

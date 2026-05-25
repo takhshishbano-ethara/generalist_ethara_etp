@@ -13,6 +13,18 @@
                     </span>
                 </div>
                 <div class="ms-auto d-flex align-items-center gap-2">
+                    <button t-attf-class="o_kensei2_btn_ghost #{!this.canSendSelectivePrompt ? 'disabled' : ''}"
+                            t-on-click="onOpenSelectivePrompt"
+                            t-att-disabled="!this.canSendSelectivePrompt ? 'disabled' : undefined"
+                            title="Send a prompt to selected running pods">
+                        <i class="fa fa-paper-plane"/>
+                        <span>Send to Pods</span>
+                        <t t-if="this.runningCount > 0">
+                            <span class="badge text-bg-primary ms-1">
+                                <t t-out="this.runningCount"/>
+                            </span>
+                        </t>
+                    </button>
                     <t t-if="state.gogAuthDone">
                         <span class="o_kensei2_auth_badge o_kensei2_auth_badge_success">
                             <i class="fa fa-check-circle"/>
@@ -578,6 +590,13 @@
                 email="this.taskEmail || ''"
                 onClose.bind="onGogAuthClose"
                 onSuccess.bind="onGogAuthSuccess"/>
+
+            <SelectivePromptDialog t-if="state.showSelectivePrompt"
+                pods="this.selectivePromptPods"
+                initialPrompt="state.batchPrompt"
+                attachmentCount="state.pendingAttachments.length"
+                onClose.bind="onCloseSelectivePrompt"
+                onSend.bind="onSendSelectivePrompt"/>
 
             <div class="o_kensei2_rubrics_section">
                 <div class="o_kensei2_rubrics_header">
