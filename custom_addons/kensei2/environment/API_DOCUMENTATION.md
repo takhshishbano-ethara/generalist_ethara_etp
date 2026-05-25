@@ -65,8 +65,10 @@ Aggregated request summary by endpoint.
 
 **Response:** `200`
 ```json
-{"total_requests": 42, "endpoints": {"GET /some/path": 10}}
+{"total_requests": 42, "endpoints": {"GET /some/path": {"count": 10, "statuses": {"200": 8, "404": 2}}}}
 ```
+
+Each value in `endpoints` is a dict with `count` (integer) and `statuses` (map of status code → count). Use `endpoint_data["count"]` to get the call count.
 
 **Audit Log Entry Format:**
 ```json

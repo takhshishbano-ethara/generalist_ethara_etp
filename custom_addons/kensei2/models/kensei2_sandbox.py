@@ -2008,19 +2008,28 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
             task = env["kensei2.kensei2"].browse(task_id)
             if task.exists() and task.test_code_status == "done" and task.test_code:
                 TestResult = env["kensei2.test.result"].sudo()
+                # Assign 1-based trajectory_index per model type so harbor
+                # export ("trajectory_index", ">", 0) includes these records
+                # and they map to the correct trajectories/<model>/run_N/.
+                model_counters = {}
+                created = 0
                 for sid in sandbox_ids:
                     sandbox = env["kensei2.sandbox"].browse(sid)
                     if sandbox.exists():
+                        mt = sandbox.model_type or "unknown"
+                        model_counters[mt] = model_counters.get(mt, 0) + 1
                         TestResult.create({
                             "sandbox_id": sid,
                             "model_used": "task-level",
                             "status": "pending",
                             "test_code": task.test_code,
-                            "trajectory_index": 0,
+                            "trajectory_index": model_counters[mt],
                         })
+                        created += 1
                 _logger.info(
-                    "[BATCH-PROMPT] Created %d test.result records from task-level test code",
-                    len(sandbox_ids),
+                    "[BATCH-PROMPT] Created %d test.result records from task-level test code "
+                    "(per-model counts: %s)",
+                    created, model_counters,
                 )
     except Exception:
         _logger.exception("[BATCH-PROMPT] Failed to create test.result records for task %s", task_id)

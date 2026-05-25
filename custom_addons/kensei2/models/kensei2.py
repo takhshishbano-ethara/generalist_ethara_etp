@@ -2197,26 +2197,29 @@ class Kensei2(models.Model):
                 "content_type": "text/plain",
             })
 
+            rubric_export = "[]"
             if rec.rubrics:
-                files.append({
-                    "key": "rubric.json",
-                    "data": rec._transform_rubrics_for_export(rec.rubrics).encode("utf-8"),
-                    "content_type": "application/json",
-                })
+                rubric_export = rec._transform_rubrics_for_export(rec.rubrics)
+            files.append({
+                "key": "rubric.json",
+                "data": rubric_export.encode("utf-8"),
+                "content_type": "application/json",
+            })
 
+            golden_parsed = {}
             golden_data = getattr(rec, "golden_trajectory", None)
             if golden_data:
                 try:
                     golden_parsed = json.loads(golden_data)
                     if isinstance(golden_parsed, list) and golden_parsed:
                         golden_parsed = golden_parsed[0]
-                    files.append({
-                        "key": "golden_trajectory.json",
-                        "data": json.dumps(golden_parsed, indent=2, ensure_ascii=False).encode("utf-8"),
-                        "content_type": "application/json",
-                    })
                 except (json.JSONDecodeError, TypeError):
-                    pass
+                    golden_parsed = {}
+            files.append({
+                "key": "golden_trajectory.json",
+                "data": json.dumps(golden_parsed, indent=2, ensure_ascii=False).encode("utf-8"),
+                "content_type": "application/json",
+            })
 
             files.append({
                 "key": "data/instruction.md",
@@ -2249,25 +2252,25 @@ class Kensei2(models.Model):
                 "content_type": "text/yaml",
             })
 
-            test_code = rec.test_code or rec._get_best_test_code()
-            if test_code:
-                files.append({
-                    "key": "data/tests/test.sh",
-                    "data": rec._generate_harbor_test_sh().encode("utf-8"),
-                    "content_type": "text/plain",
-                })
-                files.append({
-                    "key": "data/tests/test_outputs.py",
-                    "data": test_code.encode("utf-8"),
-                    "content_type": "text/plain",
-                })
+            files.append({
+                "key": "data/tests/test.sh",
+                "data": rec._generate_harbor_test_sh().encode("utf-8"),
+                "content_type": "text/plain",
+            })
 
-            if rec.test_weights:
-                files.append({
-                    "key": "data/tests/test_weights.json",
-                    "data": rec.test_weights.encode("utf-8"),
-                    "content_type": "application/json",
-                })
+            test_code = rec.test_code or rec._get_best_test_code() or ""
+            files.append({
+                "key": "data/tests/test_outputs.py",
+                "data": test_code.encode("utf-8"),
+                "content_type": "text/plain",
+            })
+
+            weights_data = rec.test_weights or "{}"
+            files.append({
+                "key": "data/tests/test_weights.json",
+                "data": weights_data.encode("utf-8"),
+                "content_type": "application/json",
+            })
 
             files.append({
                 "key": "data/solution/solve.sh",
@@ -2443,26 +2446,29 @@ class Kensei2(models.Model):
             "content_type": "text/plain",
         })
 
+        rubric_export = "[]"
         if self.rubrics:
-            files_to_upload.append({
-                "key": "rubric.json",
-                "data": self._transform_rubrics_for_export(self.rubrics).encode("utf-8"),
-                "content_type": "application/json",
-            })
+            rubric_export = self._transform_rubrics_for_export(self.rubrics)
+        files_to_upload.append({
+            "key": "rubric.json",
+            "data": rubric_export.encode("utf-8"),
+            "content_type": "application/json",
+        })
 
+        golden_parsed = {}
         golden_data = getattr(self, "golden_trajectory", None)
         if golden_data:
             try:
                 golden_parsed = json.loads(golden_data)
                 if isinstance(golden_parsed, list) and golden_parsed:
                     golden_parsed = golden_parsed[0]
-                files_to_upload.append({
-                    "key": "golden_trajectory.json",
-                    "data": json.dumps(golden_parsed, indent=2, ensure_ascii=False).encode("utf-8"),
-                    "content_type": "application/json",
-                })
             except (json.JSONDecodeError, TypeError):
-                pass
+                golden_parsed = {}
+        files_to_upload.append({
+            "key": "golden_trajectory.json",
+            "data": json.dumps(golden_parsed, indent=2, ensure_ascii=False).encode("utf-8"),
+            "content_type": "application/json",
+        })
 
         files_to_upload.append({
             "key": "data/instruction.md",
@@ -2515,25 +2521,25 @@ class Kensei2(models.Model):
             "content_type": "text/yaml",
         })
 
-        test_code = self.test_code or self._get_best_test_code()
-        if test_code:
-            files_to_upload.append({
-                "key": "data/tests/test.sh",
-                "data": self._generate_harbor_test_sh().encode("utf-8"),
-                "content_type": "text/plain",
-            })
-            files_to_upload.append({
-                "key": "data/tests/test_outputs.py",
-                "data": test_code.encode("utf-8"),
-                "content_type": "text/plain",
-            })
+        files_to_upload.append({
+            "key": "data/tests/test.sh",
+            "data": self._generate_harbor_test_sh().encode("utf-8"),
+            "content_type": "text/plain",
+        })
 
-        if self.test_weights:
-            files_to_upload.append({
-                "key": "data/tests/test_weights.json",
-                "data": self.test_weights.encode("utf-8"),
-                "content_type": "application/json",
-            })
+        test_code = self.test_code or self._get_best_test_code() or ""
+        files_to_upload.append({
+            "key": "data/tests/test_outputs.py",
+            "data": test_code.encode("utf-8"),
+            "content_type": "text/plain",
+        })
+
+        weights_data = self.test_weights or "{}"
+        files_to_upload.append({
+            "key": "data/tests/test_weights.json",
+            "data": weights_data.encode("utf-8"),
+            "content_type": "application/json",
+        })
 
         files_to_upload.append({
             "key": "data/solution/solve.sh",
