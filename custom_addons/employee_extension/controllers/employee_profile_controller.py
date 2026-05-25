@@ -1,4 +1,7 @@
 import logging
+from datetime import date, datetime, timedelta
+
+import pytz
 
 from odoo import http
 from odoo.http import request
@@ -26,11 +29,34 @@ PERFORMANCE_COUNT_KEYS = (
     "aht_measured_count",
 )
 
+DELIVERED_STATES = ("done", "submitted")
+ON_TIME_VERDICTS = ("shippable", "fixes")
+DEFAULT_WINDOW_DAYS = 30
+
 
 def _pct(part, whole):
     if not whole:
         return 0.0
     return round((part / whole) * 100.0, 2)
+
+
+def _parse_date_param(raw):
+    if not raw:
+        return None
+    raw = raw.strip()
+    for fmt in ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S"):
+        try:
+            return datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _format_duration_human(td):
+    total_seconds = max(int(td.total_seconds()), 0)
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    return f"{hours}h {minutes}m"
 
 
 def _joining_date(employee):
@@ -55,11 +81,25 @@ class EmployeeProfileController(http.Controller):
     )
     @validate_token
     def get_employee_complete_info(self, **kwargs):
-        """Return one employee's basic info, cross-project performance, leave summary, running projects and history in a single response."""
+        """Return one employee's basic info, cross-project performance, leave summary, running projects and history in a single response.
+
+        Query params:
+        - employee_id (optional): target employee. Defaults to caller's employee.
+        - start_date / end_date (optional, ``YYYY-MM-DD``): global date filter
+          applied to performance_overview, current_running_projects and
+          project_history. Defaults to the last 30 days.
+
+        Project scope (driven by caller's role):
+        - CTO caller: all projects.
+        - TPM caller: projects whose ``project_lead`` includes any employee
+          whose ``task_forge_tpm_id`` is the caller.
+        - Other roles: projects where the *target* employee is a member.
+        """
         try:
             env = request.env
             Employee = env["hr.employee"].sudo()
-            raw_id = (request.params or {}).get("employee_id")
+            params = request.params or {}
+            raw_id = params.get("employee_id")
             if raw_id:
                 try:
                     employee_id = int(raw_id)
@@ -81,30 +121,121 @@ class EmployeeProfileController(http.Controller):
             if not employee.exists():
                 return return_Response(message="Employee not found", status=404)
 
+            today = date.today()
+            end_dt = _parse_date_param(params.get("end_date")) or today
+            start_dt = _parse_date_param(params.get("start_date")) or (
+                end_dt - timedelta(days=DEFAULT_WINDOW_DAYS)
+            )
+            if start_dt > end_dt:
+                return return_Response(
+                    message="start_date must be on or before end_date.",
+                    status=400,
+                )
+            window = (
+                datetime.combine(start_dt, datetime.min.time()),
+                datetime.combine(end_dt, datetime.max.time()),
+            )
+
             projects = self._employee_projects(employee)
             data = {
                 "basic_information": self._build_basic_info(employee),
-                "performance_overview": self._build_performance(employee, projects),
+                "performance_overview": self._build_performance(
+                    employee, projects, window
+                ),
                 "leave_summary": self._build_leave_summary(employee),
                 "current_running_projects": self._build_running_projects(
-                    employee, projects
+                    employee, projects, window
                 ),
-                "project_history": self._build_project_history(employee),
+                "project_history": self._build_project_history(employee, window),
+                "filter_window": {
+                    "start_date": start_dt.isoformat(),
+                    "end_date": end_dt.isoformat(),
+                },
             }
             return return_Response(message="OK", status=200, data={"data": data})
         except Exception as exc:
             _logger.exception("Employee complete_info failed: %s", exc)
             return return_Response(message=str(exc), status=400)
 
+    def _caller_scope_projects(self):
+        """Return a recordset of projects for CTO / TPM callers, or ``None``.
+
+        ``None`` signals the default per-employee scope (search projects where
+        the target employee is in one of ``PROJECT_ROLE_FIELDS``).
+        """
+        env = request.env
+        Project = env["project.project"].sudo()
+        caller = env.user
+        caller_role_id = caller.user_role.id if caller.user_role else False
+        cto_role = env.ref(
+            "api_auth_gateway.role_cto_technical", raise_if_not_found=False
+        )
+        tpm_role = env.ref(
+            "api_auth_gateway.role_tpm_technical", raise_if_not_found=False
+        )
+        if cto_role and caller_role_id == cto_role.id:
+            return Project.search([])
+        if tpm_role and caller_role_id == tpm_role.id:
+            caller_emp = caller.employee_id
+            if not caller_emp:
+                return Project.browse()
+            pl_emps = env["hr.employee"].sudo().search(
+                [("task_forge_tpm_id", "=", caller_emp.id)]
+            )
+            if not pl_emps:
+                return Project.browse()
+            return Project.search([("project_lead", "in", pl_emps.ids)])
+        return None
+
     def _employee_projects(self, employee):
+        scope = self._caller_scope_projects()
+        if scope is not None:
+            return scope
         Project = request.env["project.project"].sudo()
         domain = ["|"] * (len(PROJECT_ROLE_FIELDS) - 1)
         for field_name in PROJECT_ROLE_FIELDS:
             domain.append((field_name, "in", employee.ids))
         return Project.search(domain)
 
+    def _employee_session(self, employee):
+        Attendance = request.env["hr.attendance"].sudo()
+        today = date.today()
+        att = Attendance.search(
+            [
+                ("employee_id", "=", employee.id),
+                ("check_in", ">=", datetime.combine(today, datetime.min.time())),
+                ("check_in", "<", datetime.combine(today, datetime.max.time())),
+                ("attendance_status", "=", "present"),
+            ],
+            limit=1,
+            order="check_in desc",
+        )
+        if not att or not att.check_in:
+            return "Offline", "Offline"
+        tz_name = request.env.user.tz or "UTC"
+        try:
+            user_tz = pytz.timezone(tz_name)
+        except Exception:
+            user_tz = pytz.UTC
+        check_in = att.check_in
+        if check_in.tzinfo is None:
+            check_in = pytz.UTC.localize(check_in)
+        check_in_local = check_in.astimezone(user_tz)
+        end_time = att.check_out
+        if end_time:
+            if end_time.tzinfo is None:
+                end_time = pytz.UTC.localize(end_time)
+            end_time_local = end_time.astimezone(user_tz)
+        else:
+            end_time_local = datetime.now(user_tz)
+        duration = end_time_local - check_in_local
+        duration_str = _format_duration_human(duration)
+        time_str = check_in_local.strftime("%I:%M %p").lstrip("0")
+        return f"Online Punched in {time_str} {duration_str}", "Online"
+
     def _build_basic_info(self, employee):
         joining = _joining_date(employee)
+        session_str, working_status = self._employee_session(employee)
         return {
             "emp_id": employee.id,
             "employee_name": employee.name or "",
@@ -112,14 +243,18 @@ class EmployeeProfileController(http.Controller):
             "pl_name": employee.task_forge_pl_id.name or "",
             "qr_name": employee.task_forge_qr_id.name or "",
             "user_role": employee.user_id.user_role.name or "",
+            "user_session": session_str,
+            "working_status": working_status,
         }
 
-    def _build_performance(self, employee, projects):
-        """Aggregate get_performance_metrics() across distinct connected models.
+    def _build_performance(self, employee, projects, window):
+        """Aggregate metrics across the employee's connected_table models.
 
-        connected_table model names are de-duplicated (the method is
-        model-wide, so per-project calls would multiply-count); percentages and
-        a measure-count-weighted handling time are recomputed from summed totals.
+        ``on_time_delivery`` is computed directly against those connected
+        tables: of rows the target employee delivered (``state`` in
+        ``DELIVERED_STATES`` with ``completed_at`` inside ``window``), the
+        percentage accepted at QC (``qc_verdict`` in ``ON_TIME_VERDICTS``);
+        if the model has no ``qc_verdict`` field, every delivered row counts.
         """
         env = request.env
         aggregated = {key: 0 for key in PERFORMANCE_COUNT_KEYS}
@@ -135,17 +270,19 @@ class EmployeeProfileController(http.Controller):
                     model_names.add(table)
 
         target_user = employee.user_id
+        delivered_total = 0
+        on_time_total = 0
         if target_user:
             for model_name in sorted(model_names):
                 if model_name not in env:
                     skipped.append(model_name)
                     continue
-                model = env[model_name].with_user(target_user)
-                if not hasattr(model, "get_performance_metrics"):
+                model_for_metrics = env[model_name].with_user(target_user)
+                if not hasattr(model_for_metrics, "get_performance_metrics"):
                     skipped.append(model_name)
                     continue
                 try:
-                    metrics = model.get_performance_metrics()
+                    metrics = model_for_metrics.get_performance_metrics()
                 except Exception as exc:
                     _logger.warning(
                         "get_performance_metrics failed for %s: %s", model_name, exc
@@ -158,11 +295,36 @@ class EmployeeProfileController(http.Controller):
                     metrics.get("avg_handling_time_seconds") or 0.0
                 ) * (metrics.get("aht_measured_count") or 0)
                 evaluated.append(model_name)
+
+                model = env[model_name].sudo()
+                model_fields = model._fields
+                if all(
+                    f in model_fields
+                    for f in ("user_id", "state", "completed_at")
+                ):
+                    delivered = model.search(
+                        [
+                            ("user_id", "=", target_user.id),
+                            ("state", "in", list(DELIVERED_STATES)),
+                            ("completed_at", ">=", window[0]),
+                            ("completed_at", "<=", window[1]),
+                        ]
+                    )
+                    delivered_total += len(delivered)
+                    if "qc_verdict" in model_fields:
+                        on_time_total += len(
+                            delivered.filtered(
+                                lambda r: r.qc_verdict in ON_TIME_VERDICTS
+                            )
+                        )
+                    else:
+                        on_time_total += len(delivered)
         else:
             skipped = sorted(model_names)
 
         measured = aggregated["aht_measured_count"]
         avg_seconds = round(weighted_seconds / measured, 2) if measured else 0.0
+        tasker_count = len({tid for p in projects for tid in p.project_tasker.ids})
         overview = dict(aggregated)
         overview.update(
             {
@@ -175,6 +337,10 @@ class EmployeeProfileController(http.Controller):
                 "avg_handling_time_seconds": avg_seconds,
                 "avg_handling_time_minutes": round(avg_seconds / 60.0, 2),
                 "projects_assigned": len(projects),
+                "tasker_count": tasker_count,
+                "on_time_delivery": _pct(on_time_total, delivered_total),
+                "delivered_count": delivered_total,
+                "on_time_count": on_time_total,
                 "models_evaluated": evaluated,
                 "models_skipped": skipped,
             }
@@ -229,14 +395,20 @@ class EmployeeProfileController(http.Controller):
             )
         return list(summary.values())
 
-    def _build_running_projects(self, employee, projects):
+    def _build_running_projects(self, employee, projects, window):
         running = []
+        win_start = window[0].date()
+        win_end = window[1].date()
         for project in projects:
             if project.non_stemp_project_status != "production":
                 continue
             history = project.member_history_ids.filtered(
                 lambda h: h.employee_id.id == employee.id
+                and (not h.start_date or h.start_date <= win_end)
+                and (not h.end_date or h.end_date >= win_start)
             )
+            if not history:
+                continue
             active = history.filtered(lambda h: h.state == "active")
             chosen = active[:1] or history[:1]
             running.append(
@@ -253,9 +425,18 @@ class EmployeeProfileController(http.Controller):
             )
         return running
 
-    def _build_project_history(self, employee):
+    def _build_project_history(self, employee, window):
         History = request.env["project.member.history"].sudo()
-        records = History.search([("employee_id", "=", employee.id)])
+        win_start = window[0].date()
+        win_end = window[1].date()
+        domain = [
+            ("employee_id", "=", employee.id),
+            ("start_date", "<=", win_end),
+            "|",
+            ("end_date", "=", False),
+            ("end_date", ">=", win_start),
+        ]
+        records = History.search(domain)
         role_labels = dict(History._fields["role"].selection)
         history = []
         for record in records:
