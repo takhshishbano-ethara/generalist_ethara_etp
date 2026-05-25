@@ -4314,7 +4314,99 @@ class Kensei2Sandbox(models.Model):
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+        # Fallback: list anything already in s3://<bucket>/<prefix>/output/tasks/<task_id>/
+        # and merge it into the manifest. Catches files uploaded by paths the
+        # regex didn't recognize (user's custom S3 code, base64-inline media
+        # flows, agent writes outside /home/node/.openclaw/, etc.).
+        if bucket:
+            for s3_entry in self._list_s3_output_objects(
+                bucket, region, prefix, task_id,
+            ):
+                basename = s3_entry["filename"]
+                if basename in seen:
+                    continue
+                seen.add(basename)
+                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+                mime, artifact_type = _classify(ext)
+                entry = {
+                    "filename": basename,
+                    "mime_type": mime,
+                    "artifact_type": artifact_type,
+                    "description": "Agent-generated %s output (from S3)" % (ext.upper() or "binary"),
+                    "container_path": "",
+                    "source": "s3://%s/%s/output/tasks/%s/%s" % (
+                        bucket, prefix, task_id, basename,
+                    ),
+                    "s3_url": "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/%s" % (
+                        bucket, region, prefix, task_id, basename,
+                    ),
+                }
+                if s3_entry.get("size") is not None:
+                    entry["size_bytes"] = s3_entry["size"]
+                artifacts.append(entry)
+
         return artifacts
+
+    def _list_s3_output_objects(self, bucket, region, prefix, task_id):
+        """List existing objects under s3://<bucket>/<prefix>/output/tasks/<task_id>/.
+
+        Returns list of {filename, size}. Empty list on any failure (boto3
+        missing, no creds, bucket misconfigured, transient S3 error). Used
+        as a fallback by _build_output_artifacts so anything uploaded via
+        paths the agent-response regex doesn't catch still surfaces in the
+        manifest.
+        """
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except Exception:
+            return []
+
+        access_key = (
+            os.environ.get("KENSEI2_S3_ACCESS_KEY_ID")
+            or os.environ.get("AWS_SECRET_KEY", "")
+        )
+        secret_key = (
+            os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY")
+            or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        )
+
+        client_kwargs = {
+            "region_name": region,
+            "config": BotoConfig(retries={"max_attempts": 2, "mode": "adaptive"}),
+        }
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        s3_prefix = "%s/output/tasks/%s/" % (prefix, task_id)
+        out = []
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+                for obj in page.get("Contents", []) or []:
+                    key = obj.get("Key", "")
+                    if not key or key.endswith("/"):
+                        continue
+                    basename = key.rsplit("/", 1)[-1]
+                    if not basename:
+                        continue
+                    out.append({
+                        "filename": basename,
+                        "size": obj.get("Size"),
+                    })
+        except Exception:
+            _logger.exception(
+                "[OUTPUT-ARTIFACTS] S3 list failed for bucket=%s prefix=%s",
+                bucket, s3_prefix,
+            )
+            return []
+        _logger.info(
+            "[OUTPUT-ARTIFACTS] S3 listing found %d objects under s3://%s/%s",
+            len(out), bucket, s3_prefix,
+        )
+        return out
 
     def action_export_session(self):
         self.ensure_one()
