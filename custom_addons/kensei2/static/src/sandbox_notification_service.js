@@ -38,6 +38,10 @@ const sandboxNotificationService = {
         bus_service.subscribe("kensei2/auto_hint_result", (payload) => {
             env.bus.trigger("KENSEI2:AUTO_HINT_RESULT", payload);
         });
+
+        bus_service.subscribe("kensei2/selective_prompt_done", (payload) => {
+            env.bus.trigger("KENSEI2:SELECTIVE_PROMPT_DONE", payload);
+        });
     },
 };
 
