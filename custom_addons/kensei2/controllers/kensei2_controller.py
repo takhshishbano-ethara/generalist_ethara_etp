@@ -238,8 +238,16 @@ class Kensei2Controller(http.Controller):
                 content_type='application/json', status=400
             )
 
-        access_key = os.environ.get("KENSEI2_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
-        secret_key = os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        from odoo.addons.kensei2.models.kensei2_sandbox import _load_dotenv
+        dotenv = _load_dotenv()
+        access_key = (
+            dotenv.get("KENSEI_S3_ACCESS_KEY_ID", "")
+            or os.environ.get("KENSEI_S3_ACCESS_KEY_ID", "")
+        )
+        secret_key = (
+            dotenv.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+            or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+        )
 
         client_kwargs = {
             "region_name": region,
@@ -328,8 +336,16 @@ class Kensei2Controller(http.Controller):
 
         harbor_prefix = "%s/harbor/" % prefix
 
-        access_key = os.environ.get("KENSEI2_S3_ACCESS_KEY_ID") or os.environ.get("AWS_SECRET_KEY", "")
-        secret_key = os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY") or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        from odoo.addons.kensei2.models.kensei2_sandbox import _load_dotenv
+        dotenv = _load_dotenv()
+        access_key = (
+            dotenv.get("KENSEI_S3_ACCESS_KEY_ID", "")
+            or os.environ.get("KENSEI_S3_ACCESS_KEY_ID", "")
+        )
+        secret_key = (
+            dotenv.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+            or os.environ.get("KENSEI_S3_SECRET_ACCESS_KEY", "")
+        )
 
         client_kwargs = {
             "region_name": region,
