@@ -60,6 +60,9 @@ class VegetaController(http.Controller):
         try:
             data = json.loads(request.httprequest.data)
         except (json.JSONDecodeError, ValueError, TypeError):
+            # 400 here means the extraction Lambda sent a malformed body —
+            # the job will never leave `extracting` from this callback.
+            _logger.warning("[vegeta] webhook rejected: invalid JSON body")
             return Response(
                 json.dumps({"error": "Invalid JSON body"}),
                 status=400,
@@ -68,6 +71,7 @@ class VegetaController(http.Controller):
 
         job_id = data.get("job_id")
         if not job_id:
+            _logger.warning("[vegeta] webhook rejected: missing job_id in body")
             return Response(
                 json.dumps({"error": "Missing job_id"}),
                 status=400,
@@ -77,6 +81,9 @@ class VegetaController(http.Controller):
         try:
             job_id_int = int(job_id)
         except (TypeError, ValueError):
+            _logger.warning(
+                "[vegeta] webhook rejected: non-integer job_id %r", job_id,
+            )
             return Response(
                 json.dumps({"error": "Invalid job_id format (must be integer)"}),
                 status=400,
@@ -85,6 +92,11 @@ class VegetaController(http.Controller):
 
         record = request.env["vegeta.job"].sudo().browse(job_id_int)
         if not record.exists():
+            # 404 here: the Lambda callback carries a job_id with no matching
+            # Odoo record (job removed before its extraction returned).
+            _logger.warning(
+                "[vegeta] webhook rejected: job_id=%s not found", job_id,
+            )
             return Response(
                 json.dumps({"error": f"Job {job_id} not found"}),
                 status=404,
@@ -92,11 +104,10 @@ class VegetaController(http.Controller):
             )
 
         # Diagnostic: log every inbound webhook with enough context to
-        # reconstruct the extraction timeline. `age` is how long the job has
-        # been in `extracting` since dispatch — the single most useful number
-        # when debugging "stuck in extracting": a large age on the FINAL
-        # callback means the Lambda sat in AWS's async-invocation queue
-        # (reserved-concurrency exhaustion), not that extraction was slow.
+        # reconstruct the extraction timeline. `age` is seconds since the job
+        # entered `extracting` (dispatch) — a large age on the FINAL callback
+        # means the Lambda sat in AWS's async-invocation queue, not that
+        # extraction itself was slow.
         _now = fields.Datetime.now()
         _age = (
             (_now - record.started_at).total_seconds()
@@ -106,8 +117,7 @@ class VegetaController(http.Controller):
             "[vegeta][job=%s] webhook inbound: status=%s success=%s "
             "partial=%s warnings=%d job_state=%s age_since_dispatch=%.0fs",
             record.name, data.get("status"), data.get("success"),
-            data.get("partial"),
-            len(data.get("warnings") or []),
+            data.get("partial"), len(data.get("warnings") or []),
             record.state, _age,
         )
 
@@ -117,14 +127,14 @@ class VegetaController(http.Controller):
         # queued in AWS shouldn't be killed for being slow to start).
         if data.get("status") == "started":
             if record.state == "extracting":
-                record.write({"last_heartbeat": _now})
+                record.write({"last_heartbeat": fields.Datetime.now()})
+                _logger.info("[vegeta][job=%s] extraction started ping", record.name)
                 # age here = AWS async-queue latency: time from Odoo's
-                # lambda:Invoke until the Lambda container actually began
-                # running. If routinely >5min the batch is outrunning the
-                # Lambda's reserved concurrency.
+                # lambda:Invoke to the Lambda actually starting. Routinely
+                # >5min means the batch is outrunning Lambda reserved concurrency.
                 _logger.info(
-                    "[vegeta][job=%s] extraction STARTED ping — "
-                    "aws_queue_latency=%.0fs", record.name, _age,
+                    "[vegeta][job=%s] extraction STARTED — aws_queue_latency=%.0fs",
+                    record.name, _age,
                 )
             return Response(
                 json.dumps({"status": "ack"}),
@@ -134,9 +144,9 @@ class VegetaController(http.Controller):
 
         if record.state != "extracting":
             _logger.info(
-                "Webhook for job %s ignored: state is '%s' "
+                "[vegeta][job=%s] webhook ignored: state is '%s' "
                 "(expected 'extracting') -- idempotency guard",
-                job_id,
+                record.name,
                 record.state,
             )
             return Response(
@@ -150,7 +160,8 @@ class VegetaController(http.Controller):
 
         if record.cancel_requested:
             _logger.info(
-                "Webhook for job %s ignored: cancel_requested=True", job_id
+                "[vegeta][job=%s] webhook ignored: cancel_requested=True",
+                record.name,
             )
             return Response(
                 json.dumps({"ignored": True, "reason": "Job was cancelled"}),
@@ -164,7 +175,7 @@ class VegetaController(http.Controller):
                 error_msg = data.get("error", "Extraction failed (no details)")
                 _logger.warning(
                     "[vegeta][job=%s] extraction reported FAILURE by Lambda "
-                    "after %.0fs — marking job failed: %s",
+                    "after %.0fs — marking failed: %s",
                     record.name, _age, str(error_msg)[:300],
                 )
                 record._mark_failed(error_msg)
@@ -276,27 +287,23 @@ class VegetaController(http.Controller):
                 }
             write_vals["lambda_callback_json"] = callback_snapshot
 
-            # auto_continue (default True: Run All / batch / retry / rerun) ->
-            # cascade straight into PRD generation. When False (staged manual
-            # run) the job parks at 'extracted' and waits for the Generate
-            # button — the single decision point that severs the
-            # extraction->generation auto-link.
-            auto = record.auto_continue
-            next_state = "generating" if auto else "extracted"
-            write_vals["state"] = next_state
+            # The PRD dispatch cron (vegeta.job._cron_dispatch_prd_jobs) now
+            # creates the worker; the webhook only moves the job to
+            # `generating`. job_name is cleared so the cron's "already
+            # dispatched" guard does not skip a retried job.
+            write_vals["state"] = "generating"
+            write_vals["job_name"] = False
             record.write(write_vals)
 
             # Extraction handoff complete — the boundary between the
             # "extraction" timeline and the "PRD generation" timeline. Grep
-            # this to confirm a job left `extracting` cleanly.
+            # this to confirm a job left `extracting` cleanly (vs being
+            # watchdog-failed there); the dispatch cron picks it up next tick.
             _logger.info(
-                "[vegeta][job=%s] extraction COMPLETE after %.0fs "
-                "(partial=%s) — prd_prompt=%dB screenshots=%d assets=%d "
-                "-> state=%s (auto_continue=%s)",
-                record.name, _age, is_partial,
-                len(prd_prompt or ""),
+                "[vegeta][job=%s] extraction COMPLETE after %.0fs (partial=%s) "
+                "— prd_prompt=%dB screenshots=%d assets=%d -> state=generating",
+                record.name, _age, is_partial, len(prd_prompt or ""),
                 len(screenshot_keys or []), len(asset_keys or []),
-                next_state, auto,
             )
 
             # Notify browser of state change
@@ -304,37 +311,21 @@ class VegetaController(http.Controller):
                 request.env["bus.bus"]._sendone(
                     "vegeta_job_updates",
                     "vegeta/job_state",
-                    {"id": record.id, "state": next_state},
+                    {"id": record.id, "state": "generating"},
                 )
             except Exception:
                 pass
 
-            # Use postcommit to ensure data is committed before the background
-            # thread reads it (fixes race condition LG-3). PRD generation
-            # auto-fires ONLY in auto_continue mode; staged jobs stop at
-            # 'extracted' and are advanced by the Generate button.
-            db_name = request.env.cr.dbname
-            record_id = record.id
-
-            def _deferred():
-                from ..models.vegeta_job import _submit_bg
-                _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    record._run_prd_generation_bg, db_name, record_id,
-                )
-
-            if auto:
-                request.env.cr.postcommit.add(_deferred)
-
             return Response(
-                json.dumps({"status": "success", "next_step": next_state}),
+                json.dumps({"status": "success", "next_step": "generating"}),
                 status=200,
                 content_type="application/json",
             )
 
         except Exception as exc:
             _logger.exception(
-                "Webhook processing failed for job %s", job_id
+                "[vegeta][job=%s] webhook processing failed — marking failed",
+                record.name,
             )
             record._mark_failed(str(exc))
             return Response(
@@ -383,7 +374,7 @@ class VegetaController(http.Controller):
                 content_type="application/json",
             )
         except Exception as exc:
-            _logger.exception("Job status API failed for %s", job_id)
+            _logger.exception("[vegeta][job=%s] job status API failed", job_id)
             return Response(
                 json.dumps({"error": "Internal server error"}),
                 status=500,

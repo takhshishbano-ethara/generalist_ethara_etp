@@ -2832,30 +2832,23 @@ class Kensei2(models.Model):
         return "\n".join(lines) + "\n"
 
     def _collect_harbor_skills(self):
-        from odoo.modules.module import get_module_path
+        from .kensei2_sandbox import (
+            _infer_required_apis_from_prompt,
+            _compute_distractor_skills,
+            ALL_API_NAMES,
+        )
 
-        required = []
-        distractors = []
-        module_path = get_module_path("kensei2")
-        skills_dir = os.path.join(module_path, "environment", "skills")
-        if not os.path.isdir(skills_dir):
-            return required, distractors
+        prompt = (self.batch_prompt or self.initial_prompt or "").strip()
+        task_id = self.task_id or "kensei2/%s" % self.id
 
-        env_dir = os.path.join(module_path, "environment")
-        service_names = set()
-        for entry in os.listdir(env_dir):
-            if os.path.isfile(os.path.join(env_dir, entry, "service.toml")):
-                service_names.add(entry)
+        required_apis = _infer_required_apis_from_prompt(prompt) if prompt else []
+        if not required_apis:
+            required_apis = list(ALL_API_NAMES)
 
-        for skill_name in sorted(os.listdir(skills_dir)):
-            skill_path = os.path.join(skills_dir, skill_name)
-            if not os.path.isdir(skill_path):
-                continue
-            base = skill_name.replace("-connector", "")
-            if base in service_names:
-                required.append(skill_name)
-            else:
-                distractors.append(skill_name)
+        distractor_apis = _compute_distractor_skills(required_apis, task_id)
+
+        required = ["%s-connector" % api for api in required_apis]
+        distractors = ["%s-connector" % api for api in distractor_apis]
         return required, distractors
 
     def _generate_harbor_dockerfile(self, env_dir):

@@ -144,7 +144,7 @@
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('extracting','extracted','generating','generated','scoring','scored','qc_running')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
+                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state in ('not_assigned','discarded')"/>
                 <field name="score_display"/>
                 <field name="grade"/>
                 <field name="qc_verdict"/>
@@ -164,7 +164,7 @@
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
                 <field name="category_id"/>
-                <field name="state" widget="badge" decoration-info="state in ('extracting','extracted','generating','generated','scoring','scored','qc_running')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
+                <field name="state" widget="badge" decoration-info="state in ('extracting','generating','scoring')" decoration-success="state in ('done','submitted')" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'"/>
                 <field name="score_display"/>
                 <field name="grade"/>
                 <field name="qc_verdict"/>
@@ -194,26 +194,10 @@
                     <!-- Start Task is LIST-VIEW ONLY (via js_class button)  -->
                     <!-- =================================================== -->
 
-                    <!-- DRAFT / NOT ASSIGNED: full auto pipeline (extract -> ... -> done) -->
+                    <!-- DRAFT / NOT ASSIGNED: Run the pipeline -->
                     <button name="action_run" type="object"
-                            string="Run All" class="oe_highlight"
+                            string="Run Pipeline" class="oe_highlight"
                             invisible="state not in ('draft', 'not_assigned')"/>
-
-                    <!-- DRAFT / NOT ASSIGNED: staged manual run — extract, then park -->
-                    <button name="action_stage_extract" type="object"
-                            string="Extract" class="btn-primary"
-                            invisible="state not in ('draft', 'not_assigned')"/>
-
-                    <!-- Staged steps: each shows only in its predecessor's parked state -->
-                    <button name="action_stage_generate" type="object"
-                            string="Generate PRD" class="oe_highlight"
-                            invisible="state != 'extracted'"/>
-                    <button name="action_stage_score" type="object"
-                            string="Score" class="oe_highlight"
-                            invisible="state != 'generated'"/>
-                    <button name="action_stage_qc" type="object"
-                            string="Run QC" class="oe_highlight"
-                            invisible="state != 'scored'"/>
 
                     <!-- DONE: Primary actions -->
                     <button name="action_download_zip" type="object"
@@ -240,11 +224,11 @@
                             invisible="state == 'discarded'"
                             confirm="Discard this task as unusable? Terminal — but it can be brought back via Assign."/>
 
-                    <!-- CANCEL / RESET: while running OR parked at a staged step -->
+                    <!-- CANCEL: only while running (extracting / generating / scoring) -->
                     <button name="action_cancel" type="object"
-                            string="Cancel / Reset"
-                            invisible="state not in ('extracting','generating','scoring','qc_running','extracted','generated','scored')"
-                            confirm="Stop this task and return it to Draft?"/>
+                            string="Cancel"
+                            invisible="state not in ('extracting','generating','scoring')"
+                            confirm="Stop this running task and return it to Draft?"/>
 
                     <!-- ASSIGN: bring a discarded task back as a Draft -->
                     <button name="action_reopen" type="object"
@@ -256,12 +240,12 @@
                             invisible="not is_admin or state not in ('draft', 'done', 'failed')"
                             confirm="Release this task back to the unassigned pool?"/>
 
-                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,extracted,generating,generated,scoring,scored,qc_running,done,submitted"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,extracting,generating,scoring,done,submitted"/>
                 </header>
 
                 <!-- Pipeline progress (timing indicator) -->
                 <field name="stage_progress_html" readonly="1" nolabel="1"
-                       invisible="state not in ('extracting','extracted','generating','generated','scoring','scored','qc_running','done','submitted','failed')"
+                       invisible="state not in ('extracting','generating','scoring','done','submitted','failed')"
                        class="w-100 px-3 pt-2"/>
 
                 <sheet>
@@ -273,7 +257,7 @@
                     </div>
 
                     <!-- In Progress -->
-                    <div class="alert alert-info" role="alert" invisible="state not in ('extracting','generating','scoring','qc_running')">
+                    <div class="alert alert-info" role="alert" invisible="state not in ('extracting','generating','scoring')">
                         <strong>Pipeline Running</strong> -- The system is processing this task. This page will update automatically.
                     </div>
 
@@ -486,7 +470,7 @@
                 <separator/>
                 <filter name="not_assigned" string="Not Assigned" domain="[('state','=','not_assigned')]"/>
                 <filter name="draft" string="Draft" domain="[('state','=','draft')]"/>
-                <filter name="in_progress" string="In Progress" domain="[('state','in',('extracting','extracted','generating','generated','scoring','scored','qc_running'))]"/>
+                <filter name="in_progress" string="In Progress" domain="[('state','in',('extracting','generating','scoring'))]"/>
                 <filter name="done" string="Done" domain="[('state','=','done')]"/>
                 <filter name="submitted" string="Submitted" domain="[('state','=','submitted')]"/>
                 <filter name="qc_failed" string="QC Failed" domain="[('qc_verdict','=','not_shippable')]"/>
