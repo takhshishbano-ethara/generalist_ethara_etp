@@ -1,8 +1,8 @@
 {
     "name": "Vegeta",
-    "version": "19.0.2.3.0",
+    "version": "19.0.2.5.0",
     "category": "Tools",
-    "summary": "Vegeta — Automated PRD Generation Pipeline (async-Lambda, 250-concurrent)",
+    "summary": "Vegeta — Automated PRD Generation Pipeline (worker-pool, max-pack)",
     "description": (
         "Vegeta custom module for Ethara ETP. Automated website analysis and "
         "PRD generation using AWS Bedrock LLM with deterministic scoring.\n\n"
@@ -13,7 +13,19 @@
         "or PRD-gen failure (not missing screenshots). Skip re-extraction when "
         "a PRD prompt already exists. New 'discarded' terminal state + Discard "
         "button. Robust self-recovering thread pool. Full transparency: raw "
-        "Lambda callback + LLM trace per job. Watchdog 'started' ping."
+        "Lambda callback + LLM trace per job. Watchdog 'started' ping.\n\n"
+        "v19.0.2.4.0: PRD generation runs in a dedicated Kubernetes Job per "
+        "job (ported from the aurora addon) so the work survives Odoo "
+        "worker/pod recycling and concurrent jobs scale across pods. "
+        "Cron-driven dispatch + reconcile, with an in-process fallback for "
+        "local single-process development.\n\n"
+        "v19.0.2.5.0: Replaces K8s-Job-per-task with a fixed-replica "
+        "Deployment of long-lived PRD worker pods. Each pod claims up to "
+        "VEGETA_WORKER_CONCURRENCY (default 100) jobs via SELECT ... FOR "
+        "UPDATE SKIP LOCKED. Eliminates per-task Odoo cold-start (~30-60s) "
+        "and the 'huge pod count' problem at 500+ tasks/day. Odoo dispatch "
+        "cron is now a no-op in production; reconcile cron recovers jobs "
+        "with stale heartbeats by clearing job_name for re-claim."
     ),
     "author": "Ethara",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],

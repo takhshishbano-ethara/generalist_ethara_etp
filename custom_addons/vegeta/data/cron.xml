@@ -16,4 +16,24 @@
         <field name="interval_type">minutes</field>
         <field name="active" eval="True"/>
     </record>
+
+    <record id="ir_cron_vegeta_prd_dispatch" model="ir.cron">
+        <field name="name">Vegeta: Dispatch PRD Jobs</field>
+        <field name="model_id" ref="model_vegeta_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_dispatch_prd_jobs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_vegeta_prd_reconcile" model="ir.cron">
+        <field name="name">Vegeta: Reconcile PRD Jobs</field>
+        <field name="model_id" ref="model_vegeta_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_reconcile_prd_jobs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
 </odoo>
