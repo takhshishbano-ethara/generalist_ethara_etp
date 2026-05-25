@@ -1,6 +1,6 @@
 {
     "name": "Fenrir",
-    "version": "19.0.1.6.1",
+    "version": "19.0.1.6.5",
     "category": "Tools",
     "summary": "Fenrir — Freelancer task & seller negotiation tracker",
     "description": """
