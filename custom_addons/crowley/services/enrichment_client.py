@@ -4,8 +4,13 @@ import logging
 import os
 import random
 import time
+import urllib.parse
+
+import requests
 
 _logger = logging.getLogger(__name__)
+
+BEDROCK_RUNTIME_ENDPOINT_TEMPLATE = "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
 
 _MODULE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ENHANCE_MD_PATH = os.path.join(_MODULE_ROOT, "enhance.md")
@@ -105,10 +110,128 @@ def _is_retryable(exc: BaseException) -> bool:
     return isinstance(exc, (ConnectionError, TimeoutError, OSError))
 
 
+def _enrich_via_bedrock_api_key(
+    *,
+    api_key: str,
+    region: str,
+    model_id: str,
+    system_prompt: str,
+    user_turn: str,
+    max_tokens: int,
+    temperature: float,
+    top_p: float,
+    max_attempts: int,
+) -> dict:
+    encoded_model = urllib.parse.quote(model_id, safe="")
+    url = BEDROCK_RUNTIME_ENDPOINT_TEMPLATE.format(
+        region=region, model_id=encoded_model,
+    )
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    body = {
+        "system": [{"text": system_prompt}],
+        "messages": [{"role": "user", "content": [{"text": user_turn}]}],
+        "inferenceConfig": {
+            "maxTokens": max_tokens,
+            "temperature": temperature,
+        },
+    }
+    last_exc: BaseException | None = None
+    resp = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.post(url, headers=headers, json=body, timeout=180)
+            if resp.status_code in (401, 403):
+                raise EnrichmentAuthError(
+                    f"Bedrock API key rejected (HTTP {resp.status_code}): "
+                    f"{resp.text[:500]}"
+                )
+            if resp.status_code == 400:
+                detail = resp.text[:1000]
+                try:
+                    j = resp.json()
+                    detail = (
+                        j.get("message") or j.get("Message")
+                        or j.get("error") or j.get("__type") or detail
+                    )
+                except Exception:
+                    pass
+                req_id = (
+                    resp.headers.get("x-amzn-RequestId")
+                    or resp.headers.get("x-amz-bedrock-request-id")
+                    or ""
+                )
+                raise EnrichmentError(
+                    f"Bedrock returned HTTP 400 (request rejected). "
+                    f"Bedrock said: {detail!r}. "
+                    f"URL: {url}. "
+                    f"Body sent: keys=system+messages+inferenceConfig, "
+                    f"maxTokens={max_tokens}, temperature={temperature}. "
+                    f"x-amzn-RequestId: {req_id!r}."
+                )
+            if resp.status_code == 429 or resp.status_code >= 500:
+                if attempt >= max_attempts:
+                    raise EnrichmentError(
+                        f"Bedrock HTTP {resp.status_code} after "
+                        f"{max_attempts} attempts: {resp.text[:500]}"
+                    )
+                delay = min(30.0, (2 ** attempt) + random.random())
+                _logger.warning(
+                    "Bedrock API-key retry %d/%d in %.1fs (HTTP %d)",
+                    attempt, max_attempts, delay, resp.status_code,
+                )
+                time.sleep(delay)
+                continue
+            resp.raise_for_status()
+            break
+        except EnrichmentAuthError:
+            raise
+        except EnrichmentError:
+            raise
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= max_attempts:
+                raise EnrichmentError(
+                    f"{exc.__class__.__name__}: {exc}"
+                ) from exc
+            delay = min(30.0, (2 ** attempt) + random.random())
+            _logger.warning(
+                "Bedrock API-key retry %d/%d in %.1fs (%s)",
+                attempt, max_attempts, delay, exc.__class__.__name__,
+            )
+            time.sleep(delay)
+    if resp is None:
+        raise EnrichmentError(
+            f"Bedrock API-key call exhausted after {max_attempts} attempts: {last_exc}"
+        )
+    try:
+        data = resp.json()
+        blocks = data["output"]["message"]["content"]
+    except (KeyError, TypeError, ValueError) as e:
+        raise EnrichmentError(
+            f"Unexpected Bedrock response shape: {resp.text[:300]!r}"
+        ) from e
+    text_parts = [b.get("text", "") for b in blocks if "text" in b]
+    text = "".join(text_parts).strip()
+    stop_reason = data.get("stopReason") or ""
+    usage = data.get("usage") or {}
+    return {
+        "text": text,
+        "input_tokens": int(usage.get("inputTokens") or 0),
+        "output_tokens": int(usage.get("outputTokens") or 0),
+        "stop_reason": stop_reason,
+        "request_id": resp.headers.get("x-amzn-RequestId", "")
+                     or resp.headers.get("x-amz-bedrock-request-id", ""),
+    }
+
+
 def enrich(
     *,
-    access_key: str,
-    secret_key: str,
+    access_key: str = "",
+    secret_key: str = "",
+    bedrock_api_key: str = "",
     region: str = DEFAULT_REGION,
     model_id: str = DEFAULT_MODEL_ID,
     metadata: dict,
@@ -118,10 +241,25 @@ def enrich(
     top_p: float = DEFAULT_TOP_P,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> dict:
-    if not access_key or not secret_key:
+    if not bedrock_api_key and (not access_key or not secret_key):
         raise EnrichmentAuthError(
-            "AWS Access Key ID and Secret Access Key required. "
+            "Bedrock auth required: provide either (a) Bedrock API Key "
+            "(starts with ABSK...), OR (b) AWS Access Key ID + Secret Access Key. "
             "Configure in Settings > Crowley."
+        )
+    if bedrock_api_key:
+        system_prompt = load_system_prompt()
+        user_turn = build_user_turn(metadata, previous_failures=previous_failures)
+        return _enrich_via_bedrock_api_key(
+            api_key=bedrock_api_key,
+            region=region,
+            model_id=model_id,
+            system_prompt=system_prompt,
+            user_turn=user_turn,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            max_attempts=max_attempts,
         )
 
     try:
@@ -160,7 +298,6 @@ def enrich(
                 inferenceConfig={
                     "maxTokens": max_tokens,
                     "temperature": temperature,
-                    "topP": top_p,
                 },
             )
             break

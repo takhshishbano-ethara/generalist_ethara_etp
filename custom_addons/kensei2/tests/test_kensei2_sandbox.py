@@ -72,6 +72,33 @@ class TestSandboxComputedFields(Kensei2TestCase):
         url = self.claude_sandbox.docker_dashboard_url
         self.assertIn("https://ws.example.com/sandbox/", url)
         self.assertIn("#token=abc123", url)
+        # The WS endpoint is embedded explicitly so the Control UI dials it
+        # verbatim instead of guessing (guessing fails with 1006).
+        self.assertIn(
+            "gatewayUrl=wss%3A%2F%2Fws.example.com%2Fsandbox%2F", url
+        )
+
+    def test_dashboard_url_running_k8s_ws_host_with_prefix(self):
+        """A ws_router_host carrying a path prefix must still yield a
+        gatewayUrl the Control UI can dial verbatim."""
+        self._set_param("kensei2.deployment_mode", "k8s")
+        self._set_param(
+            "kensei2.ws_router_host", "projects.ethara.ai/kensei2-sandbox"
+        )
+        self._make_running(self.claude_sandbox)
+        sid = self.claude_sandbox.id
+        url = self.claude_sandbox.docker_dashboard_url
+        self.assertTrue(
+            url.startswith(
+                "https://projects.ethara.ai/kensei2-sandbox/sandbox/%s/" % sid
+            )
+        )
+        expected_ws = (
+            "gatewayUrl=wss%3A%2F%2Fprojects.ethara.ai"
+            "%2Fkensei2-sandbox%2Fsandbox%2F" + str(sid) + "%2F"
+        )
+        self.assertIn(expected_ws, url)
+        self.assertIn("#token=abc123", url)
 
     def test_dashboard_url_running_k8s_no_ws_host(self):
         self._set_param("kensei2.deployment_mode", "k8s")

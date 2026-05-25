@@ -24,3 +24,5 @@ class ProjectProject(models.Model):
         help="API table/field mappings connected to this external project.",
     )
     connected_table = fields.Char(string='Connected Table')
+    category_url = fields.Char(string='Category URL')
+    tasker_url = fields.Char(string='Tasker URL')

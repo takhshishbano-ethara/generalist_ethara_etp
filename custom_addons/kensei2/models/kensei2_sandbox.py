@@ -1,3 +1,4 @@
+import ast
 import base64 as base64_mod
 import json
 import logging
@@ -194,6 +195,364 @@ TRAJECTORY_FIELD_MAP = {
 }
 
 
+# ──────────────────────────────────────────────────────────────────────
+# Test generation lint validation (ported from kensei-harness)
+# ──────────────────────────────────────────────────────────────────────
+
+MAX_TESTGEN_ATTEMPTS = 3
+
+_ALLOWED_WEIGHTS = {50, 30, 10, -10, -30, -50}
+
+_FORBIDDEN_POLARITY_PATTERNS = (
+    re.compile(r"\bassert\s+not\b"),
+    re.compile(r"==\s*0\b"),
+    re.compile(r"\bis\s+None\b"),
+    re.compile(r"\bnot\s+in\b"),
+)
+
+_LAZY_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "or", "but", "if", "in", "on", "at", "to", "for",
+    "of", "with", "by", "from", "as", "is", "was", "are", "were", "be", "been",
+    "this", "that", "these", "those", "it", "its", "they", "them", "their",
+    "data", "file", "files", "value", "values", "row", "rows", "column",
+    "result", "results", "report", "output", "input", "name", "type",
+    "code", "id", "test", "check", "task", "user", "item", "field", "key",
+    "list", "table", "text", "info", "details", "summary", "content",
+    "response", "request", "true", "false", "none", "null", "yes", "no",
+    "object", "array", "string", "number", "json", "csv", "header",
+    "line", "lines", "page", "section", "title", "label",
+    "html", "body", "tr", "td", "th", "div", "span",
+    "new", "old", "all", "some", "any", "each", "many", "more", "most",
+    "only", "also", "just", "very", "much", "such",
+    "make", "use", "see", "show", "set", "get", "find", "go", "run",
+})
+
+_TRIVIALITY_PATTERNS = (
+    re.compile(r"len\s*\(\s*lines\s*\)\s*>=?\s*\d"),
+    re.compile(r"len\s*\(\s*content\s*\)\s*>\s*0"),
+    re.compile(r"getsize\s*\([^)]+\)\s*>\s*0"),
+    re.compile(r"len\s*\([^)]+\)\s*>\s*0\b"),
+)
+
+_ALLOWED_IMPORTS = frozenset({
+    "json", "os", "subprocess", "sqlite3", "urllib", "pytest", "hashlib",
+    "re", "csv", "io", "pathlib", "struct", "base64", "datetime", "math",
+    "collections", "itertools", "functools", "string", "textwrap",
+    "xml", "zipfile", "gzip", "shutil", "glob", "tempfile", "copy",
+})
+
+_SAFE_FALLBACK_STUB = '''\
+class TestBehavioralFallback:
+    """Fallback: testgen LLM produced unparseable output after all retries."""
+
+    def test_placeholder(self):
+        assert True
+
+
+class TestNegativeWeightFallback:
+    """Negative weight fallback stub."""
+
+    def test_placeholder_negative(self):
+        assert True
+'''
+
+
+def _collect_test_functions(tree):
+    """Collect all test_* FunctionDef nodes from an AST tree."""
+    return [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")]
+
+
+def _function_has_assert(func):
+    """Check if a function AST node contains at least one assert statement."""
+    return any(isinstance(n, ast.Assert) for n in ast.walk(func))
+
+
+def _function_passes_empty_files(func):
+    """L16: True if every assert in the function is just file_exists(...)."""
+    asserts = [n for n in ast.walk(func) if isinstance(n, ast.Assert)]
+    if not asserts:
+        return False
+    for node in asserts:
+        test = node.test
+        if (
+            isinstance(test, ast.Compare)
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Is)
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value is True
+        ):
+            test = test.left
+        if not (
+            isinstance(test, ast.Call)
+            and isinstance(test.func, ast.Name)
+            and test.func.id == "file_exists"
+        ):
+            return False
+    return True
+
+
+def _auto_repair_truncated_python(code):
+    """Close unbalanced strings/brackets at EOF so truncated LLM output parses.
+
+    Returns repaired code on success, or None if unrepairable.
+    """
+    if not code:
+        return None
+    try:
+        ast.parse(code)
+        return code
+    except SyntaxError:
+        pass
+
+    pairs = {"(": ")", "[": "]", "{": "}"}
+
+    def _scan(src):
+        stack = []
+        in_s = False
+        trp = False
+        q = ""
+        start = -1
+        i = 0
+        n = len(src)
+        while i < n:
+            ch = src[i]
+            if in_s:
+                if trp:
+                    if src[i:i + 3] == q * 3:
+                        in_s = False
+                        trp = False
+                        i += 3
+                        continue
+                    i += 1
+                    continue
+                if ch == "\\" and i + 1 < n:
+                    i += 2
+                    continue
+                if ch == q:
+                    in_s = False
+                elif ch == "\n":
+                    in_s = False
+                i += 1
+                continue
+            if ch == "#":
+                while i < n and src[i] != "\n":
+                    i += 1
+                continue
+            if ch in ('"', "'"):
+                if src[i:i + 3] in ('"""', "'''"):
+                    in_s = True
+                    trp = True
+                    q = ch
+                    start = i
+                    i += 3
+                    continue
+                in_s = True
+                trp = False
+                q = ch
+                start = i
+                i += 1
+                continue
+            if ch in "([{":
+                stack.append(pairs[ch])
+            elif ch in ")]}":
+                if stack and stack[-1] == ch:
+                    stack.pop()
+            i += 1
+        return in_s, trp, q, start, stack
+
+    in_string, triple, quote, str_start, bracket_stack = _scan(code)
+
+    suffix = ""
+    if in_string:
+        suffix = (quote * 3) if triple else quote
+    while bracket_stack:
+        suffix += bracket_stack.pop()
+
+    if suffix:
+        repaired = code + suffix
+        try:
+            ast.parse(repaired)
+            return repaired
+        except SyntaxError:
+            pass
+
+    if in_string and str_start >= 0:
+        trunc = code[:str_start].rstrip()
+        while trunc and trunc[-1] in ", \t\n":
+            trunc = trunc[:-1]
+        in_s2, _, _, _, stack2 = _scan(trunc)
+        if not in_s2:
+            suffix2 = ""
+            while stack2:
+                suffix2 += stack2.pop()
+            repaired = trunc + suffix2
+            try:
+                ast.parse(repaired)
+                return repaired
+            except SyntaxError:
+                pass
+
+    return None
+
+
+def _self_validate_tests(code, weights, has_api_services=False):
+    """Run deterministic lints on generated test code. Returns list of failure strings.
+
+    Ported from kensei-harness L1-L24 (subset applicable without extracted values).
+    Empty list means the draft passes all lints.
+    """
+    failures = []
+
+    # L15: must parse — if not, none of the other lints can run
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as exc:
+        return ["L15: emitted code is not valid Python: %s" % exc]
+
+    # L1: forbidden polarity (Convention B)
+    seen_polarity = set()
+    for pat in _FORBIDDEN_POLARITY_PATTERNS:
+        for m in pat.finditer(code):
+            tok = m.group(0)
+            if tok not in seen_polarity:
+                seen_polarity.add(tok)
+                failures.append(
+                    "L1: forbidden assertion polarity '%s' — rephrase positively, "
+                    "encode bad behavior with a negative weight" % tok
+                )
+
+    # L3: lazy substrings
+    lazy_pattern = re.compile(r'"([a-z]{2,})"\s+in\s+[A-Za-z_][\w.\[\]]*(?:\.lower\(\))?')
+    lazy_hits = []
+    for m in lazy_pattern.finditer(code):
+        word = m.group(1).lower()
+        if word in _LAZY_STOPWORDS:
+            lazy_hits.append(word)
+    if lazy_hits:
+        failures.append(
+            "L3: lazy single-word substring assertion(s) on common stopwords: %s. "
+            "Assert on specific deterministic values instead." % sorted(set(lazy_hits))[:5]
+        )
+
+    # L4: weights integrity
+    if weights:
+        bad = {n: w for n, w in weights.items() if w not in _ALLOWED_WEIGHTS}
+        if bad:
+            failures.append("L4: weight values outside the allowed set {50,30,10,-10,-30,-50}: %s" % bad)
+
+    # L5: class prefix invariants
+    class_names = [n.name for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+    bad_classes = [c for c in class_names if not (
+        c.startswith("TestBehavioral") or c.startswith("TestOutcome") or c.startswith("TestNegativeWeight")
+    )]
+    if bad_classes:
+        failures.append(
+            "L5: class names not matching required prefixes "
+            "(TestBehavioral*, TestOutcome*, TestNegativeWeight*): %s" % bad_classes
+        )
+
+    # L7: TestNegativeWeight required always
+    if not any(c.startswith("TestNegativeWeight") for c in class_names):
+        failures.append("L7: no TestNegativeWeight* class emitted — mandatory for every task")
+
+    # L8: at least one SERVICE_URL ref when APIs listed
+    if has_api_services and not re.search(r"\b[A-Z][A-Z0-9_]*_URL\b", code):
+        failures.append(
+            "L8: API services are listed but no <SERVICE>_URL constant is referenced"
+        )
+
+    # L12: triviality patterns
+    for pat in _TRIVIALITY_PATTERNS:
+        m = pat.search(code)
+        if m:
+            failures.append(
+                "L12: triviality pattern '%s' — assert on a specific value, not on existence/non-emptiness"
+                % m.group(0)
+            )
+            break
+
+    # L14: every test function must have at least one assert
+    test_funcs = _collect_test_functions(tree)
+    no_assert = [f.name for f in test_funcs if not _function_has_assert(f)]
+    if no_assert:
+        failures.append("L14: test function(s) with NO assert statement: %s" % no_assert)
+
+    # L16: no-op exploit — file_exists-only tests should not exceed 25% of positive weight
+    if weights:
+        passes_empty = []
+        for func in test_funcs:
+            if _function_passes_empty_files(func):
+                passes_empty.append(func.name)
+        total_positive = sum(w for w in weights.values() if w > 0)
+        passes_empty_positive = sum(
+            weights.get(name, 0) for name in passes_empty if weights.get(name, 0) > 0
+        )
+        if total_positive > 0:
+            ratio = passes_empty_positive / total_positive
+            if ratio >= 0.25:
+                failures.append(
+                    "L16: no-op exploit risk — tests that pass on empty files sum to "
+                    "%d/%d positive weight (%.0f%%); replace file_exists-only tests with "
+                    "content/value assertions: %s" % (
+                        passes_empty_positive, total_positive, ratio * 100, passes_empty[:5]
+                    )
+                )
+
+    # L21: forbidden imports
+    forbidden_imports = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                mod = alias.name.split(".")[0]
+                if mod not in _ALLOWED_IMPORTS:
+                    forbidden_imports.append(mod)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                mod = node.module.split(".")[0]
+                if mod not in _ALLOWED_IMPORTS:
+                    forbidden_imports.append(mod)
+    if forbidden_imports:
+        failures.append(
+            "L21: forbidden import(s) not available in verifier environment: %s. "
+            "Only stdlib modules are available." % sorted(set(forbidden_imports))
+        )
+
+    # L22: API response shape misuse — iterating api_get/api_post directly
+    audit_iter_pattern = re.compile(r"for\s+\w+\s+in\s+(api_get|api_post)\s*\([^)]*\)\s*")
+    if audit_iter_pattern.search(code):
+        failures.append(
+            "L22: potential dict-as-list iteration — code directly iterates the return of "
+            "api_get/api_post. Assign to a variable first, unwrap with .get('results', data) "
+            "for business endpoints."
+        )
+
+    # L24: paginated API response envelope misuse
+    if has_api_services:
+        api_call_pat = re.compile(r'(\w+)\s*=\s*api_get\s*\([^)]*"/v1/[^"]*"[^)]*\)')
+        unwrap_pat = re.compile(r'\.get\s*\(\s*["\']results["\']\s*[,)]')
+        paginated_misuse = []
+        for match in api_call_pat.finditer(code):
+            var_name = match.group(1)
+            after = code[match.end():match.end() + 500]
+            isinstance_check = re.search(
+                r"assert\s+isinstance\s*\(\s*%s\s*,\s*list\s*\)" % re.escape(var_name),
+                after,
+            )
+            if isinstance_check:
+                has_unwrap = unwrap_pat.search(code[match.start():match.end() + 500])
+                if not has_unwrap:
+                    paginated_misuse.append(var_name)
+        if paginated_misuse:
+            failures.append(
+                "L24: paginated API response not unwrapped — %s use "
+                "isinstance(var, list) directly on api_get result without handling "
+                "the paginated envelope. Use: data.get('results', data) if isinstance(data, dict) "
+                "else data" % paginated_misuse[:5]
+            )
+
+    return failures
+
+
 def _mark_task_description_status(db_name, task_id, field_name, status, entry_index=-1):
     """Update the task_description_status on a trajectory entry."""
     try:
@@ -296,6 +655,360 @@ def _generate_intent_tests_background(db_name, sandbox_id, prompt):
         _logger.exception(
             "Background intent test generation failed (sandbox=%s)", sandbox_id
         )
+
+
+def _generate_task_tests_background(db_name, task_id):
+    try:
+        from odoo.modules.module import get_module_path
+
+        module_path = get_module_path("kensei2")
+
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if not task.exists():
+                _logger.error("[TASK-TESTGEN] task %s does not exist", task_id)
+                return
+
+            task.write({"test_code_status": "generating"})
+
+            prompt = (task.batch_prompt or task.initial_prompt or "").strip()
+            task_toml = ""
+            try:
+                task_toml = task._build_harbor_task_toml() or ""
+            except Exception:
+                pass
+
+            ICP = env["ir.config_parameter"].sudo()
+            inference_arn = (
+                ICP.get_param("kensei2.test_gen_inference_arn")
+                or ICP.get_param("kensei2.bedrock_inference_arn")
+                or ""
+            ).strip()
+            region = (ICP.get_param("kensei2.bedrock_region") or "ap-south-1").strip()
+
+            dotenv = _load_dotenv()
+            api_key = (
+                dotenv.get("KENSEI2_AWS_BEARER_TOKEN")
+                or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")
+            ).strip()
+
+        if not prompt:
+            raise RuntimeError("No prompt available for test generation")
+        if not api_key:
+            raise RuntimeError("KENSEI2_AWS_BEARER_TOKEN (or AWS_BEARER_TOKEN_BEDROCK) not set")
+        if not inference_arn:
+            raise RuntimeError("Bedrock Inference ARN not configured in Settings > Kensei2")
+
+        env_dir = os.path.join(module_path, "environment")
+        services = {}
+        if os.path.isdir(env_dir):
+            for entry in sorted(os.listdir(env_dir)):
+                svc_dir = os.path.join(env_dir, entry)
+                toml_path = os.path.join(svc_dir, "service.toml")
+                if os.path.isdir(svc_dir) and os.path.isfile(toml_path):
+                    svc_meta = _parse_service_toml_fallback(toml_path)
+                    if svc_meta:
+                        services[svc_meta["name"]] = {
+                            "env_var": svc_meta["env_var_name"],
+                            "port": svc_meta["port"],
+                        }
+
+        api_docs = ""
+        api_docs_path = os.path.join(module_path, "environment", "API_DOCUMENTATION.md")
+        if os.path.isfile(api_docs_path):
+            with open(api_docs_path, "r") as f:
+                api_docs = f.read()
+            if len(api_docs) > 30000:
+                api_docs = api_docs[:30000] + "\n\n... [truncated]"
+
+        prompt_file = os.path.join(module_path, "test_generation_system_prompt.md")
+        if not os.path.isfile(prompt_file):
+            raise RuntimeError("test_generation_system_prompt.md not found in kensei2 module")
+        with open(prompt_file, "r") as f:
+            system_prompt = f.read()
+
+        has_api_services = bool(services)
+
+        wrapper_lines = [
+            '"""',
+            "Auto-generated test suite for verifying API state changes and task completion.",
+            '"""',
+            "",
+            "import json",
+            "import os",
+            "import subprocess",
+            "import sqlite3",
+            "from urllib.request import Request, urlopen",
+            "",
+            "import pytest",
+            "",
+        ]
+        for svc_name, info in services.items():
+            const_name = svc_name.upper().replace("-", "_") + "_URL"
+            wrapper_lines.append(
+                '%s = os.environ.get("%s", "http://localhost:%d")'
+                % (const_name, info["env_var"], info["port"])
+            )
+        wrapper_lines.extend(
+            [
+                "",
+                "",
+                "def _request(method, url, data=None):",
+                '    body = None',
+                '    headers = {"Accept": "application/json"}',
+                "    if data is not None:",
+                '        body = json.dumps(data).encode("utf-8")',
+                '        headers["Content-Type"] = "application/json"',
+                "    req = Request(url, data=body, method=method, headers=headers)",
+                "    with urlopen(req, timeout=30) as resp:",
+                '        return json.loads(resp.read().decode("utf-8"))',
+                "",
+                "",
+                "def api_get(base_url, endpoint):",
+                '    return _request("GET", f"{base_url}{endpoint}")',
+                "",
+                "",
+                "def api_post(base_url, endpoint, data):",
+                '    return _request("POST", f"{base_url}{endpoint}", data=data)',
+                "",
+                "",
+                "def read_file(path):",
+                "    with open(path) as f:",
+                "        return f.read()",
+                "",
+                "",
+                "def file_exists(path):",
+                "    return os.path.exists(path)",
+                "",
+                "",
+            ]
+        )
+        wrapper_prefix = "\n".join(wrapper_lines)
+
+        from ..controllers.llm_assisst_qc import _call_bedrock_converse
+
+        gen_start = time.time()
+        best_code = ""
+        best_weights = {}
+        best_failures = []
+        lint_failures = []
+        total_usage = {"input_tokens": 0, "output_tokens": 0}
+
+        for attempt in range(1, MAX_TESTGEN_ATTEMPTS + 1):
+            msg = []
+            msg.append("## Task Instruction (instruction.md)\n")
+            msg.append(
+                "Generate tests that verify the agent performed these actions correctly.\n\n"
+            )
+            msg.append(prompt[:8000] if len(prompt) > 8000 else prompt)
+            msg.append("\n")
+
+            if task_toml:
+                msg.append("\n## task.toml (distractor_skills and metadata)\n")
+                msg.append("```toml\n%s\n```\n" % task_toml)
+
+            msg.append("\n## Available Mock API Services\n")
+            if services:
+                for svc_name, info in services.items():
+                    const_name = svc_name.upper().replace("-", "_") + "_URL"
+                    msg.append(
+                        "- `%s` (env: `%s`, port %d) → use constant `%s`\n"
+                        % (svc_name, info["env_var"], info["port"], const_name)
+                    )
+            else:
+                msg.append("No API services configured.\n")
+
+            msg.append("\n## Mock API Documentation (endpoints for verification)\n")
+            msg.append(api_docs)
+
+            if lint_failures:
+                if attempt >= 2:
+                    lint_failures = [
+                        "THIS IS RETRY %d/%d. The previous draft had these issues. "
+                        "Read each lint message LITERALLY. Do NOT repeat the same mistakes."
+                        % (attempt, MAX_TESTGEN_ATTEMPTS),
+                        "",
+                    ] + lint_failures
+                msg.append("\n\n## LINT FAILURES FROM PREVIOUS ATTEMPT (fix ALL of these)\n")
+                for fail in lint_failures:
+                    msg.append("- %s\n" % fail)
+
+            user_message = "\n".join(msg)
+
+            try:
+                response_text, usage = _call_bedrock_converse(
+                    api_key=api_key,
+                    inference_arn=inference_arn,
+                    region=region,
+                    system_prompt=system_prompt,
+                    user_message=user_message,
+                    max_tokens=12000,
+                    temperature=0.2,
+                    timeout=300.0,
+                )
+            except Exception as exc:
+                _logger.warning(
+                    "[TASK-TESTGEN] LLM call failed on attempt %d/%d for task %s: %s",
+                    attempt, MAX_TESTGEN_ATTEMPTS, task_id, exc,
+                )
+                if best_code:
+                    break
+                continue
+
+            total_usage["input_tokens"] += usage.get("input_tokens", 0)
+            total_usage["output_tokens"] += usage.get("output_tokens", 0)
+
+            cleaned = response_text.strip()
+            if cleaned.startswith("```"):
+                try:
+                    first_nl = cleaned.index("\n")
+                    cleaned = cleaned[first_nl + 1:]
+                except ValueError:
+                    pass
+                if cleaned.endswith("```"):
+                    cleaned = cleaned[:-3].strip()
+
+            json_match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if not json_match:
+                _logger.warning(
+                    "[TASK-TESTGEN] No JSON in LLM response on attempt %d for task %s",
+                    attempt, task_id,
+                )
+                lint_failures = ["No JSON object found in LLM response — emit valid {code, weights} JSON"]
+                continue
+
+            try:
+                parsed = json.loads(json_match.group(0))
+            except json.JSONDecodeError as exc:
+                _logger.warning(
+                    "[TASK-TESTGEN] JSON parse failed on attempt %d for task %s: %s",
+                    attempt, task_id, exc,
+                )
+                lint_failures = ["JSON parse error: %s — emit valid JSON" % exc]
+                continue
+
+            if not isinstance(parsed, dict):
+                lint_failures = ["Expected JSON object with code+weights, got %s" % type(parsed).__name__]
+                continue
+
+            llm_code = parsed.get("code", "")
+            weights = parsed.get("weights", {})
+
+            if not llm_code or not llm_code.strip():
+                lint_failures = ["LLM returned empty test code"]
+                continue
+            if not isinstance(weights, dict):
+                weights = {}
+
+            try:
+                ast.parse(llm_code)
+            except SyntaxError:
+                repaired = _auto_repair_truncated_python(llm_code)
+                if repaired is not None:
+                    _logger.info(
+                        "[TASK-TESTGEN] Auto-repaired truncated code on attempt %d for task %s",
+                        attempt, task_id,
+                    )
+                    llm_code = repaired
+
+            clean_weights = {}
+            for name, w in weights.items():
+                if isinstance(name, str) and isinstance(w, int) and w in _ALLOWED_WEIGHTS:
+                    clean_weights[name] = w
+            weights = clean_weights or weights
+
+            failures = _self_validate_tests(llm_code, weights, has_api_services=has_api_services)
+
+            if not best_code or len(failures) < len(best_failures):
+                best_code = llm_code
+                best_weights = weights
+                best_failures = failures
+
+            if not failures:
+                _logger.info(
+                    "[TASK-TESTGEN] Passed all lints on attempt %d for task %s", attempt, task_id
+                )
+                break
+
+            _logger.info(
+                "[TASK-TESTGEN] Attempt %d/%d failed %d lints for task %s: %s",
+                attempt, MAX_TESTGEN_ATTEMPTS, len(failures), task_id,
+                "; ".join(failures[:3]),
+            )
+            lint_failures = failures
+
+        gen_duration_ms = (time.time() - gen_start) * 1000
+
+        if best_code:
+            try:
+                ast.parse(best_code)
+            except SyntaxError:
+                repaired = _auto_repair_truncated_python(best_code)
+                if repaired is not None:
+                    _logger.warning("[TASK-TESTGEN] Final auto-repair applied for task %s", task_id)
+                    best_code = repaired
+                else:
+                    _logger.error(
+                        "[TASK-TESTGEN] Best draft unparseable after auto-repair for task %s; using fallback",
+                        task_id,
+                    )
+                    best_code = _SAFE_FALLBACK_STUB
+                    best_weights = {"test_placeholder": 10, "test_placeholder_negative": -10}
+        else:
+            _logger.error("[TASK-TESTGEN] All attempts produced no code for task %s; using fallback", task_id)
+            best_code = _SAFE_FALLBACK_STUB
+            best_weights = {"test_placeholder": 10, "test_placeholder_negative": -10}
+
+        full_test_code = wrapper_prefix + best_code
+        weights_json = json.dumps(best_weights, indent=2, ensure_ascii=False)
+
+        for write_attempt in range(3):
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    task = env["kensei2.kensei2"].browse(task_id)
+                    if task.exists():
+                        task.write({
+                            "test_code": full_test_code,
+                            "test_code_status": "done",
+                            "test_code_error": False,
+                            "test_weights": weights_json,
+                            "test_weights_status": "done",
+                            "test_weights_error": False,
+                        })
+                break
+            except Exception as e:
+                if "serialize" in str(e).lower() and write_attempt < 2:
+                    time.sleep(1 + write_attempt)
+                    continue
+                raise
+
+        _logger.info(
+            "[TASK-TESTGEN] Tests generated for task %s: code=%d chars, weights=%d entries, "
+            "tokens_in=%d, tokens_out=%d, duration=%.0fms, lint_failures=%d",
+            task_id,
+            len(full_test_code),
+            len(best_weights),
+            total_usage.get("input_tokens", 0),
+            total_usage.get("output_tokens", 0),
+            gen_duration_ms,
+            len(best_failures),
+        )
+
+    except Exception as e:
+        _logger.exception("[TASK-TESTGEN] Test generation failed for task %s", task_id)
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                task = env["kensei2.kensei2"].browse(task_id)
+                if task.exists():
+                    task.write({
+                        "test_code_status": "error",
+                        "test_code_error": str(e)[:1000],
+                    })
+        except Exception:
+            _logger.exception("[TASK-TESTGEN] Failed to write error status for task %s", task_id)
 
 
 def _run_sandbox_start_background(db_name, sandbox_id, mode, notify_partner_id):
@@ -488,6 +1201,36 @@ def _batch_is_cancelled(db_name, task_id):
         return False
 
 
+def _batch_ws_health_check(db_name, sandbox_id, retries=3, timeout=15):
+    from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
+
+    with Registry(db_name).cursor() as cr:
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        ws_info = env["kensei2.sandbox"].auto_process_get_ws_info(sandbox_id)
+        if ws_info.get("error"):
+            return False, "WS info error: %s" % ws_info["error"]
+        ws_url = ws_info["ws_url"]
+        gateway_token = ws_info["gateway_token"]
+
+    for attempt in range(1, retries + 1):
+        client = OpenClawClient(ws_url, gateway_token, sandbox_id)
+        try:
+            client.connect(timeout=timeout)
+            client.disconnect()
+            _logger.info("[BATCH] WS health check passed for sandbox %s (attempt %d)", sandbox_id, attempt)
+            return True, ""
+        except (OpenClawError, OpenClawTimeoutError) as e:
+            _logger.warning("[BATCH] WS health check %d/%d failed for sandbox %s: %s", attempt, retries, sandbox_id, e)
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+            if attempt < retries:
+                time.sleep(5)
+
+    return False, "WS gateway not reachable after %d health checks" % retries
+
+
 def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
     max_attempts = _POD_MAX_RETRIES + 1
 
@@ -561,6 +1304,11 @@ def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
                     sandbox = env["kensei2.sandbox"].browse(sandbox_id)
                     if not sandbox.exists():
                         return False, "Sandbox disappeared", pod_attempt - 1
+                    if sandbox.docker_status == "running":
+                        _logger.info("[BATCH] Sandbox %s already running in DB (attempt %d)", sandbox_id, pod_attempt)
+                        return True, "", pod_attempt - 1
+                    if sandbox.docker_status == "error":
+                        break
                     k8s_status = env["kensei2.sandbox.k8s"].get_sandbox_status(sandbox)
                     if k8s_status == "running":
                         sandbox.write({"docker_status": "running", "docker_port": 18789})
@@ -611,13 +1359,6 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
             ws_url = ws_info["ws_url"]
             gateway_token = ws_info["gateway_token"]
 
-        test_gen_thread = threading.Thread(
-            target=_generate_intent_tests_background,
-            args=(db_name, sandbox_id, prompt),
-            daemon=True,
-        )
-        test_gen_thread.start()
-
         from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
 
         _logger.info("[BATCH] Connecting WS for sandbox %s: %s", sandbox_id, ws_url)
@@ -645,10 +1386,13 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
                 attachments = []
                 for att in env["ir.attachment"].sudo().browse(attachment_ids):
                     if att.exists() and att.datas:
+                        # OpenClaw chat.send → normalizeRpcAttachmentsToChatAttachments
+                        # reads { type, mimeType, fileName, content }; content must be a
+                        # base64 string. It does not accept `name`/`media` keys.
                         attachments.append({
-                            "name": att.name,
+                            "fileName": att.name,
                             "mimeType": att.mimetype,
-                            "media": "data:%s;base64,%s" % (att.mimetype, att.datas.decode()),
+                            "content": att.datas.decode(),
                         })
                 _logger.info(
                     "[BATCH] Loaded %d attachments for sandbox %s",
@@ -684,13 +1428,11 @@ def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=
         try:
             history = ws_client.fetch_history(limit=1000)
             if history and isinstance(history, list):
-                history = _filter_trajectory_messages(history)
-                if history:
-                    with Registry(db_name).cursor() as cr:
-                        env = api.Environment(cr, SUPERUSER_ID, {})
-                        env["kensei2.sandbox"].auto_process_save_trajectory(
-                            sandbox_id, turn_id, history,
-                        )
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    env["kensei2.sandbox"].auto_process_save_trajectory(
+                        sandbox_id, turn_id, history,
+                    )
         except Exception as e:
             _logger.warning(
                 "[BATCH] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
@@ -811,8 +1553,14 @@ def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_pa
     except Exception:
         _logger.exception("[BATCH] Failed to set stopping status for task %s", task_id)
 
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec).  Sequential to avoid concurrent task writes.
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH]")
+
     stop_futures = {}
-    for sid in sandbox_ids:
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
         fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
         stop_futures[fut] = sid
 
@@ -1003,41 +1751,7 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
     ws_client = None
 
     try:
-        with Registry(db_name).cursor() as cr:
-            env = api.Environment(cr, SUPERUSER_ID, {})
-            ws_info = env["kensei2.sandbox"].auto_process_get_ws_info(sandbox_id)
-            if ws_info.get("error"):
-                result["error"] = "WS info error: %s" % ws_info["error"]
-                return result
-            ws_url = ws_info["ws_url"]
-            gateway_token = ws_info["gateway_token"]
-
-        test_gen_thread = threading.Thread(
-            target=_generate_intent_tests_background,
-            args=(db_name, sandbox_id, prompt),
-            daemon=True,
-        )
-        test_gen_thread.start()
-
         from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
-
-        _logger.info("[BATCH-PROMPT] Connecting WS for sandbox %s: %s", sandbox_id, ws_url)
-        ws_client = OpenClawClient(ws_url, gateway_token, sandbox_id)
-
-        for ws_attempt in range(3):
-            try:
-                ws_client.connect(timeout=30)
-                break
-            except (OpenClawError, OpenClawTimeoutError) as e:
-                if ws_attempt < 2:
-                    _logger.warning(
-                        "[BATCH-PROMPT] WS connect attempt %d/3 failed for sandbox %s: %s",
-                        ws_attempt + 1, sandbox_id, e,
-                    )
-                    time.sleep(5)
-                else:
-                    result["error"] = "WS connect failed after 3 attempts: %s" % e
-                    return result
 
         attachments = None
         if attachment_ids:
@@ -1046,10 +1760,13 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
                 attachments = []
                 for att in env["ir.attachment"].sudo().browse(attachment_ids):
                     if att.exists() and att.datas:
+                        # OpenClaw chat.send → normalizeRpcAttachmentsToChatAttachments
+                        # reads { type, mimeType, fileName, content }; content must be a
+                        # base64 string. It does not accept `name`/`media` keys.
                         attachments.append({
-                            "name": att.name,
+                            "fileName": att.name,
                             "mimeType": att.mimetype,
-                            "media": "data:%s;base64,%s" % (att.mimetype, att.datas.decode()),
+                            "content": att.datas.decode(),
                         })
                 _logger.info(
                     "[BATCH-PROMPT] Loaded %d attachments for sandbox %s",
@@ -1066,15 +1783,57 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
                 return result
             turn_id = turn_result["turn_id"]
 
-        _logger.info("[BATCH-PROMPT] Sending prompt to sandbox %s (turn=%s, attachments=%d)",
-                     sandbox_id, turn_id, len(attachments or []))
-        ws_client.send_message(prompt, attachments=attachments)
+        _WS_MAX_RETRIES = 3
+        last_ws_error = None
+        for ws_attempt in range(1, _WS_MAX_RETRIES + 1):
+            if ws_client:
+                try:
+                    ws_client.disconnect()
+                except Exception:
+                    pass
+                ws_client = None
 
-        response = ws_client.wait_for_response(timeout=600)
-        _logger.info(
-            "[BATCH-PROMPT] Response received from sandbox %s (%d chars)",
-            sandbox_id, len(response.text),
-        )
+            # Re-read WS info from DB each retry (token may have changed)
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                ws_info = env["kensei2.sandbox"].auto_process_get_ws_info(sandbox_id)
+                if ws_info.get("error"):
+                    last_ws_error = "WS info error: %s" % ws_info["error"]
+                    _logger.warning("[BATCH-PROMPT] WS info error on attempt %d/%d for sandbox %s: %s",
+                                    ws_attempt, _WS_MAX_RETRIES, sandbox_id, last_ws_error)
+                    time.sleep(10)
+                    continue
+                ws_url = ws_info["ws_url"]
+                gateway_token = ws_info["gateway_token"]
+
+            _logger.info("[BATCH-PROMPT] WS attempt %d/%d for sandbox %s: %s",
+                         ws_attempt, _WS_MAX_RETRIES, sandbox_id, ws_url)
+            ws_client = OpenClawClient(ws_url, gateway_token, sandbox_id)
+
+            try:
+                ws_client.connect(timeout=30)
+                _logger.info("[BATCH-PROMPT] Sending prompt to sandbox %s (turn=%s, attachments=%d)",
+                             sandbox_id, turn_id, len(attachments or []))
+                ws_client.send_message(prompt, attachments=attachments)
+                response = ws_client.wait_for_response(timeout=600)
+                _logger.info(
+                    "[BATCH-PROMPT] Response received from sandbox %s (%d chars)",
+                    sandbox_id, len(response.text),
+                )
+                last_ws_error = None
+                break
+            except (OpenClawError, OpenClawTimeoutError) as e:
+                last_ws_error = str(e)
+                _logger.warning(
+                    "[BATCH-PROMPT] WS attempt %d/%d failed for sandbox %s: %s",
+                    ws_attempt, _WS_MAX_RETRIES, sandbox_id, e,
+                )
+                if ws_attempt < _WS_MAX_RETRIES:
+                    time.sleep(10)
+
+        if last_ws_error:
+            result["error"] = "WS failed after %d attempts: %s" % (_WS_MAX_RETRIES, last_ws_error)
+            return result
 
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1085,13 +1844,11 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
         try:
             history = ws_client.fetch_history(limit=1000)
             if history and isinstance(history, list):
-                history = _filter_trajectory_messages(history)
-                if history:
-                    with Registry(db_name).cursor() as cr:
-                        env = api.Environment(cr, SUPERUSER_ID, {})
-                        env["kensei2.sandbox"].auto_process_save_trajectory(
-                            sandbox_id, turn_id, history,
-                        )
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    env["kensei2.sandbox"].auto_process_save_trajectory(
+                        sandbox_id, turn_id, history,
+                    )
         except Exception as e:
             _logger.warning(
                 "[BATCH-PROMPT] Failed to fetch history for sandbox %s: %s", sandbox_id, e,
@@ -1138,6 +1895,13 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         task_id, len(sandbox_ids), len(prompt), len(attachment_ids or []),
     )
     from concurrent.futures import as_completed
+
+    test_gen_thread = threading.Thread(
+        target=_generate_task_tests_background,
+        args=(db_name, task_id),
+        daemon=True,
+    )
+    test_gen_thread.start()
 
     futures = {}
     cancelled = False
@@ -1197,6 +1961,33 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         task_id, completed, failed,
     )
 
+    test_gen_thread.join(timeout=300)
+    if test_gen_thread.is_alive():
+        _logger.warning("[BATCH-PROMPT] Test gen thread still running after 300s, proceeding with stop")
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if task.exists() and task.test_code_status == "done" and task.test_code:
+                TestResult = env["kensei2.test.result"].sudo()
+                for sid in sandbox_ids:
+                    sandbox = env["kensei2.sandbox"].browse(sid)
+                    if sandbox.exists():
+                        TestResult.create({
+                            "sandbox_id": sid,
+                            "model_used": "task-level",
+                            "status": "pending",
+                            "test_code": task.test_code,
+                            "trajectory_index": 0,
+                        })
+                _logger.info(
+                    "[BATCH-PROMPT] Created %d test.result records from task-level test code",
+                    len(sandbox_ids),
+                )
+    except Exception:
+        _logger.exception("[BATCH-PROMPT] Failed to create test.result records for task %s", task_id)
+
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
@@ -1212,8 +2003,14 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
     except Exception:
         _logger.exception("[BATCH-PROMPT] Failed to set stopping status for task %s", task_id)
 
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec).  Sequential to avoid concurrent task writes.
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-PROMPT]")
+
     stop_futures = {}
-    for sid in sandbox_ids:
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
         fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
         stop_futures[fut] = sid
 
@@ -1267,16 +2064,92 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         _logger.exception("[BATCH-PROMPT] Failed to finalize batch status for task %s", task_id)
 
 
+def _run_selective_prompt_background(db_name, task_id, sandbox_ids, prompt,
+                                      notify_partner_id, attachment_ids=None):
+    """Run a prompt against a user-selected subset of pods.
+
+    Does NOT change *batch_status* or stop pods afterwards — meant for
+    re-sending prompts to surviving pods after one has died.
+    """
+    _logger.info(
+        "[SELECTIVE-PROMPT] Starting: task=%s sandboxes=%d prompt_len=%d attachments=%d",
+        task_id, len(sandbox_ids), len(prompt), len(attachment_ids or []),
+    )
+    from concurrent.futures import as_completed
+
+    futures = {}
+    for sid in sandbox_ids:
+        fut = _BATCH_POOL.submit(
+            _batch_prompt_single_sandbox, db_name, sid, prompt, attachment_ids,
+        )
+        futures[fut] = sid
+
+    BATCH_TIMEOUT = int(os.getenv("BATCH_TIMEOUT", "2400"))
+    results = {}
+    try:
+        for fut in as_completed(futures, timeout=BATCH_TIMEOUT):
+            sid = futures[fut]
+            try:
+                results[sid] = fut.result()
+            except Exception as e:
+                _logger.error("[SELECTIVE-PROMPT] Sandbox %s raised exception: %s", sid, e)
+                results[sid] = {"sandbox_id": sid, "status": "error", "error": str(e)[:1000]}
+    except TimeoutError:
+        _logger.error("[SELECTIVE-PROMPT] Timed out after %ds for task %s", BATCH_TIMEOUT, task_id)
+        for fut, sid in futures.items():
+            if fut.done():
+                try:
+                    results[sid] = fut.result()
+                except Exception as e:
+                    results[sid] = {"sandbox_id": sid, "status": "error", "error": str(e)[:500]}
+            else:
+                results[sid] = {"sandbox_id": sid, "status": "error", "error": "Prompt timeout"}
+                fut.cancel()
+
+    completed = sum(1 for r in results.values() if r.get("status") == "completed")
+    failed = len(results) - completed
+    _logger.info(
+        "[SELECTIVE-PROMPT] Done: task=%s completed=%d failed=%d",
+        task_id, completed, failed,
+    )
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if task.exists():
+                per_pod = []
+                for sid, r in results.items():
+                    per_pod.append({
+                        "sandbox_id": sid,
+                        "status": r.get("status"),
+                        "error": (r.get("error") or "")[:300],
+                    })
+                _batch_notify(env, task, "kensei2/selective_prompt_done", {
+                    "task_id": task_id,
+                    "completed": completed,
+                    "failed": failed,
+                    "results": per_pod,
+                })
+    except Exception:
+        _logger.exception("[SELECTIVE-PROMPT] Failed to notify selective prompt completion for task %s", task_id)
+
+
 def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id):
-    """Background worker: stop ALL sandboxes for a batch, then finalize status."""
     _logger.info(
         "[BATCH-STOP] Starting stop: task=%s, sandboxes=%d",
         task_id, len(sandbox_ids),
     )
     from concurrent.futures import as_completed
 
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec).  Sequential to avoid concurrent task writes.
+    _batch_export_trajectories(db_name, sandbox_ids, "[BATCH-STOP]")
+
     stop_futures = {}
-    for sid in sandbox_ids:
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
         fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
         stop_futures[fut] = sid
 
@@ -1321,6 +2194,84 @@ def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id)
         _logger.exception("[BATCH-STOP] Failed to finalize batch stop for task %s", task_id)
 
 
+def _batch_export_trajectories(db_name, sandbox_ids, log_prefix="[BATCH]"):
+    for sid in sandbox_ids:
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                sandbox = env["kensei2.sandbox"].browse(sid)
+                if sandbox.exists() and sandbox.kensei2_id:
+                    sandbox._export_trajectory_to_task()
+                    _logger.info(
+                        "%s Trajectory exported for sandbox %s", log_prefix, sid,
+                    )
+        except Exception:
+            _logger.exception(
+                "%s Trajectory export failed for sandbox %s", log_prefix, sid,
+            )
+
+    # ── Recompute task-level token totals from stored trajectory entries ──
+    # Each sandbox's _export_trajectory_to_task() OVERWRITES the task token
+    # fields (designed for talos's 1-sandbox-per-model).  With kensei2's
+    # 16-sandbox batch, only the LAST sandbox's tokens survive.  Fix: after
+    # all exports, sum tokens_in/tokens_out from ALL trajectory entries per
+    # model and write the correct totals.
+    if not sandbox_ids:
+        return
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            sandbox = env["kensei2.sandbox"].browse(sandbox_ids[0])
+            if not sandbox.exists() or not sandbox.kensei2_id:
+                return
+            task = sandbox.kensei2_id
+
+            token_field_map = {
+                "claude": ("claude_input_tokens", "claude_output_tokens"),
+                "glm": ("glm_input_tokens", "glm_output_tokens"),
+                "gpt": ("gpt_input_tokens", "gpt_output_tokens"),
+                "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
+                "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
+                "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
+                "1pd": ("onePD_input_tokens", "onePD_output_tokens"),
+            }
+            token_updates = {}
+            for model_type, traj_field in TRAJECTORY_FIELD_MAP.items():
+                raw = task[traj_field] or ""
+                if not raw.strip():
+                    continue
+                try:
+                    entries = json.loads(raw)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if not isinstance(entries, list):
+                    continue
+                total_in = sum(
+                    int(e.get("tokens_in", 0) or 0)
+                    for e in entries if isinstance(e, dict)
+                )
+                total_out = sum(
+                    int(e.get("tokens_out", 0) or 0)
+                    for e in entries if isinstance(e, dict)
+                )
+                fields_pair = token_field_map.get(model_type)
+                if fields_pair:
+                    token_updates[fields_pair[0]] = total_in
+                    token_updates[fields_pair[1]] = total_out
+
+            if token_updates:
+                task.write(token_updates)
+                _logger.info(
+                    "%s Recomputed token totals for task %s: %s",
+                    log_prefix, task.id, token_updates,
+                )
+    except Exception:
+        _logger.exception(
+            "%s Token total recomputation failed for sandbox_ids=%s",
+            log_prefix, sandbox_ids[:3],
+        )
+
+
 def _batch_stop_single_sandbox(db_name, sandbox_id):
     try:
         with Registry(db_name).cursor() as cr:
@@ -1332,7 +2283,10 @@ def _batch_stop_single_sandbox(db_name, sandbox_id):
             if sandbox.docker_status == "stopped":
                 _logger.info("[BATCH] Sandbox %s already stopped", sandbox_id)
                 return
-            sandbox.action_stop_sandbox()
+            # Skip trajectory export during batch stop — done sequentially
+            # after all pods are stopped to avoid serialization conflicts
+            # on the shared task record.
+            sandbox.action_stop_sandbox(export_trajectory=False)
             _logger.info("[BATCH] Sandbox %s stopped successfully", sandbox_id)
     except Exception:
         _logger.exception("[BATCH] Stop failed for sandbox %s", sandbox_id)
@@ -1352,7 +2306,32 @@ def _batch_notify(env, task, channel, payload):
 
 
 _VALID_CHAT_ROLES = {"user", "assistant", "tool", "toolResult", "system"}
-_HEARTBEAT_STRINGS = {"HEARTBEAT_OK", "HEARTBEAT", "PONG"}
+_HEARTBEAT_PATTERNS = {"heartbeat_ok", "heartbeat", "pong", "openclaw heartbeat poll"}
+
+
+def _is_heartbeat_text(text):
+    if not text or not isinstance(text, str):
+        return False
+    lower = text.strip().lower()
+    return any(pat in lower for pat in _HEARTBEAT_PATTERNS)
+
+
+def _extract_message_text(inner):
+    content = inner.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict):
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        return " ".join(parts)
+    text = inner.get("text")
+    if isinstance(text, str):
+        return text
+    return ""
 
 
 def _filter_trajectory_messages(messages):
@@ -1360,9 +2339,6 @@ def _filter_trajectory_messages(messages):
     dropped = 0
     for msg in messages:
         if isinstance(msg, str):
-            if msg.strip() in _HEARTBEAT_STRINGS:
-                dropped += 1
-                continue
             dropped += 1
             continue
 
@@ -1373,11 +2349,13 @@ def _filter_trajectory_messages(messages):
         inner = msg.get("message", msg) if isinstance(msg.get("message"), dict) else msg
         role = inner.get("role", "")
 
-        if role not in _VALID_CHAT_ROLES:
-            text = str(inner.get("content", "") or inner.get("text", "") or "")
-            if any(hb in text for hb in _HEARTBEAT_STRINGS) or not role:
-                dropped += 1
-                continue
+        if not role or role not in _VALID_CHAT_ROLES:
+            dropped += 1
+            continue
+
+        if _is_heartbeat_text(_extract_message_text(inner)):
+            dropped += 1
+            continue
 
         filtered.append(msg)
 
@@ -1487,6 +2465,11 @@ def _replace_inline_media_with_s3(messages, task_id, env):
     """Walk trajectory messages and replace inline base64 / container paths with HTTPS download URLs.
 
     Mutates messages in-place. Handles wrapped (hint-wrapper) and unwrapped formats.
+    Handles three image storage formats:
+      1. OpenClaw direct: {"type": "image", "data": "base64...", "mimeType": "image/png"}
+      2. Anthropic source dict: {"type": "image", "source": {"type": "base64", "media_type": "...", "data": "..."}}
+      3. Data URI string: {"type": "image", "source": "data:image/png;base64,..."}
+    Also recurses into nested content arrays (tool_result/toolResult blocks).
     """
     from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
 
@@ -1509,6 +2492,116 @@ def _replace_inline_media_with_s3(messages, task_id, env):
 
     replaced_count = 0
 
+    def _process_block(block):
+        nonlocal replaced_count
+        if not isinstance(block, dict):
+            return
+
+        block_type = block.get("type", "")
+
+        # Recurse into tool_result / toolResult nested content
+        if block_type in ("tool_result", "toolResult"):
+            nested_content = block.get("content")
+            if isinstance(nested_content, list):
+                for nested_block in nested_content:
+                    _process_block(nested_block)
+            return
+
+        if block_type not in _MEDIA_BLOCK_TYPES:
+            return
+
+        # --- Format 1: OpenClaw direct (data + mimeType on block, no source) ---
+        direct_data = block.get("data", "")
+        if direct_data and isinstance(direct_data, str) and not block.get("source"):
+            mime_type = block.get("mimeType", "") or block.get("media_type", "") or "application/octet-stream"
+            try:
+                file_bytes = base64_mod.b64decode(direct_data)
+            except Exception:
+                _logger.warning(
+                    "Failed to decode direct base64 data on block (type=%s, task=%s)",
+                    block_type, task_id,
+                )
+                return
+            ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+            if ext.startswith("."):
+                ext = ext[1:]
+            object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+            url = _upload_bytes_to_s3(
+                bucket, region, prefix, task_id, object_key,
+                file_bytes, mime_type, access_key, secret_key,
+            )
+            if url:
+                block.pop("data", None)
+                block.pop("mimeType", None)
+                block.pop("media_type", None)
+                block["source"] = {"type": "url", "url": url}
+                replaced_count += 1
+            return
+
+        # --- Format 2: Anthropic dict source ---
+        source = block.get("source", "")
+        if isinstance(source, dict):
+            src_type = source.get("type", "")
+            b64_data = source.get("data", "")
+            mime_type = source.get("media_type", "application/octet-stream")
+            if src_type == "base64" and b64_data:
+                try:
+                    file_bytes = base64_mod.b64decode(b64_data)
+                except Exception:
+                    _logger.warning(
+                        "Failed to decode base64 dict in trajectory block (type=%s, task=%s)",
+                        block_type, task_id,
+                    )
+                    return
+                ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+                if ext.startswith("."):
+                    ext = ext[1:]
+                object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+                url = _upload_bytes_to_s3(
+                    bucket, region, prefix, task_id, object_key,
+                    file_bytes, mime_type, access_key, secret_key,
+                )
+                if url:
+                    block["source"] = {"type": "url", "url": url}
+                    replaced_count += 1
+            return
+
+        # --- Format 3: String source (data URI or container path) ---
+        if not isinstance(source, str) or not source:
+            return
+
+        m = _DATA_URI_RE.match(source)
+        if m:
+            mime_type = m.group(1)
+            b64_data = m.group(2)
+            try:
+                file_bytes = base64_mod.b64decode(b64_data)
+            except Exception:
+                _logger.warning(
+                    "Failed to decode base64 in trajectory block (type=%s, task=%s)",
+                    block_type, task_id,
+                )
+                return
+            ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
+            if ext.startswith("."):
+                ext = ext[1:]
+            object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
+            url = _upload_bytes_to_s3(
+                bucket, region, prefix, task_id, object_key,
+                file_bytes, mime_type, access_key, secret_key,
+            )
+            if url:
+                block["source"] = url
+                replaced_count += 1
+            return
+
+        cm = _CONTAINER_PATH_RE.match(source)
+        if cm:
+            filename = os.path.basename(source)
+            output_key = "%s/output/tasks/%s/%s" % (prefix, task_id, filename)
+            block["source"] = _s3_https_url(bucket, region, output_key)
+            replaced_count += 1
+
     for msg_wrapper in messages:
         # Navigate into the actual message dict, handling both wrapped and unwrapped formats
         msg = msg_wrapper
@@ -1530,55 +2623,17 @@ def _replace_inline_media_with_s3(messages, task_id, env):
             continue
 
         for block in content:
-            if not isinstance(block, dict):
-                continue
-
-            block_type = block.get("type", "")
-            if block_type not in _MEDIA_BLOCK_TYPES:
-                continue
-
-            source = block.get("source", "")
-            if not isinstance(source, str) or not source:
-                continue
-
-            m = _DATA_URI_RE.match(source)
-            if m:
-                mime_type = m.group(1)
-                b64_data = m.group(2)
-                try:
-                    file_bytes = base64_mod.b64decode(b64_data)
-                except Exception:
-                    _logger.warning(
-                        "Failed to decode base64 in trajectory block (type=%s, task=%s)",
-                        block_type, task_id,
-                    )
-                    continue
-
-                ext = _MIME_EXT_MAP.get(mime_type, mimetypes.guess_extension(mime_type, strict=False) or "bin")
-                if ext.startswith("."):
-                    ext = ext[1:]
-                object_key = "%s.%s" % (uuid.uuid4().hex[:12], ext)
-                url = _upload_bytes_to_s3(
-                    bucket, region, prefix, task_id, object_key,
-                    file_bytes, mime_type, access_key, secret_key,
-                )
-                if url:
-                    block["source"] = url
-                    replaced_count += 1
-                continue
-
-            cm = _CONTAINER_PATH_RE.match(source)
-            if cm:
-                filename = os.path.basename(source)
-                output_key = "%s/output/tasks/%s/%s" % (prefix, task_id, filename)
-                block["source"] = _s3_https_url(bucket, region, output_key)
-                replaced_count += 1
-                continue
+            _process_block(block)
 
     if replaced_count:
         _logger.info(
             "Replaced %d inline media source(s) with HTTPS URLs (task=%s)",
             replaced_count, task_id,
+        )
+    else:
+        _logger.info(
+            "No inline media found to replace (task=%s, messages=%d)",
+            task_id, len(messages),
         )
 
     return messages
@@ -1690,6 +2745,8 @@ class Kensei2Sandbox(models.Model):
         "docker_port", "docker_gateway_token", "docker_status", "docker_compose_project"
     )
     def _compute_dashboard_url(self):
+        import urllib.parse
+
         for rec in self:
             if rec.docker_status != "running" or not rec.docker_gateway_token:
                 rec.docker_dashboard_url = False
@@ -1704,10 +2761,21 @@ class Kensei2Sandbox(models.Model):
                     .strip()
                 )
                 if ws_host:
-                    rec.docker_dashboard_url = "https://%s/sandbox/%s/#token=%s" % (
-                        ws_host,
-                        rec.id,
-                        rec.docker_gateway_token,
+                    # The Control UI cannot derive its own WebSocket URL when
+                    # served behind the ws-router prefix: the gateway runs
+                    # with no basePath (see kensei2_sandbox_k8s.py). Without
+                    # help it dials the wrong target and the dashboard fails
+                    # with "disconnected (1006)". Pass the WS endpoint
+                    # explicitly via ?gatewayUrl= so the UI dials it verbatim.
+                    ws_url = "wss://%s/sandbox/%s/" % (ws_host, rec.id)
+                    rec.docker_dashboard_url = (
+                        "https://%s/sandbox/%s/?gatewayUrl=%s#token=%s"
+                        % (
+                            ws_host,
+                            rec.id,
+                            urllib.parse.quote(ws_url, safe=""),
+                            rec.docker_gateway_token,
+                        )
                     )
                 else:
                     svc_name = "kensei2-sandbox-%s" % rec.id
@@ -1831,12 +2899,9 @@ class Kensei2Sandbox(models.Model):
         self.ensure_one()
         try:
             from kubernetes import client as k8s_client
-            from kubernetes import config as k8s_config
+            from .kensei2_sandbox_k8s import _load_k8s_config
 
-            try:
-                k8s_config.load_incluster_config()
-            except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+            _load_k8s_config()
         except Exception:
             _logger.warning(
                 "K8s not available for JSONL extraction (sandbox=%s)", self.id
@@ -3052,12 +4117,12 @@ class Kensei2Sandbox(models.Model):
             _logger.warning("Failed to read artifact %s: %s", host_path, e)
             return None
 
-    def action_stop_sandbox(self):
+    def action_stop_sandbox(self, export_trajectory=True):
         self.ensure_one()
 
         _logger.info(
-            "action_stop_sandbox START (sandbox=%s, status=%s, mode=%s)",
-            self.id, self.docker_status, self._deployment_mode(),
+            "action_stop_sandbox START (sandbox=%s, status=%s, mode=%s, export_traj=%s)",
+            self.id, self.docker_status, self._deployment_mode(), export_trajectory,
         )
 
         try:
@@ -3080,7 +4145,8 @@ class Kensei2Sandbox(models.Model):
         except Exception as e:
             _logger.warning("Artifact S3 persistence failed (sandbox=%s): %s", self.id, e)
 
-        self._export_trajectory_to_task()
+        if export_trajectory:
+            self._export_trajectory_to_task()
 
         mode = self._deployment_mode()
         if mode == "k8s":
@@ -4390,17 +5456,15 @@ class Kensei2Sandbox(models.Model):
 
     def _collect_audit_k8s(self, services):
         try:
-            from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes import client as k8s_client
             from kubernetes.stream import stream as k8s_stream
+            from .kensei2_sandbox_k8s import _load_k8s_config
         except ImportError:
             _logger.debug("kubernetes package not available, skipping K8s audit collection")
             return
 
         try:
-            try:
-                k8s_config.load_incluster_config()
-            except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+            _load_k8s_config()
         except Exception as exc:
             _logger.warning(
                 "K8s audit: load_k8s_config failed (sandbox=%s): %s",
@@ -4925,16 +5989,14 @@ class Kensei2Sandbox(models.Model):
     def _execute_tests_k8s(self, test_code):
         """Execute tests inside the K8s sandbox pod."""
         try:
-            from kubernetes import client as k8s_client, config as k8s_config
+            from kubernetes import client as k8s_client
             from kubernetes.stream import stream as k8s_stream
+            from .kensei2_sandbox_k8s import _load_k8s_config
         except ImportError:
             return "ERROR: kubernetes package not available"
 
         try:
-            try:
-                k8s_config.load_incluster_config()
-            except k8s_config.ConfigException:
-                k8s_config.load_kube_config()
+            _load_k8s_config()
         except Exception as exc:
             _logger.warning("K8s test exec: load_k8s_config failed: %s", exc)
             return "ERROR: K8s config not available: %s" % str(exc)[:200]
@@ -5336,26 +6398,6 @@ class Kensei2Sandbox(models.Model):
 
     @api.model
     def _cron_reconcile(self):
-        """Periodic k8s sandbox status reconciliation.
-
-        Conflict-avoidance design — the cron used to lose SQLSTATE 40001
-        ("could not serialize access") races against batch-deploy workers
-        writing the same sandbox rows:
-
-        1. Ownership partition — sandboxes whose task is mid-batch are
-           skipped, because the batch worker is their authoritative
-           writer. This is *per-task*: unrelated sandboxes (single
-           starts, leftovers from finished runs) are still reconciled, so
-           the safety net keeps working. It is NOT a global kill-switch
-           (an earlier version skipped the whole cron whenever any batch
-           ran anywhere, which stranded healthy pods at "starting").
-        2. The slow k8s status probe runs OUTSIDE any write transaction;
-           only the resulting one-row write is transactional, keeping the
-           row-lock window down to milliseconds.
-        3. Each write goes through `_retry_with_cursor` in its own short
-           transaction, so a residual conflict is retried with jittered
-           back-off and never aborts its siblings.
-        """
         mode = (
             self.env["ir.config_parameter"]
             .sudo()
@@ -5365,20 +6407,11 @@ class Kensei2Sandbox(models.Model):
         if mode != "k8s":
             return
 
-        # Ownership partition: leave batch-owned sandboxes to their
-        # batch-deploy workers (avoids the cron-vs-worker write race).
-        batch_active_states = ("starting", "ready", "running", "stopping")
-        active_task_ids = (
-            self.env["kensei2.kensei2"]
-            .sudo()
-            .search([("batch_status", "in", batch_active_states)])
+        sandbox_ids = (
+            self.sudo()
+            .search([("docker_status", "in", ["starting", "running"])])
             .ids
         )
-        domain = [("docker_status", "in", ["starting", "running"])]
-        if active_task_ids:
-            domain.append(("kensei2_id", "not in", active_task_ids))
-
-        sandbox_ids = self.sudo().search(domain).ids
         if not sandbox_ids:
             return
 

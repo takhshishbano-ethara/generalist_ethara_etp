@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_fenrir_task_user,fenrir.task.user,model_fenrir_task,base.group_user,1,1,1,0
+access_fenrir_task_manager,fenrir.task.manager,model_fenrir_task,base.group_system,1,1,1,1
+access_fenrir_seller_offer_user,fenrir.seller.offer.user,model_fenrir_seller_offer,base.group_user,1,1,1,0
+access_fenrir_seller_offer_manager,fenrir.seller.offer.manager,model_fenrir_seller_offer,base.group_system,1,1,1,1

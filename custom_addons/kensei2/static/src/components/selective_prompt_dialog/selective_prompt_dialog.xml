@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kensei2.SelectivePromptDialog">
+        <div class="o_kensei2_sel_overlay" t-on-click="onOverlayClick">
+            <div class="o_kensei2_sel_dialog">
+                <div class="o_kensei2_sel_header">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="fa fa-paper-plane text-primary"/>
+                        <span class="fw-bold">Send Prompt to Selected Pods</span>
+                    </div>
+                    <button class="btn-close"
+                            t-on-click="props.onClose"
+                            t-att-disabled="state.sending ? 'disabled' : undefined"/>
+                </div>
+
+                <div class="o_kensei2_sel_body">
+                    <label class="form-label fw-bold mb-1">Prompt</label>
+                    <textarea class="form-control o_kensei2_sel_prompt"
+                              rows="3"
+                              placeholder="Enter the prompt to send to the selected pods..."
+                              t-att-value="state.prompt"
+                              t-on-input="onPromptInput"
+                              t-att-disabled="state.sending ? 'disabled' : undefined"/>
+                    <t t-if="props.attachmentCount and props.attachmentCount > 0">
+                        <div class="text-muted small mt-1">
+                            <i class="fa fa-paperclip me-1"/>
+                            <t t-out="props.attachmentCount"/> attachment(s) will be included.
+                        </div>
+                    </t>
+
+                    <div class="o_kensei2_sel_list_header">
+                        <span class="fw-bold">
+                            Running pods (<t t-out="props.pods.length"/>)
+                        </span>
+                        <div class="d-flex gap-2">
+                            <button class="btn btn-link btn-sm p-0"
+                                    t-on-click="onSelectAll"
+                                    t-att-disabled="state.sending ? 'disabled' : undefined">
+                                Select all
+                            </button>
+                            <span class="text-muted">|</span>
+                            <button class="btn btn-link btn-sm p-0"
+                                    t-on-click="onSelectNone"
+                                    t-att-disabled="state.sending ? 'disabled' : undefined">
+                                Select none
+                            </button>
+                        </div>
+                    </div>
+
+                    <t t-if="props.pods.length === 0">
+                        <div class="o_kensei2_sel_empty">
+                            <i class="fa fa-info-circle me-1"/>
+                            No running pods available.
+                        </div>
+                    </t>
+                    <t t-else="">
+                        <div class="o_kensei2_sel_pod_list">
+                            <t t-foreach="props.pods" t-as="pod" t-key="pod.id">
+                                <label t-attf-class="o_kensei2_sel_pod_row #{isSelected(pod.id) ? 'o_kensei2_sel_pod_active' : ''}">
+                                    <input type="checkbox"
+                                           t-att-checked="isSelected(pod.id)"
+                                           t-on-change="() => this.onTogglePod(pod.id)"
+                                           t-att-disabled="state.sending ? 'disabled' : undefined"/>
+                                    <span class="o_kensei2_sel_pod_dot"
+                                          t-attf-style="background: #{pod.color}"/>
+                                    <span class="o_kensei2_sel_pod_label">
+                                        <t t-out="pod.modelLabel"/>
+                                    </span>
+                                    <span class="o_kensei2_sel_pod_session text-muted">
+                                        <t t-out="pod.sessionLabel"/>
+                                    </span>
+                                    <span class="o_kensei2_sel_pod_status">
+                                        <i class="fa fa-circle-o-notch fa-spin me-1"/>running
+                                    </span>
+                                </label>
+                            </t>
+                        </div>
+                    </t>
+
+                    <t t-if="state.error">
+                        <div class="o_kensei2_sel_error">
+                            <i class="fa fa-exclamation-circle me-1"/>
+                            <t t-out="state.error"/>
+                        </div>
+                    </t>
+                </div>
+
+                <div class="o_kensei2_sel_footer">
+                    <span class="text-muted">
+                        <t t-out="selectedCount"/> / <t t-out="props.pods.length"/> selected
+                    </span>
+                    <div class="d-flex gap-2 ms-auto">
+                        <button class="btn btn-secondary"
+                                t-on-click="props.onClose"
+                                t-att-disabled="state.sending ? 'disabled' : undefined">
+                            Cancel
+                        </button>
+                        <button class="btn btn-primary"
+                                t-on-click="onSendClick"
+                                t-att-disabled="!canSend ? 'disabled' : undefined">
+                            <t t-if="state.sending">
+                                <i class="fa fa-spinner fa-spin me-1"/>Sending...
+                            </t>
+                            <t t-else="">
+                                <i class="fa fa-paper-plane me-1"/>
+                                Send to <t t-out="selectedCount"/> pod(s)
+                            </t>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>

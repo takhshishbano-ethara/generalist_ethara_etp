@@ -91,14 +91,41 @@ class VegetaController(http.Controller):
                 content_type="application/json",
             )
 
+        # Diagnostic: log every inbound webhook with enough context to
+        # reconstruct the extraction timeline. `age` is how long the job has
+        # been in `extracting` since dispatch — the single most useful number
+        # when debugging "stuck in extracting": a large age on the FINAL
+        # callback means the Lambda sat in AWS's async-invocation queue
+        # (reserved-concurrency exhaustion), not that extraction was slow.
+        _now = fields.Datetime.now()
+        _age = (
+            (_now - record.started_at).total_seconds()
+            if record.started_at else -1
+        )
+        _logger.info(
+            "[vegeta][job=%s] webhook inbound: status=%s success=%s "
+            "partial=%s warnings=%d job_state=%s age_since_dispatch=%.0fs",
+            record.name, data.get("status"), data.get("success"),
+            data.get("partial"),
+            len(data.get("warnings") or []),
+            record.state, _age,
+        )
+
         # Lightweight "extraction started" ping — the Lambda sends this when it
         # actually picks the job up. Update last_heartbeat so the watchdog
         # measures real progress, not time-since-state-change (a job merely
         # queued in AWS shouldn't be killed for being slow to start).
         if data.get("status") == "started":
             if record.state == "extracting":
-                record.write({"last_heartbeat": fields.Datetime.now()})
-                _logger.info("[vegeta][job=%s] extraction started ping", record.name)
+                record.write({"last_heartbeat": _now})
+                # age here = AWS async-queue latency: time from Odoo's
+                # lambda:Invoke until the Lambda container actually began
+                # running. If routinely >5min the batch is outrunning the
+                # Lambda's reserved concurrency.
+                _logger.info(
+                    "[vegeta][job=%s] extraction STARTED ping — "
+                    "aws_queue_latency=%.0fs", record.name, _age,
+                )
             return Response(
                 json.dumps({"status": "ack"}),
                 status=200,
@@ -135,6 +162,11 @@ class VegetaController(http.Controller):
             success = data.get("success")
             if not success:
                 error_msg = data.get("error", "Extraction failed (no details)")
+                _logger.warning(
+                    "[vegeta][job=%s] extraction reported FAILURE by Lambda "
+                    "after %.0fs — marking job failed: %s",
+                    record.name, _age, str(error_msg)[:300],
+                )
                 record._mark_failed(error_msg)
                 return Response(
                     json.dumps({"status": "failed"}),
@@ -244,26 +276,58 @@ class VegetaController(http.Controller):
                 }
             write_vals["lambda_callback_json"] = callback_snapshot
 
-            # The PRD dispatch cron (vegeta.job._cron_dispatch_prd_jobs) now
-            # creates the worker; the webhook only moves the job to
-            # `generating`. job_name is cleared so the cron's "already
-            # dispatched" guard does not skip a retried job.
-            write_vals["state"] = "generating"
-            write_vals["job_name"] = False
+            # auto_continue (default True: Run All / batch / retry / rerun) ->
+            # cascade straight into PRD generation. When False (staged manual
+            # run) the job parks at 'extracted' and waits for the Generate
+            # button — the single decision point that severs the
+            # extraction->generation auto-link.
+            auto = record.auto_continue
+            next_state = "generating" if auto else "extracted"
+            write_vals["state"] = next_state
             record.write(write_vals)
+
+            # Extraction handoff complete — the boundary between the
+            # "extraction" timeline and the "PRD generation" timeline. Grep
+            # this to confirm a job left `extracting` cleanly.
+            _logger.info(
+                "[vegeta][job=%s] extraction COMPLETE after %.0fs "
+                "(partial=%s) — prd_prompt=%dB screenshots=%d assets=%d "
+                "-> state=%s (auto_continue=%s)",
+                record.name, _age, is_partial,
+                len(prd_prompt or ""),
+                len(screenshot_keys or []), len(asset_keys or []),
+                next_state, auto,
+            )
 
             # Notify browser of state change
             try:
                 request.env["bus.bus"]._sendone(
                     "vegeta_job_updates",
                     "vegeta/job_state",
-                    {"id": record.id, "state": "generating"},
+                    {"id": record.id, "state": next_state},
                 )
             except Exception:
                 pass
 
+            # Use postcommit to ensure data is committed before the background
+            # thread reads it (fixes race condition LG-3). PRD generation
+            # auto-fires ONLY in auto_continue mode; staged jobs stop at
+            # 'extracted' and are advanced by the Generate button.
+            db_name = request.env.cr.dbname
+            record_id = record.id
+
+            def _deferred():
+                from ..models.vegeta_job import _submit_bg
+                _submit_bg(
+                    f"prd-gen[job={record_id}]",
+                    record._run_prd_generation_bg, db_name, record_id,
+                )
+
+            if auto:
+                request.env.cr.postcommit.add(_deferred)
+
             return Response(
-                json.dumps({"status": "success", "next_step": "generating"}),
+                json.dumps({"status": "success", "next_step": next_state}),
                 status=200,
                 content_type="application/json",
             )

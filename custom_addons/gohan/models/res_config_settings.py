@@ -150,10 +150,6 @@ class ResConfigSettings(models.TransientModel):
     gohan_bedrock_secret_access_key_status = fields.Char(
         string="Bedrock Secret Status", compute="_compute_sensitive_status",
     )
-    gohan_max_llm_attempts = fields.Integer(
-        string="Max LLM Attempts",
-        config_parameter="gohan.max_llm_attempts",
-    )
 
     # -- S3 --
     gohan_s3_bucket = fields.Char(

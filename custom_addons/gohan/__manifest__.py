@@ -1,6 +1,6 @@
 {
     "name": "Gohan PRD Pipeline",
-    "version": "19.0.2.5.0",
+    "version": "19.0.2.6.0",
     "category": "Productivity",
     "summary": "Operator UI for the Gohan functional-PRD scraping pipeline",
     "description": (
@@ -31,7 +31,16 @@
         "gohan.job.asset child model (delete unwanted rows, upload extra "
         "SVGs) in the Extraction Review tab, then clicks Generate PRD. Only "
         "ticked assets feed Bedrock; uploaded files are pushed to S3 first. "
-        "Batch runs (via_batch) skip the gate and auto-generate as before."
+        "Batch runs (via_batch) skip the gate and auto-generate as before.\n\n"
+        "v19.0.2.6.0: Per-stage pipeline. From the 'extracted' review gate "
+        "the tasker can now step through Generate -> Score -> Run QC one "
+        "stage at a time (new 'generated' and 'scored' park states + "
+        "action_stage_generate/score/qc), instead of only the all-in-one "
+        "'Generate PRD'. PRD generation is now single-pass — the multi-"
+        "attempt score-refinement loop (and gohan.max_llm_attempts) is "
+        "removed; transient Bedrock errors are still retried inside the "
+        "Bedrock call. Cancel becomes 'Cancel / Reset', also resetting jobs "
+        "parked mid-staged-run."
     ),
     "author": "Ethara",
     "license": "LGPL-3",

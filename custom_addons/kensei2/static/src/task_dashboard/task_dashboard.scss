@@ -286,13 +286,19 @@
 }
 
 // Full-width form sheet for Kensei2 task form
-.o_form_sheet_bg:has(.o_kensei2_dashboard) {
+.o_form_sheet_bg:has(.o_kensei2_dashboard),
+.o_form_view.o_kensei2_form_wide .o_form_sheet_bg {
     max-width: none;
     width: 100%;
 }
 
-.o_form_sheet_bg:has(.o_kensei2_dashboard) > .o_form_sheet {
+.o_form_sheet_bg:has(.o_kensei2_dashboard) > .o_form_sheet,
+.o_form_view.o_kensei2_form_wide .o_form_sheet_bg > .o_form_sheet,
+.o_form_view.o_kensei2_form_wide .o_form_sheet {
     max-width: 100%;
+    width: 100%;
+    padding-left: 1.5rem;
+    padding-right: 1.5rem;
 }
 
 // --- Trajectory Section ---
@@ -1317,6 +1323,12 @@
         border: 1px solid rgba(245, 158, 11, 0.2);
     }
 
+    &.o_kensei2_batch_status_ready {
+        background: rgba(16, 185, 129, 0.1);
+        color: var(--kensei2-success);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
     &.o_kensei2_batch_status_done {
         background: var(--kensei2-success-soft);
         color: var(--kensei2-success);
@@ -1570,6 +1582,32 @@
 
     &:disabled,
     &.disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+}
+
+.o_kensei2_btn_batch_harbor,
+.o_kensei2_btn_batch_harbor_dl {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.5rem 1.25rem;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    background: rgba(16, 185, 129, 0.08);
+    color: #10b981;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: var(--kensei2-radius-md);
+    cursor: pointer;
+    transition: all var(--kensei2-transition);
+
+    &:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.15);
+        border-color: rgba(16, 185, 129, 0.5);
+    }
+
+    &:disabled {
         opacity: 0.5;
         cursor: not-allowed;
     }
@@ -1832,6 +1870,20 @@
         --pod-accent-strong: #dc2626;
         --pod-accent-soft: rgba(239, 68, 68, 0.18);
     }
+
+    &.o_kensei2_pod_clickable {
+        cursor: pointer;
+    }
+
+    &.o_kensei2_pod_selected {
+        border-color: var(--pod-accent);
+        box-shadow:
+            0 0 0 2px var(--kensei2-surface),
+            0 0 0 4px var(--pod-accent),
+            var(--kensei2-shadow-sm);
+        transform: translateY(-1px);
+        z-index: 2;
+    }
 }
 
 .o_kensei2_pod_label {
@@ -1964,4 +2016,97 @@
     padding: 0.0625rem 0.375rem;
     border-radius: var(--kensei2-radius-pill);
     border: 1px solid var(--kensei2-border-subtle);
+}
+
+// ============================================================================
+// Chat Panel — inline SSE chat widget below the pod grid
+// ============================================================================
+
+.o_kensei2_chat_panel {
+    margin-top: 1rem;
+    border: 1px solid var(--kensei2-border);
+    border-radius: var(--kensei2-radius-lg);
+    overflow: hidden;
+    box-shadow: var(--kensei2-shadow-md);
+    background: var(--kensei2-surface);
+}
+
+.o_kensei2_chat_panel_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.625rem 1rem;
+    background: var(--kensei2-surface-raised);
+    border-bottom: 1px solid var(--kensei2-border);
+}
+
+.o_kensei2_chat_panel_title {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--kensei2-text);
+}
+
+.o_kensei2_chat_panel_session {
+    font-weight: 500;
+    color: var(--kensei2-text-secondary);
+}
+
+.o_kensei2_chat_panel_status {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--kensei2-radius-pill);
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+
+    &.o_kensei2_chat_panel_status_running {
+        background: rgba(59, 130, 246, 0.1);
+        color: #3b82f6;
+    }
+
+    &.o_kensei2_chat_panel_status_starting {
+        background: var(--kensei2-info-soft);
+        color: var(--kensei2-info);
+    }
+
+    &.o_kensei2_chat_panel_status_stopped {
+        background: var(--kensei2-surface-raised);
+        color: var(--kensei2-text-tertiary);
+    }
+
+    &.o_kensei2_chat_panel_status_error {
+        background: var(--kensei2-danger-soft);
+        color: var(--kensei2-danger);
+    }
+}
+
+.o_kensei2_chat_panel_close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: none;
+    background: transparent;
+    color: var(--kensei2-text-tertiary);
+    border-radius: var(--kensei2-radius-sm);
+    cursor: pointer;
+    transition: all var(--kensei2-transition);
+    font-size: 0.875rem;
+
+    &:hover {
+        background: var(--kensei2-danger-soft);
+        color: var(--kensei2-danger);
+    }
+}
+
+.o_kensei2_chat_panel_body {
+    height: 520px;
+    overflow: hidden;
+    position: relative;
 }

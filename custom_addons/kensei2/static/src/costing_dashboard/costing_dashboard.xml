@@ -20,63 +20,31 @@
             <div t-if="state.totals" class="o_kensei2_costing_summary">
                 <div class="o_kensei2_summary_card">
                     <div class="o_kensei2_summary_icon"><i class="fa fa-comments"/></div>
-                    <div class="o_kensei2_summary_label">Sandbox</div>
-                    <div class="o_kensei2_summary_value sandbox" t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0) + (state.totals.gpt_total || 0))"/>
+                    <div class="o_kensei2_summary_label">Claude</div>
+                    <div class="o_kensei2_summary_value sandbox" t-out="formatNumber(state.totals.claude_total)"/>
                     <div class="o_kensei2_summary_sub">
-                        <span>Claude: <strong t-out="formatNumber(state.totals.claude_total)"/></span>
-                        <span>Kimi: <strong t-out="formatNumber(state.totals.glm_total)"/></span>
-                        <span>1P: <strong t-out="formatNumber(state.totals.oneP_total)"/></span>
-                        <span>GPT: <strong t-out="formatNumber(state.totals.gpt_total)"/></span>
+                        <span>In: <strong t-out="formatNumber(state.totals.claude_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.claude_output)"/></span>
                     </div>
-                    <div class="o_kensei2_summary_badge trajectory">Trajectory</div>
+                    <div class="o_kensei2_summary_badge trajectory">Sandbox</div>
                 </div>
                 <div class="o_kensei2_summary_card">
-                    <div class="o_kensei2_summary_icon"><i class="fa fa-check-circle"/></div>
-                    <div class="o_kensei2_summary_label">Prompt QC</div>
-                    <div class="o_kensei2_summary_value bedrock" t-out="formatNumber(state.totals.bedrock_total)"/>
+                    <div class="o_kensei2_summary_icon"><i class="fa fa-comments"/></div>
+                    <div class="o_kensei2_summary_label">GPT</div>
+                    <div class="o_kensei2_summary_value sandbox" t-out="formatNumber(state.totals.gpt_total)"/>
                     <div class="o_kensei2_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.bedrock_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.bedrock_output)"/></span>
+                        <span>In: <strong t-out="formatNumber(state.totals.gpt_input)"/></span>
+                        <span>Out: <strong t-out="formatNumber(state.totals.gpt_output)"/></span>
                     </div>
-                    <div class="o_kensei2_summary_badge qc">QC</div>
-                </div>
-                <div class="o_kensei2_summary_card">
-                    <div class="o_kensei2_summary_icon"><i class="fa fa-shield"/></div>
-                    <div class="o_kensei2_summary_label">Traj QC</div>
-                    <div class="o_kensei2_summary_value traj-qc" t-out="formatNumber(state.totals.traj_qc_total)"/>
-                    <div class="o_kensei2_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.traj_qc_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.traj_qc_output)"/></span>
-                    </div>
-                    <div class="o_kensei2_summary_badge qc">QC</div>
-                </div>
-                <div class="o_kensei2_summary_card">
-                    <div class="o_kensei2_summary_icon"><i class="fa fa-magic"/></div>
-                    <div class="o_kensei2_summary_label">Task Desc</div>
-                    <div class="o_kensei2_summary_value taskdesc" t-out="formatNumber(state.totals.taskdesc_total)"/>
-                    <div class="o_kensei2_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.taskdesc_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.taskdesc_output)"/></span>
-                    </div>
-                    <div class="o_kensei2_summary_badge ai">AI</div>
-                </div>
-                <div class="o_kensei2_summary_card">
-                    <div class="o_kensei2_summary_icon"><i class="fa fa-star"/></div>
-                    <div class="o_kensei2_summary_label">Golden Gen</div>
-                    <div class="o_kensei2_summary_value golden" t-out="formatNumber(state.totals.golden_total)"/>
-                    <div class="o_kensei2_summary_sub">
-                        <span>In: <strong t-out="formatNumber(state.totals.golden_input)"/></span>
-                        <span>Out: <strong t-out="formatNumber(state.totals.golden_output)"/></span>
-                    </div>
-                    <div class="o_kensei2_summary_badge ai">AI</div>
+                    <div class="o_kensei2_summary_badge trajectory">Sandbox</div>
                 </div>
                 <div class="o_kensei2_summary_card grand">
                     <div class="o_kensei2_summary_icon"><i class="fa fa-tachometer"/></div>
                     <div class="o_kensei2_summary_label">Total Tokens</div>
                     <div class="o_kensei2_summary_value grand" t-out="formatNumber(state.totals.grand_total)"/>
                     <div class="o_kensei2_summary_sub">
-                        <span>Sandbox: <strong t-out="formatNumber((state.totals.claude_total || 0) + (state.totals.glm_total || 0) + (state.totals.oneP_total || 0) + (state.totals.gpt_total || 0))"/></span>
-                        <span>Bedrock: <strong t-out="formatNumber((state.totals.bedrock_total || 0) + (state.totals.traj_qc_total || 0) + (state.totals.taskdesc_total || 0) + (state.totals.golden_total || 0))"/></span>
+                        <span>Claude: <strong t-out="formatNumber(state.totals.claude_total)"/></span>
+                        <span>GPT: <strong t-out="formatNumber(state.totals.gpt_total)"/></span>
                     </div>
                 </div>
             </div>
@@ -98,13 +66,7 @@
                                 Employee <i t-attf-class="fa #{sortIcon('employee_name')} ms-1"/>
                             </th>
                             <th class="col-group-header col-group-claude" colspan="3">Claude</th>
-                            <th class="col-group-header col-group-glm" colspan="3">Kimi</th>
-                            <th class="col-group-header col-group-oneP" colspan="3">1P</th>
                             <th class="col-group-header col-group-gpt" colspan="3">GPT</th>
-                            <th class="col-group-header col-group-bedrock" colspan="3">Prompt QC</th>
-                            <th class="col-group-header col-group-traj-qc" colspan="3">Traj QC</th>
-                            <th class="col-group-header col-group-taskdesc" colspan="3">Task Desc</th>
-                            <th class="col-group-header col-group-golden" colspan="3">Golden</th>
                             <th class="col-group-header col-group-tests" colspan="3">Tests</th>
                             <th class="col-grand" rowspan="2" t-on-click="() => this.onSort('grand_total')">
                                 Total <i t-attf-class="fa #{sortIcon('grand_total')} ms-1"/>
@@ -115,33 +77,9 @@
                             <th class="col-num col-claude" t-on-click="() => this.onSort('claude_output')">Out</th>
                             <th class="col-num col-claude col-subtotal" t-on-click="() => this.onSort('claude_total')">Σ</th>
 
-                            <th class="col-num col-glm" t-on-click="() => this.onSort('glm_input')">In</th>
-                            <th class="col-num col-glm" t-on-click="() => this.onSort('glm_output')">Out</th>
-                            <th class="col-num col-glm col-subtotal" t-on-click="() => this.onSort('glm_total')">Σ</th>
-
-                            <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_input')">In</th>
-                            <th class="col-num col-oneP" t-on-click="() => this.onSort('oneP_output')">Out</th>
-                            <th class="col-num col-oneP col-subtotal" t-on-click="() => this.onSort('oneP_total')">Σ</th>
-
                             <th class="col-num col-gpt" t-on-click="() => this.onSort('gpt_input')">In</th>
                             <th class="col-num col-gpt" t-on-click="() => this.onSort('gpt_output')">Out</th>
                             <th class="col-num col-gpt col-subtotal" t-on-click="() => this.onSort('gpt_total')">Σ</th>
-
-                            <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_input')">In</th>
-                            <th class="col-num col-bedrock" t-on-click="() => this.onSort('bedrock_output')">Out</th>
-                            <th class="col-num col-bedrock col-subtotal" t-on-click="() => this.onSort('bedrock_total')">Σ</th>
-
-                            <th class="col-num col-traj-qc" t-on-click="() => this.onSort('traj_qc_input')">In</th>
-                            <th class="col-num col-traj-qc" t-on-click="() => this.onSort('traj_qc_output')">Out</th>
-                            <th class="col-num col-traj-qc col-subtotal" t-on-click="() => this.onSort('traj_qc_total')">Σ</th>
-
-                            <th class="col-num col-taskdesc" t-on-click="() => this.onSort('taskdesc_input')">In</th>
-                            <th class="col-num col-taskdesc" t-on-click="() => this.onSort('taskdesc_output')">Out</th>
-                            <th class="col-num col-taskdesc col-subtotal" t-on-click="() => this.onSort('taskdesc_total')">Σ</th>
-
-                            <th class="col-num col-golden" t-on-click="() => this.onSort('golden_input')">In</th>
-                            <th class="col-num col-golden" t-on-click="() => this.onSort('golden_output')">Out</th>
-                            <th class="col-num col-golden col-subtotal" t-on-click="() => this.onSort('golden_total')">Σ</th>
 
                             <th class="col-num col-tests">Total</th>
                             <th class="col-num col-tests">Pass</th>
@@ -163,33 +101,9 @@
                                 <td class="col-num col-claude" t-out="formatNumber(row.claude_output)"/>
                                 <td class="col-num col-claude col-subtotal" t-out="formatNumber(row.claude_total)"/>
 
-                                <td class="col-num col-glm" t-out="formatNumber(row.glm_input)"/>
-                                <td class="col-num col-glm" t-out="formatNumber(row.glm_output)"/>
-                                <td class="col-num col-glm col-subtotal" t-out="formatNumber(row.glm_total)"/>
-
-                                <td class="col-num col-oneP" t-out="formatNumber(row.oneP_input)"/>
-                                <td class="col-num col-oneP" t-out="formatNumber(row.oneP_output)"/>
-                                <td class="col-num col-oneP col-subtotal" t-out="formatNumber(row.oneP_total)"/>
-
                                 <td class="col-num col-gpt" t-out="formatNumber(row.gpt_input)"/>
                                 <td class="col-num col-gpt" t-out="formatNumber(row.gpt_output)"/>
                                 <td class="col-num col-gpt col-subtotal" t-out="formatNumber(row.gpt_total)"/>
-
-                                <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_input)"/>
-                                <td class="col-num col-bedrock" t-out="formatNumber(row.bedrock_output)"/>
-                                <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(row.bedrock_total)"/>
-
-                                <td class="col-num col-traj-qc" t-out="formatNumber(row.traj_qc_input)"/>
-                                <td class="col-num col-traj-qc" t-out="formatNumber(row.traj_qc_output)"/>
-                                <td class="col-num col-traj-qc col-subtotal" t-out="formatNumber(row.traj_qc_total)"/>
-
-                                <td class="col-num col-taskdesc" t-out="formatNumber(row.taskdesc_input)"/>
-                                <td class="col-num col-taskdesc" t-out="formatNumber(row.taskdesc_output)"/>
-                                <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(row.taskdesc_total)"/>
-
-                                <td class="col-num col-golden" t-out="formatNumber(row.golden_input)"/>
-                                <td class="col-num col-golden" t-out="formatNumber(row.golden_output)"/>
-                                <td class="col-num col-golden col-subtotal" t-out="formatNumber(row.golden_total)"/>
 
                                 <td class="col-num col-tests" t-out="formatNumber(row.tests_total || 0)"/>
                                 <td class="col-num col-tests" t-out="formatNumber(row.tests_passed || 0)"/>
@@ -214,33 +128,9 @@
                                         <td class="col-num col-claude" t-out="formatNumber(task.claude_output)"/>
                                         <td class="col-num col-claude col-subtotal" t-out="formatNumber(task.claude_total)"/>
 
-                                        <td class="col-num col-glm" t-out="formatNumber(task.glm_input)"/>
-                                        <td class="col-num col-glm" t-out="formatNumber(task.glm_output)"/>
-                                        <td class="col-num col-glm col-subtotal" t-out="formatNumber(task.glm_total)"/>
-
-                                        <td class="col-num col-oneP" t-out="formatNumber(task.oneP_input)"/>
-                                        <td class="col-num col-oneP" t-out="formatNumber(task.oneP_output)"/>
-                                        <td class="col-num col-oneP col-subtotal" t-out="formatNumber(task.oneP_total)"/>
-
                                         <td class="col-num col-gpt" t-out="formatNumber(task.gpt_input)"/>
                                         <td class="col-num col-gpt" t-out="formatNumber(task.gpt_output)"/>
                                         <td class="col-num col-gpt col-subtotal" t-out="formatNumber(task.gpt_total)"/>
-
-                                        <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_input)"/>
-                                        <td class="col-num col-bedrock" t-out="formatNumber(task.bedrock_output)"/>
-                                        <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(task.bedrock_total)"/>
-
-                                        <td class="col-num col-traj-qc" t-out="formatNumber(task.traj_qc_input)"/>
-                                        <td class="col-num col-traj-qc" t-out="formatNumber(task.traj_qc_output)"/>
-                                        <td class="col-num col-traj-qc col-subtotal" t-out="formatNumber(task.traj_qc_total)"/>
-
-                                        <td class="col-num col-taskdesc" t-out="formatNumber(task.taskdesc_input)"/>
-                                        <td class="col-num col-taskdesc" t-out="formatNumber(task.taskdesc_output)"/>
-                                        <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(task.taskdesc_total)"/>
-
-                                        <td class="col-num col-golden" t-out="formatNumber(task.golden_input)"/>
-                                        <td class="col-num col-golden" t-out="formatNumber(task.golden_output)"/>
-                                        <td class="col-num col-golden col-subtotal" t-out="formatNumber(task.golden_total)"/>
 
                                         <td class="col-num col-tests" t-out="formatNumber(task.tests_total || 0)"/>
                                         <td class="col-num col-tests" t-out="formatNumber(task.tests_passed || 0)"/>
@@ -251,7 +141,7 @@
                                     <!-- Trajectory Breakdown Bars -->
                                     <t t-if="this.isTaskExpanded(task.task_id) and task.trajectories and task.trajectories.length">
                                         <tr class="o_kensei2_traj_header_row">
-                                            <td colspan="29" class="o_kensei2_traj_container">
+                                            <td colspan="11" class="o_kensei2_traj_container">
                                                 <div class="o_kensei2_traj_breakdown">
                                                     <!-- Left: Trajectory Bars -->
                                                     <div class="o_kensei2_traj_bars">
@@ -338,33 +228,9 @@
                             <td class="col-num col-claude" t-out="formatNumber(state.totals.claude_output)"/>
                             <td class="col-num col-claude col-subtotal" t-out="formatNumber(state.totals.claude_total)"/>
 
-                            <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_input)"/>
-                            <td class="col-num col-glm" t-out="formatNumber(state.totals.glm_output)"/>
-                            <td class="col-num col-glm col-subtotal" t-out="formatNumber(state.totals.glm_total)"/>
-
-                            <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_input)"/>
-                            <td class="col-num col-oneP" t-out="formatNumber(state.totals.oneP_output)"/>
-                            <td class="col-num col-oneP col-subtotal" t-out="formatNumber(state.totals.oneP_total)"/>
-
                             <td class="col-num col-gpt" t-out="formatNumber(state.totals.gpt_input)"/>
                             <td class="col-num col-gpt" t-out="formatNumber(state.totals.gpt_output)"/>
                             <td class="col-num col-gpt col-subtotal" t-out="formatNumber(state.totals.gpt_total)"/>
-
-                            <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_input)"/>
-                            <td class="col-num col-bedrock" t-out="formatNumber(state.totals.bedrock_output)"/>
-                            <td class="col-num col-bedrock col-subtotal" t-out="formatNumber(state.totals.bedrock_total)"/>
-
-                            <td class="col-num col-traj-qc" t-out="formatNumber(state.totals.traj_qc_input)"/>
-                            <td class="col-num col-traj-qc" t-out="formatNumber(state.totals.traj_qc_output)"/>
-                            <td class="col-num col-traj-qc col-subtotal" t-out="formatNumber(state.totals.traj_qc_total)"/>
-
-                            <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.taskdesc_input)"/>
-                            <td class="col-num col-taskdesc" t-out="formatNumber(state.totals.taskdesc_output)"/>
-                            <td class="col-num col-taskdesc col-subtotal" t-out="formatNumber(state.totals.taskdesc_total)"/>
-
-                            <td class="col-num col-golden" t-out="formatNumber(state.totals.golden_input)"/>
-                            <td class="col-num col-golden" t-out="formatNumber(state.totals.golden_output)"/>
-                            <td class="col-num col-golden col-subtotal" t-out="formatNumber(state.totals.golden_total)"/>
 
                             <td class="col-num col-tests" t-out="formatNumber(state.totals.tests_total || 0)"/>
                             <td class="col-num col-tests" t-out="formatNumber(state.totals.tests_passed || 0)"/>

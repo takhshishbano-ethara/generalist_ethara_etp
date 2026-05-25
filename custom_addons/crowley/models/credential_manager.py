@@ -14,6 +14,7 @@ ENCRYPTED_PARAMS = frozenset({
     "crowley.openrouter_api_key",
     "crowley.aws_access_key",
     "crowley.aws_secret_key",
+    "crowley.bedrock_api_key",
     "crowley.webhook_secret",
 })
 
@@ -237,3 +238,11 @@ def get_webhook_secret(env):
 
 def get_webhook_secret_raw(cr):
     return get_encrypted_param_raw(cr, "crowley.webhook_secret")
+
+
+def get_bedrock_api_key(env):
+    return get_encrypted_param(env, "crowley.bedrock_api_key")
+
+
+def get_bedrock_api_key_raw(cr):
+    return get_encrypted_param_raw(cr, "crowley.bedrock_api_key")

@@ -4,6 +4,8 @@ import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { standardWidgetProps } from "@web/views/widgets/standard_widget_props";
 import { GogAuthDialog } from "../components/gog_auth_dialog/gog_auth_dialog";
+import { SelectivePromptDialog } from "../components/selective_prompt_dialog/selective_prompt_dialog";
+import { Kensei2ChatWidget } from "../chat_widget/chat_widget";
 import { rpc } from "@web/core/network/rpc";
 
 const BATCH_MODELS = [
@@ -53,7 +55,7 @@ const EXT_MIME_MAP = {
 
 export class TaskDashboard extends Component {
     static template = "kensei2.TaskDashboard";
-    static components = { GogAuthDialog };
+    static components = { GogAuthDialog, SelectivePromptDialog, Kensei2ChatWidget };
     static props = { ...standardWidgetProps };
 
     setup() {
@@ -81,6 +83,9 @@ export class TaskDashboard extends Component {
             testWeightsError: "",
             activeTrajectoryTab: "claude",
             pendingPodActions: {},
+            selectedSandboxId: null,
+            harborExporting: false,
+            showSelectivePrompt: false,
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -146,6 +151,14 @@ export class TaskDashboard extends Component {
     async _handleSandboxStatusChanged(_payload) {
         await this._loadSandboxes();
         await this.props.record.load();
+        if (this.state.selectedSandboxId) {
+            const sb = this.state.sandboxes.find(
+                (s) => s.id === this.state.selectedSandboxId
+            );
+            if (!sb || sb.docker_status === "stopped") {
+                this.state.selectedSandboxId = null;
+            }
+        }
     }
 
     get taskId() {
@@ -179,6 +192,21 @@ export class TaskDashboard extends Component {
 
     get canSendPrompt() {
         return this.batchStatus === "ready" && !this.state.batchStarting;
+    }
+
+    get canSendSelectivePrompt() {
+        return this.taskId && this.runningCount > 0;
+    }
+
+    get selectivePromptPods() {
+        return this.state.sandboxes
+            .filter((sb) => sb.docker_status === "running")
+            .map((sb) => ({
+                id: sb.id,
+                modelLabel: this.podModelLabel(sb),
+                sessionLabel: this.podSessionLabel(sb),
+                color: (BATCH_MODELS.find((m) => m.type === sb.model_type) || {}).color || "#94a3b8",
+            }));
     }
 
     get canStopBatch() {
@@ -462,6 +490,44 @@ export class TaskDashboard extends Component {
         }
     }
 
+    onOpenSelectivePrompt() {
+        if (!this.canSendSelectivePrompt) {
+            this.notification.add("No running pods to send a prompt to.", { type: "warning" });
+            return;
+        }
+        this.state.showSelectivePrompt = true;
+    }
+
+    onCloseSelectivePrompt() {
+        this.state.showSelectivePrompt = false;
+    }
+
+    async onSendSelectivePrompt({ prompt, sandboxIds }) {
+        if (!sandboxIds || sandboxIds.length === 0) {
+            this.notification.add("Select at least one pod.", { type: "warning" });
+            return;
+        }
+        if (!prompt && !this.hasAttachments) {
+            this.notification.add("Enter a prompt or attach files.", { type: "warning" });
+            return;
+        }
+        let attachmentIds = [];
+        if (this.hasAttachments) {
+            attachmentIds = await this._uploadAttachments();
+        }
+        await this.orm.call(
+            "kensei2.kensei2", "action_send_selective_prompt",
+            [[this.taskId], prompt || "", sandboxIds, attachmentIds],
+        );
+        this.state.pendingAttachments = [];
+        this.state.showSelectivePrompt = false;
+        await this._loadSandboxes();
+        this.notification.add(
+            `Prompt sent to ${sandboxIds.length} pod(s).`,
+            { type: "success" },
+        );
+    }
+
     async onStopBatch() {
         if (!this.canStopBatch) return;
 
@@ -481,6 +547,29 @@ export class TaskDashboard extends Component {
             const msg = e.data?.message || e.message || "Failed to stop batch";
             this.notification.add(msg, { type: "danger" });
         }
+    }
+
+    get canExportHarbor() {
+        return this.taskId && (this.batchStatus === "done" || this.batchStatus === "error");
+    }
+
+    async onExportToHarbor() {
+        if (!this.canExportHarbor) return;
+        this.state.harborExporting = true;
+        try {
+            await this.orm.call("kensei2.kensei2", "action_export_to_harbor", [[this.taskId]]);
+            this.notification.add("Harbor export started. Files will be uploaded to S3.", { type: "info" });
+        } catch (e) {
+            const msg = e.data?.message || e.message || "Export failed";
+            this.notification.add(msg, { type: "danger" });
+        } finally {
+            this.state.harborExporting = false;
+        }
+    }
+
+    onDownloadHarbor() {
+        if (!this.taskId) return;
+        window.open(`/kensei2/harbor/download/${this.taskId}`, "_blank");
     }
 
     podStatusClass(sandbox) {
@@ -549,6 +638,33 @@ export class TaskDashboard extends Component {
     podRetryLabel(sandbox) {
         const ds = sandbox.docker_status || "stopped";
         return ds === "error" ? "Retry" : "Start";
+    }
+
+    get selectedSandbox() {
+        if (!this.state.selectedSandboxId) return null;
+        return this.state.sandboxes.find(
+            (sb) => sb.id === this.state.selectedSandboxId
+        ) || null;
+    }
+
+    isSelectedSandbox(sandbox) {
+        return sandbox.id === this.state.selectedSandboxId;
+    }
+
+    onSelectSandbox(sandbox) {
+        if (this.state.selectedSandboxId === sandbox.id) {
+            this.state.selectedSandboxId = null;
+            return;
+        }
+        const ds = sandbox.docker_status || "stopped";
+        if (ds !== "running" && ds !== "starting") {
+            return;
+        }
+        this.state.selectedSandboxId = sandbox.id;
+    }
+
+    onCloseChatPanel() {
+        this.state.selectedSandboxId = null;
     }
 
     async onRetryPod(sandbox) {

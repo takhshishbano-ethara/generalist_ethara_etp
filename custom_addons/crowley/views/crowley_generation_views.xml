@@ -215,7 +215,7 @@
                                         <field name="unverifiable_count" sum="UNV" optional="hide"/>
                                         <field name="num_frames" optional="hide"/>
                                         <field name="tokens_used" sum="Tokens" optional="show"/>
-                                        <field name="model_id" optional="hide"/>
+                                        <field name="model_id_display" optional="hide" string="Model"/>
                                         <field name="completed_at" optional="show"/>
                                         <field name="regenerate_recommended" optional="show"/>
                                         <field name="rebuilder_hint" optional="show"/>
@@ -228,7 +228,7 @@
                                                     <field name="state" widget="badge" readonly="1"/>
                                                     <field name="verdict" widget="badge" readonly="1"/>
                                                     <field name="passed" readonly="1"/>
-                                                    <field name="model_id" readonly="1"/>
+                                                    <field name="model_id_display" readonly="1" string="Model"/>
                                                     <field name="region" readonly="1"/>
                                                     <field name="num_frames" readonly="1"/>
                                                 </group>
@@ -280,8 +280,6 @@
                                                decoration-warning="state == 'warned'"
                                                decoration-danger="state in ('fatal','error')"
                                                decoration-info="state in ('queued','submitting','validating')"/>
-                                        <field name="model_id" optional="show"/>
-                                        <field name="region" optional="hide"/>
                                         <field name="word_count" optional="show"/>
                                         <field name="tokens_used" optional="show" sum="Tokens"/>
                                         <field name="submitted_at" optional="show"/>
@@ -294,8 +292,6 @@
                                                 <group>
                                                     <field name="attempt_number" readonly="1"/>
                                                     <field name="state" widget="badge" readonly="1"/>
-                                                    <field name="model_id" readonly="1"/>
-                                                    <field name="region" readonly="1"/>
                                                 </group>
                                                 <group>
                                                     <field name="word_count" readonly="1"/>

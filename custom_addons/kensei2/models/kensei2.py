@@ -1157,6 +1157,19 @@ class Kensei2(models.Model):
     )
     task_description_error = fields.Text(string="Task Description Error")
 
+    test_code = fields.Text(string="Task Test Code (Generated)")
+    test_code_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Test Code Status",
+        default="idle",
+    )
+    test_code_error = fields.Text(string="Test Code Error")
+
     test_weights = fields.Text(string="Test Weights (JSON)")
     test_weights_status = fields.Selection(
         [
@@ -1527,6 +1540,59 @@ class Kensei2(models.Model):
             self.id, len(sandbox_ids), len(prompt), len(att_ids),
         )
         return True
+
+    def action_send_selective_prompt(self, prompt, sandbox_ids, attachment_ids=None):
+        """Send a prompt to a user-selected subset of running pods.
+
+        Unlike :meth:`action_send_batch_prompt`, this is permitted in any
+        batch_status as long as the chosen pods are currently running. It
+        does not flip *batch_status* or stop pods afterwards — it's intended
+        for re-sending to surviving pods when one has died mid-batch.
+        """
+        self.ensure_one()
+        prompt = (prompt or "").strip()
+        attachment_ids = attachment_ids or []
+        if not prompt and not attachment_ids:
+            raise UserError("A prompt or attachments are required.")
+        if not sandbox_ids:
+            raise UserError("Select at least one pod to send the prompt to.")
+
+        requested = set(int(sid) for sid in sandbox_ids)
+        eligible = self.sandbox_ids.filtered(
+            lambda s: s.id in requested and s.docker_status == "running"
+        )
+        if not eligible:
+            raise UserError(
+                "None of the selected pods are currently running."
+            )
+
+        skipped = requested - set(eligible.ids)
+        eligible_ids = eligible.ids
+
+        task_id = self.id
+        db_name = self.env.cr.dbname
+        notify_partner_id = self.env.user.partner_id.id
+        att_ids = list(attachment_ids) if attachment_ids else []
+
+        from .kensei2_sandbox import _BATCH_POOL, _run_selective_prompt_background
+
+        @self.env.cr.postcommit.add
+        def _queue_selective_prompt():
+            _BATCH_POOL.submit(
+                _run_selective_prompt_background,
+                db_name,
+                task_id,
+                eligible_ids,
+                prompt,
+                notify_partner_id,
+                att_ids,
+            )
+
+        _logger.info(
+            "Selective prompt queued: task=%s sandboxes=%d skipped=%d prompt_len=%d attachments=%d",
+            self.id, len(eligible_ids), len(skipped), len(prompt), len(att_ids),
+        )
+        return {"sent_to": eligible_ids, "skipped": sorted(skipped)}
 
     def action_stop_batch(self):
         self.ensure_one()
@@ -3193,6 +3259,111 @@ class Kensei2(models.Model):
     @api.model
     def _cron_reconcile_sandboxes(self):
         self.env["kensei2.sandbox"]._cron_reconcile()
+        self._reconcile_batch_status()
+
+    @api.model
+    def _reconcile_batch_status(self):
+        # ── Phase 1: starting → ready ────────────────────────────────
+        tasks = self.sudo().search([("batch_status", "=", "starting")])
+        for task in tasks:
+            sandboxes = task.sandbox_ids
+            if not sandboxes:
+                continue
+            still_starting = sandboxes.filtered(
+                lambda s: s.docker_status == "starting"
+            )
+            if still_starting:
+                continue
+            running = sandboxes.filtered(lambda s: s.docker_status == "running")
+            if running:
+                task.write({"batch_status": "ready"})
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s → ready (%d running, %d total)",
+                    task.id, len(running), len(sandboxes),
+                )
+            else:
+                task.write({
+                    "batch_status": "error",
+                    "batch_error": "All sandboxes failed to deploy.",
+                    "batch_completed_at": fields.Datetime.now(),
+                })
+                _logger.warning(
+                    "[BATCH-RECONCILE] task=%s → error (0 running, %d total)",
+                    task.id, len(sandboxes),
+                )
+
+        # ── Phase 2: running → stopping / done ───────────────────────
+        # A sandbox is "still working" if docker_status == running AND
+        # session_status != completed.  Once every sandbox has finished
+        # its prompt (completed / error / stopped), the batch is done.
+        for task in self.sudo().search([("batch_status", "=", "running")]):
+            sandboxes = task.sandbox_ids
+            if not sandboxes:
+                continue
+            still_working = sandboxes.filtered(
+                lambda s: s.docker_status == "running"
+                and s.session_status != "completed"
+            )
+            if still_working:
+                continue
+            all_stopped = all(
+                s.docker_status in ("stopped", "error") for s in sandboxes
+            )
+            completed = sandboxes.filtered(
+                lambda s: s.session_status == "completed"
+            )
+            failed = sandboxes.filtered(
+                lambda s: s.docker_status == "error"
+            )
+            if all_stopped:
+                final = "done" if completed else "error"
+                vals = {
+                    "batch_status": final,
+                    "batch_completed_at": fields.Datetime.now(),
+                }
+                if failed:
+                    vals["batch_error"] = "%d sandbox(es) failed." % len(failed)
+                task.write(vals)
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s → %s (%d completed, %d failed, %d total)",
+                    task.id, final, len(completed), len(failed), len(sandboxes),
+                )
+            else:
+                # Prompt work done but pods still alive → trigger stop
+                task.write({"batch_status": "stopping"})
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s → stopping (prompt done, pods still alive)",
+                    task.id,
+                )
+
+        # ── Phase 3: stopping → done ─────────────────────────────────
+        for task in self.sudo().search([("batch_status", "=", "stopping")]):
+            sandboxes = task.sandbox_ids
+            if not sandboxes:
+                continue
+            still_alive = sandboxes.filtered(
+                lambda s: s.docker_status in ("starting", "running")
+            )
+            if still_alive:
+                continue
+            completed = sandboxes.filtered(
+                lambda s: s.session_status == "completed"
+            )
+            failed = sandboxes.filtered(
+                lambda s: s.docker_status == "error"
+            )
+            final = "done" if completed else "error"
+            vals = {
+                "batch_status": final,
+                "batch_completed_at": fields.Datetime.now(),
+            }
+            if failed:
+                vals["batch_error"] = "%d sandbox(es) failed." % len(failed)
+            task.write(vals)
+            _logger.info(
+                "[BATCH-RECONCILE] task=%s → %s (%d completed, %d failed, %d total)",
+                task.id, final, len(completed), len(failed), len(sandboxes),
+            )
 
     # ── Auto-process (RabbitMQ batch processing) ──────────────────────
 

@@ -1,6 +1,6 @@
 {
     "name": "Kensei 2.0",
-    "version": "19.0.1.1.0",
+    "version": "19.0.1.2.0",
     "category": "Tools",
     "summary": "Kensei2 — LLM task management with sandbox environments and file attachments",
     "description": """
@@ -50,6 +50,9 @@
             "kensei2/static/src/components/gog_auth_dialog/gog_auth_dialog.js",
             "kensei2/static/src/components/gog_auth_dialog/gog_auth_dialog.xml",
             "kensei2/static/src/components/gog_auth_dialog/gog_auth_dialog.scss",
+            "kensei2/static/src/components/selective_prompt_dialog/selective_prompt_dialog.js",
+            "kensei2/static/src/components/selective_prompt_dialog/selective_prompt_dialog.xml",
+            "kensei2/static/src/components/selective_prompt_dialog/selective_prompt_dialog.scss",
             "kensei2/static/src/components/sandbox_card/sandbox_card.js",
             "kensei2/static/src/components/sandbox_card/sandbox_card.xml",
             "kensei2/static/src/components/sandbox_card/sandbox_card.scss",

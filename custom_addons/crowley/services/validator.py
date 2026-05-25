@@ -4,11 +4,13 @@ import importlib.util
 import json
 import logging
 import os
+import sys
 
 _logger = logging.getLogger(__name__)
 
 _MODULE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _VALIDATOR_PATH = os.path.join(_MODULE_ROOT, "t2av_validator.py")
+_VALIDATOR_MODULE_NAME = "_crowley_t2av_validator"
 
 _validator_module = None
 
@@ -18,13 +20,14 @@ def _get_validator():
     if _validator_module is not None:
         return _validator_module
     spec = importlib.util.spec_from_file_location(
-        "_crowley_t2av_validator", _VALIDATOR_PATH
+        _VALIDATOR_MODULE_NAME, _VALIDATOR_PATH
     )
     if spec is None or spec.loader is None:
         raise RuntimeError(
             f"Could not load t2av_validator from {_VALIDATOR_PATH}"
         )
     mod = importlib.util.module_from_spec(spec)
+    sys.modules[_VALIDATOR_MODULE_NAME] = mod
     spec.loader.exec_module(mod)
     _validator_module = mod
     return mod

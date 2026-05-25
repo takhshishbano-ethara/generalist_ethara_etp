@@ -1,6 +1,6 @@
 {
     "name": "Crowley - Video Generation",
-    "version": "19.0.1.9.0",
+    "version": "19.0.1.13.0",
     "category": "Tools",
     "summary": "Generate videos from prompts via OpenRouter Seedance 2.0",
     "author": "Ethara",

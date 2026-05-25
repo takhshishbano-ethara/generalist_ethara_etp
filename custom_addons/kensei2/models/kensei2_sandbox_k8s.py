@@ -198,16 +198,20 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
     if not litellm_key:
         litellm_key = "sk-kensei2-%s" % secrets.token_hex(8)
 
-    _base_path = ""
-    _public_ws_url = ""
-    if sandbox_id and ws_router_host and "/" in ws_router_host:
-        _hostname, _path_part = ws_router_host.split("/", 1)
-        _prefix = "/" + _path_part.strip("/")
-        _base_path = "%s/sandbox/%s" % (_prefix, sandbox_id)
-        _public_ws_url = "wss://%s%s/sandbox/%s/" % (_hostname, _prefix, sandbox_id)
-    elif sandbox_id and ws_router_host:
-        _base_path = "/sandbox/%s" % sandbox_id
-        _public_ws_url = "wss://%s/sandbox/%s/" % (ws_router_host, sandbox_id)
+    # NOTE on controlUi below: it intentionally has neither "publicWsUrl"
+    # nor "basePath".
+    #   - "publicWsUrl" is NOT in the OpenClaw config schema. The schema is
+    #     validated in strict mode, so one unknown key rejects the whole
+    #     config and crash-loops the gateway pod (this was the "Pod crash
+    #     fix"). Never add it back.
+    #   - "basePath" tells the gateway it is served under a URL prefix. But
+    #     WS_ROUTER_NGINX_CONF strips "/sandbox/<id>" before the request
+    #     reaches the gateway, so the gateway already serves at "/". Setting
+    #     basePath here would make it serve the Control UI under a prefix
+    #     nginx never delivers -> 404. Do not add it without first verifying
+    #     against the ws-router routing.
+    # The dashboard "Could not connect (1006)" error is the Control UI
+    # dialing the wrong WS URL client-side, not a gateway config problem.
 
     config_dict = {
         "gateway": {

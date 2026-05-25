@@ -46,8 +46,17 @@ def run_qc(
         dict with: verdict, report, issues_critical, issues_high,
                    issues_medium, issues_low
     """
+    _logger.info(
+        "[vegeta] QC start: url=%s category=%s prd=%dB screenshots=%d",
+        url, category, len(prd_text or ""), len(screenshot_blocks or []),
+    )
+
     # Phase 1: Fast structural checks (no LLM)
     structural_issues = _run_structural_checks(prd_text, category)
+    _logger.info(
+        "[vegeta] QC structural checks done: %d issue(s) — calling "
+        "Bedrock for the LLM alignment review", len(structural_issues),
+    )
 
     # Phase 2: LLM alignment review (PRD vs extraction data)
     llm_result = _run_llm_alignment_check(
@@ -93,6 +102,12 @@ def run_qc(
         sev = issue["severity"]
         if sev in counts:
             counts[sev] += 1
+
+    _logger.info(
+        "[vegeta] QC verdict=%s — issues critical=%d high=%d medium=%d "
+        "low=%d", verdict, counts["critical"], counts["high"],
+        counts["medium"], counts["low"],
+    )
 
     return {
         "verdict": verdict,

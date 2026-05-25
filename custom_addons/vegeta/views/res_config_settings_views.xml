@@ -70,6 +70,10 @@
                                     <label for="vegeta_bedrock_region" class="col-lg-3 o_light_label"/>
                                     <field name="vegeta_bedrock_region" class="oe_inline"/>
                                 </div>
+                                <div class="row mt16">
+                                    <label for="vegeta_max_llm_attempts" class="col-lg-3 o_light_label"/>
+                                    <field name="vegeta_max_llm_attempts" class="oe_inline"/>
+                                </div>
                             </div>
                         </setting>
                         <setting string="Bedrock AWS Credentials">

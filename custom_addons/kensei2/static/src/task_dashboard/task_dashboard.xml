@@ -13,6 +13,18 @@
                     </span>
                 </div>
                 <div class="ms-auto d-flex align-items-center gap-2">
+                    <button t-attf-class="o_kensei2_btn_ghost #{!this.canSendSelectivePrompt ? 'disabled' : ''}"
+                            t-on-click="onOpenSelectivePrompt"
+                            t-att-disabled="!this.canSendSelectivePrompt ? 'disabled' : undefined"
+                            title="Send a prompt to selected running pods">
+                        <i class="fa fa-paper-plane"/>
+                        <span>Send to Pods</span>
+                        <t t-if="this.runningCount > 0">
+                            <span class="badge text-bg-primary ms-1">
+                                <t t-out="this.runningCount"/>
+                            </span>
+                        </t>
+                    </button>
                     <t t-if="state.gogAuthDone">
                         <span class="o_kensei2_auth_badge o_kensei2_auth_badge_success">
                             <i class="fa fa-check-circle"/>
@@ -130,6 +142,24 @@
                                     <i class="fa fa-stop me-1"/>Stop Batch
                                 </t>
                             </button>
+                            <t t-if="this.canExportHarbor">
+                                <button class="o_kensei2_btn_batch_harbor"
+                                        t-on-click="onExportToHarbor"
+                                        t-att-disabled="state.harborExporting"
+                                        title="Export task to Harbor format in S3">
+                                    <t t-if="state.harborExporting">
+                                        <i class="fa fa-spinner fa-spin me-1"/>Exporting...
+                                    </t>
+                                    <t t-else="">
+                                        <i class="fa fa-cloud-upload me-1"/>Export Harbor
+                                    </t>
+                                </button>
+                                <button class="o_kensei2_btn_batch_harbor_dl"
+                                        t-on-click="onDownloadHarbor"
+                                        title="Download Harbor bundle as zip">
+                                    <i class="fa fa-download me-1"/>Download
+                                </button>
+                            </t>
                         </div>
                     </div>
                 </div>
@@ -177,8 +207,9 @@
                                 </div>
                                 <div class="o_kensei2_pod_grid">
                                     <t t-foreach="this.sandboxesByModel[model.type] || []" t-as="sb" t-key="sb.id">
-                                        <div t-attf-class="o_kensei2_pod_cell o_kensei2_pod_#{this.podStatusClass(sb)}"
-                                             t-att-title="this.podTooltip(sb)">
+                                        <div t-attf-class="o_kensei2_pod_cell o_kensei2_pod_#{this.podStatusClass(sb)} #{this.isSelectedSandbox(sb) ? 'o_kensei2_pod_selected' : ''} #{sb.docker_status === 'running' or sb.docker_status === 'starting' ? 'o_kensei2_pod_clickable' : ''}"
+                                             t-att-title="this.podTooltip(sb)"
+                                             t-on-click="() => this.onSelectSandbox(sb)">
                                             <div class="o_kensei2_pod_cell_main">
                                                 <i t-attf-class="fa #{this.podStatusIcon(sb)}"/>
                                                 <span class="o_kensei2_pod_label" t-out="this.podSessionLabel(sb)"/>
@@ -207,6 +238,36 @@
                                             </t>
                                         </div>
                                     </t>
+                                </div>
+                            </div>
+                        </t>
+
+                        <t t-if="this.selectedSandbox">
+                            <div class="o_kensei2_chat_panel">
+                                <div class="o_kensei2_chat_panel_header">
+                                    <div class="o_kensei2_chat_panel_title">
+                                        <i class="fa fa-comments me-2"/>
+                                        <span t-out="this.podModelLabel(this.selectedSandbox)"/>
+                                        <span class="o_kensei2_chat_panel_session">
+                                            <t t-out="this.podSessionLabel(this.selectedSandbox)"/>
+                                        </span>
+                                        <span t-attf-class="o_kensei2_chat_panel_status o_kensei2_chat_panel_status_#{this.selectedSandbox.docker_status}">
+                                            <t t-out="this.selectedSandbox.docker_status"/>
+                                        </span>
+                                    </div>
+                                    <button class="o_kensei2_chat_panel_close"
+                                            t-on-click="onCloseChatPanel"
+                                            title="Close chat panel">
+                                        <i class="fa fa-times"/>
+                                    </button>
+                                </div>
+                                <div class="o_kensei2_chat_panel_body">
+                                    <Kensei2ChatWidget
+                                        sandboxId="this.selectedSandbox.id"
+                                        dockerStatus="this.selectedSandbox.docker_status || 'stopped'"
+                                        dockerWsUrl="this.selectedSandbox.docker_ws_url || false"
+                                        gatewayToken="this.selectedSandbox.docker_gateway_token || false"
+                                        modelType="this.selectedSandbox.model_type || ''"/>
                                 </div>
                             </div>
                         </t>
@@ -529,6 +590,13 @@
                 email="this.taskEmail || ''"
                 onClose.bind="onGogAuthClose"
                 onSuccess.bind="onGogAuthSuccess"/>
+
+            <SelectivePromptDialog t-if="state.showSelectivePrompt"
+                pods="this.selectivePromptPods"
+                initialPrompt="state.batchPrompt"
+                attachmentCount="state.pendingAttachments.length"
+                onClose.bind="onCloseSelectivePrompt"
+                onSend.bind="onSendSelectivePrompt"/>
 
             <div class="o_kensei2_rubrics_section">
                 <div class="o_kensei2_rubrics_header">

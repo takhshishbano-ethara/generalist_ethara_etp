@@ -1,4 +1,4 @@
-name: vegeta-local
+noname: vegeta-local
 
 services:
   vegeta-lambda:

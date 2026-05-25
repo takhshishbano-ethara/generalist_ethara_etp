@@ -65,6 +65,14 @@
                             </setting>
                         </block>
                         <block title="Bedrock Enrichment" name="crowley_bedrock_block">
+                            <setting string="Bedrock API Key (preferred)"
+                                     help="AWS Bedrock API Key (starts with ABSK...). Single-key auth, no AWS Access Key + Secret Key required. When set, this is used INSTEAD of AWS Credentials for all Bedrock calls (enrichment + optional Bedrock-backed review).">
+                                <field name="crowley_bedrock_api_key_is_set" invisible="1"/>
+                                <field name="crowley_bedrock_api_key" password="True"/>
+                                <div class="text-success mt8" invisible="not crowley_bedrock_api_key_is_set">
+                                    <i class="fa fa-check"/> Bedrock API key configured (used instead of AWS Access/Secret)
+                                </div>
+                            </setting>
                             <setting string="Bedrock AWS Region"
                                      help="AWS region for the Bedrock Converse API used by prompt enrichment. Defaults to ap-south-1.">
                                 <field name="crowley_bedrock_region"/>
@@ -80,10 +88,6 @@
                             <setting string="Review Model ID (OpenRouter)"
                                      help="OpenRouter model slug when Review Provider is OpenRouter. Default: moonshotai/kimi-k2-0905 (Kimi K2.5).">
                                 <field name="crowley_openrouter_review_model_id"/>
-                            </setting>
-                            <setting string="Review Model ID (Bedrock)"
-                                     help="Bedrock modelId when Review Provider is Bedrock. Must be vision-capable.">
-                                <field name="crowley_bedrock_review_model_id"/>
                             </setting>
                             <setting string="Bedrock Max Retries"
                                      help="Per-call retry attempts on transient Bedrock errors (throttling, 5xx).">

@@ -83,6 +83,10 @@ class ResConfigSettings(models.TransientModel):
         string="Bedrock Secret Access Key",
         config_parameter="vegeta.bedrock_secret_access_key",
     )
+    vegeta_max_llm_attempts = fields.Integer(
+        string="Max LLM Attempts",
+        config_parameter="vegeta.max_llm_attempts",
+    )
 
     # -- S3 --
     vegeta_s3_bucket = fields.Char(
@@ -144,6 +148,7 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
+    @api.depends("vegeta_prd_prompt_filename", "vegeta_qc_prompt_filename")
     def _compute_vegeta_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = ICP.get_param("vegeta.prd_system_prompt", "")
