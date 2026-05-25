@@ -99,15 +99,19 @@ The 10 mock APIs return data in **6 different patterns**. You MUST correctly nav
 **Used by:** Etsy, Pinterest, Ring, MyFitnessPal, Linear
 
 ```python
-# GET single entity
+# GET single entity — verify structure, not guessed values
 response = api_get(ETSY_API_URL, f"/shops/{shop_id}/listings/{listing_id}")
 listing = response["listing"]
-assert listing["title"] == "Expected Title", "listing title mismatch"
+assert isinstance(listing.get("title"), str) and len(listing["title"]) > 0, "listing has no title"
 
-# LIST entities
+# LIST entities — verify count and structure
 response = api_get(ETSY_API_URL, f"/shops/{shop_id}/listings")
 listings = response["results"]
-assert any(l["title"] == "Expected" for l in listings), "expected listing not found"
+assert len(listings) >= 1, "no listings returned"
+
+# Assert exact values ONLY when the task instruction specifies them:
+# e.g., if task says "create listing titled 'Summer Sale'"
+assert any(l.get("title", "").lower() == "summer sale" for l in listings), "expected listing not found"
 ```
 
 Etsy paths: Listings require shop_id: `/shops/{shop_id}/listings` — NOT just `/listings`.
@@ -142,7 +146,7 @@ QuickBooks: All endpoints start with `/v3/company/{realm_id}/`. Use `1234` as de
 response = api_get(YOUTUBE_API_URL, f"/videos/{video_id}")
 assert len(response.get("items", [])) > 0, "no video returned"
 video = response["items"][0]
-assert video["snippet"]["title"] == "Expected Title", "title mismatch"
+assert isinstance(video["snippet"].get("title"), str), "video has no title"
 ```
 
 YouTube: Even single results wrapped in `items: [obj]`. Titles at `["snippet"]["title"]`, stats at `["statistics"]["viewCount"]`.
@@ -152,7 +156,7 @@ YouTube: Even single results wrapped in `items: [obj]`. Titles at `["snippet"]["
 
 ```python
 response = api_get(INSTAGRAM_API_URL, f"/media/{media_id}")
-assert response["caption"] == "Expected caption", "caption mismatch"
+assert "caption" in response, "media has no caption field"
 ```
 
 Instagram: NO wrapper. User endpoints use `/{user_id}/media`, NOT `/me/media`.
@@ -278,17 +282,62 @@ class TestBehavioralListingData:
         assert "expected title" in body.get("title", "").lower(), "title mismatch"
 ```
 
-### Step 3: Field Classification
+### Step 3: Field Classification (Robust Assertion Strategy)
 
 | Field Type | Action | Example |
 |---|---|---|
-| IDs (user-specified) | Assert exact match | `sku`, `listing_id`, `customer_name` |
-| IDs (system-generated) | Assert existence + type | `assert isinstance(obj["id"], str)` |
+| IDs (user-specified in task) | Assert exact match ONLY if the value appears in the task instruction | `assert obj["sku"] == "ABC123"` (only if task says "SKU ABC123") |
+| IDs (system-generated) | Assert existence + type | `assert isinstance(obj["id"], str) and len(obj["id"]) > 0` |
 | Timestamps | Assert existence only | `assert "created_at" in obj` |
 | Status enums | Assert exact match | `assert obj["status"] == "ACCEPTED"` |
-| Numeric values | Assert exact match | `assert obj["price"] == 29.99` |
+| Numeric values from API | Assert type + range, NOT exact value | `assert isinstance(obj["price"], (int, float)) and obj["price"] > 0` |
+| Numeric values from task | Assert exact match ONLY if stated in task | `assert obj["quantity"] == 5` (only if task says "set quantity to 5") |
 | Free-text fields | Keyword/substring on `.lower()` | `assert "keyword" in msg["text"].lower()` |
 | Boolean flags | Assert exact match | `assert obj["is_active"] is True` |
+| Collection sizes | Assert non-empty or minimum count | `assert len(items) >= 1, "expected at least 1 item"` |
+
+**CRITICAL: Never assert exact values that you are GUESSING.** If the task instruction says "set price to 29.99", then `assert obj["price"] == 29.99` is correct. If you are reading a pre-existing entity from the mock API and don't know its price, use `assert isinstance(obj["price"], (int, float)) and obj["price"] > 0` instead. Hallucinated exact values cause 100% test failure.
+
+### Robust Assertion Patterns (MANDATORY)
+
+**When to assert exact values:**
+- Values explicitly stated in the task instruction (prices, quantities, names the agent must SET)
+- Status codes (200, 404, etc.)
+- Boolean flags
+- Status enums when the task specifies the expected state
+- Entity IDs/SKUs that appear in the task description
+- Values from the "Mock Data Snapshot" section (if provided)
+
+**When to use structural/type assertions instead of exact values:**
+- Pre-existing entity properties you haven't seen (prices, names, counts, descriptions)
+- System-generated IDs, timestamps, UUIDs
+- Collection sizes from list endpoints (use `>= 1` not `== 42`)
+- Response body text content (use substring checks)
+
+**Patterns for reading pre-existing data (agent GETS an entity):**
+```python
+# WRONG — guessing the name will fail
+response = api_get(ETSY_API_URL, f"/shops/{shop_id}/listings/{listing_id}")
+listing = response["listing"]
+assert listing["title"] == "Vintage Lamp"  # ← WILL FAIL, hallucinated value
+
+# RIGHT — verify structure and type, not guessed values
+response = api_get(ETSY_API_URL, f"/shops/{shop_id}/listings/{listing_id}")
+listing = response["listing"]
+assert isinstance(listing.get("title"), str) and len(listing["title"]) > 0, "listing has no title"
+assert isinstance(listing.get("price"), (int, float)) and listing["price"] > 0, "invalid price"
+```
+
+**Patterns for verifying agent WRITES (agent CREATES/UPDATES an entity):**
+```python
+# RIGHT — the task instruction says "create a listing titled 'Summer Sale'"
+audit = api_get(ETSY_API_URL, "/audit/requests")
+create_reqs = [r for r in audit.get("requests", [])
+               if r["method"] == "POST" and "/listings" in r["path"]]
+assert create_reqs, "no listing creation requests found"
+body = json.loads(create_reqs[0]["request_body"])
+assert "summer sale" in body.get("title", "").lower(), "title doesn't match task requirement"
+```
 
 ### Step 4: Negative Tests (Convention B)
 
@@ -543,3 +592,5 @@ Return ONLY a single JSON object with two keys, wrapped in a ```json fence:
 - [ ] No lazy single-word substring assertions on common words ("data", "value", "the", "row")
 - [ ] Method names unique across all classes; one weight entry per method
 - [ ] Source code parses with `ast.parse()` (no syntax errors)
+- [ ] No more than 3 assertions compare API response fields to exact string/float/int literals — use type/range/presence checks for pre-existing data
+- [ ] Exact value assertions used ONLY for values explicitly stated in the task instruction or the Mock Data Snapshot
