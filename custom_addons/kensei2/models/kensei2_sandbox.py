@@ -5134,15 +5134,10 @@ class Kensei2Sandbox(models.Model):
                 entries = json.loads(existing_raw) if existing_raw.strip() else []
                 if not isinstance(entries, list):
                     entries = []
-                # Mark the about-to-be-saved entry as pending so the dashboard's
-                # auto-trigger doesn't race with the background worker we're
-                # about to submit.
-                session_entry["task_description_status"] = "pending"
                 entries.append(session_entry)
                 # Cap at 12 — keep most recent
                 if len(entries) > MAX_TRAJECTORIES_PER_MODEL:
                     entries = entries[-MAX_TRAJECTORIES_PER_MODEL:]
-                new_entry_index = len(entries) - 1
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.kensei2_id.write({field_name: new_value})
@@ -5155,56 +5150,6 @@ class Kensei2Sandbox(models.Model):
                     field_name,
                     self.kensei2_id.id,
                 )
-
-                # Kick off LLM task-description generation for the new entry.
-                # Mirrors the talos auto-generate flow — uses _TASKDESC_POOL so
-                # the trajectory export returns immediately and Bedrock runs
-                # asynchronously in the background.
-                try:
-                    task_for_desc = self.kensei2_id
-                    seed_prompt_for_desc = (
-                        task_for_desc.batch_prompt
-                        or task_for_desc.initial_prompt
-                        or getattr(task_for_desc, "seed_prompt", "")
-                        or ""
-                    )
-                    desc_messages = (trajectory or {}).get("messages") or []
-                    if seed_prompt_for_desc:
-                        from .kensei2 import _TASKDESC_POOL
-                        db_name = self.env.cr.dbname
-                        task_id_for_desc = task_for_desc.id
-                        field_name_for_desc = field_name
-                        entry_idx_for_desc = new_entry_index
-
-                        @self.env.cr.postcommit.add
-                        def _queue_taskdesc():
-                            _TASKDESC_POOL.submit(
-                                _inject_task_description_bg,
-                                db_name,
-                                task_id_for_desc,
-                                field_name_for_desc,
-                                seed_prompt_for_desc,
-                                desc_messages,
-                                entry_idx_for_desc,
-                            )
-                        _logger.info(
-                            "[TASK-DESC] Queued auto-generation for task=%s field=%s entry=%d",
-                            task_for_desc.id,
-                            field_name,
-                            new_entry_index,
-                        )
-                    else:
-                        _logger.info(
-                            "[TASK-DESC] Skipping auto-generation (no seed prompt) for task=%s field=%s",
-                            task_for_desc.id,
-                            field_name,
-                        )
-                except Exception:
-                    _logger.exception(
-                        "[TASK-DESC] Failed to queue auto-generation for task=%s field=%s",
-                        self.kensei2_id.id,
-                        field_name,
-                    )
 
                 token_field_map = {
                     "claude": ("claude_input_tokens", "claude_output_tokens"),

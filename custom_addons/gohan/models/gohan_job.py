@@ -358,6 +358,32 @@ class _HeartbeatTicker:
 # Odoo, so the import is free.
 _BEDROCK_MAX_IMAGE_DIM = 7800  # px, leaves margin under the 8000 hard limit
 
+# Bedrock's Converse API validates that the bytes match the declared `format`
+# and rejects mismatches with
+#   "messages.x.content.y.image.source.bytes: The image was specified using
+#    the image/png media type, but the image appears to be a image/jpeg image"
+# S3 keys are sometimes renamed across formats (e.g. a JPEG saved with a .png
+# suffix), so we sniff the real format from the magic bytes instead of trusting
+# the extension.
+_BEDROCK_IMAGE_FORMATS = ("png", "jpeg", "gif", "webp")
+
+
+def _sniff_image_format(img_bytes: bytes) -> str | None:
+    """Return one of ``_BEDROCK_IMAGE_FORMATS`` based on the magic bytes, or
+    ``None`` when the bytes don't match a Bedrock-supported format."""
+    if not img_bytes or len(img_bytes) < 12:
+        return None
+    head = img_bytes[:12]
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if head.startswith(b"GIF87a") or head.startswith(b"GIF89a"):
+        return "gif"
+    if head[0:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    return None
+
 
 def _resize_image_for_bedrock(img_bytes: bytes, fmt: str) -> bytes:
     """Return ``img_bytes`` unchanged if both dimensions are <= the Bedrock cap,
@@ -2862,7 +2888,13 @@ class GohanJob(models.Model):
                             if len(img_bytes) > MAX_IMG_BYTES:
                                 continue
                             ext = key.rsplit(".", 1)[-1].lower()
-                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            sniffed = _sniff_image_format(img_bytes)
+                            fmt = sniffed or (ext if ext in ("png", "jpeg", "gif", "webp") else "png")
+                            if sniffed and ext in ("png", "jpeg", "gif", "webp") and sniffed != ext:
+                                _logger.info(
+                                    "[gohan] S3 key %s has .%s extension but bytes are %s — using sniffed format",
+                                    key, ext, sniffed,
+                                )
                             # Bedrock rejects images with any dimension > 8000 px.
                             img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
                             total_bytes += len(img_bytes)
@@ -3632,7 +3664,13 @@ class GohanJob(models.Model):
                                 _logger.info("Skipping oversized screenshot %s (%d bytes)", key, len(img_bytes))
                                 continue
                             ext = key.rsplit(".", 1)[-1].lower()
-                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            sniffed = _sniff_image_format(img_bytes)
+                            fmt = sniffed or (ext if ext in ("png", "jpeg", "gif", "webp") else "png")
+                            if sniffed and ext in ("png", "jpeg", "gif", "webp") and sniffed != ext:
+                                _logger.info(
+                                    "[gohan] S3 key %s has .%s extension but bytes are %s — using sniffed format",
+                                    key, ext, sniffed,
+                                )
                             # Bedrock rejects images with any dimension > 8000 px.
                             img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
                             total_bytes += len(img_bytes)
@@ -4065,7 +4103,13 @@ class GohanJob(models.Model):
                             if len(img_bytes) > MAX_IMG_BYTES:
                                 continue
                             ext = key.rsplit(".", 1)[-1].lower()
-                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
+                            sniffed = _sniff_image_format(img_bytes)
+                            fmt = sniffed or (ext if ext in ("png", "jpeg", "gif", "webp") else "png")
+                            if sniffed and ext in ("png", "jpeg", "gif", "webp") and sniffed != ext:
+                                _logger.info(
+                                    "[gohan] S3 key %s has .%s extension but bytes are %s — using sniffed format",
+                                    key, ext, sniffed,
+                                )
                             img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
                             total_bytes += len(img_bytes)
                             if total_bytes > 20_000_000:

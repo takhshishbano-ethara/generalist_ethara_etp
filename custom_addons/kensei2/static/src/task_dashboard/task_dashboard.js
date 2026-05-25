@@ -153,11 +153,6 @@ export class TaskDashboard extends Component {
             this.state.batchStarting = false;
             this.state.batchStopping = false;
         }
-        if (status === "done") {
-            for (const model of BATCH_MODELS) {
-                await this._autoTriggerTaskDescription(model.type);
-            }
-        }
     }
 
     async _handleSandboxStatusChanged(_payload) {
@@ -355,9 +350,6 @@ export class TaskDashboard extends Component {
                 if (status === "done") {
                     this.notification.add("Batch completed successfully!", { type: "success" });
                     await this._loadTestResults();
-                    for (const model of BATCH_MODELS) {
-                        await this._autoTriggerTaskDescription(model.type);
-                    }
                 } else if (status === "error") {
                     this.notification.add("Batch completed with errors.", { type: "warning" });
                     await this._loadTestResults();
@@ -800,82 +792,6 @@ export class TaskDashboard extends Component {
             this._trajectoryCountCache[modelType] = { raw, count: 0 };
             return 0;
         }
-    }
-
-    async _autoTriggerTaskDescription(modelType) {
-        if (!modelType) return;
-
-        const fieldName = TRAJECTORY_FIELD_MAP[modelType];
-        if (!fieldName) return;
-
-        const recordId = this.taskId;
-        if (!recordId) return;
-
-        const raw = this.props.record.data[fieldName];
-        if (!raw || !raw.trim()) return;
-
-        let entries;
-        try {
-            const parsed = JSON.parse(raw);
-            entries = Array.isArray(parsed) ? parsed : [parsed];
-        } catch (_e) {
-            return;
-        }
-
-        if (entries.length === 0) return;
-
-        const entryIndex = entries.length - 1;
-        const entry = entries[entryIndex];
-
-        if (entry.task_description_status === "pending" || entry.task_description_status === "done") {
-            return;
-        }
-
-        try {
-            await rpc("/kensei2/generate_task_description", {
-                record_id: recordId,
-                field_name: fieldName,
-                entry_index: entryIndex,
-            });
-            this.env.bus.trigger("KENSEI2:TASK_DESC_TRIGGERED", {
-                field_name: fieldName,
-                entry_index: entryIndex,
-            });
-            this._pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex);
-        } catch (e) {
-            console.warn("[kensei2-dashboard] Auto task description trigger failed:", e);
-        }
-    }
-
-    _pollDescriptionThenTriggerQc(recordId, fieldName, entryIndex) {
-        const poll = setInterval(async () => {
-            try {
-                await this.props.record.load();
-                const raw = this.props.record.data[fieldName];
-                if (!raw || !raw.trim()) return;
-                const parsed = JSON.parse(raw);
-                const entries = Array.isArray(parsed) ? parsed : [parsed];
-                if (entryIndex >= entries.length) return;
-                const status = entries[entryIndex].task_description_status;
-                if (!status || status === "pending") return;
-                clearInterval(poll);
-                if (status !== "done") return;
-                const qcStatus = entries[entryIndex].qc_status;
-                if (qcStatus === "pending" || qcStatus === "done") return;
-                await rpc("/kensei2/trajectory_qc", {
-                    record_id: recordId,
-                    field_name: fieldName,
-                    entry_index: entryIndex,
-                });
-                this.env.bus.trigger("KENSEI2:QC_TRIGGERED", {
-                    field_name: fieldName,
-                    entry_index: entryIndex,
-                });
-            } catch (e) {
-                clearInterval(poll);
-                console.warn("[kensei2-dashboard] Auto QC trigger failed:", e);
-            }
-        }, 5000);
     }
 
     getTestResultsForTrajectory(trajIndex) {
