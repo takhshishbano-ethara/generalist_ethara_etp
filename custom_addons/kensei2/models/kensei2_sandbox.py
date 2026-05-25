@@ -2064,6 +2064,77 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
         _logger.exception("[BATCH-PROMPT] Failed to finalize batch status for task %s", task_id)
 
 
+def _run_selective_prompt_background(db_name, task_id, sandbox_ids, prompt,
+                                      notify_partner_id, attachment_ids=None):
+    """Run a prompt against a user-selected subset of pods.
+
+    Does NOT change *batch_status* or stop pods afterwards — meant for
+    re-sending prompts to surviving pods after one has died.
+    """
+    _logger.info(
+        "[SELECTIVE-PROMPT] Starting: task=%s sandboxes=%d prompt_len=%d attachments=%d",
+        task_id, len(sandbox_ids), len(prompt), len(attachment_ids or []),
+    )
+    from concurrent.futures import as_completed
+
+    futures = {}
+    for sid in sandbox_ids:
+        fut = _BATCH_POOL.submit(
+            _batch_prompt_single_sandbox, db_name, sid, prompt, attachment_ids,
+        )
+        futures[fut] = sid
+
+    BATCH_TIMEOUT = int(os.getenv("BATCH_TIMEOUT", "2400"))
+    results = {}
+    try:
+        for fut in as_completed(futures, timeout=BATCH_TIMEOUT):
+            sid = futures[fut]
+            try:
+                results[sid] = fut.result()
+            except Exception as e:
+                _logger.error("[SELECTIVE-PROMPT] Sandbox %s raised exception: %s", sid, e)
+                results[sid] = {"sandbox_id": sid, "status": "error", "error": str(e)[:1000]}
+    except TimeoutError:
+        _logger.error("[SELECTIVE-PROMPT] Timed out after %ds for task %s", BATCH_TIMEOUT, task_id)
+        for fut, sid in futures.items():
+            if fut.done():
+                try:
+                    results[sid] = fut.result()
+                except Exception as e:
+                    results[sid] = {"sandbox_id": sid, "status": "error", "error": str(e)[:500]}
+            else:
+                results[sid] = {"sandbox_id": sid, "status": "error", "error": "Prompt timeout"}
+                fut.cancel()
+
+    completed = sum(1 for r in results.values() if r.get("status") == "completed")
+    failed = len(results) - completed
+    _logger.info(
+        "[SELECTIVE-PROMPT] Done: task=%s completed=%d failed=%d",
+        task_id, completed, failed,
+    )
+
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if task.exists():
+                per_pod = []
+                for sid, r in results.items():
+                    per_pod.append({
+                        "sandbox_id": sid,
+                        "status": r.get("status"),
+                        "error": (r.get("error") or "")[:300],
+                    })
+                _batch_notify(env, task, "kensei2/selective_prompt_done", {
+                    "task_id": task_id,
+                    "completed": completed,
+                    "failed": failed,
+                    "results": per_pod,
+                })
+    except Exception:
+        _logger.exception("[SELECTIVE-PROMPT] Failed to notify selective prompt completion for task %s", task_id)
+
+
 def _run_batch_stop_background(db_name, task_id, sandbox_ids, notify_partner_id):
     _logger.info(
         "[BATCH-STOP] Starting stop: task=%s, sandboxes=%d",
