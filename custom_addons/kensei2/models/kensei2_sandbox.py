@@ -1113,14 +1113,14 @@ def _generate_task_tests_background(db_name, task_id):
 
             if required_apis:
                 msg.append("\n## Required APIs (agent MUST use these)\n")
-                for api in required_apis:
-                    msg.append("- `%s`\n" % api)
+                for api_name in required_apis:
+                    msg.append("- `%s`\n" % api_name)
 
             if distractor_apis:
                 msg.append("\n## Distractor APIs (agent must NOT touch — generate TestNegativeWeight* for each)\n")
-                for api in distractor_apis:
-                    const_name = api.upper().replace("-", "_") + "_URL"
-                    msg.append("- `%s` → constant `%s`\n" % (api, const_name))
+                for api_name in distractor_apis:
+                    const_name = api_name.upper().replace("-", "_") + "_URL"
+                    msg.append("- `%s` → constant `%s`\n" % (api_name, const_name))
 
             msg.append("\n## Mock API Documentation (endpoints for verification)\n")
             msg.append(api_docs)
