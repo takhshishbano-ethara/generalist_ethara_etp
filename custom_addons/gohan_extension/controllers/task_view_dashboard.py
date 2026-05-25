@@ -150,6 +150,7 @@ def _serialize(job, verdict_labels, eq_labels):
         "category": job.category_id.name or "",
         "score": job.score,
         "grade": job.grade or "",
+        "state": job.state or "",
         "qc_verdict": job.qc_verdict or "",
         "qc_verdict_label": verdict_labels.get(job.qc_verdict, ""),
         "tasker_name": job.user_id.name or "",
@@ -203,9 +204,19 @@ class GohanTaskViewDashboardController(http.Controller):
         eq_labels = dict(Job._fields["eq_tier"].selection)
         tasks = [_serialize(job, verdict_labels, eq_labels) for job in records]
         total_pages = (total + limit - 1) // limit if total else 0
-
         data = {
-            "tasks": tasks,
+            "columns": [{"key": "seq", "label": "Seq.", "type": "string"},
+                        {"key": "task_name", "label": "Task", "type": "string"},
+                        {"key": "url", "label": "URL", "type": "string"},
+                        {"key": "category", "label": "Category", "type": "string"},
+                        {"key": "score", "label": "Score", "type": "string"},
+                        {"key": "state", "label": "Status", "type": "string"},
+                        {"key": "grade", "label": "Grade", "type": "string"},
+                        {"key": "qc_verdict", "label": "QC Verdict", "type": "string"},
+                        {"key": "tasker_name", "label": "Tasker", "type": "string"},
+                        {"key": "created_date", "label": "Created", "type": "string"}],
+            "rows": tasks,
+            # "tasks": tasks,
             "pagination": {
                 "total_records": total,
                 "page": page,
