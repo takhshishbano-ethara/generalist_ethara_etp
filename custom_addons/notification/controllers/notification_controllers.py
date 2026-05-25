@@ -176,6 +176,10 @@ class KuberhaNotificationRestAPI(http.Controller):
             base_domain = [('user_id', '=', user_id.id)]
             if jdata.get('target_user_id'):
                 base_domain = [('user_id', '=', int(jdata.get('target_user_id')))]
+            if jdata.get('target_emp_id'):
+                target_emp_id = request.env['hr.employee'].sudo().browse(int(jdata.get('target_emp_id')))
+                if target_emp_id:
+                    base_domain = [('user_id', '=', target_emp_id.user_id.id)]
             if jdata.get('project_id'):
                 base_domain.append(('project_id', '=', int(jdata.get('project_id'))))
             if jdata.get('priority'):
