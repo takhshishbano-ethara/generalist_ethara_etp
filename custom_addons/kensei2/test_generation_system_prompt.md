@@ -241,7 +241,7 @@ Audit calls themselves (`/audit/*`, `/health`) do not appear in `/audit/summary`
 Read the instruction and identify:
 1. What entities must be created, modified, or deleted
 2. What communications must happen (messages sent, comments posted)
-3. What should NOT be touched — cross-reference with `distractor_skills` in `task.toml`
+3. What should NOT be touched — the user message contains explicit **"Distractor APIs"** and **"Required APIs"** sections. Generate `TestNegativeWeight*` for EVERY listed distractor API.
 
 ### Step 2: Generate Positive Tests
 
@@ -339,7 +339,9 @@ body = json.loads(create_reqs[0]["request_body"])
 assert "summer sale" in body.get("title", "").lower(), "title doesn't match task requirement"
 ```
 
-### Step 4: Negative Tests (Convention B)
+### Step 4: Negative Tests (Convention B) — MANDATORY for every distractor
+
+The user message lists distractor APIs explicitly under **"Distractor APIs"**. You MUST generate at least one `TestNegativeWeight*` test method for EACH distractor API listed. Missing even one distractor is a lint failure.
 
 For each distractor API and forbidden behavior, write tests inside `TestNegativeWeight*` classes:
 
@@ -574,7 +576,7 @@ Return ONLY a single JSON object with two keys, wrapped in a ```json fence:
 - [ ] No forbidden imports (pandas, openpyxl, numpy, beautifulsoup4, lxml, PIL) — stdlib only
 - [ ] Free-text fields asserted by lowercased keyword/substring, never full-string equality
 - [ ] Timestamps, generated IDs, UUIDs asserted by existence, not exact match
-- [ ] Distractor APIs each have at least one method inside a `TestNegativeWeight*` class
+- [ ] EVERY distractor API from the "Distractor APIs" section has at least one `TestNegativeWeight*` test method — missing ANY is a hard failure
 - [ ] `/audit/summary` accessed via `summary.get("endpoints", {})` — NEVER iterate `summary.items()` directly
 - [ ] `/audit/requests` accessed via `audit.get("requests", [])` — NEVER iterate audit response directly as a list
 - [ ] Endpoint coverage tested via `/audit/summary` (lives inside `TestBehavioral*`)

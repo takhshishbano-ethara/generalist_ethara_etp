@@ -279,6 +279,83 @@ TRAJECTORY_FIELD_MAP = {
 
 
 # ──────────────────────────────────────────────────────────────────────
+# Distractor skill computation (ported from kensei-harness)
+# ──────────────────────────────────────────────────────────────────────
+
+DOMAIN_TAGS = {
+    "amazon-seller-api":    ("commerce", "retail"),
+    "etsy-api":             ("commerce", "retail", "creative"),
+    "pinterest-api":        ("social", "media", "creative"),
+    "instagram-api":        ("social", "media", "creative"),
+    "youtube-api":          ("social", "media"),
+    "linear-api":           ("productivity", "saas"),
+    "quickbooks-api":       ("finance", "saas"),
+    "google-classroom-api": ("productivity", "education"),
+    "myfitnesspal-api":     ("health", "lifestyle"),
+    "ring-api":             ("iot", "lifestyle"),
+}
+
+ALL_API_NAMES = sorted(DOMAIN_TAGS.keys())
+
+_API_PROMPT_KEYWORDS = {
+    "amazon-seller-api":    ("amazon", "seller", "asin", "sku", "fba", "seller central"),
+    "etsy-api":             ("etsy", "listing", "shop", "handmade", "craft", "woodwork", "woodcraft"),
+    "pinterest-api":        ("pinterest", "pin", "board"),
+    "instagram-api":        ("instagram", "insta", "ig ", "ig,", "post", "reel", "story", "stories", "media"),
+    "youtube-api":          ("youtube", "video", "channel", "subscriber", "playlist", "upload"),
+    "linear-api":           ("linear", "issue", "project management", "sprint", "backlog", "ticket"),
+    "quickbooks-api":       ("quickbooks", "invoice", "accounting", "expense", "bill", "payment", "ledger"),
+    "google-classroom-api": ("classroom", "course", "assignment", "student", "teacher", "grading"),
+    "myfitnesspal-api":     ("myfitnesspal", "fitness", "calorie", "exercise", "workout", "nutrition", "diet", "meal", "run ", "running"),
+    "ring-api":             ("ring", "doorbell", "camera", "security", "motion"),
+}
+
+DISTRACTOR_COUNT = 4
+
+
+def _infer_required_apis_from_prompt(prompt):
+    """Infer which mock APIs a task prompt requires by keyword matching.
+
+    Returns a sorted list of API names (e.g. ['etsy-api', 'youtube-api']).
+    """
+    prompt_lower = prompt.lower()
+    required = []
+    for api_name, keywords in _API_PROMPT_KEYWORDS.items():
+        if any(kw in prompt_lower for kw in keywords):
+            required.append(api_name)
+    return sorted(required)
+
+
+def _compute_distractor_skills(required_apis, task_id, count=DISTRACTOR_COUNT):
+    """Pick distractor APIs that are NOT required but share domain tags.
+
+    Ported from kensei-harness _compute_distractor_skills.
+    Uses deterministic seed (task_id) for reproducibility.
+    """
+    required_set = set(required_apis)
+    required_tags = set()
+    for api in required_apis:
+        required_tags.update(DOMAIN_TAGS.get(api, ()))
+
+    domain_pool = sorted(
+        api for api in ALL_API_NAMES
+        if api not in required_set
+        and set(DOMAIN_TAGS.get(api, ())) & required_tags
+    )
+
+    if len(domain_pool) < count:
+        leftover = sorted(
+            api for api in ALL_API_NAMES
+            if api not in required_set and api not in domain_pool
+        )
+        domain_pool = domain_pool + leftover
+
+    rng = random.Random(task_id or "kensei2-default")
+    rng.shuffle(domain_pool)
+    return domain_pool[:count]
+
+
+# ──────────────────────────────────────────────────────────────────────
 # Test generation lint validation (ported from kensei-harness)
 # ──────────────────────────────────────────────────────────────────────
 
@@ -478,7 +555,7 @@ def _auto_repair_truncated_python(code):
     return None
 
 
-def _self_validate_tests(code, weights, has_api_services=False):
+def _self_validate_tests(code, weights, has_api_services=False, distractor_apis=None):
     """Run deterministic lints on generated test code. Returns list of failure strings.
 
     Ported from kensei-harness L1-L24 (subset applicable without extracted values).
@@ -677,6 +754,28 @@ def _self_validate_tests(code, weights, has_api_services=False):
             "literals for values stated in the task instruction."
             % (len(literal_assertions), ", ".join(literal_assertions[:5]))
         )
+
+    if distractor_apis:
+        code_lower = code.lower()
+        neg_class_methods = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name.startswith("TestNegativeWeight"):
+                for item in node.body:
+                    if isinstance(item, ast.FunctionDef) and item.name.startswith("test_"):
+                        neg_class_methods.add(item.name.lower())
+        neg_code = " ".join(neg_class_methods)
+        uncovered = []
+        for api in distractor_apis:
+            short = api.replace("-api", "").replace("-", "_")
+            const = api.upper().replace("-", "_") + "_URL"
+            if short not in neg_code and const.lower() not in code_lower:
+                uncovered.append(api)
+        if uncovered:
+            failures.append(
+                "L26: missing TestNegativeWeight* coverage for %d distractor API(s): %s "
+                "— add at least one negative test per distractor that checks /audit/summary."
+                % (len(uncovered), ", ".join(uncovered))
+            )
 
     return failures
 
@@ -880,6 +979,24 @@ def _generate_task_tests_background(db_name, task_id):
 
         has_api_services = bool(services)
 
+        task_identifier = ""
+        with Registry(db_name).cursor() as cr2:
+            env2 = api.Environment(cr2, SUPERUSER_ID, {})
+            t2 = env2["kensei2.kensei2"].browse(task_id)
+            task_identifier = t2.task_id or "kensei2/%s" % t2.id
+
+        required_apis = _infer_required_apis_from_prompt(prompt) if prompt else []
+        if not required_apis and has_api_services:
+            required_apis = sorted(services.keys())
+        distractor_apis = _compute_distractor_skills(
+            required_apis, task_identifier
+        ) if required_apis else []
+
+        _logger.info(
+            "[TASK-TESTGEN] task %s — required=%s distractors=%s",
+            task_id, required_apis, distractor_apis,
+        )
+
         data_snapshot = ""
         if has_api_services:
             try:
@@ -975,19 +1092,35 @@ def _generate_task_tests_background(db_name, task_id):
             msg.append("\n")
 
             if task_toml:
-                msg.append("\n## task.toml (distractor_skills and metadata)\n")
+                msg.append("\n## task.toml (metadata)\n")
                 msg.append("```toml\n%s\n```\n" % task_toml)
 
             msg.append("\n## Available Mock API Services\n")
             if services:
                 for svc_name, info in services.items():
                     const_name = svc_name.upper().replace("-", "_") + "_URL"
+                    tag = ""
+                    if svc_name in required_apis:
+                        tag = " **(REQUIRED — task uses this API)**"
+                    elif svc_name in distractor_apis:
+                        tag = " **(DISTRACTOR — agent should NOT touch this)**"
                     msg.append(
-                        "- `%s` (env: `%s`, port %d) → use constant `%s`\n"
-                        % (svc_name, info["env_var"], info["port"], const_name)
+                        "- `%s` (env: `%s`, port %d) → use constant `%s`%s\n"
+                        % (svc_name, info["env_var"], info["port"], const_name, tag)
                     )
             else:
                 msg.append("No API services configured.\n")
+
+            if required_apis:
+                msg.append("\n## Required APIs (agent MUST use these)\n")
+                for api in required_apis:
+                    msg.append("- `%s`\n" % api)
+
+            if distractor_apis:
+                msg.append("\n## Distractor APIs (agent must NOT touch — generate TestNegativeWeight* for each)\n")
+                for api in distractor_apis:
+                    const_name = api.upper().replace("-", "_") + "_URL"
+                    msg.append("- `%s` → constant `%s`\n" % (api, const_name))
 
             msg.append("\n## Mock API Documentation (endpoints for verification)\n")
             msg.append(api_docs)
@@ -1094,7 +1227,7 @@ def _generate_task_tests_background(db_name, task_id):
                     clean_weights[name] = w
             weights = clean_weights or weights
 
-            failures = _self_validate_tests(llm_code, weights, has_api_services=has_api_services)
+            failures = _self_validate_tests(llm_code, weights, has_api_services=has_api_services, distractor_apis=distractor_apis)
 
             if not best_code or len(failures) < len(best_failures):
                 best_code = llm_code
