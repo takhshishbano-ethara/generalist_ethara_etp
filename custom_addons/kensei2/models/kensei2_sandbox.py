@@ -4010,25 +4010,6 @@ class Kensei2Sandbox(models.Model):
         slug_l2 = re.sub(r"[^a-z0-9]+", "_", (l2 or "uncategorized").lower()).strip("_")
         return "%s__%s" % (slug_l1, slug_l2)
 
-    @staticmethod
-    def _load_talos_taskdesc_prompt():
-        """Read talos/task_description_prompt.md from disk (single source of
-        truth for description generation across modules). Returns "" if the
-        talos module isn't installed or the file is missing."""
-        try:
-            from odoo.modules.module import get_module_path
-            mod_path = get_module_path("talos")
-            if not mod_path:
-                return ""
-            path = os.path.join(mod_path, "task_description_prompt.md")
-            if not os.path.isfile(path):
-                return ""
-            with open(path, "r", encoding="utf-8") as f:
-                return f.read()
-        except Exception:
-            _logger.exception("Failed to load talos task_description_prompt.md")
-            return ""
-
     def _categorize_input_modalities(self, mime_set):
         """Map raw mime strings to coarse modality categories that match
         the cross_modal_reasoning vocabulary. 'text' is implicit (every
@@ -4056,9 +4037,12 @@ class Kensei2Sandbox(models.Model):
 
     def _generate_cross_modal_description(self, modalities_fused):
         """Generate the cross_modal_reasoning.description field by calling
-        Bedrock with talos's task_description prompt. Falls back to a
-        templated string when the LLM call is unavailable or fails so the
-        delivery JSON always has a usable value."""
+        Bedrock through kensei2's own description generation path
+        (generate_task_description_sync → _get_taskdesc_prompt loads
+        kensei2/task_description_prompt.md → _call_bedrock_converse with
+        kensei2.bedrock_inference_arn). Falls back to a templated string
+        when the LLM call is unavailable or fails so the delivery JSON
+        always has a usable value."""
         self.ensure_one()
         task = self.kensei2_id
         non_text = [m for m in modalities_fused if m != "text"]
@@ -4075,10 +4059,6 @@ class Kensei2Sandbox(models.Model):
         if not seed_prompt:
             return fallback
 
-        system_prompt = self._load_talos_taskdesc_prompt()
-        if not system_prompt:
-            return fallback
-
         messages_payload = []
         for t in self.turn_ids.sorted("turn_number"):
             if t.prompt:
@@ -4089,7 +4069,7 @@ class Kensei2Sandbox(models.Model):
         try:
             from .kensei2 import generate_task_description_sync
             desc, _usage = generate_task_description_sync(
-                self.env, seed_prompt, messages_payload, system_prompt=system_prompt,
+                self.env, seed_prompt, messages_payload,
             )
             desc = (desc or "").strip()
             if desc:
@@ -4467,7 +4447,99 @@ class Kensei2Sandbox(models.Model):
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+        # Fallback: list anything already in s3://<bucket>/<prefix>/output/tasks/<task_id>/
+        # and merge it into the manifest. Catches files uploaded by paths the
+        # regex didn't recognize (user's custom S3 code, base64-inline media
+        # flows, agent writes outside /home/node/.openclaw/, etc.).
+        if bucket:
+            for s3_entry in self._list_s3_output_objects(
+                bucket, region, prefix, task_id,
+            ):
+                basename = s3_entry["filename"]
+                if basename in seen:
+                    continue
+                seen.add(basename)
+                ext = basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
+                mime, artifact_type = _classify(ext)
+                entry = {
+                    "filename": basename,
+                    "mime_type": mime,
+                    "artifact_type": artifact_type,
+                    "description": "Agent-generated %s output (from S3)" % (ext.upper() or "binary"),
+                    "container_path": "",
+                    "source": "s3://%s/%s/output/tasks/%s/%s" % (
+                        bucket, prefix, task_id, basename,
+                    ),
+                    "s3_url": "https://%s.s3.%s.amazonaws.com/%s/output/tasks/%s/%s" % (
+                        bucket, region, prefix, task_id, basename,
+                    ),
+                }
+                if s3_entry.get("size") is not None:
+                    entry["size_bytes"] = s3_entry["size"]
+                artifacts.append(entry)
+
         return artifacts
+
+    def _list_s3_output_objects(self, bucket, region, prefix, task_id):
+        """List existing objects under s3://<bucket>/<prefix>/output/tasks/<task_id>/.
+
+        Returns list of {filename, size}. Empty list on any failure (boto3
+        missing, no creds, bucket misconfigured, transient S3 error). Used
+        as a fallback by _build_output_artifacts so anything uploaded via
+        paths the agent-response regex doesn't catch still surfaces in the
+        manifest.
+        """
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except Exception:
+            return []
+
+        access_key = (
+            os.environ.get("KENSEI2_S3_ACCESS_KEY_ID")
+            or os.environ.get("AWS_SECRET_KEY", "")
+        )
+        secret_key = (
+            os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY")
+            or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        )
+
+        client_kwargs = {
+            "region_name": region,
+            "config": BotoConfig(retries={"max_attempts": 2, "mode": "adaptive"}),
+        }
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        s3_prefix = "%s/output/tasks/%s/" % (prefix, task_id)
+        out = []
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=bucket, Prefix=s3_prefix):
+                for obj in page.get("Contents", []) or []:
+                    key = obj.get("Key", "")
+                    if not key or key.endswith("/"):
+                        continue
+                    basename = key.rsplit("/", 1)[-1]
+                    if not basename:
+                        continue
+                    out.append({
+                        "filename": basename,
+                        "size": obj.get("Size"),
+                    })
+        except Exception:
+            _logger.exception(
+                "[OUTPUT-ARTIFACTS] S3 list failed for bucket=%s prefix=%s",
+                bucket, s3_prefix,
+            )
+            return []
+        _logger.info(
+            "[OUTPUT-ARTIFACTS] S3 listing found %d objects under s3://%s/%s",
+            len(out), bucket, s3_prefix,
+        )
+        return out
 
     def action_export_session(self):
         self.ensure_one()
@@ -5195,10 +5267,15 @@ class Kensei2Sandbox(models.Model):
                 entries = json.loads(existing_raw) if existing_raw.strip() else []
                 if not isinstance(entries, list):
                     entries = []
+                # Mark the about-to-be-saved entry as pending so the dashboard's
+                # auto-trigger doesn't race with the background worker we're
+                # about to submit.
+                session_entry["task_description_status"] = "pending"
                 entries.append(session_entry)
                 # Cap at 12 — keep most recent
                 if len(entries) > MAX_TRAJECTORIES_PER_MODEL:
                     entries = entries[-MAX_TRAJECTORIES_PER_MODEL:]
+                new_entry_index = len(entries) - 1
                 new_value = json.dumps(entries, indent=2, ensure_ascii=False)
 
                 self.kensei2_id.write({field_name: new_value})
@@ -5211,6 +5288,56 @@ class Kensei2Sandbox(models.Model):
                     field_name,
                     self.kensei2_id.id,
                 )
+
+                # Kick off LLM task-description generation for the new entry.
+                # Mirrors the talos auto-generate flow — uses _TASKDESC_POOL so
+                # the trajectory export returns immediately and Bedrock runs
+                # asynchronously in the background.
+                try:
+                    task_for_desc = self.kensei2_id
+                    seed_prompt_for_desc = (
+                        task_for_desc.batch_prompt
+                        or task_for_desc.initial_prompt
+                        or getattr(task_for_desc, "seed_prompt", "")
+                        or ""
+                    )
+                    desc_messages = (trajectory or {}).get("messages") or []
+                    if seed_prompt_for_desc:
+                        from .kensei2 import _TASKDESC_POOL
+                        db_name = self.env.cr.dbname
+                        task_id_for_desc = task_for_desc.id
+                        field_name_for_desc = field_name
+                        entry_idx_for_desc = new_entry_index
+
+                        @self.env.cr.postcommit.add
+                        def _queue_taskdesc():
+                            _TASKDESC_POOL.submit(
+                                _inject_task_description_bg,
+                                db_name,
+                                task_id_for_desc,
+                                field_name_for_desc,
+                                seed_prompt_for_desc,
+                                desc_messages,
+                                entry_idx_for_desc,
+                            )
+                        _logger.info(
+                            "[TASK-DESC] Queued auto-generation for task=%s field=%s entry=%d",
+                            task_for_desc.id,
+                            field_name,
+                            new_entry_index,
+                        )
+                    else:
+                        _logger.info(
+                            "[TASK-DESC] Skipping auto-generation (no seed prompt) for task=%s field=%s",
+                            task_for_desc.id,
+                            field_name,
+                        )
+                except Exception:
+                    _logger.exception(
+                        "[TASK-DESC] Failed to queue auto-generation for task=%s field=%s",
+                        self.kensei2_id.id,
+                        field_name,
+                    )
 
                 token_field_map = {
                     "claude": ("claude_input_tokens", "claude_output_tokens"),

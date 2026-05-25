@@ -81,6 +81,19 @@ class FenrirTask(models.Model):
     )
     remarks = fields.Text(string="Remarks")
 
+    dockerfile_attachment = fields.Binary(string="Dockerfile", attachment=True)
+    dockerfile_filename = fields.Char(default="Dockerfile")
+    dockerignore_attachment = fields.Binary(string=".dockerignore", attachment=True)
+    dockerignore_filename = fields.Char(default=".dockerignore")
+    nginx_conf_attachment = fields.Binary(string="nginx.conf", attachment=True)
+    nginx_conf_filename = fields.Char(default="nginx.conf")
+    entrypoint_sh_attachment = fields.Binary(string="entrypoint.sh", attachment=True)
+    entrypoint_sh_filename = fields.Char(default="entrypoint.sh")
+
+    test_deliverables_attachment = fields.Binary(
+        string="test_deliverables.sh", attachment=True)
+    test_deliverables_filename = fields.Char(default="test_deliverables.sh")
+
     buyer_id = fields.Many2one(
         comodel_name="res.users",
         string="Buyer",
@@ -188,6 +201,12 @@ class FenrirTask(models.Model):
             folder = att.folder or "resources"
             zf.writestr(f"{root}/{folder}/{safe_name}", file_bytes)
 
+        for filename, content in self._environment_files():
+            zf.writestr(f"{root}/environment/{filename}", content)
+
+        for filename, content in self._test_files():
+            zf.writestr(f"{root}/tests/{filename}", content)
+
         for offer in self.seller_offer_ids.sorted("seller_no"):
             seller_dir = f"{root}/submissions/seller_{offer.seller_no or offer.id}"
             meta = {
@@ -234,7 +253,48 @@ class FenrirTask(models.Model):
                 "source_url": att.source_url or None,
                 "notes": att.notes or "",
             })
+        for filename, _content in self._environment_files():
+            assets.append({
+                "file_name": filename,
+                "location": "environment/",
+                "license": "Self-created",
+                "source_url": None,
+                "notes": "",
+            })
+        for filename, _content in self._test_files():
+            assets.append({
+                "file_name": filename,
+                "location": "tests/",
+                "license": "Self-created",
+                "source_url": None,
+                "notes": "",
+            })
         return {"task_id": self.code, "assets": assets}
+
+    def _environment_files(self):
+        self.ensure_one()
+        return self._collect_uploads([
+            (self.dockerfile_attachment, self.dockerfile_filename, "Dockerfile"),
+            (self.dockerignore_attachment, self.dockerignore_filename, ".dockerignore"),
+            (self.nginx_conf_attachment, self.nginx_conf_filename, "nginx.conf"),
+            (self.entrypoint_sh_attachment, self.entrypoint_sh_filename, "entrypoint.sh"),
+        ])
+
+    def _test_files(self):
+        self.ensure_one()
+        return self._collect_uploads([
+            (self.test_deliverables_attachment,
+             self.test_deliverables_filename, "test_deliverables.sh"),
+        ])
+
+    @staticmethod
+    def _collect_uploads(slots):
+        files = []
+        for blob, name, default_name in slots:
+            if not blob:
+                continue
+            files.append((_slug(name or default_name), base64.b64decode(blob)))
+        return files
 
     def _build_instruction_md(self, include_remarks=False):
         self.ensure_one()

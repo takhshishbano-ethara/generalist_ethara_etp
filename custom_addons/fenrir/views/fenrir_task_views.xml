@@ -256,7 +256,6 @@
                             </templates>
                         </kanban>
                         <list string="Seller Offers">
-                            <field name="seller_no" string="#" readonly="1"/>
                             <field name="seller"/>
                             <field name="received_custom_offer"/>
                             <field name="sellers_initial_ask"/>
@@ -369,6 +368,54 @@
                     <separator string="Remarks" name="sep_remarks"/>
                     <field name="remarks" nolabel="1"
                            placeholder="Internal remarks..."/>
+
+                    <separator string="Tests" name="sep_tests"/>
+                    <group>
+                        <label for="test_deliverables_attachment" string="test_deliverables.sh"/>
+                        <div class="o_row">
+                            <field name="test_deliverables_attachment"
+                                   filename="test_deliverables_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="test_deliverables_filename"
+                                   placeholder="test_deliverables.sh" nolabel="1"/>
+                        </div>
+                    </group>
+
+                    <separator string="Environment" name="sep_environment"/>
+                    <group>
+                        <label for="dockerfile_attachment" string="Dockerfile"/>
+                        <div class="o_row">
+                            <field name="dockerfile_attachment"
+                                   filename="dockerfile_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="dockerfile_filename"
+                                   placeholder="Dockerfile" nolabel="1"/>
+                        </div>
+                        <label for="dockerignore_attachment" string=".dockerignore"/>
+                        <div class="o_row">
+                            <field name="dockerignore_attachment"
+                                   filename="dockerignore_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="dockerignore_filename"
+                                   placeholder=".dockerignore" nolabel="1"/>
+                        </div>
+                        <label for="nginx_conf_attachment" string="nginx.conf"/>
+                        <div class="o_row">
+                            <field name="nginx_conf_attachment"
+                                   filename="nginx_conf_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="nginx_conf_filename"
+                                   placeholder="nginx.conf" nolabel="1"/>
+                        </div>
+                        <label for="entrypoint_sh_attachment" string="entrypoint.sh"/>
+                        <div class="o_row">
+                            <field name="entrypoint_sh_attachment"
+                                   filename="entrypoint_sh_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="entrypoint_sh_filename"
+                                   placeholder="entrypoint.sh" nolabel="1"/>
+                        </div>
+                    </group>
                 </sheet>
                 <chatter/>
             </form>
