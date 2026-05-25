@@ -1,0 +1,457 @@
+// =====================================================================
+//  Ethara ETP Theme — left sidebar
+// =====================================================================
+
+.o_ethara_sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--ethara-sidebar-width);
+    display: flex;
+    flex-direction: column;
+    background: var(--ethara-surface);
+    border-right: 1px solid var(--ethara-border);
+    font-family: var(--ethara-font);
+    z-index: 1041;
+    overflow: hidden;
+    transition: width var(--ethara-transition) ease;
+}
+
+// --- Brand -----------------------------------------------------------
+.o_ethara_brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: var(--ethara-navbar-height);
+    min-height: var(--ethara-navbar-height);
+    padding: 0 16px;
+    border-bottom: 1px solid var(--ethara-border);
+
+    .o_ethara_brand_mark {
+        flex: 0 0 auto;
+        width: 28px;
+        height: 28px;
+        border-radius: 8px;
+        object-fit: contain;
+    }
+    .o_ethara_brand_name {
+        font-weight: 700;
+        font-size: 15px;
+        color: var(--ethara-text);
+        white-space: nowrap;
+    }
+}
+
+// --- Scrollable nav --------------------------------------------------
+.o_ethara_nav {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    padding: 6px 0 14px;
+
+    &::-webkit-scrollbar { width: 6px; }
+    &::-webkit-scrollbar-thumb { background: var(--ethara-border); border-radius: 3px; }
+}
+
+.o_ethara_section_label {
+    padding: 14px 18px 6px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--ethara-text-faint);
+    white-space: nowrap;
+}
+
+// --- Global menu search ----------------------------------------------
+.o_ethara_search {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    margin: 10px 12px 2px;
+
+    .o_ethara_search_icon {
+        position: absolute;
+        left: 10px;
+        font-size: 12px;
+        color: var(--ethara-text-faint);
+        pointer-events: none;
+    }
+    .o_ethara_search_input {
+        width: 100%;
+        height: 32px;
+        padding: 0 28px;
+        border: 1px solid var(--ethara-border);
+        border-radius: var(--ethara-radius);
+        background: var(--ethara-bg);
+        color: var(--ethara-text);
+        font-family: var(--ethara-font);
+        font-size: 12.5px;
+        outline: none;
+        transition: border-color var(--ethara-transition-fast) ease,
+                    background var(--ethara-transition-fast) ease;
+
+        &::placeholder { color: var(--ethara-text-faint); }
+        &:focus {
+            border-color: var(--ethara-primary);
+            background: var(--ethara-surface);
+        }
+    }
+    .o_ethara_search_clear {
+        position: absolute;
+        right: 10px;
+        font-size: 12px;
+        color: var(--ethara-text-faint);
+        cursor: pointer;
+        transition: color var(--ethara-transition-fast) ease;
+
+        &:hover { color: var(--ethara-primary); }
+    }
+}
+
+// --- Search results --------------------------------------------------
+.o_ethara_result {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    margin: 1px 8px;
+    padding: 7px 10px;
+    border-radius: var(--ethara-radius);
+    cursor: pointer;
+    transition: background var(--ethara-transition-fast) ease;
+
+    &:hover { background: var(--ethara-hover); }
+
+    .o_ethara_result_name {
+        font-size: 13px;
+        color: var(--ethara-text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_ethara_result_path {
+        font-size: 10.5px;
+        color: var(--ethara-text-faint);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+}
+
+.o_ethara_no_results {
+    padding: 14px 18px;
+    font-size: 12.5px;
+    color: var(--ethara-text-faint);
+}
+
+// --- App row (top-level menu) ----------------------------------------
+.o_ethara_app_header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 2px 8px;
+    padding: var(--ethara-density-y) 10px;
+    border-radius: var(--ethara-radius);
+    cursor: pointer;
+    color: var(--ethara-text);
+    font-size: 13.5px;
+    font-weight: 500;
+    white-space: nowrap;
+    transition: background var(--ethara-transition-fast) ease, color var(--ethara-transition-fast) ease;
+
+    &:hover { background: var(--ethara-hover); }
+
+    .o_ethara_app_icon {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 6px;
+        overflow: hidden;
+
+        img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        i {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+    }
+    .o_ethara_app_name {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_ethara_caret {
+        flex: 0 0 auto;
+        width: 16px;
+        text-align: center;
+        font-size: 13px;
+        color: var(--ethara-text-faint);
+        transition: transform var(--ethara-transition) ease;
+
+        &.o_ethara_caret_open { transform: rotate(90deg); }
+    }
+
+    &.o_ethara_active {
+        background: var(--ethara-active-bg);
+        color: var(--ethara-active-fg);
+        font-weight: 600;
+    }
+}
+
+// --- Submenu ---------------------------------------------------------
+.o_ethara_submenu {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows var(--ethara-transition) ease;
+
+    &.o_ethara_open { grid-template-rows: 1fr; }
+}
+
+.o_ethara_submenu_inner {
+    min-height: 0;
+    overflow: hidden;
+    padding: 2px 0 6px;
+    opacity: 0;
+    transition: opacity var(--ethara-transition) ease;
+}
+
+.o_ethara_submenu.o_ethara_open .o_ethara_submenu_inner {
+    opacity: 1;
+}
+
+.o_ethara_subgroup {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 2px 8px 2px 22px;
+    padding: 6px 8px;
+    border-radius: var(--ethara-radius);
+    cursor: pointer;
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--ethara-text-faint);
+    white-space: nowrap;
+    transition: background var(--ethara-transition-fast) ease, color var(--ethara-transition-fast) ease;
+
+    &:hover {
+        background: var(--ethara-hover);
+        color: var(--ethara-text-muted);
+    }
+
+    .o_ethara_subgroup_caret {
+        flex: 0 0 auto;
+        width: 12px;
+        text-align: center;
+        font-size: 11px;
+        transition: transform var(--ethara-transition) ease;
+    }
+    .o_ethara_subgroup_label {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    &.o_ethara_subgroup_open .o_ethara_subgroup_caret {
+        transform: rotate(90deg);
+    }
+
+    &.o_ethara_subgroup_active {
+        color: var(--ethara-active-fg);
+    }
+}
+
+.o_ethara_navitem {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin: 1px 8px 1px 30px;
+    padding: calc(var(--ethara-density-y) - 1px) 10px;
+    border-radius: var(--ethara-radius);
+    cursor: pointer;
+    color: var(--ethara-text-muted);
+    font-size: 13px;
+    white-space: nowrap;
+    transition: background var(--ethara-transition-fast) ease, color var(--ethara-transition-fast) ease;
+
+    .o_ethara_navitem_dot {
+        flex: 0 0 auto;
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        background: var(--ethara-dot);
+        transition: background var(--ethara-transition-fast) ease;
+    }
+    .o_ethara_navitem_label {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    &:hover {
+        background: var(--ethara-hover);
+        color: var(--ethara-text);
+
+        .o_ethara_navitem_dot { background: var(--ethara-primary); }
+    }
+
+    &.o_ethara_navitem_active {
+        background: var(--ethara-active-bg);
+        color: var(--ethara-active-fg);
+        font-weight: 600;
+
+        .o_ethara_navitem_dot { background: var(--ethara-primary); }
+    }
+}
+
+// --- Home row --------------------------------------------------------
+.o_ethara_home_icon i {
+    background: var(--ethara-primary-soft);
+    color: var(--ethara-primary-dark);
+}
+
+// --- Favorites -------------------------------------------------------
+.o_ethara_favitem {
+    margin-left: 8px;
+    gap: 10px;
+
+    .o_ethara_favitem_icon {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        border-radius: 5px;
+        overflow: hidden;
+
+        img { width: 100%; height: 100%; object-fit: contain; }
+        i {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+    }
+}
+
+// --- Favorite star ---------------------------------------------------
+.o_ethara_star {
+    flex: 0 0 auto;
+    width: 16px;
+    text-align: center;
+    font-size: 12px;
+    color: var(--ethara-text-faint);
+    opacity: 0;
+    cursor: pointer;
+    transition: opacity var(--ethara-transition-fast) ease,
+                color var(--ethara-transition-fast) ease,
+                transform var(--ethara-transition-fast) ease;
+
+    &:hover {
+        color: var(--ethara-primary);
+        transform: scale(1.2);
+    }
+    &.o_ethara_star_on {
+        opacity: 1;
+        color: var(--ethara-primary);
+    }
+}
+
+.o_ethara_app_header:hover .o_ethara_star,
+.o_ethara_subgroup:hover .o_ethara_star,
+.o_ethara_navitem:hover .o_ethara_star {
+    opacity: 1;
+}
+
+// --- Footer ----------------------------------------------------------
+.o_ethara_footer {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-top: 1px solid var(--ethara-border);
+
+    .o_ethara_user_avatar {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: var(--ethara-primary);
+        color: #fff;
+        font-weight: 700;
+        font-size: 12px;
+    }
+    .o_ethara_user_meta {
+        flex: 1 1 auto;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+    .o_ethara_user_name {
+        font-size: 12.5px;
+        font-weight: 600;
+        color: var(--ethara-text);
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_ethara_user_role {
+        font-size: 11px;
+        color: var(--ethara-text-faint);
+    }
+    .o_ethara_footer_btn {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: 1px solid var(--ethara-border);
+        border-radius: var(--ethara-radius);
+        background: var(--ethara-surface);
+        color: var(--ethara-text-muted);
+        cursor: pointer;
+        transition: background var(--ethara-transition-fast) ease, color var(--ethara-transition-fast) ease;
+
+        &:hover { background: var(--ethara-hover); color: var(--ethara-primary); }
+    }
+}
+
+// --- Collapsed state -------------------------------------------------
+body.o_ethara_sidebar_collapsed {
+    .o_ethara_sidebar { width: var(--ethara-sidebar-collapsed); }
+
+    .o_ethara_brand_name,
+    .o_ethara_search,
+    .o_ethara_section_label,
+    .o_ethara_app_name,
+    .o_ethara_caret,
+    .o_ethara_star,
+    .o_ethara_submenu,
+    .o_ethara_favitem .o_ethara_navitem_label,
+    .o_ethara_user_meta { display: none; }
+
+    .o_ethara_brand { justify-content: center; padding: 0; }
+    .o_ethara_app_header { justify-content: center; gap: 0; }
+    .o_ethara_favitem { justify-content: center; margin-left: 8px; }
+    .o_ethara_footer { flex-direction: column; }
+}

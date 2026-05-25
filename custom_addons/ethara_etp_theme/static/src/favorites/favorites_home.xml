@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+
+    <t t-name="ethara_etp_theme.FavoritesHome">
+        <div class="o_ethara_home">
+            <div class="o_ethara_home_inner">
+
+                <div class="o_ethara_home_header">
+                    <h1 class="o_ethara_home_title">
+                        Welcome back, <t t-esc="userName"/>
+                    </h1>
+                    <p class="o_ethara_home_subtitle">
+                        Your favorite menus, one click away.
+                    </p>
+                </div>
+
+                <div t-if="state.favorites.length" class="o_ethara_home_grid">
+                    <t t-foreach="state.favorites" t-as="fav" t-key="fav.id">
+                        <div class="o_ethara_home_tile"
+                             t-on-click="() => this.openMenu(fav)">
+                            <span class="o_ethara_home_tile_icon">
+                                <t t-set="icon" t-value="getIcon(fav)"/>
+                                <img t-if="icon.type === 'image'"
+                                     t-att-src="icon.src"
+                                     t-att-alt="fav.name"/>
+                                <i t-else=""
+                                   t-att-class="icon.iconClass"
+                                   t-attf-style="color: {{icon.color}}; background: {{icon.backgroundColor}};"/>
+                            </span>
+                            <div class="o_ethara_home_tile_text">
+                                <div class="o_ethara_home_tile_name"
+                                     t-esc="fav.name"/>
+                                <div t-if="getAppName(fav)"
+                                     class="o_ethara_home_tile_app"
+                                     t-esc="getAppName(fav)"/>
+                            </div>
+                            <i class="o_ethara_home_tile_star fa fa-star"
+                               title="Remove from favorites"
+                               t-on-click.stop="() => this.removeFavorite(fav)"/>
+                        </div>
+                    </t>
+                </div>
+
+                <div t-else="" class="o_ethara_home_empty">
+                    <i class="fa fa-star-o"/>
+                    <h2>No favorites yet</h2>
+                    <p>
+                        Hover over any menu in the left sidebar and click the
+                        star icon to pin it here for quick access.
+                    </p>
+                </div>
+
+            </div>
+        </div>
+    </t>
+
+</templates>

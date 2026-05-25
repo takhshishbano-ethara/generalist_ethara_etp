@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+
+    <!-- Inject the Ethara theme's dynamic design tokens + webfont into
+         every backend page <head>. Values come from Settings > Ethara
+         Theme (ir.config_parameter), resolved by model ethara.theme. -->
+    <template id="ethara_theme_layout" inherit_id="web.layout"
+              name="Ethara ETP Theme Layout">
+        <xpath expr="//head" position="inside">
+            <t t-if="request and 'ethara.theme' in request.env">
+                <t t-set="ethara_theme"
+                   t-value="request.env['ethara.theme'].get_theme_head()"/>
+                <link t-if="ethara_theme['font_url']"
+                      rel="stylesheet" type="text/css"
+                      t-att-href="ethara_theme['font_url']"/>
+                <style id="ethara_theme_vars" type="text/css"
+                       t-out="ethara_theme['css']"/>
+                <script id="ethara_menu_icons" type="text/javascript"
+                        t-out="request.env['ethara.theme'].get_menu_icons_script()"/>
+            </t>
+        </xpath>
+    </template>
+
+</odoo>

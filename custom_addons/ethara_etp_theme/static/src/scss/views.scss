@@ -1,0 +1,172 @@
+// =====================================================================
+//  Ethara ETP Theme — backend view restyles
+//
+//  Cosmetic refinements (color, border, radius, shadow, weight) for the
+//  form / kanban / search / control-panel / dialog surfaces. No layout
+//  or positioning changes, so it stays safe across Odoo view types.
+//  The list view is intentionally left untouched.
+// =====================================================================
+
+// --- Control panel ---------------------------------------------------
+.o_control_panel {
+    .o_breadcrumb {
+        font-weight: 600;
+        color: var(--ethara-text);
+
+        .breadcrumb-item > a { color: var(--ethara-text-muted); }
+        .breadcrumb-item > a:hover { color: var(--ethara-primary); }
+    }
+
+    .o_cp_switch_buttons .o_switch_view {
+        color: var(--ethara-text-faint);
+        border-radius: var(--ethara-radius);
+
+        &:hover { color: var(--ethara-text); }
+        &.active {
+            color: var(--ethara-primary);
+            background-color: var(--ethara-active-bg);
+        }
+    }
+}
+
+// --- Pager -----------------------------------------------------------
+.o_pager {
+    color: var(--ethara-text-muted);
+
+    .o_pager_value { color: var(--ethara-text); }
+    .o_pager_limit { color: var(--ethara-text-faint); }
+}
+
+// --- Search view -----------------------------------------------------
+.o_searchview {
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius);
+    background-color: var(--ethara-surface);
+
+    &:focus-within {
+        border-color: var(--ethara-primary);
+        box-shadow: 0 0 0 3px var(--ethara-active-bg);
+    }
+
+    .o_searchview_icon { color: var(--ethara-text-faint); }
+    input.o_searchview_input { color: var(--ethara-text); }
+}
+
+.o_searchview_facet {
+    margin-block: 2px;
+    border-radius: var(--ethara-radius);
+    overflow: hidden;
+
+    .o_searchview_facet_label {
+        background-color: var(--ethara-primary);
+        color: #fff;
+    }
+}
+
+// --- Dropdown menus --------------------------------------------------
+.o-dropdown--menu {
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius);
+    box-shadow: var(--ethara-shadow-lg);
+    background-color: var(--ethara-surface);
+
+    .dropdown-item {
+        color: var(--ethara-text);
+
+        &:hover,
+        &:focus,
+        &.focus {
+            background-color: var(--ethara-hover);
+            color: var(--ethara-text);
+        }
+    }
+}
+
+// --- Form view -------------------------------------------------------
+.o_form_view {
+    .o_form_statusbar {
+        background-color: var(--ethara-surface);
+        border-bottom: 1px solid var(--ethara-border);
+    }
+
+    .o_statusbar_status .o_arrow_button.o_arrow_button_current {
+        color: var(--ethara-primary);
+        font-weight: 600;
+    }
+
+    .o_notebook.horizontal .o_notebook_headers {
+        border-bottom: 1px solid var(--ethara-border);
+
+        .nav-link {
+            color: var(--ethara-text-muted);
+            font-weight: 500;
+            border: 0;
+            border-bottom: 2px solid transparent;
+
+            &:hover { color: var(--ethara-text); }
+            &.active {
+                color: var(--ethara-primary);
+                background-color: transparent;
+                border-bottom-color: var(--ethara-primary);
+            }
+        }
+    }
+
+    .o_form_label {
+        color: var(--ethara-text-muted);
+        font-weight: 600;
+    }
+
+    .o_field_widget input,
+    .o_field_widget textarea,
+    .o_field_widget .o_input { color: var(--ethara-text); }
+}
+
+// --- Chatter ---------------------------------------------------------
+.o-mail-Chatter { background-color: var(--ethara-surface); }
+.o-mail-Message:hover { background-color: var(--ethara-hover); }
+
+// --- Kanban view -----------------------------------------------------
+.o_kanban_renderer {
+    .o_kanban_header .o_column_title {
+        color: var(--ethara-text);
+        font-weight: 600;
+    }
+
+    .o_kanban_record {
+        background-color: var(--ethara-surface);
+        border: 1px solid var(--ethara-border);
+        border-radius: var(--ethara-radius-lg);
+        box-shadow: var(--ethara-shadow);
+        transition: box-shadow var(--ethara-transition) ease;
+
+        &:hover { box-shadow: var(--ethara-shadow-lg); }
+    }
+}
+
+// --- Dialog / modal --------------------------------------------------
+.modal-content {
+    background-color: var(--ethara-surface);
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius-lg);
+    box-shadow: var(--ethara-shadow-lg);
+}
+.modal-header { border-bottom: 1px solid var(--ethara-border); }
+.modal-footer { border-top: 1px solid var(--ethara-border); }
+.modal .form-control,
+.modal .form-select {
+    background-color: var(--ethara-surface);
+    color: var(--ethara-text);
+    border-color: var(--ethara-border);
+}
+
+// --- Notification / toast -------------------------------------------
+.o_notification {
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius);
+    box-shadow: var(--ethara-shadow-lg);
+}
+
+// --- Badges / tags ---------------------------------------------------
+.badge { border-radius: var(--ethara-radius); }
+.o_tag { border-radius: var(--ethara-radius); }

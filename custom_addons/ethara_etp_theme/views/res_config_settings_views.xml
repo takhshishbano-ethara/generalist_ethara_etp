@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ethara.theme</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Ethara Theme" string="Ethara Theme"
+                     name="ethara_etp_theme"
+                     logo="/ethara_etp_theme/static/description/theme_settings_icon.svg">
+
+                    <block title="Appearance" name="ethara_appearance">
+                        <setting id="ethara_theme_mode_setting"
+                                 string="Theme Mode"
+                                 help="Switch the whole backend between a light and a dark palette.">
+                            <field name="ethara_theme_mode"/>
+                        </setting>
+                        <setting id="ethara_border_radius_setting"
+                                 string="Border Radius"
+                                 help="Corner roundness of cards, buttons, inputs and menu items.">
+                            <field name="ethara_border_radius"/>
+                            <span class="text-muted ms-1">px</span>
+                        </setting>
+                        <setting id="ethara_density_setting"
+                                 string="Density"
+                                 help="Comfortable or compact spacing in the sidebar navigation.">
+                            <field name="ethara_density"/>
+                        </setting>
+                        <setting id="ethara_card_shadow_setting"
+                                 string="Card Shadow"
+                                 help="Elevation of cards, kanban records and form sheets.">
+                            <field name="ethara_card_shadow"/>
+                        </setting>
+                        <setting id="ethara_input_style_setting"
+                                 string="Input Style"
+                                 help="Visual style of form input fields - outlined, filled, underline or soft.">
+                            <field name="ethara_input_style"/>
+                        </setting>
+                    </block>
+
+                    <block title="Colors" name="ethara_colors">
+                        <setting id="ethara_primary"
+                                 string="Primary Color"
+                                 help="Main accent - primary buttons, active items, dots.">
+                            <field name="ethara_primary_color" widget="color"/>
+                        </setting>
+                        <setting id="ethara_primary_dark"
+                                 string="Hover / Active Shade"
+                                 help="Darker accent used on hover and pressed states.">
+                            <field name="ethara_primary_dark_color" widget="color"/>
+                        </setting>
+                        <setting id="ethara_primary_soft"
+                                 string="Soft Highlight"
+                                 help="Tinted background behind the active menu items.">
+                            <field name="ethara_primary_soft_color" widget="color"/>
+                        </setting>
+                        <setting id="ethara_sidebar_bg"
+                                 string="Sidebar &amp; Card Background"
+                                 help="Background of the sidebar, top bar and cards. Ignored in dark mode.">
+                            <field name="ethara_sidebar_bg" widget="color"/>
+                        </setting>
+                        <setting id="ethara_content_bg"
+                                 string="Content Background"
+                                 help="Background of the main content area. Ignored in dark mode.">
+                            <field name="ethara_content_bg" widget="color"/>
+                        </setting>
+                    </block>
+
+                    <block title="Typography &amp; Motion" name="ethara_type_motion">
+                        <setting id="ethara_font_setting"
+                                 string="Font Family"
+                                 help="Typeface used across the whole backend.">
+                            <field name="ethara_font"/>
+                        </setting>
+                        <setting id="ethara_transition_setting"
+                                 string="Transition Speed"
+                                 help="Speed of sidebar and panel animations. Off disables them.">
+                            <field name="ethara_transition"/>
+                        </setting>
+                    </block>
+
+                    <block title="Layout" name="ethara_layout">
+                        <setting id="ethara_sidebar_width_setting"
+                                 string="Sidebar Width"
+                                 help="Width of the expanded left sidebar, in pixels.">
+                            <field name="ethara_sidebar_width"/>
+                            <span class="text-muted ms-1">px</span>
+                        </setting>
+                        <setting id="ethara_navbar_height_setting"
+                                 string="Top Bar Height"
+                                 help="Height of the top navigation bar, in pixels.">
+                            <field name="ethara_navbar_height"/>
+                            <span class="text-muted ms-1">px</span>
+                        </setting>
+                        <setting id="ethara_app_icons_setting"
+                                 string="App Icons"
+                                 help="Show or hide application icons in the sidebar.">
+                            <field name="ethara_app_icons"/>
+                        </setting>
+                        <setting id="ethara_sidebar_default_setting"
+                                 string="Sidebar Default State"
+                                 help="Whether the sidebar starts expanded or collapsed on each page load.">
+                            <field name="ethara_sidebar_default"/>
+                        </setting>
+                        <setting id="ethara_sidebar_accent_setting"
+                                 string="Active Item Style"
+                                 help="Colored highlight or a plain neutral highlight for the active menu item.">
+                            <field name="ethara_sidebar_accent"/>
+                        </setting>
+                    </block>
+
+                    <block title="Application Icons" name="ethara_menu_icons">
+                        <setting id="ethara_menu_icons_setting"
+                                 string="Custom Menu Icons"
+                                 help="Override the sidebar icon of each application with a FontAwesome glyph or an uploaded image. Native Odoo menus are not modified.">
+                            <button name="%(ethara_etp_theme.ethara_menu_icon_action)d"
+                                    type="action"
+                                    string="Configure Menu Icons"
+                                    class="btn-link"
+                                    icon="fa-arrow-right"/>
+                        </setting>
+                    </block>
+
+                    <block title="Login Page" name="ethara_login">
+                        <setting id="ethara_login_template_setting"
+                                 string="Login Template"
+                                 help="Pick a layout for the login, sign-up and password-reset pages.">
+                            <field name="ethara_login_template"
+                                   widget="ethara_login_template_picker"
+                                   nolabel="1"/>
+                        </setting>
+                        <setting id="ethara_login_image_setting"
+                                 string="Side / Background Image"
+                                 help="Image used by the Split Screen and Full-Screen Background templates. A landscape image at least 1200px wide works best.">
+                            <field name="ethara_login_image" widget="image" class="oe_avatar"/>
+                        </setting>
+                        <setting id="ethara_login_preview_setting"
+                                 string="Live Preview"
+                                 help="Preview of the selected template with the uploaded image. It updates instantly; click Save to apply.">
+                            <field name="ethara_login_template"
+                                   widget="ethara_login_template_preview"
+                                   nolabel="1"/>
+                        </setting>
+                    </block>
+
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

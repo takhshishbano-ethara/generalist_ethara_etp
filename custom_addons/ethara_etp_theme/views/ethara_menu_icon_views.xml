@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="ethara_menu_icon_view_list" model="ir.ui.view">
+        <field name="name">ethara.menu.icon.list</field>
+        <field name="model">ethara.menu.icon</field>
+        <field name="arch" type="xml">
+            <list string="Menu Icons">
+                <field name="menu_id"/>
+                <field name="icon_type"/>
+                <field name="icon_class" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="ethara_menu_icon_view_form" model="ir.ui.view">
+        <field name="name">ethara.menu.icon.form</field>
+        <field name="model">ethara.menu.icon</field>
+        <field name="arch" type="xml">
+            <form string="Menu Icon">
+                <sheet>
+                    <group>
+                        <field name="menu_id"/>
+                        <field name="icon_type" widget="radio"/>
+                    </group>
+                    <group string="Font Icon" invisible="icon_type != 'font'">
+                        <field name="icon_class" placeholder="fa fa-rocket"/>
+                        <field name="icon_color" widget="color"/>
+                        <field name="icon_bg_color" widget="color"/>
+                    </group>
+                    <group string="Uploaded Image" invisible="icon_type != 'image'">
+                        <field name="icon_image" widget="image"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="ethara_menu_icon_action" model="ir.actions.act_window">
+        <field name="name">Sidebar Menu Icons</field>
+        <field name="res_model">ethara.menu.icon</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Customize the sidebar icons of your applications
+            </p>
+            <p>
+                Add a record per application to override its icon in the
+                Ethara sidebar with a FontAwesome glyph or an uploaded image.
+                The native Odoo menus are never modified.
+            </p>
+        </field>
+    </record>
+
+</odoo>

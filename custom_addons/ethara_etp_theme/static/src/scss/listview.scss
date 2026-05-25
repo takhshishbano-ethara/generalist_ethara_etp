@@ -1,0 +1,115 @@
+// =====================================================================
+//  Ethara ETP Theme — dark-mode list / tree view
+//
+//  In light mode the list ("tree") view keeps Odoo's stock styling.
+//  Every rule below is scoped under `.o_ethara_dark`, so it repaints
+//  the list view only while dark mode is active - light mode is left
+//  completely untouched.
+//
+//  Selectors include the full `.o_list_renderer .o_list_table` path and
+//  the `> thead/tbody/tfoot > tr >` depth so they out-rank Odoo's own
+//  list_renderer.scss rules (which hardcode a few light colors with no
+//  CSS variable) without needing `!important`.
+// =====================================================================
+.o_ethara_dark {
+
+    // --- Renderer container + Odoo's list custom properties ---------
+    .o_list_renderer {
+        --ListRenderer-thead-bg-color: var(--ethara-bg);
+        --ListRenderer-thead-border-end-color: var(--ethara-border);
+        --ListRenderer-tfoot-bg-color: var(--ethara-bg);
+
+        background-color: var(--ethara-surface);
+        color: var(--ethara-text);
+    }
+
+    // --- Table: retint Bootstrap's .table custom properties ---------
+    //  These drive the striped / hover / selected box-shadow tints.
+    .o_list_renderer .o_list_table {
+        --table-bg: var(--ethara-surface);
+        --table-color: var(--ethara-text);
+        --table-border-color: var(--ethara-border);
+        --table-accent-bg: transparent;
+        --table-striped-bg: var(--ethara-hover);
+        --table-striped-color: var(--ethara-text);
+        --table-hover-bg: var(--ethara-hover);
+        --table-hover-color: var(--ethara-text);
+        --table-active-bg: var(--ethara-hover);
+        --table-active-color: var(--ethara-text);
+
+        color: var(--ethara-text);
+        border-color: var(--ethara-border);
+    }
+
+    // --- Body cells -------------------------------------------------
+    .o_list_renderer .o_list_table > tbody > tr > td,
+    .o_list_renderer .o_list_table > tbody > tr > th {
+        background-color: var(--ethara-surface);
+        color: var(--ethara-text);
+        border-color: var(--ethara-border);
+    }
+
+    // --- Column-header row ------------------------------------------
+    .o_list_renderer .o_list_table > thead > tr > th {
+        background-color: var(--ethara-bg);
+        color: var(--ethara-text-muted);
+        border-color: var(--ethara-border);
+    }
+
+    // --- Group / section header rows --------------------------------
+    .o_list_renderer .o_list_table > tbody > tr.o_group_header > td,
+    .o_list_renderer .o_list_table > tbody > tr.o_group_header > th {
+        background-color: var(--ethara-bg);
+        color: var(--ethara-text);
+    }
+
+    // --- Totals footer (Odoo hardcodes a light bg here) -------------
+    .o_list_renderer .o_list_table > tfoot > tr > td,
+    .o_list_renderer .o_list_table > tfoot > tr > th {
+        background-color: var(--ethara-bg);
+        color: var(--ethara-text);
+        border-color: var(--ethara-border);
+    }
+
+    // --- Focused / editing cell (Odoo hardcodes a light bg here) ----
+    .o_list_renderer .o_list_table .o_keyboard_navigation th:focus-within,
+    .o_list_renderer .o_list_table .o_keyboard_navigation td:focus-within,
+    .o_list_renderer .o_list_table .o_selected_row th:focus-within,
+    .o_list_renderer .o_list_table .o_selected_row td:focus-within {
+        background-color: var(--ethara-surface);
+    }
+
+    // --- Inline-edit input text -------------------------------------
+    .o_list_renderer .o_list_table .o_selected_row .o_data_cell .o_input,
+    .o_list_renderer .o_list_table .o_selected_row .o_data_cell input,
+    .o_list_renderer .o_list_table .o_selected_row .o_data_cell textarea {
+        color: var(--ethara-text);
+    }
+
+    // --- Column-resize indicator ------------------------------------
+    .o_list_renderer .o_list_table tbody .o_column_resizing:after {
+        background-color: var(--ethara-border);
+    }
+
+    // --- Embedded x2many list inside a form -------------------------
+    .o_field_x2many {
+        border-color: var(--ethara-border);
+    }
+    .o_field_x2many_list_row_add a,
+    .o_field_x2many_list_row_add button,
+    .o_group_field_row_add a,
+    .o_group_field_row_add button {
+        color: var(--ethara-primary);
+    }
+
+    // --- Empty-list placeholder -------------------------------------
+    .o_list_view .o_view_nocontent,
+    .o_list_view .o_nocontent_help {
+        color: var(--ethara-text-muted);
+    }
+
+    // --- Optional-columns dropdown toggle ---------------------------
+    .o_list_renderer .o_optional_columns_dropdown .dropdown-toggle {
+        color: var(--ethara-text-muted);
+    }
+}

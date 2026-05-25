@@ -1,0 +1,112 @@
+// =====================================================================
+//  Ethara ETP Theme — visual input styling
+//
+//  Four selectable field styles for backend form inputs. The chosen
+//  style is set in Settings > Ethara Theme > Appearance and applied as
+//  an "o_ethara_input_<style>" class on <html> by navbar_patch.js.
+//  Every rule is scoped under that class, so only the selected style is
+//  active; invalid fields keep Odoo's own error highlight.
+// =====================================================================
+
+// --- Outlined --------------------------------------------------------
+html.o_ethara_input_outlined {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: var(--ethara-surface) !important;
+        border: 1px solid var(--ethara-border) !important;
+        border-radius: var(--ethara-radius) !important;
+        box-shadow: none !important;
+        transition: border-color var(--ethara-transition-fast) ease,
+                    box-shadow var(--ethara-transition-fast) ease;
+
+        &:hover {
+            border-color: var(--ethara-text-faint) !important;
+        }
+        &:focus {
+            border-color: var(--ethara-primary) !important;
+            box-shadow: 0 0 0 3px var(--ethara-active-bg) !important;
+        }
+    }
+}
+
+// --- Filled ----------------------------------------------------------
+html.o_ethara_input_filled {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: var(--ethara-hover) !important;
+        border: 1px solid transparent !important;
+        border-bottom: 2px solid var(--ethara-border) !important;
+        border-radius: var(--ethara-radius) var(--ethara-radius) 0 0 !important;
+        box-shadow: none !important;
+        transition: background-color var(--ethara-transition-fast) ease,
+                    border-color var(--ethara-transition-fast) ease;
+
+        &:hover {
+            border-bottom-color: var(--ethara-text-faint) !important;
+        }
+        &:focus {
+            border-bottom-color: var(--ethara-primary) !important;
+        }
+    }
+}
+
+// --- Underline -------------------------------------------------------
+html.o_ethara_input_underline {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: transparent !important;
+        border: 0 !important;
+        border-bottom: 2px solid var(--ethara-border) !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        transition: border-color var(--ethara-transition-fast) ease;
+
+        &:hover {
+            border-bottom-color: var(--ethara-text-faint) !important;
+        }
+        &:focus {
+            border-bottom-color: var(--ethara-primary) !important;
+        }
+    }
+}
+
+// --- Soft (default) --------------------------------------------------
+html.o_ethara_input_soft {
+    .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
+        background-color: var(--ethara-bg) !important;
+        border: 1px solid var(--ethara-border) !important;
+        border-radius: var(--ethara-radius) !important;
+        box-shadow: none !important;
+        transition: background-color var(--ethara-transition-fast) ease,
+                    border-color var(--ethara-transition-fast) ease,
+                    box-shadow var(--ethara-transition-fast) ease;
+
+        &:hover {
+            background-color: var(--ethara-hover) !important;
+        }
+        &:focus {
+            background-color: var(--ethara-surface) !important;
+            border-color: var(--ethara-primary) !important;
+            box-shadow: 0 0 0 3px var(--ethara-active-bg) !important;
+        }
+    }
+}
+
+// --- Relational-field wrapper neutralization -------------------------
+//  Many2one / autocomplete fields wrap the inner <input class="o_input">
+//  in .o_input_dropdown > .o-autocomplete. Some Odoo / Bootstrap rules
+//  paint a border or background on those wrappers, producing a visible
+//  second border around the styled inner input. Zero them out so only
+//  the inner .o_input shows the styled border across all 4 variants.
+html.o_ethara_input_outlined,
+html.o_ethara_input_filled,
+html.o_ethara_input_underline,
+html.o_ethara_input_soft {
+    .o_form_view .o_field_widget:not(.o_field_invalid) {
+        .o_input_dropdown,
+        .o-autocomplete,
+        .o_field_many2one_selection {
+            border: 0 !important;
+            background-color: transparent !important;
+            box-shadow: none !important;
+            border-radius: 0 !important;
+        }
+    }
+}
