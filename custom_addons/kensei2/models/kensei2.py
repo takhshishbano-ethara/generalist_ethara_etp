@@ -656,8 +656,12 @@ def _is_degenerate_output(text):
     return False
 
 
-def generate_task_description_sync(env, seed_prompt, messages_json):
+def generate_task_description_sync(env, seed_prompt, messages_json, system_prompt=None):
     """Call Qwen/Bedrock to generate a single-line task description.
+
+    *system_prompt* overrides the kensei2-local prompt when provided —
+    callers needing to reuse the talos task-description prompt pass that
+    file's contents in directly.
 
     Returns:
         Tuple of (description_string, usage_dict).
@@ -674,7 +678,8 @@ def generate_task_description_sync(env, seed_prompt, messages_json):
             _logger.warning("generate_task_description_sync: missing credentials")
             return "", {}
 
-        system_prompt = _get_taskdesc_prompt()
+        if system_prompt is None:
+            system_prompt = _get_taskdesc_prompt()
         if not system_prompt:
             _logger.warning(
                 "generate_task_description_sync: no task_description_prompt.md"

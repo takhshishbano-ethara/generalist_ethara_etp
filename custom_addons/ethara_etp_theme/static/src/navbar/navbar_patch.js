@@ -299,7 +299,7 @@ patch(NavBar.prototype, {
         return /[?&]debug=([^&]+)/.test(window.location.search);
     },
 
-    onQuickLanguage() {
+    onQuickProfile() {
         this.actionService.doAction({
             type: "ir.actions.act_window",
             res_model: "res.users",
@@ -308,22 +308,7 @@ patch(NavBar.prototype, {
             target: "new",
             name: "Preferences",
         });
-        this.etharaNotify(`Current language: ${user.lang || "—"}`, {
-            type: "info",
-        });
-    },
-
-    onQuickCompany() {
-        const companyName = user.activeCompany?.name || "—";
-        this.actionService.doAction({
-            type: "ir.actions.act_window",
-            res_model: "res.users",
-            res_id: user.userId,
-            views: [[false, "form"]],
-            target: "new",
-            name: "Preferences",
-        });
-        this.etharaNotify(`Active company: ${companyName}`, { type: "info" });
+        this.etharaNotify("Opening your preferences…", { type: "info" });
     },
 
     onQuickDebug() {
@@ -372,6 +357,11 @@ patch(NavBar.prototype, {
         } catch {
             this.etharaNotify("Activities are not available", { type: "warning" });
         }
+    },
+
+    onQuickLogout() {
+        this.etharaNotify("Signing out…");
+        window.location.href = "/web/session/logout?redirect=/web/login";
     },
 
     async loadQuickBadges() {

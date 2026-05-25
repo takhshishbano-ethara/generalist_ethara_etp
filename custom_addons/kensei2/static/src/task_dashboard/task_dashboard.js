@@ -86,6 +86,7 @@ export class TaskDashboard extends Component {
             selectedSandboxId: null,
             harborExporting: false,
             showSelectivePrompt: false,
+            selectivePromptInFlight: false,
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -101,6 +102,13 @@ export class TaskDashboard extends Component {
         this.env.bus.addEventListener(
             "KENSEI2:SANDBOX_STATUS_CHANGED",
             this._onSandboxStatusChanged,
+        );
+        this._onSelectivePromptDone = (ev) => {
+            this._handleSelectivePromptDone(ev.detail);
+        };
+        this.env.bus.addEventListener(
+            "KENSEI2:SELECTIVE_PROMPT_DONE",
+            this._onSelectivePromptDone,
         );
 
         onMounted(async () => {
@@ -123,6 +131,10 @@ export class TaskDashboard extends Component {
             this.env.bus.removeEventListener(
                 "KENSEI2:SANDBOX_STATUS_CHANGED",
                 this._onSandboxStatusChanged,
+            );
+            this.env.bus.removeEventListener(
+                "KENSEI2:SELECTIVE_PROMPT_DONE",
+                this._onSelectivePromptDone,
             );
         });
     }
@@ -158,6 +170,38 @@ export class TaskDashboard extends Component {
             if (!sb || sb.docker_status === "stopped") {
                 this.state.selectedSandboxId = null;
             }
+        }
+    }
+
+    async _handleSelectivePromptDone(payload) {
+        this.state.selectivePromptInFlight = false;
+        await this.props.record.load();
+        await this._loadSandboxes();
+        await this._loadTestResults();
+        if (this.state.selectedSandboxId) {
+            const sb = this.state.sandboxes.find(
+                (s) => s.id === this.state.selectedSandboxId
+            );
+            if (!sb || sb.docker_status === "stopped") {
+                this.state.selectedSandboxId = null;
+            }
+        }
+        if (!this.isBatchActive) {
+            this._stopPolling();
+        }
+        const completed = payload?.completed || 0;
+        const failed = payload?.failed || 0;
+        const stopErrors = (payload?.stop_errors || []).length;
+        if (failed > 0 || stopErrors > 0) {
+            this.notification.add(
+                `Selective prompt finished: ${completed} completed, ${failed} failed.`,
+                { type: "warning" },
+            );
+        } else {
+            this.notification.add(
+                `Selective prompt finished on ${completed} pod(s). Trajectories updated.`,
+                { type: "success" },
+            );
         }
     }
 
@@ -303,7 +347,9 @@ export class TaskDashboard extends Component {
                 this.notification.add("All pods are ready. Enter a prompt and click Send.", { type: "success" });
             }
             if (status === "done" || status === "error" || status === "idle") {
-                this._stopPolling();
+                if (!this.state.selectivePromptInFlight) {
+                    this._stopPolling();
+                }
                 this.state.batchStarting = false;
                 this.state.batchStopping = false;
                 if (status === "done") {
@@ -521,10 +567,12 @@ export class TaskDashboard extends Component {
         );
         this.state.pendingAttachments = [];
         this.state.showSelectivePrompt = false;
+        this.state.selectivePromptInFlight = true;
+        this._startPolling();
         await this._loadSandboxes();
         this.notification.add(
-            `Prompt sent to ${sandboxIds.length} pod(s).`,
-            { type: "success" },
+            `Prompt sent to ${sandboxIds.length} pod(s). Will auto-stop and export trajectory when done.`,
+            { type: "info" },
         );
     }
 

@@ -6,15 +6,29 @@
               sequence="60"/>
 
     <menuitem id="fenrir_tasks_menu"
-              name="Tasks"
+              name="My Tasks"
               parent="fenrir_root_menu"
               action="fenrir_task_action"
               sequence="10"/>
 
-    <menuitem id="fenrir_seller_offers_menu"
-              name="Seller Offers"
+    <menuitem id="fenrir_tasks_all_menu"
+              name="All Tasks"
               parent="fenrir_root_menu"
-              action="fenrir_seller_offer_action"
-              sequence="20"/>
+              action="fenrir_task_all_action"
+              groups="fenrir.group_fenrir_manager"
+              sequence="15"/>
+
+    <menuitem id="fenrir_config_menu"
+              name="Configuration"
+              parent="fenrir_root_menu"
+              groups="fenrir.group_fenrir_manager"
+              sequence="90"/>
+
+    <menuitem id="fenrir_config_categories_menu"
+              name="Categories"
+              parent="fenrir_config_menu"
+              action="fenrir_category_action"
+              groups="fenrir.group_fenrir_manager"
+              sequence="10"/>
 
 </odoo>

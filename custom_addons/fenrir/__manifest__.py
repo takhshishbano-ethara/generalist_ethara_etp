@@ -1,6 +1,6 @@
 {
     "name": "Fenrir",
-    "version": "19.0.1.0.0",
+    "version": "19.0.1.6.1",
     "category": "Tools",
     "summary": "Fenrir — Freelancer task & seller negotiation tracker",
     "description": """
@@ -15,7 +15,9 @@
     "author": "Ethara",
     "depends": ["base", "mail"],
     "data": [
+        "security/fenrir_security.xml",
         "security/ir.model.access.csv",
+        "views/fenrir_category_views.xml",
         "views/fenrir_task_views.xml",
         "views/fenrir_seller_offer_views.xml",
         "views/menuitems.xml",

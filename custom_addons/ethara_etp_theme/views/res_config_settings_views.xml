@@ -57,9 +57,14 @@
                             <field name="ethara_primary_soft_color" widget="color"/>
                         </setting>
                         <setting id="ethara_sidebar_bg"
-                                 string="Sidebar &amp; Card Background"
-                                 help="Background of the sidebar, top bar and cards. Ignored in dark mode.">
+                                 string="Card &amp; Surface Background"
+                                 help="Background of cards, dropdowns, modals and the top bar. Ignored in dark mode.">
                             <field name="ethara_sidebar_bg" widget="color"/>
+                        </setting>
+                        <setting id="ethara_navbar_bg"
+                                 string="Navbar Background"
+                                 help="Background of the left sidebar / navbar. Defaults to the Card &amp; Surface background. Ignored in dark mode.">
+                            <field name="ethara_navbar_bg" widget="color"/>
                         </setting>
                         <setting id="ethara_content_bg"
                                  string="Content Background"
@@ -133,6 +138,15 @@
                                  string="Resizable Width"
                                  help="When the chatter sits on the side, drag its left edge to resize it. The width is remembered per browser.">
                             <span class="text-muted">Drag the left edge of the side chatter to resize. The width is stored locally per browser.</span>
+                        </setting>
+                    </block>
+
+                    <block title="Favorites Home" name="ethara_favorites_home">
+                        <setting id="ethara_favorites_bg_setting"
+                                 class="col-12 col-lg-12"
+                                 string="Home Background"
+                                 help="Image, GIF or video shown behind the Favorites Home page for every user. A dim overlay keeps the welcome text readable. Videos autoplay muted and loop. Leave empty for the plain theme background.">
+                            <field name="ethara_favorites_bg"/>
                         </setting>
                     </block>
 

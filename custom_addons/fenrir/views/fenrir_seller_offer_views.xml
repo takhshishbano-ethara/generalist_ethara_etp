@@ -7,9 +7,9 @@
         <field name="arch" type="xml">
             <list string="Seller Offers">
                 <field name="task_code"/>
-                <field name="category" optional="show"/>
+                <field name="category_id" optional="show"/>
+                <field name="seller_no" string="#"/>
                 <field name="seller"/>
-                <field name="seller_profile" widget="url" optional="hide"/>
                 <field name="received_custom_offer"/>
                 <field name="sellers_initial_ask"/>
                 <field name="negotiated_offer"/>
@@ -18,6 +18,7 @@
                 <field name="final_payment_currency"/>
                 <field name="delivery_received"/>
                 <field name="accepted_delivery"/>
+                <field name="overall_rating" optional="show"/>
             </list>
         </field>
     </record>
@@ -29,76 +30,105 @@
             <form string="Seller Offer">
                 <sheet>
                     <div class="oe_title">
-                        <label for="seller"/>
+                        <label for="seller_no" string="Seller"/>
                         <h1>
-                            <field name="seller" placeholder="Seller name / handle"/>
+                            Seller&#160;<field name="seller_no" readonly="1" class="oe_inline"/>
                         </h1>
+                        <h2>
+                            <field name="seller" placeholder="Optional freelancer name..."/>
+                        </h2>
                     </div>
+
                     <group>
                         <group string="Task">
                             <field name="task_id" options="{'no_create': True}"/>
                             <field name="task_code" readonly="1"/>
-                            <field name="category" readonly="1"/>
-                        </group>
-                        <group string="Profile">
-                            <field name="seller_profile" widget="url"/>
+                            <field name="category_id" readonly="1"/>
                         </group>
                     </group>
-                    <notebook>
-                        <page string="Negotiation" name="negotiation">
-                            <group>
-                                <group string="Offer">
-                                    <field name="received_custom_offer"/>
-                                    <field name="sellers_initial_ask"/>
-                                    <field name="negotiated_offer"/>
-                                </group>
-                                <group string="Acceptance">
-                                    <field name="accepted"/>
-                                    <field name="final_payment_amount"/>
-                                    <field name="final_payment_currency"/>
-                                </group>
-                            </group>
-                            <group string="Conversation">
-                                <field name="conversation" nolabel="1"
-                                       placeholder="Paste Fiverr / chat transcript here..."/>
-                            </group>
-                        </page>
-                        <page string="Delivery" name="delivery">
-                            <group>
-                                <group>
-                                    <field name="delivery_received"/>
-                                    <field name="accepted_delivery"/>
-                                </group>
-                                <group>
-                                    <field name="deliverables_link" widget="url"/>
-                                </group>
-                            </group>
-                        </page>
-                        <page string="Artifacts" name="artifacts">
-                            <group>
-                                <group>
-                                    <field name="data_media"/>
-                                    <field name="resources"/>
-                                    <field name="environment"/>
-                                </group>
-                                <group>
-                                    <field name="test_unit_tests"/>
-                                    <field name="license_ref"/>
-                                </group>
-                            </group>
-                            <group string="Metadata.json">
-                                <field name="metadata_json" nolabel="1"
-                                       placeholder='{"key": "value"}'/>
-                            </group>
-                            <group string="Automated Checks">
-                                <field name="automated_checks" nolabel="1"
-                                       placeholder="Automated QC results..."/>
-                            </group>
-                        </page>
-                        <page string="Notes" name="notes">
-                            <field name="notes" nolabel="1"/>
-                        </page>
-                    </notebook>
+
+                    <separator string="Offer"/>
+                    <group>
+                        <group>
+                            <field name="received_custom_offer"/>
+                            <field name="sellers_initial_ask"/>
+                            <field name="negotiated_offer"/>
+                        </group>
+                        <group>
+                            <field name="accepted"/>
+                            <field name="final_payment_amount"/>
+                            <field name="final_payment_currency"/>
+                        </group>
+                    </group>
+
+                    <separator string="Conversation"/>
+                    <group>
+                        <field name="conversation" nolabel="1"
+                               placeholder="Paste Fiverr / chat transcript here..."/>
+                    </group>
+
+                    <separator string="Delivery"/>
+                    <group>
+                        <group>
+                            <field name="delivery_received"/>
+                            <field name="accepted_delivery"/>
+                        </group>
+                        <group>
+                            <field name="deliverables_link" widget="url"/>
+                        </group>
+                    </group>
+
+                    <separator string="Artifacts"/>
+                    <group>
+                        <group>
+                            <field name="data_media"/>
+                            <field name="resources"/>
+                            <field name="environment"/>
+                        </group>
+                        <group>
+                            <field name="test_unit_tests"/>
+                            <field name="license_ref"/>
+                        </group>
+                    </group>
+
+                    <separator string="Metadata.json"/>
+                    <group>
+                        <field name="metadata_json" nolabel="1"
+                               placeholder='{"key": "value"}'/>
+                    </group>
+
+                    <separator string="Automated Checks"/>
+                    <group>
+                        <field name="automated_checks" nolabel="1"
+                               placeholder="Automated QC results..."/>
+                    </group>
+
+                    <separator string="Notes"/>
+                    <group>
+                        <field name="notes" nolabel="1"/>
+                    </group>
+
+                    <separator string="Rubric Scoring"/>
+                    <field name="rubric_score_ids" nolabel="1">
+                        <list editable="bottom" create="0" delete="0"
+                              string="Rubric Scores">
+                            <field name="rubric_id" column_invisible="1"/>
+                            <field name="rubric_sequence" column_invisible="1"/>
+                            <field name="rubric_name" readonly="1" string="Rubric"/>
+                            <field name="rubric_description" readonly="1"
+                                   string="Description" optional="show"/>
+                            <field name="rating"/>
+                            <field name="justification"
+                                   placeholder="Reasoning..."/>
+                        </list>
+                    </field>
+
+                    <separator string="Overall"/>
+                    <group>
+                        <field name="overall_rating"/>
+                        <field name="overall_justification"
+                               placeholder="Overall reasoning..."/>
+                    </group>
                 </sheet>
                 <chatter/>
             </form>
@@ -113,7 +143,7 @@
                 <field name="seller"/>
                 <field name="task_id"/>
                 <field name="task_code"/>
-                <field name="category"/>
+                <field name="category_id"/>
                 <filter string="Accepted" name="filter_accepted"
                         domain="[('accepted','=','yes')]"/>
                 <filter string="Cancelled" name="filter_cancelled"
@@ -124,7 +154,7 @@
                     <filter string="Task" name="group_task"
                             context="{'group_by': 'task_id'}"/>
                     <filter string="Category" name="group_category"
-                            context="{'group_by': 'category'}"/>
+                            context="{'group_by': 'category_id'}"/>
                     <filter string="Acceptance" name="group_accepted"
                             context="{'group_by': 'accepted'}"/>
                 </group>

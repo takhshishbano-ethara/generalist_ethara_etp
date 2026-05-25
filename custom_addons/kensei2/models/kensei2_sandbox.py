@@ -1922,7 +1922,102 @@ def _run_batch_deploy_background(db_name, task_id, sandbox_ids, mode, notify_par
         _logger.exception("[BATCH-DEPLOY] Failed to finalize deploy status for task %s", task_id)
 
 
-def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=None):
+def _prepare_batch_attachments(db_name, task_id, attachment_ids):
+    """Load ir.attachment bytes, upload them to S3 once (shared by all pods),
+    and return parallel lists for the WS payload and the turn.attachments
+    JSON. Returns (ws_attachments, persisted_attachments).
+
+    *ws_attachments* — list of {fileName, mimeType, content} dicts for
+    OpenClaw chat.send (content is base64 string).
+    *persisted_attachments* — list of {name, storedAs, mimeType, size} dicts
+    matching the shape read by _build_input_files_manifest and
+    _build_multimodal_metadata. The 'storedAs' key is what links each entry
+    back to its s3://bucket/prefix/input/tasks/{task_id}/{storedAs} object.
+    """
+    import uuid as _uuid
+
+    ws_attachments = []
+    persisted_attachments = []
+    s3_files = []
+
+    if not attachment_ids:
+        return ws_attachments, persisted_attachments
+
+    with Registry(db_name).cursor() as cr:
+        env = api.Environment(cr, SUPERUSER_ID, {})
+        icp = env["ir.config_parameter"].sudo()
+        from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
+        bucket = icp.get_param("kensei2.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei2.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei2.s3_prefix") or S3_KENSEI2_PREFIX
+        task = env["kensei2.kensei2"].browse(task_id)
+        task_ext_id = (task.task_id or str(task.id)) if task.exists() else str(task_id)
+
+        for att in env["ir.attachment"].sudo().browse(attachment_ids):
+            if not (att.exists() and att.datas):
+                continue
+            name = att.name or ""
+            mime = att.mimetype or "application/octet-stream"
+            data_b64 = att.datas.decode() if isinstance(att.datas, bytes) else att.datas
+            try:
+                raw_bytes = base64_mod.b64decode(data_b64)
+            except Exception:
+                _logger.warning("[BATCH-ATT] Could not decode attachment %s (id=%s)", name, att.id)
+                continue
+            safe_name = "%s_%s" % (
+                _uuid.uuid4().hex[:8],
+                name.replace("/", "_").replace("\\", "_"),
+            )
+            ws_attachments.append({
+                "fileName": name,
+                "mimeType": mime,
+                "content": data_b64,
+            })
+            persisted_attachments.append({
+                "name": name,
+                "storedAs": safe_name,
+                "mimeType": mime,
+                "size": len(raw_bytes),
+            })
+            s3_files.append({
+                "object_key": safe_name,
+                "data": raw_bytes,
+                "content_type": mime,
+            })
+
+    if s3_files and bucket:
+        access_key = (
+            os.environ.get("KENSEI2_S3_ACCESS_KEY_ID")
+            or os.environ.get("AWS_SECRET_KEY", "")
+        )
+        secret_key = (
+            os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY")
+            or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+        )
+        try:
+            from ..controllers.chat import _upload_to_s3_background
+            _upload_to_s3_background(
+                bucket, region, prefix, task_ext_id, s3_files,
+                subfolder="input",
+                access_key=access_key,
+                secret_key=secret_key,
+            )
+        except Exception:
+            _logger.exception(
+                "[BATCH-ATT] S3 upload failed for task %s (%d files)",
+                task_id, len(s3_files),
+            )
+    elif s3_files:
+        _logger.info(
+            "[BATCH-ATT] S3 bucket not configured — skipping upload of %d files for task %s",
+            len(s3_files), task_id,
+        )
+
+    return ws_attachments, persisted_attachments
+
+
+def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=None,
+                                  prepared_attachments=None):
     result = {"sandbox_id": sandbox_id, "status": "error", "error": "", "retries": 0}
     ws_client = None
 
@@ -1930,22 +2025,27 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
         from ..ws_client import OpenClawClient, OpenClawError, OpenClawTimeoutError
 
         attachments = None
-        if attachment_ids:
+        persisted_attachments = None
+        if prepared_attachments is not None:
+            ws_atts, persisted_attachments = prepared_attachments
+            attachments = ws_atts or None
+            _logger.info(
+                "[BATCH-PROMPT] Using %d pre-prepared attachments for sandbox %s",
+                len(attachments or []), sandbox_id,
+            )
+        elif attachment_ids:
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 attachments = []
                 for att in env["ir.attachment"].sudo().browse(attachment_ids):
                     if att.exists() and att.datas:
-                        # OpenClaw chat.send → normalizeRpcAttachmentsToChatAttachments
-                        # reads { type, mimeType, fileName, content }; content must be a
-                        # base64 string. It does not accept `name`/`media` keys.
                         attachments.append({
                             "fileName": att.name,
                             "mimeType": att.mimetype,
                             "content": att.datas.decode(),
                         })
                 _logger.info(
-                    "[BATCH-PROMPT] Loaded %d attachments for sandbox %s",
+                    "[BATCH-PROMPT] Loaded %d attachments for sandbox %s (no S3 upload, no turn persistence)",
                     len(attachments), sandbox_id,
                 )
 
@@ -1958,6 +2058,12 @@ def _batch_prompt_single_sandbox(db_name, sandbox_id, prompt, attachment_ids=Non
                 result["error"] = "create_turn failed: %s" % turn_result["error"]
                 return result
             turn_id = turn_result["turn_id"]
+            if persisted_attachments:
+                turn = env["kensei2.turn"].browse(turn_id)
+                if turn.exists():
+                    turn.sudo().write({
+                        "attachments": json.dumps(persisted_attachments),
+                    })
 
         _WS_MAX_RETRIES = 3
         last_ws_error = None
@@ -2079,10 +2185,19 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
     )
     test_gen_thread.start()
 
+    # Upload attachments to S3 once for the whole task and build the WS +
+    # turn-persistence payloads so input_files / input_modalities populate.
+    prepared_attachments = _prepare_batch_attachments(
+        db_name, task_id, attachment_ids,
+    ) if attachment_ids else None
+
     futures = {}
     cancelled = False
     for i, sid in enumerate(sandbox_ids):
-        fut = _BATCH_POOL.submit(_batch_prompt_single_sandbox, db_name, sid, prompt, attachment_ids)
+        fut = _BATCH_POOL.submit(
+            _batch_prompt_single_sandbox,
+            db_name, sid, prompt, None, prepared_attachments,
+        )
         futures[fut] = sid
         if _BATCH_WAVE_SIZE > 0 and (i + 1) % _BATCH_WAVE_SIZE == 0 and i + 1 < len(sandbox_ids):
             try:
@@ -2251,10 +2366,10 @@ def _run_batch_prompt_background(db_name, task_id, sandbox_ids, prompt, mode, no
 
 def _run_selective_prompt_background(db_name, task_id, sandbox_ids, prompt,
                                       notify_partner_id, attachment_ids=None):
-    """Run a prompt against a user-selected subset of pods.
-
-    Does NOT change *batch_status* or stop pods afterwards — meant for
-    re-sending prompts to surviving pods after one has died.
+    """Run a prompt against a user-selected subset of pods, then auto-stop
+    them and export trajectories — same finishing flow as the full batch
+    prompt, but scoped to the selected pods. Does NOT touch *batch_status*
+    of pods that weren't selected.
     """
     _logger.info(
         "[SELECTIVE-PROMPT] Starting: task=%s sandboxes=%d prompt_len=%d attachments=%d",
@@ -2262,10 +2377,61 @@ def _run_selective_prompt_background(db_name, task_id, sandbox_ids, prompt,
     )
     from concurrent.futures import as_completed
 
+    # Kick off task-level test code generation in parallel with the prompt
+    # phase — mirrors _run_batch_prompt_background. Skip if a prior batch
+    # already produced test_code, since selective sends usually run on a
+    # task that already has test_code from the initial batch.
+    test_gen_thread = None
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            already_have_test_code = bool(
+                task.exists()
+                and task.test_code
+                and task.test_code_status == "done"
+            )
+    except Exception:
+        already_have_test_code = False
+
+    if not already_have_test_code:
+        test_gen_thread = threading.Thread(
+            target=_generate_task_tests_background,
+            args=(db_name, task_id),
+            daemon=True,
+        )
+        test_gen_thread.start()
+    else:
+        _logger.info(
+            "[SELECTIVE-PROMPT] Reusing existing task-level test_code for task %s", task_id,
+        )
+
+    # Per-sandbox intent test generation runs during pod deploy in the batch
+    # flow. Selective sends reuse already-deployed pods, so we kick the same
+    # worker off here in parallel with the prompt phase. Each call creates a
+    # test.result with trajectory_index = current_count + 1, so results show
+    # inline next to the new trajectory entry the prompt is about to produce.
+    intent_test_threads = []
+    for sid in sandbox_ids:
+        t = threading.Thread(
+            target=_generate_intent_tests_background,
+            args=(db_name, sid, prompt),
+            daemon=True,
+        )
+        t.start()
+        intent_test_threads.append(t)
+
+    # Upload attachments to S3 once for the whole task and build the WS +
+    # turn-persistence payloads so input_files / input_modalities populate.
+    prepared_attachments = _prepare_batch_attachments(
+        db_name, task_id, attachment_ids,
+    ) if attachment_ids else None
+
     futures = {}
     for sid in sandbox_ids:
         fut = _BATCH_POOL.submit(
-            _batch_prompt_single_sandbox, db_name, sid, prompt, attachment_ids,
+            _batch_prompt_single_sandbox,
+            db_name, sid, prompt, None, prepared_attachments,
         )
         futures[fut] = sid
 
@@ -2294,8 +2460,90 @@ def _run_selective_prompt_background(db_name, task_id, sandbox_ids, prompt,
     completed = sum(1 for r in results.values() if r.get("status") == "completed")
     failed = len(results) - completed
     _logger.info(
-        "[SELECTIVE-PROMPT] Done: task=%s completed=%d failed=%d",
+        "[SELECTIVE-PROMPT] Prompts done: task=%s completed=%d failed=%d — exporting trajectories",
         task_id, completed, failed,
+    )
+
+    # Wait for test-gen thread (if we started one) so test_code is ready
+    # before we create per-sandbox test.result records.
+    if test_gen_thread is not None:
+        test_gen_thread.join(timeout=300)
+        if test_gen_thread.is_alive():
+            _logger.warning(
+                "[SELECTIVE-PROMPT] Task-level test gen still running after 300s, proceeding with stop",
+            )
+
+    # Wait for per-sandbox intent test generation so the 'pending'
+    # test.result records exist before action_stop_sandbox runs
+    # _run_pending_tests. If a thread hangs, we proceed without it —
+    # _generate_intent_tests handles its own error path.
+    for t in intent_test_threads:
+        t.join(timeout=300)
+        if t.is_alive():
+            _logger.warning(
+                "[SELECTIVE-PROMPT] Intent test gen thread still running after 300s, proceeding with stop",
+            )
+
+    # Create pending test.result records so action_stop_sandbox →
+    # _run_pending_tests will execute them in-container before teardown.
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            task = env["kensei2.kensei2"].browse(task_id)
+            if task.exists() and task.test_code_status == "done" and task.test_code:
+                TestResult = env["kensei2.test.result"].sudo()
+                created = 0
+                for sid in sandbox_ids:
+                    sandbox = env["kensei2.sandbox"].browse(sid)
+                    if sandbox.exists():
+                        TestResult.create({
+                            "sandbox_id": sid,
+                            "model_used": "task-level",
+                            "status": "pending",
+                            "test_code": task.test_code,
+                            "trajectory_index": 0,
+                        })
+                        created += 1
+                _logger.info(
+                    "[SELECTIVE-PROMPT] Created %d test.result records from task-level test code",
+                    created,
+                )
+            else:
+                _logger.warning(
+                    "[SELECTIVE-PROMPT] No test_code available for task %s (status=%s) — skipping test.result creation",
+                    task_id,
+                    task.test_code_status if task.exists() else "missing",
+                )
+    except Exception:
+        _logger.exception("[SELECTIVE-PROMPT] Failed to create test.result records for task %s", task_id)
+
+    # Export trajectories BEFORE stopping pods — JSONL extraction needs
+    # live pods (kubectl exec). Mirrors _run_batch_prompt_background.
+    _batch_export_trajectories(db_name, sandbox_ids, "[SELECTIVE-PROMPT]")
+
+    stop_futures = {}
+    for i, sid in enumerate(sandbox_ids):
+        if i > 0:
+            time.sleep(5)
+        fut = _BATCH_POOL.submit(_batch_stop_single_sandbox, db_name, sid)
+        stop_futures[fut] = sid
+
+    stop_errors = []
+    try:
+        for fut in as_completed(stop_futures, timeout=300):
+            sid = stop_futures[fut]
+            try:
+                fut.result()
+            except Exception as e:
+                _logger.error("[SELECTIVE-PROMPT] Stop failed for sandbox %s: %s", sid, e)
+                stop_errors.append("sandbox %s: %s" % (sid, str(e)[:200]))
+    except TimeoutError:
+        _logger.error("[SELECTIVE-PROMPT] Stop phase timed out for task %s", task_id)
+        stop_errors.append("Stop phase timed out")
+
+    _logger.info(
+        "[SELECTIVE-PROMPT] Finalized: task=%s completed=%d failed=%d stop_errors=%d",
+        task_id, completed, failed, len(stop_errors),
     )
 
     try:
@@ -2312,8 +2560,10 @@ def _run_selective_prompt_background(db_name, task_id, sandbox_ids, prompt,
                     })
                 _batch_notify(env, task, "kensei2/selective_prompt_done", {
                     "task_id": task_id,
+                    "sandbox_ids": list(sandbox_ids),
                     "completed": completed,
                     "failed": failed,
+                    "stop_errors": stop_errors[:5],
                     "results": per_pod,
                 })
     except Exception:
@@ -3627,11 +3877,201 @@ class Kensei2Sandbox(models.Model):
         slug_l2 = re.sub(r"[^a-z0-9]+", "_", (l2 or "uncategorized").lower()).strip("_")
         return "%s__%s" % (slug_l1, slug_l2)
 
+    @staticmethod
+    def _load_talos_taskdesc_prompt():
+        """Read talos/task_description_prompt.md from disk (single source of
+        truth for description generation across modules). Returns "" if the
+        talos module isn't installed or the file is missing."""
+        try:
+            from odoo.modules.module import get_module_path
+            mod_path = get_module_path("talos")
+            if not mod_path:
+                return ""
+            path = os.path.join(mod_path, "task_description_prompt.md")
+            if not os.path.isfile(path):
+                return ""
+            with open(path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception:
+            _logger.exception("Failed to load talos task_description_prompt.md")
+            return ""
+
+    def _categorize_input_modalities(self, mime_set):
+        """Map raw mime strings to coarse modality categories that match
+        the cross_modal_reasoning vocabulary. 'text' is implicit (every
+        turn has a prompt) so it's added unconditionally."""
+        cats = {"text"}
+        for mime in mime_set:
+            if not mime:
+                continue
+            if mime.startswith("image/"):
+                cats.add("image")
+            elif mime.startswith("video/"):
+                cats.add("video")
+            elif mime.startswith("audio/"):
+                cats.add("audio")
+            elif mime in (
+                "application/pdf", "text/markdown", "text/csv",
+                "text/html", "application/json",
+                "application/msword",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            ):
+                cats.add("document")
+            else:
+                cats.add("file")
+        return sorted(cats)
+
+    def _generate_cross_modal_description(self, modalities_fused):
+        """Generate the cross_modal_reasoning.description field by calling
+        Bedrock with talos's task_description prompt. Falls back to a
+        templated string when the LLM call is unavailable or fails so the
+        delivery JSON always has a usable value."""
+        self.ensure_one()
+        task = self.kensei2_id
+        non_text = [m for m in modalities_fused if m != "text"]
+        if not non_text:
+            return "Agent processes text inputs only."
+
+        fallback = "Agent processes %s inputs together." % " and ".join(modalities_fused)
+
+        seed_prompt = ""
+        if task:
+            seed_prompt = (
+                task.batch_prompt or task.initial_prompt or task.seed_prompt or ""
+            )
+        if not seed_prompt:
+            return fallback
+
+        system_prompt = self._load_talos_taskdesc_prompt()
+        if not system_prompt:
+            return fallback
+
+        messages_payload = []
+        for t in self.turn_ids.sorted("turn_number"):
+            if t.prompt:
+                messages_payload.append({"role": "user", "text": t.prompt})
+            if t.response:
+                messages_payload.append({"role": "assistant", "text": t.response})
+
+        try:
+            from .kensei2 import generate_task_description_sync
+            desc, _usage = generate_task_description_sync(
+                self.env, seed_prompt, messages_payload, system_prompt=system_prompt,
+            )
+            desc = (desc or "").strip()
+            if desc:
+                return desc
+        except Exception:
+            _logger.exception(
+                "[CROSS-MODAL-DESC] LLM generation failed for sandbox %s, using fallback",
+                self.id,
+            )
+        return fallback
+
+    def _scan_task_level_attachments(self, upload_missing_to_s3=True):
+        """Walk ir.attachment rows linked to this sandbox's task, returning
+        a list of {name, mimeType, size, storedAs} dicts.
+
+        Used as a fallback by _build_input_files_manifest and
+        _build_multimodal_metadata when turn.attachments is empty (e.g. for
+        tasks prompted before turn.attachments was written, or via flows
+        that don't persist to turns).
+
+        When *upload_missing_to_s3* is true and S3 is configured, each
+        attachment is also uploaded with a deterministic key
+        ``att<id>_<sanitized_name>`` — idempotent, so calling repeatedly is
+        safe; the resulting *storedAs* is what the manifest 'source' field
+        resolves against.
+        """
+        self.ensure_one()
+        task = self.kensei2_id
+        if not task:
+            return []
+
+        task_atts = self.env["ir.attachment"].sudo().search([
+            ("res_model", "=", task._name),
+            ("res_id", "=", task.id),
+        ])
+        if not task_atts:
+            return []
+
+        from .kensei2_sandbox_k8s import S3_BUCKET, S3_KENSEI2_PREFIX
+        icp = self.env["ir.config_parameter"].sudo()
+        bucket = icp.get_param("kensei2.s3_bucket") or S3_BUCKET
+        region = icp.get_param("kensei2.s3_region") or "us-east-1"
+        prefix = icp.get_param("kensei2.s3_prefix") or S3_KENSEI2_PREFIX
+        task_ext_id = task.task_id or str(task.id)
+
+        result = []
+        s3_files = []
+        for att in task_atts:
+            if not att.datas:
+                continue
+            name = att.name or ""
+            mime = att.mimetype or "application/octet-stream"
+            data_b64 = att.datas.decode() if isinstance(att.datas, bytes) else att.datas
+            try:
+                raw_bytes = base64_mod.b64decode(data_b64)
+            except Exception:
+                continue
+            safe_name = re.sub(r"[/\\]", "_", name)
+            stored_as = "att%d_%s" % (att.id, safe_name)
+            result.append({
+                "name": name,
+                "mimeType": mime,
+                "size": len(raw_bytes),
+                "storedAs": stored_as,
+            })
+            if upload_missing_to_s3 and bucket:
+                s3_files.append({
+                    "object_key": stored_as,
+                    "data": raw_bytes,
+                    "content_type": mime,
+                })
+
+        if s3_files and bucket:
+            access_key = (
+                os.environ.get("KENSEI2_S3_ACCESS_KEY_ID")
+                or os.environ.get("AWS_SECRET_KEY", "")
+            )
+            secret_key = (
+                os.environ.get("KENSEI2_S3_SECRET_ACCESS_KEY")
+                or os.environ.get("AWS_ACCESS_SECRET_KEY", "")
+            )
+            try:
+                from ..controllers.chat import _upload_to_s3_background
+                _upload_to_s3_background(
+                    bucket, region, prefix, task_ext_id, s3_files,
+                    subfolder="input",
+                    access_key=access_key,
+                    secret_key=secret_key,
+                )
+            except Exception:
+                _logger.exception(
+                    "[BATCH-ATT] Backfill S3 upload failed for task %s", task.id,
+                )
+
+        return result
+
     def _build_multimodal_metadata(self):
         self.ensure_one()
         task = self.kensei2_id
         modality_tags = set()
         input_modalities = set()
+
+        def _absorb_mime(mime):
+            if not mime:
+                return
+            input_modalities.add(mime)
+            if mime.startswith("image/"):
+                modality_tags.add("upload_image")
+            elif mime == "application/pdf":
+                modality_tags.add("pdf")
+            elif mime.startswith("video/"):
+                modality_tags.add("video")
+            elif mime.startswith("audio/"):
+                modality_tags.add("audio")
+
         all_turns = self.turn_ids.sorted("turn_number")
         for t in all_turns:
             if not t.attachments:
@@ -3641,19 +4081,16 @@ class Kensei2Sandbox(models.Model):
                 if not isinstance(atts, list):
                     continue
                 for att in atts:
-                    mime = att.get("mimeType", "")
-                    if mime:
-                        input_modalities.add(mime)
-                    if mime.startswith("image/"):
-                        modality_tags.add("upload_image")
-                    elif mime == "application/pdf":
-                        modality_tags.add("pdf")
-                    elif mime.startswith("video/"):
-                        modality_tags.add("video")
-                    elif mime.startswith("audio/"):
-                        modality_tags.add("audio")
+                    _absorb_mime(att.get("mimeType", ""))
             except (json.JSONDecodeError, TypeError):
                 continue
+
+        # Fallback: cover legacy tasks where turn.attachments was never
+        # written. Scans task-level ir.attachment rows so input_modalities
+        # populates from the user's original uploads regardless.
+        if not input_modalities:
+            for att in self._scan_task_level_attachments(upload_missing_to_s3=False):
+                _absorb_mime(att.get("mimeType", ""))
 
         output_modalities = ["text"]
         output_artifacts = self._build_output_artifacts()
@@ -3664,15 +4101,20 @@ class Kensei2Sandbox(models.Model):
             elif m and not m.startswith("image/") and "file" not in output_modalities:
                 output_modalities.append("file")
 
+        modalities_fused = self._categorize_input_modalities(input_modalities)
+        non_text_modalities = [m for m in modalities_fused if m != "text"]
+        cross_modal_pct = 100 if non_text_modalities else 0
+        cross_modal_description = self._generate_cross_modal_description(modalities_fused)
+
         return {
             "modality_tags": sorted(modality_tags),
             "taxonomy_l1": task.l1_classification.name if task.l1_classification else "",
             "taxonomy_l2": task.l2_classification.name if task.l2_classification else "",
             "media_necessity": "Multimodal input required for visual understanding task.",
             "cross_modal_reasoning": {
-                "percentage": 50,
-                "modalities_fused": ["text", "image"],
-                "description": "Agent processes visual and text inputs together.",
+                "percentage": cross_modal_pct,
+                "modalities_fused": modalities_fused,
+                "description": cross_modal_description,
             },
             "input_modalities": sorted(input_modalities),
             "output_modalities": output_modalities,
@@ -3722,6 +4164,31 @@ class Kensei2Sandbox(models.Model):
                     idx += 1
             except (json.JSONDecodeError, TypeError):
                 continue
+
+        # Fallback: walk task-level ir.attachment rows for anything not
+        # already represented in turn.attachments. Covers legacy tasks
+        # prompted before we started persisting attachments to turns.
+        for att in self._scan_task_level_attachments():
+            fname = att.get("name", "")
+            if not fname or fname in seen_filenames:
+                continue
+            seen_filenames.add(fname)
+            mime = att.get("mimeType", "")
+            stored_as = att.get("storedAs", "")
+            entry = {
+                "ref_id": "input_%d" % idx,
+                "filename": fname,
+                "mime_type": mime,
+                "role": "primary_reference",
+                "description": "User-uploaded %s file" % mime,
+                "size_bytes": att.get("size", 0),
+            }
+            if stored_as and bucket:
+                entry["source"] = "s3://%s/%s/input/tasks/%s/%s" % (
+                    bucket, prefix, task_id, stored_as
+                )
+            manifest.append(entry)
+            idx += 1
         return manifest
 
     def _build_output_artifacts(self):
