@@ -12,6 +12,7 @@ patch(NavBar.prototype, {
         super.setup();
         this.orm = useService("orm");
         this.actionService = useService("action");
+        this.notification = useService("notification");
         const startCollapsed =
             getComputedStyle(document.documentElement)
                 .getPropertyValue("--ethara-sidebar-start")
@@ -25,11 +26,15 @@ patch(NavBar.prototype, {
             searchQuery: "",
             darkMode: darkMode,
             favoriteIds: [],
+            activitiesCount: 0,
+            conversationsCount: 0,
+            mobileOpen: false,
         });
         document.body.classList.toggle("o_ethara_sidebar_collapsed", startCollapsed);
         document.documentElement.classList.toggle("o_ethara_dark", darkMode);
         this.applyInputStyle();
         this.loadFavorites();
+        this.loadQuickBadges();
     },
 
     applyInputStyle() {
@@ -66,6 +71,19 @@ patch(NavBar.prototype, {
         return companyId
             ? `/web/binary/company_logo?company=${companyId}`
             : "/web/binary/company_logo";
+    },
+
+    get etharaUserAvatar() {
+        return user.userId
+            ? `/web/image/res.users/${user.userId}/avatar_128`
+            : "/web/static/img/user_menu_avatar.png";
+    },
+
+    get etharaGreeting() {
+        const h = new Date().getHours();
+        if (h < 12) return "Good Morning";
+        if (h < 17) return "Good Afternoon";
+        return "Good Evening";
     },
 
     getAppSections(app) {
@@ -109,6 +127,7 @@ patch(NavBar.prototype, {
             this.etharaState.expandedAppId = node.appID;
         }
         this.menuService.selectMenu(node);
+        this.closeMobileSidebar();
     },
 
     getAppIcon(app) {
@@ -201,23 +220,45 @@ patch(NavBar.prototype, {
             this.etharaState.expandedAppId = menu.appID;
         }
         this.menuService.selectMenu(menu);
+        this.closeMobileSidebar();
     },
 
     openHome() {
         this.actionService.doAction(
             "ethara_etp_theme.ethara_favorites_home_action"
         );
+        this.closeMobileSidebar();
     },
 
     onSidebarAppClick(app) {
         this.etharaState.expandedAppId = app.id;
         this.etharaState.activeMenuId = null;
         this.menuService.selectMenu(app);
+        if (!this.getAppSections(app).length) {
+            this.closeMobileSidebar();
+        }
     },
 
     onSidebarMenuClick(menu) {
         this.etharaState.activeMenuId = menu.id;
         this.menuService.selectMenu(menu);
+        this.closeMobileSidebar();
+    },
+
+    toggleMobileSidebar() {
+        this.etharaState.mobileOpen = !this.etharaState.mobileOpen;
+        document.body.classList.toggle(
+            "o_ethara_mobile_open",
+            this.etharaState.mobileOpen
+        );
+    },
+
+    closeMobileSidebar() {
+        if (!this.etharaState.mobileOpen) {
+            return;
+        }
+        this.etharaState.mobileOpen = false;
+        document.body.classList.remove("o_ethara_mobile_open");
     },
 
     toggleSidebar() {
@@ -226,6 +267,9 @@ patch(NavBar.prototype, {
         document.body.classList.toggle(
             "o_ethara_sidebar_collapsed",
             this.etharaState.collapsed
+        );
+        this.etharaNotify(
+            this.etharaState.collapsed ? "Sidebar collapsed" : "Sidebar expanded"
         );
     },
 
@@ -239,5 +283,118 @@ patch(NavBar.prototype, {
             "ethara_dark_mode",
             this.etharaState.darkMode ? "1" : "0"
         );
+        this.etharaNotify(
+            this.etharaState.darkMode ? "Dark mode on" : "Light mode on"
+        );
+    },
+
+    etharaNotify(message, options = {}) {
+        if (!this.notification) {
+            return;
+        }
+        this.notification.add(message, { type: "success", ...options });
+    },
+
+    get etharaIsDebug() {
+        return /[?&]debug=([^&]+)/.test(window.location.search);
+    },
+
+    onQuickLanguage() {
+        this.actionService.doAction({
+            type: "ir.actions.act_window",
+            res_model: "res.users",
+            res_id: user.userId,
+            views: [[false, "form"]],
+            target: "new",
+            name: "Preferences",
+        });
+        this.etharaNotify(`Current language: ${user.lang || "—"}`, {
+            type: "info",
+        });
+    },
+
+    onQuickCompany() {
+        const companyName = user.activeCompany?.name || "—";
+        this.actionService.doAction({
+            type: "ir.actions.act_window",
+            res_model: "res.users",
+            res_id: user.userId,
+            views: [[false, "form"]],
+            target: "new",
+            name: "Preferences",
+        });
+        this.etharaNotify(`Active company: ${companyName}`, { type: "info" });
+    },
+
+    onQuickDebug() {
+        const url = new URL(window.location.href);
+        const enabling = !this.etharaIsDebug;
+        if (enabling) {
+            url.searchParams.set("debug", "1");
+        } else {
+            url.searchParams.delete("debug");
+        }
+        this.etharaNotify(
+            enabling ? "Enabling debug mode…" : "Disabling debug mode…"
+        );
+        window.location.href = url.toString();
+    },
+
+    onQuickThemeSettings() {
+        this.actionService.doAction({
+            type: "ir.actions.act_window",
+            res_model: "res.config.settings",
+            views: [[false, "form"]],
+            target: "inline",
+            context: { module: "ethara_etp_theme" },
+        });
+        this.etharaNotify("Opening theme settings…", { type: "info" });
+    },
+
+    async onQuickConversations() {
+        try {
+            await this.actionService.doAction("mail.action_discuss");
+        } catch {
+            this.etharaNotify("Discuss is not installed", { type: "warning" });
+        }
+    },
+
+    onQuickActivities() {
+        try {
+            this.actionService.doAction({
+                type: "ir.actions.act_window",
+                name: "My Activities",
+                res_model: "mail.activity",
+                views: [[false, "list"], [false, "form"]],
+                domain: [["user_id", "=", user.userId]],
+                target: "current",
+            });
+        } catch {
+            this.etharaNotify("Activities are not available", { type: "warning" });
+        }
+    },
+
+    async loadQuickBadges() {
+        try {
+            const activities = await this.orm.searchCount(
+                "mail.activity",
+                [["user_id", "=", user.userId]]
+            );
+            this.etharaState.activitiesCount = activities || 0;
+        } catch {
+            this.etharaState.activitiesCount = 0;
+        }
+        try {
+            const unread = await this.orm.searchCount(
+                "mail.notification",
+                [
+                    ["res_partner_id", "=", user.partnerId],
+                    ["is_read", "=", false],
+                ]
+            );
+            this.etharaState.conversationsCount = unread || 0;
+        } catch {
+            this.etharaState.conversationsCount = 0;
+        }
     },
 });

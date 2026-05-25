@@ -123,8 +123,22 @@
                         </setting>
                     </block>
 
+                    <block title="Chatter" name="ethara_chatter">
+                        <setting id="ethara_chatter_position_setting"
+                                 string="Chatter Position"
+                                 help="Place the chatter beside the form (default, responsive) or always under the form sheet. Applies globally to every form view.">
+                            <field name="ethara_chatter_position"/>
+                        </setting>
+                        <setting id="ethara_chatter_resize_setting"
+                                 string="Resizable Width"
+                                 help="When the chatter sits on the side, drag its left edge to resize it. The width is remembered per browser.">
+                            <span class="text-muted">Drag the left edge of the side chatter to resize. The width is stored locally per browser.</span>
+                        </setting>
+                    </block>
+
                     <block title="Login Page" name="ethara_login">
                         <setting id="ethara_login_template_setting"
+                                 class="col-12 col-lg-12"
                                  string="Login Template"
                                  help="Pick a layout for the login, sign-up and password-reset pages.">
                             <field name="ethara_login_template"
@@ -132,11 +146,13 @@
                                    nolabel="1"/>
                         </setting>
                         <setting id="ethara_login_image_setting"
+                                 class="col-12 col-lg-12"
                                  string="Side / Background Image"
                                  help="Image used by the Split Screen and Full-Screen Background templates. A landscape image at least 1200px wide works best.">
                             <field name="ethara_login_image" widget="image" class="oe_avatar"/>
                         </setting>
                         <setting id="ethara_login_preview_setting"
+                                 class="col-12 col-lg-12"
                                  string="Live Preview"
                                  help="Preview of the selected template with the uploaded image. It updates instantly; click Save to apply.">
                             <field name="ethara_login_template"

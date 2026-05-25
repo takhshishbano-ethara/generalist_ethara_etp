@@ -8,8 +8,78 @@
                 <div class="o_ethara_brand">
                     <img class="o_ethara_brand_mark"
                          t-att-src="etharaCompanyLogo"
-                         t-att-alt="etharaCompanyName"/>
-                    <span class="o_ethara_brand_name" t-esc="etharaCompanyName"/>
+                         t-att-alt="etharaCompanyName"
+                         t-att-title="etharaCompanyName"/>
+                    <button type="button" class="o_ethara_expand_btn"
+                            data-tooltip="Expand sidebar"
+                            aria-label="Expand sidebar"
+                            t-on-click="() => this.toggleSidebar()">
+                        <i class="fa fa-chevron-right"/>
+                    </button>
+                </div>
+
+                <div class="o_ethara_profile_card">
+                    <div class="o_ethara_profile_top">
+                        <img class="o_ethara_profile_avatar"
+                             t-att-src="etharaUserAvatar"
+                             t-att-alt="etharaUserName"/>
+                        <div class="o_ethara_profile_name" t-esc="etharaUserName"/>
+                        <div class="o_ethara_profile_greeting" t-esc="etharaGreeting"/>
+                    </div>
+                    <div class="o_ethara_profile_actions">
+                        <button type="button" class="o_ethara_quick_btn"
+                                data-tooltip="Language" aria-label="Language"
+                                t-on-click="() => this.onQuickLanguage()">
+                            <i class="fa fa-language"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                data-tooltip="Company" aria-label="Company"
+                                t-on-click="() => this.onQuickCompany()">
+                            <i class="fa fa-building-o"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                t-att-class="{ o_ethara_quick_btn_active: etharaIsDebug }"
+                                t-att-data-tooltip="etharaIsDebug ? 'Deactivate debug mode' : 'Activate debug mode'"
+                                aria-label="Toggle debug mode"
+                                t-on-click="() => this.onQuickDebug()">
+                            <i class="fa fa-code"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                data-tooltip="Theme Settings" aria-label="Theme settings"
+                                t-on-click="() => this.onQuickThemeSettings()">
+                            <i class="fa fa-cog"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                t-att-data-tooltip="etharaState.collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+                                aria-label="Toggle sidebar"
+                                t-on-click="() => this.toggleSidebar()">
+                            <i class="fa" t-att-class="etharaState.collapsed ? 'fa-thumb-tack' : 'fa-lock'"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn"
+                                t-att-data-tooltip="etharaState.darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
+                                aria-label="Toggle dark mode"
+                                t-on-click="() => this.toggleDarkMode()">
+                            <i class="fa" t-att-class="etharaState.darkMode ? 'fa-sun-o' : 'fa-lightbulb-o'"/>
+                        </button>
+                    </div>
+                    <div class="o_ethara_profile_actions o_ethara_profile_actions_badges">
+                        <button type="button" class="o_ethara_quick_btn o_ethara_quick_btn_badge"
+                                data-tooltip="Conversations" aria-label="Conversations"
+                                t-on-click="() => this.onQuickConversations()">
+                            <i class="fa fa-comments-o"/>
+                            <span t-if="etharaState.conversationsCount &gt; 0"
+                                  class="o_ethara_quick_badge"
+                                  t-esc="etharaState.conversationsCount"/>
+                        </button>
+                        <button type="button" class="o_ethara_quick_btn o_ethara_quick_btn_badge"
+                                data-tooltip="Activities" aria-label="Activities"
+                                t-on-click="() => this.onQuickActivities()">
+                            <i class="fa fa-clock-o"/>
+                            <span t-if="etharaState.activitiesCount &gt; 0"
+                                  class="o_ethara_quick_badge"
+                                  t-esc="etharaState.activitiesCount"/>
+                        </button>
+                    </div>
                 </div>
 
                 <div class="o_ethara_search">
@@ -121,25 +191,17 @@
                     </t>
                 </div>
 
-                <div class="o_ethara_footer">
-                    <span class="o_ethara_user_avatar" t-esc="etharaUserInitials"/>
-                    <div class="o_ethara_user_meta">
-                        <div class="o_ethara_user_name" t-esc="etharaUserName"/>
-                        <div class="o_ethara_user_role">Ethara ETP</div>
-                    </div>
-                    <div class="o_ethara_footer_btn o_ethara_darkmode_btn"
-                         t-att-title="etharaState.darkMode ? 'Switch to light mode' : 'Switch to dark mode'"
-                         t-on-click="() => this.toggleDarkMode()">
-                        <i class="fa" t-att-class="etharaState.darkMode ? 'fa-sun-o' : 'fa-moon-o'"/>
-                    </div>
-                    <div class="o_ethara_footer_btn o_ethara_collapse_btn"
-                         title="Collapse / expand sidebar"
-                         t-on-click="() => this.toggleSidebar()">
-                        <i class="fa fa-angle-double-left"/>
-                    </div>
-                </div>
-
             </aside>
+
+            <button type="button" class="o_ethara_mobile_toggle"
+                    aria-label="Toggle navigation"
+                    t-on-click="() => this.toggleMobileSidebar()">
+                <i class="fa" t-att-class="etharaState.mobileOpen ? 'fa-times' : 'fa-bars'"/>
+            </button>
+
+            <div class="o_ethara_mobile_backdrop"
+                 t-att-class="{ o_ethara_mobile_backdrop_visible: etharaState.mobileOpen }"
+                 t-on-click="() => this.closeMobileSidebar()"/>
         </xpath>
     </t>
 

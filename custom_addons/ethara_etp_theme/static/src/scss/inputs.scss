@@ -4,26 +4,27 @@
 //  Four selectable field styles for backend form inputs. The chosen
 //  style is set in Settings > Ethara Theme > Appearance and applied as
 //  an "o_ethara_input_<style>" class on <html> by navbar_patch.js.
-//  Every rule is scoped under that class, so only the selected style is
-//  active; invalid fields keep Odoo's own error highlight.
+//
+//  Per user preference, ALL borders are stripped from inputs across
+//  every style. The styles differentiate via background fill only, and
+//  focus state is indicated by a subtle background change — never a
+//  border. Invalid fields keep Odoo's own error highlight.
 // =====================================================================
 
 // --- Outlined --------------------------------------------------------
 html.o_ethara_input_outlined {
     .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
         background-color: var(--ethara-surface) !important;
-        border: 1px solid var(--ethara-border) !important;
+        border: 0 !important;
         border-radius: var(--ethara-radius) !important;
         box-shadow: none !important;
-        transition: border-color var(--ethara-transition-fast) ease,
-                    box-shadow var(--ethara-transition-fast) ease;
+        transition: background-color var(--ethara-transition-fast) ease;
 
         &:hover {
-            border-color: var(--ethara-text-faint) !important;
+            background-color: var(--ethara-hover) !important;
         }
         &:focus {
-            border-color: var(--ethara-primary) !important;
-            box-shadow: 0 0 0 3px var(--ethara-active-bg) !important;
+            background-color: var(--ethara-active-bg) !important;
         }
     }
 }
@@ -32,18 +33,16 @@ html.o_ethara_input_outlined {
 html.o_ethara_input_filled {
     .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
         background-color: var(--ethara-hover) !important;
-        border: 1px solid transparent !important;
-        border-bottom: 2px solid var(--ethara-border) !important;
-        border-radius: var(--ethara-radius) var(--ethara-radius) 0 0 !important;
+        border: 0 !important;
+        border-radius: var(--ethara-radius) !important;
         box-shadow: none !important;
-        transition: background-color var(--ethara-transition-fast) ease,
-                    border-color var(--ethara-transition-fast) ease;
+        transition: background-color var(--ethara-transition-fast) ease;
 
         &:hover {
-            border-bottom-color: var(--ethara-text-faint) !important;
+            background-color: var(--ethara-active-bg) !important;
         }
         &:focus {
-            border-bottom-color: var(--ethara-primary) !important;
+            background-color: var(--ethara-surface) !important;
         }
     }
 }
@@ -53,16 +52,15 @@ html.o_ethara_input_underline {
     .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
         background-color: transparent !important;
         border: 0 !important;
-        border-bottom: 2px solid var(--ethara-border) !important;
         border-radius: 0 !important;
         box-shadow: none !important;
-        transition: border-color var(--ethara-transition-fast) ease;
+        transition: background-color var(--ethara-transition-fast) ease;
 
         &:hover {
-            border-bottom-color: var(--ethara-text-faint) !important;
+            background-color: var(--ethara-hover) !important;
         }
         &:focus {
-            border-bottom-color: var(--ethara-primary) !important;
+            background-color: var(--ethara-active-bg) !important;
         }
     }
 }
@@ -71,42 +69,48 @@ html.o_ethara_input_underline {
 html.o_ethara_input_soft {
     .o_form_view .o_field_widget:not(.o_field_invalid) .o_input {
         background-color: var(--ethara-bg) !important;
-        border: 1px solid var(--ethara-border) !important;
+        border: 0 !important;
         border-radius: var(--ethara-radius) !important;
         box-shadow: none !important;
-        transition: background-color var(--ethara-transition-fast) ease,
-                    border-color var(--ethara-transition-fast) ease,
-                    box-shadow var(--ethara-transition-fast) ease;
+        transition: background-color var(--ethara-transition-fast) ease;
 
         &:hover {
             background-color: var(--ethara-hover) !important;
         }
         &:focus {
             background-color: var(--ethara-surface) !important;
-            border-color: var(--ethara-primary) !important;
-            box-shadow: 0 0 0 3px var(--ethara-active-bg) !important;
         }
     }
 }
 
-// --- Relational-field wrapper neutralization -------------------------
-//  Many2one / autocomplete fields wrap the inner <input class="o_input">
-//  in .o_input_dropdown > .o-autocomplete. Some Odoo / Bootstrap rules
-//  paint a border or background on those wrappers, producing a visible
-//  second border around the styled inner input. Zero them out so only
-//  the inner .o_input shows the styled border across all 4 variants.
-html.o_ethara_input_outlined,
-html.o_ethara_input_filled,
-html.o_ethara_input_underline,
-html.o_ethara_input_soft {
-    .o_form_view .o_field_widget:not(.o_field_invalid) {
-        .o_input_dropdown,
-        .o-autocomplete,
-        .o_field_many2one_selection {
-            border: 0 !important;
-            background-color: transparent !important;
-            box-shadow: none !important;
-            border-radius: 0 !important;
-        }
+// --- Universal border kill ------------------------------------------
+//  Catches every Odoo input chrome the four style blocks above don't
+//  reach: autocomplete wrappers (m2o / m2m_tags chip area), inputs
+//  outside .o_form_view (search bar, dialogs, settings), <select> and
+//  <textarea> elements, and date/time pickers. Backgrounds and focus
+//  feedback are preserved by the style blocks above; this rule only
+//  strips border lines and the focus ring.
+.o_form_view .o_field_widget .o_input_dropdown,
+.o_form_view .o_field_widget .o_input_dropdown .o_input,
+.o_field_widget .o_input,
+.o_field_widget input,
+.o_field_widget textarea,
+.o_field_widget select,
+.o_searchview_input,
+.modal .o_input,
+.modal input.form-control,
+.modal textarea.form-control,
+.o_settings_container .o_input {
+    border: 0 !important;
+    box-shadow: none !important;
+    outline: 0 !important;
+
+    &:hover,
+    &:focus,
+    &:focus-visible,
+    &:focus-within {
+        border: 0 !important;
+        box-shadow: none !important;
+        outline: 0 !important;
     }
 }

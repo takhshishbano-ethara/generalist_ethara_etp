@@ -20,26 +20,192 @@
 
 // --- Brand -----------------------------------------------------------
 .o_ethara_brand {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
     height: var(--ethara-navbar-height);
     min-height: var(--ethara-navbar-height);
     padding: 0 16px;
-    border-bottom: 1px solid var(--ethara-border);
 
     .o_ethara_brand_mark {
         flex: 0 0 auto;
-        width: 28px;
-        height: 28px;
-        border-radius: 8px;
+        height: calc(var(--ethara-navbar-height) - 16px);
+        max-height: 40px;
+        width: auto;
+        max-width: calc(var(--ethara-sidebar-width) - 48px);
+        border-radius: 6px;
         object-fit: contain;
     }
-    .o_ethara_brand_name {
+}
+
+// --- Profile card with quick actions --------------------------------
+.o_ethara_profile_card {
+    flex: 0 0 auto;
+    position: relative;
+    margin: 12px 10px;
+    padding: 16px 12px 14px;
+    border-radius: calc(var(--ethara-radius) + 4px);
+    background: var(--ethara-primary-soft);
+    border: 1px solid var(--ethara-border);
+    box-shadow: var(--ethara-shadow);
+
+    .o_ethara_profile_top {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        margin-bottom: 14px;
+    }
+
+    .o_ethara_profile_avatar {
+        width: 64px;
+        height: 64px;
+        border-radius: 50%;
+        object-fit: cover;
+        border: 3px solid var(--ethara-surface);
+        box-shadow: 0 0 0 2px var(--ethara-primary),
+                    0 4px 12px rgba(0, 0, 0, 0.15);
+        background: var(--ethara-surface);
+    }
+
+    .o_ethara_profile_name {
+        margin-top: 10px;
+        font-size: 14px;
         font-weight: 700;
-        font-size: 15px;
         color: var(--ethara-text);
-        white-space: nowrap;
+        line-height: 1.2;
+    }
+
+    .o_ethara_profile_greeting {
+        margin-top: 2px;
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.02em;
+        color: var(--ethara-text-muted);
+    }
+
+    .o_ethara_profile_actions {
+        position: relative;
+        display: grid;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 6px;
+        width: 100%;
+        min-height: 34px;
+    }
+
+    .o_ethara_profile_actions.o_ethara_profile_actions_badges {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding: 0 22%;
+        margin-top: 10px;
+    }
+
+    .o_ethara_quick_btn {
+        position: relative;
+        display: inline-flex !important;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 34px;
+        min-height: 34px;
+        padding: 0;
+        margin: 0;
+        border: 1px solid var(--ethara-border);
+        border-radius: var(--ethara-radius);
+        background: var(--ethara-surface);
+        color: var(--ethara-text);
+        font-size: 14px;
+        line-height: 1;
+        cursor: pointer;
+        box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+        transition: background var(--ethara-transition-fast),
+                    color var(--ethara-transition-fast),
+                    border-color var(--ethara-transition-fast),
+                    transform var(--ethara-transition-fast),
+                    box-shadow var(--ethara-transition-fast);
+
+        i {
+            display: inline-block;
+            font-size: 14px;
+            line-height: 1;
+            color: inherit;
+        }
+
+        &:hover {
+            background: var(--ethara-primary);
+            color: #fff;
+            border-color: var(--ethara-primary);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(16, 24, 40, 0.12);
+        }
+
+        &.o_ethara_quick_btn_active {
+            background: var(--ethara-primary);
+            color: #fff;
+            border-color: var(--ethara-primary);
+        }
+
+        // --- Custom hover tooltip --------------------------------
+        &[data-tooltip] {
+            &::after,
+            &::before {
+                position: absolute;
+                left: 50%;
+                opacity: 0;
+                pointer-events: none;
+                transition: opacity 0.15s ease 0.18s,
+                            transform 0.15s ease 0.18s;
+                z-index: 1060;
+            }
+
+            &::after {
+                content: attr(data-tooltip);
+                bottom: calc(100% + 8px);
+                transform: translate(-50%, 4px);
+                padding: 4px 9px;
+                background: var(--ethara-text);
+                color: var(--ethara-surface);
+                font-size: 11px;
+                font-weight: 500;
+                line-height: 1.3;
+                white-space: nowrap;
+                border-radius: 4px;
+                box-shadow: 0 4px 10px rgba(0, 0, 0, 0.18);
+            }
+
+            &::before {
+                content: "";
+                bottom: calc(100% + 4px);
+                transform: translate(-50%, 4px);
+                border: 4px solid transparent;
+                border-top-color: var(--ethara-text);
+            }
+
+            &:hover::after,
+            &:hover::before {
+                opacity: 1;
+                transform: translate(-50%, 0);
+            }
+        }
+    }
+
+    .o_ethara_quick_badge {
+        position: absolute;
+        top: -6px;
+        right: -6px;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: #ef4444;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 18px;
+        text-align: center;
+        box-shadow: 0 0 0 2px var(--ethara-primary-soft);
     }
 }
 
@@ -380,59 +546,32 @@
     opacity: 1;
 }
 
-// --- Footer ----------------------------------------------------------
-.o_ethara_footer {
-    flex: 0 0 auto;
-    display: flex;
+// --- Expand button (only visible when sidebar is collapsed) ----------
+.o_ethara_expand_btn {
+    display: none;
+    width: 32px;
+    height: 32px;
     align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border-top: 1px solid var(--ethara-border);
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius);
+    background: var(--ethara-surface);
+    color: var(--ethara-text);
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 1;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+    transition: background var(--ethara-transition-fast),
+                color var(--ethara-transition-fast),
+                border-color var(--ethara-transition-fast),
+                transform var(--ethara-transition-fast);
 
-    .o_ethara_user_avatar {
-        flex: 0 0 auto;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 30px;
-        height: 30px;
-        border-radius: 50%;
+    &:hover {
         background: var(--ethara-primary);
         color: #fff;
-        font-weight: 700;
-        font-size: 12px;
-    }
-    .o_ethara_user_meta {
-        flex: 1 1 auto;
-        overflow: hidden;
-        white-space: nowrap;
-    }
-    .o_ethara_user_name {
-        font-size: 12.5px;
-        font-weight: 600;
-        color: var(--ethara-text);
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    .o_ethara_user_role {
-        font-size: 11px;
-        color: var(--ethara-text-faint);
-    }
-    .o_ethara_footer_btn {
-        flex: 0 0 auto;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: 28px;
-        height: 28px;
-        border: 1px solid var(--ethara-border);
-        border-radius: var(--ethara-radius);
-        background: var(--ethara-surface);
-        color: var(--ethara-text-muted);
-        cursor: pointer;
-        transition: background var(--ethara-transition-fast) ease, color var(--ethara-transition-fast) ease;
-
-        &:hover { background: var(--ethara-hover); color: var(--ethara-primary); }
+        border-color: var(--ethara-primary);
+        transform: translateY(-1px);
     }
 }
 
@@ -441,17 +580,165 @@ body.o_ethara_sidebar_collapsed {
     .o_ethara_sidebar { width: var(--ethara-sidebar-collapsed); }
 
     .o_ethara_brand_name,
+    .o_ethara_brand_mark,
     .o_ethara_search,
+    .o_ethara_profile_card,
     .o_ethara_section_label,
     .o_ethara_app_name,
     .o_ethara_caret,
     .o_ethara_star,
     .o_ethara_submenu,
-    .o_ethara_favitem .o_ethara_navitem_label,
-    .o_ethara_user_meta { display: none; }
+    .o_ethara_favitem .o_ethara_navitem_label { display: none; }
 
     .o_ethara_brand { justify-content: center; padding: 0; }
+    .o_ethara_expand_btn { display: inline-flex; }
     .o_ethara_app_header { justify-content: center; gap: 0; }
     .o_ethara_favitem { justify-content: center; margin-left: 8px; }
-    .o_ethara_footer { flex-direction: column; }
+}
+
+// --- Hide the entire main top navbar --------------------------------
+// All those actions live in the sidebar profile card now, and the
+// content area should start from the very top of the viewport.
+.o_main_navbar {
+    display: none !important;
+}
+
+// Pull the content area up to the top edge so breadcrumbs / app titles
+// align with the sidebar header instead of sitting under an empty bar.
+.o_action_manager {
+    top: 0 !important;
+}
+
+// --- Mobile drawer chrome (hidden on desktop) ------------------------
+.o_ethara_mobile_toggle {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    width: 36px;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--ethara-border);
+    border-radius: var(--ethara-radius);
+    background: var(--ethara-surface);
+    color: var(--ethara-text);
+    font-size: 16px;
+    box-shadow: var(--ethara-shadow);
+    cursor: pointer;
+    z-index: 1042;
+    transition: background var(--ethara-transition-fast),
+                color var(--ethara-transition-fast),
+                transform var(--ethara-transition-fast);
+
+    &:hover {
+        background: var(--ethara-primary);
+        color: #fff;
+        border-color: var(--ethara-primary);
+    }
+}
+
+.o_ethara_mobile_backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    opacity: 0;
+    z-index: 1040;
+    transition: opacity var(--ethara-transition) ease;
+}
+
+// --- Tablet: shrink sidebar so content keeps reading room -----------
+@media (max-width: 1024px) {
+    :root {
+        --ethara-sidebar-width: 220px;
+    }
+
+    .o_ethara_profile_card {
+        margin: 10px 8px;
+        padding: 14px 10px 12px;
+    }
+
+    .o_ethara_profile_avatar {
+        width: 56px;
+        height: 56px;
+    }
+
+    .o_ethara_profile_actions {
+        gap: 5px;
+    }
+
+    .o_ethara_quick_btn {
+        height: 30px;
+        min-height: 30px;
+        font-size: 12px;
+
+        i {
+            font-size: 12px;
+        }
+    }
+}
+
+// --- Phone: off-canvas drawer ---------------------------------------
+@media (max-width: 768px) {
+    .o_ethara_mobile_toggle {
+        display: flex;
+    }
+
+    .o_ethara_sidebar {
+        width: 280px;
+        max-width: 85vw;
+        transform: translateX(-100%);
+        transition: transform var(--ethara-transition) ease,
+                    box-shadow var(--ethara-transition) ease;
+        z-index: 1045;
+    }
+
+    // Content area reclaims the full viewport width on phones.
+    .o_navbar,
+    .o_action_manager {
+        margin-left: 0 !important;
+    }
+
+    // Drawer open: slide in + show backdrop.
+    body.o_ethara_mobile_open {
+        overflow: hidden;
+
+        .o_ethara_sidebar {
+            transform: translateX(0);
+            box-shadow: var(--ethara-shadow-lg);
+        }
+
+        .o_ethara_mobile_backdrop {
+            display: block;
+            opacity: 1;
+        }
+    }
+
+    // Phone profile card: a touch more breathing room around taps.
+    .o_ethara_profile_card {
+        margin: 14px 12px;
+        padding: 18px 14px 14px;
+    }
+
+    .o_ethara_quick_btn {
+        height: 36px;
+        min-height: 36px;
+    }
+
+    // Collapsed-state on phone is meaningless — the drawer is always
+    // the full sidebar when open. Reset width override so collapse
+    // toggle doesn't shrink the drawer to a useless 60px sliver.
+    body.o_ethara_sidebar_collapsed .o_ethara_sidebar {
+        width: 280px;
+        max-width: 85vw;
+    }
+
+    // Hide the desktop sidebar pin button on phones — the hamburger
+    // is the canonical open/close affordance here.
+    [aria-label="Collapse sidebar"],
+    [aria-label="Expand sidebar"] {
+        display: none !important;
+    }
 }

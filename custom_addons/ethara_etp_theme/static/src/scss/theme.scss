@@ -85,3 +85,24 @@ body.o_ethara_sidebar_collapsed {
 }
 
 .btn-link { color: var(--ethara-primary); }
+
+// --- Settings: Login Page block ---------------------------------------
+//  The Login Template picker is much taller than the Image upload, so
+//  the default settings grid leaves whitespace below the Image and
+//  pushes the Live Preview to a fresh "section" under the Template.
+//  Re-layout the block with explicit grid areas so Template spans the
+//  left column, Image stays top-right, and the Preview fills the empty
+//  space directly below the Image.
+.app_settings_block:has(> #ethara_login_template_setting),
+.o_settings_container:has(> #ethara_login_template_setting) {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+        "tpl img"
+        "tpl prv";
+    align-items: start;
+    gap: 1rem;
+}
+#ethara_login_template_setting { grid-area: tpl; max-width: 100%; }
+#ethara_login_image_setting    { grid-area: img; max-width: 100%; }
+#ethara_login_preview_setting  { grid-area: prv; max-width: 100%; }

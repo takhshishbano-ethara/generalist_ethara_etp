@@ -15,6 +15,8 @@
                       t-att-href="ethara_theme['font_url']"/>
                 <style id="ethara_theme_vars" type="text/css"
                        t-out="ethara_theme['css']"/>
+                <script id="ethara_theme_init" type="text/javascript"
+                        t-out="request.env['ethara.theme'].get_theme_init_script()"/>
                 <script id="ethara_menu_icons" type="text/javascript"
                         t-out="request.env['ethara.theme'].get_menu_icons_script()"/>
             </t>

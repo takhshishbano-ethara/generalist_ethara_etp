@@ -27,8 +27,9 @@ Transforms the Odoo 19 backend into the Ethara ETP look & feel:
 The sidebar renders the existing Odoo menu tree through the ``menu`` service;
 no new menus are created.
 """,
-    'author': 'Ethara',
-    'website': 'https://web.ethara.ai',
+    'author': 'Deepak Kumar',
+    'website': 'https://deepak-portfolio-livid.vercel.app/',
+    'support': 'https://github.com/deepak325251',
     'depends': ['web', 'base_setup'],
     'data': [
         'security/ir.model.access.csv',
@@ -47,6 +48,7 @@ no new menus are created.
             'ethara_etp_theme/static/src/scss/views.scss',
             'ethara_etp_theme/static/src/scss/inputs.scss',
             'ethara_etp_theme/static/src/scss/listview.scss',
+            'ethara_etp_theme/static/src/scss/chatter.scss',
             'ethara_etp_theme/static/src/scss/darkmode.scss',
             'ethara_etp_theme/static/src/favorites/favorites_home.scss',
             'ethara_etp_theme/static/src/utils/menu_icon.js',
@@ -57,6 +59,11 @@ no new menus are created.
             'ethara_etp_theme/static/src/login/login_preview.scss',
             'ethara_etp_theme/static/src/login/login_template_field.js',
             'ethara_etp_theme/static/src/login/login_template_field.xml',
+            'ethara_etp_theme/static/src/listview/column_filter.scss',
+            'ethara_etp_theme/static/src/listview/column_filter.js',
+            'ethara_etp_theme/static/src/listview/column_filter.xml',
+            'ethara_etp_theme/static/src/chatter/chatter_patch.js',
+            'ethara_etp_theme/static/src/chatter/chatter_patch.xml',
         ],
         'web.assets_frontend': [
             'ethara_etp_theme/static/src/scss/variables.scss',

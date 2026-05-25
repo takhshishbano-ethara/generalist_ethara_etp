@@ -1,0 +1,54 @@
+.o-mail-Chatter {
+    position: relative;
+}
+
+.o_ethara_chatter_resize_handle {
+    position: absolute;
+    top: 0;
+    left: -4px;
+    bottom: 0;
+    width: 8px;
+    cursor: col-resize;
+    z-index: 5;
+    background: transparent;
+    transition: background var(--ethara-transition-fast, .12s) ease;
+
+    &::before {
+        content: "";
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 2px;
+        height: 36px;
+        border-radius: 2px;
+        background: var(--ethara-border, #e5e7eb);
+        opacity: 0;
+        transition: opacity var(--ethara-transition-fast, .12s) ease,
+                    background var(--ethara-transition-fast, .12s) ease;
+    }
+
+    &:hover::before,
+    &:active::before {
+        opacity: 1;
+        background: var(--ethara-primary, #6366f1);
+    }
+}
+
+html.o_ethara_chatter_resizing {
+    cursor: col-resize !important;
+    user-select: none !important;
+
+    * {
+        user-select: none !important;
+    }
+}
+
+.o-mail-Form-chatter.o-aside,
+.o-mail-ChatterContainer.o-aside {
+    width: var(--ethara-chatter-width, calc(380px + var(--Chatter-asideExtraWidth, 0px)));
+}
+
+html[data-ethara-chatter="bottom"] .o_ethara_chatter_resize_handle {
+    display: none;
+}

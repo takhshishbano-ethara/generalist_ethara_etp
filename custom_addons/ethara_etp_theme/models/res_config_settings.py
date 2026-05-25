@@ -155,6 +155,16 @@ class ResConfigSettings(models.TransientModel):
     )
     ethara_login_image = fields.Binary(string="Login Image")
 
+    ethara_chatter_position = fields.Selection(
+        selection=[
+            ("sided", "Side"),
+            ("bottom", "Bottom"),
+        ],
+        string="Chatter Position",
+        config_parameter="ethara_etp_theme.chatter_position",
+        default="sided",
+    )
+
     @api.model
     def get_values(self):
         res = super().get_values()

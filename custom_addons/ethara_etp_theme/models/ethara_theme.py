@@ -216,6 +216,19 @@ class EtharaTheme(models.AbstractModel):
         return {"css": Markup(css), "font_url": FONT_URLS[font]}
 
     @api.model
+    def get_theme_init_script(self):
+        """Return a small <script> body that propagates a few theme
+        choices to the DOM as data-* attributes on <html>, so that
+        purely-CSS rules can react before any OWL component mounts."""
+        chatter_position = self._choice(
+            "chatter_position", "sided", ("sided", "bottom")
+        )
+        return Markup(
+            "document.documentElement.dataset.etharaChatter = '%s';"
+            % chatter_position
+        )
+
+    @api.model
     def get_menu_icons_script(self):
         """Return a <script> body publishing the per-app sidebar icon
         overrides as ``window.etharaMenuIcons`` for navbar_patch.js."""
