@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+
+    <!-- ===============================================================
+         Ethara ETP Theme — per-column filter row on every list view
+
+         Inserts a second <tr> inside <thead> directly under the header
+         row of every backend list view. Each cell renders a smart
+         filter widget chosen by field type (text / select / date /
+         number / boolean). User input is debounced and turned into a
+         server-side search domain that's merged with the search bar's
+         own domain — see column_filter.js for the JS side.
+
+         Filter row is suppressed in grouped lists (group rows already
+         break the column-cell alignment we rely on).
+         =============================================================== -->
+
+    <t t-inherit="web.ListRenderer" t-inherit-mode="extension">
+        <xpath expr="//thead/tr" position="after">
+            <tr t-if="!props.list.isGrouped" class="o_ethara_column_filter_row">
+                <th t-if="hasSelectors" class="o_ethara_filter_blank"/>
+                <t t-foreach="columns" t-as="column" t-key="'ethara_filter_' + column.id">
+                    <th t-if="column.type === 'field'"
+                        class="o_ethara_filter_cell"
+                        t-att-data-name="column.name">
+                        <t t-call="ethara_etp_theme.EtharaColumnFilterCell">
+                            <t t-set="column" t-value="column"/>
+                        </t>
+                    </th>
+                    <th t-else="" class="o_ethara_filter_blank"/>
+                </t>
+                <th t-if="hasOpenFormViewColumn" class="o_ethara_filter_blank"/>
+                <th t-if="hasActionsColumn" class="o_ethara_filter_blank"/>
+            </tr>
+        </xpath>
+    </t>
+
+    <t t-name="ethara_etp_theme.EtharaColumnFilterCell">
+        <t t-set="etharaField" t-value="getEtharaColumnField(column)"/>
+        <t t-set="etharaFType" t-value="etharaField and etharaField.type"/>
+        <t t-set="etharaVal" t-value="getEtharaFilterValue(column)"/>
+
+        <t t-if="!etharaField or column.widget === 'handle' or column.widget === 'badge'
+                 or etharaFType === 'binary' or etharaFType === 'json'">
+            <span class="o_ethara_filter_placeholder"/>
+        </t>
+        <t t-elif="etharaFType === 'selection'">
+            <select class="o_ethara_filter_input"
+                    t-on-change="(ev) => this.onEtharaFilterChange(column, ev.target.value)"
+                    t-on-click.stop="">
+                <option value="" t-att-selected="!etharaVal">Any</option>
+                <t t-foreach="getEtharaSelectionOptions(column)" t-as="opt" t-key="opt[0]">
+                    <option t-att-value="opt[0]"
+                            t-att-selected="etharaVal === opt[0]"
+                            t-esc="opt[1]"/>
+                </t>
+            </select>
+        </t>
+        <t t-elif="etharaFType === 'boolean'">
+            <select class="o_ethara_filter_input"
+                    t-on-change="(ev) => this.onEtharaFilterChange(column, ev.target.value)"
+                    t-on-click.stop="">
+                <option value="" t-att-selected="!etharaVal">Any</option>
+                <option value="true" t-att-selected="etharaVal === 'true'">Yes</option>
+                <option value="false" t-att-selected="etharaVal === 'false'">No</option>
+            </select>
+        </t>
+        <t t-elif="etharaFType === 'date'">
+            <input type="date" class="o_ethara_filter_input"
+                   t-att-value="etharaVal or ''"
+                   t-on-change="(ev) => this.onEtharaFilterChange(column, ev.target.value)"
+                   t-on-click.stop=""/>
+        </t>
+        <t t-elif="etharaFType === 'datetime'">
+            <input type="datetime-local" class="o_ethara_filter_input"
+                   t-att-value="etharaVal or ''"
+                   t-on-change="(ev) => this.onEtharaFilterChange(column, ev.target.value)"
+                   t-on-click.stop=""/>
+        </t>
+        <t t-elif="etharaFType === 'integer' or etharaFType === 'float' or etharaFType === 'monetary'">
+            <input type="number" class="o_ethara_filter_input"
+                   t-att-step="etharaFType === 'integer' ? '1' : 'any'"
+                   t-att-value="etharaVal or ''"
+                   placeholder="="
+                   t-on-input="(ev) => this.onEtharaFilterInput(column, ev)"
+                   t-on-click.stop=""/>
+        </t>
+        <t t-else="">
+            <input type="text" class="o_ethara_filter_input"
+                   t-att-value="etharaVal or ''"
+                   placeholder="Filter…"
+                   t-on-input="(ev) => this.onEtharaFilterInput(column, ev)"
+                   t-on-click.stop=""/>
+        </t>
+    </t>
+
+</templates>

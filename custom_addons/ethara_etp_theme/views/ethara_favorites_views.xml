@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Favorites Home page, rendered by the ethara_favorites_home
+         client action component. -->
+    <record id="ethara_favorites_home_action" model="ir.actions.client">
+        <field name="name">Home</field>
+        <field name="tag">ethara_favorites_home</field>
+    </record>
+
+</odoo>

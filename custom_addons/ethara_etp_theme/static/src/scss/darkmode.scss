@@ -1,0 +1,390 @@
+// =====================================================================
+//  Ethara ETP Theme — dark-mode component fixes
+//
+//  Several Odoo backend components hardcode light backgrounds through
+//  plain SCSS variables ($o-view-background-color, $o-webclient-
+//  background-color, the `bg-view` utility ...). Those values are
+//  baked in at compile time, so the components never follow the
+//  theme's runtime --ethara-* tokens and stay white in dark mode.
+//
+//  Every rule below is scoped under `.o_ethara_dark` (the class the
+//  dark-mode toggle puts on <html>), so light mode is left untouched.
+// =====================================================================
+.o_ethara_dark {
+
+    // --- Chatter (form view right pane) -----------------------------
+    .o-mail-ChatterContainer,
+    .o-mail-Form-chatter,
+    .o-mail-Chatter,
+    .o-mail-Chatter-content {
+        background-color: var(--ethara-bg) !important;
+        color: var(--ethara-text);
+    }
+    .o-mail-Chatter-top {
+        background-color: var(--ethara-bg) !important;
+        background-image: none !important;
+        border-bottom: 1px solid var(--ethara-border);
+        color: var(--ethara-text);
+    }
+    .o-mail-Chatter .btn,
+    .o-mail-Chatter-top .btn {
+        color: var(--ethara-text);
+    }
+    .o-mail-Chatter .btn-primary {
+        color: #fff;
+    }
+    .o-mail-Chatter .o-mail-Thread,
+    .o-mail-Chatter .o-mail-Message,
+    .o-mail-Chatter .o-mail-Message-content {
+        color: var(--ethara-text);
+    }
+    .o-mail-Composer,
+    .o-mail-Composer-input,
+    .o-mail-Composer textarea {
+        background-color: var(--ethara-surface) !important;
+        color: var(--ethara-text);
+        border-color: var(--ethara-border) !important;
+    }
+
+    // --- Notebook tabs (form view) ----------------------------------
+    .o_notebook .o_notebook_headers {
+        background-color: var(--ethara-surface) !important;
+    }
+    .o_notebook .o_notebook_headers .nav-tabs {
+        background-color: transparent !important;
+        border-bottom-color: var(--ethara-border) !important;
+    }
+    .o_notebook .o_notebook_headers .nav-link {
+        color: var(--ethara-text-muted) !important;
+        background-color: transparent !important;
+        border-color: transparent !important;
+    }
+    .o_notebook .o_notebook_headers .nav-link:hover {
+        color: var(--ethara-text) !important;
+        border-color: var(--ethara-border) var(--ethara-border) transparent !important;
+    }
+    .o_notebook .o_notebook_headers .nav-link.active {
+        color: var(--ethara-text) !important;
+        background-color: var(--ethara-surface) !important;
+        border-color: var(--ethara-border) var(--ethara-border) var(--ethara-surface) !important;
+    }
+    .o_notebook .tab-content {
+        color: var(--ethara-text);
+    }
+
+    // --- Search panel (left filter panel) ---------------------------
+    .o_search_panel,
+    .o_search_panel_sidebar {
+        background-color: var(--ethara-surface) !important;
+        border-color: var(--ethara-border) !important;
+        color: var(--ethara-text);
+    }
+    .o_search_panel .o_search_panel_section_header {
+        color: var(--ethara-text-muted);
+    }
+    .o_search_panel .list-group-item {
+        background-color: transparent !important;
+        color: var(--ethara-text);
+        border-color: var(--ethara-border);
+    }
+    .o_search_panel .list-group-item:hover {
+        background-color: var(--ethara-hover) !important;
+    }
+    .o_search_panel .list-group-item.active,
+    .o_search_panel li.active,
+    .o_search_panel .o_search_panel_category_value.active,
+    .o_search_panel .o_search_panel_label.active {
+        background-color: var(--ethara-active-bg) !important;
+        color: var(--ethara-active-fg) !important;
+    }
+    .o_search_panel .o_search_panel_counter {
+        color: var(--ethara-text-faint);
+    }
+
+    // --- Control panel: pager + view switcher -----------------------
+    .o_control_panel .o_pager,
+    .o_control_panel .o_pager button,
+    .o_control_panel .o_pager .o_pager_counter {
+        background-color: transparent;
+        color: var(--ethara-text);
+    }
+    .o_control_panel .o_cp_switch_buttons,
+    .o_control_panel .o_cp_switch_buttons > button:not(.active),
+    .o_control_panel .o_cp_switch_buttons .btn:not(.active) {
+        background-color: transparent;
+        color: var(--ethara-text-muted);
+        border-color: var(--ethara-border);
+    }
+
+    // --- Breadcrumb -------------------------------------------------
+    .o_control_panel .o_breadcrumb,
+    .o_control_panel .breadcrumb-item,
+    .o_control_panel .breadcrumb-item > a,
+    .o_control_panel .o_last_breadcrumb_item {
+        color: var(--ethara-text);
+    }
+    .o_control_panel .breadcrumb-item.o_back_button > a {
+        color: var(--ethara-text-muted);
+    }
+
+    // --- Form status bar --------------------------------------------
+    .o_form_view .o_form_statusbar {
+        background-color: var(--ethara-surface);
+        border-bottom-color: var(--ethara-border);
+        color: var(--ethara-text);
+    }
+
+    // --- Form view without a sheet (settings, wizards ...) ----------
+    .o_form_view.o_form_nosheet,
+    .o_form_view .o_form_nosheet {
+        background-color: var(--ethara-bg);
+        color: var(--ethara-text);
+    }
+
+    // --- Settings page (Settings > Ethara Theme ...) ----------------
+    .o_base_settings_view .o_form_renderer {
+        --settings__tab-bg: var(--ethara-bg);
+        --settings__tab-bg--active: var(--ethara-active-bg);
+        --settings__tab-color: var(--ethara-text-muted);
+        --settings__title-bg: var(--ethara-bg);
+    }
+    .o_base_settings_view .o_setting_container .settings {
+        background-color: var(--ethara-surface) !important;
+        color: var(--ethara-text);
+    }
+    .o_base_settings_view .o_setting_container .settings_tab .tab:hover,
+    .o_base_settings_view .o_setting_container .settings_tab .tab.selected {
+        color: var(--ethara-text);
+    }
+    .o_base_settings_view .settings .settingSearchHeader {
+        background-color: var(--ethara-bg) !important;
+        color: var(--ethara-text);
+    }
+    .o_base_settings_view .settings .app_settings_block h2,
+    .o_base_settings_view .settings .app_settings_block h3 {
+        color: var(--ethara-text);
+    }
+    .o_base_settings_view .o_settings_container,
+    .o_base_settings_view .o_setting_box,
+    .o_base_settings_view .o_form_label,
+    .o_base_settings_view .text-muted {
+        color: var(--ethara-text);
+    }
+
+    // --- Dropdown menus ---------------------------------------------
+    .dropdown-menu,
+    .o-dropdown--menu,
+    .o-autocomplete--dropdown-menu {
+        background-color: var(--ethara-surface) !important;
+        border-color: var(--ethara-border) !important;
+        color: var(--ethara-text);
+    }
+    .dropdown-menu .dropdown-item,
+    .o-dropdown--menu .dropdown-item,
+    .o-autocomplete--dropdown-menu .dropdown-item,
+    .o-autocomplete--dropdown-menu li > a {
+        color: var(--ethara-text);
+    }
+    .dropdown-menu .dropdown-item:hover,
+    .dropdown-menu .dropdown-item:focus,
+    .dropdown-menu .dropdown-item.focus,
+    .o-dropdown--menu .dropdown-item:hover,
+    .o-dropdown--menu .dropdown-item:focus,
+    .o-dropdown--menu .dropdown-item.focus,
+    .o-autocomplete--dropdown-menu .dropdown-item:hover,
+    .o-autocomplete--dropdown-menu .dropdown-item.focus,
+    .o-autocomplete--dropdown-menu li.focus > a {
+        background-color: var(--ethara-hover) !important;
+        color: var(--ethara-text);
+    }
+    .dropdown-menu .dropdown-divider,
+    .o-dropdown--menu .dropdown-divider {
+        border-color: var(--ethara-border);
+    }
+    .dropdown-menu .dropdown-header {
+        color: var(--ethara-text-muted);
+    }
+
+    // --- Dialogs / modals -------------------------------------------
+    .modal-content {
+        background-color: var(--ethara-surface);
+        border-color: var(--ethara-border);
+        color: var(--ethara-text);
+    }
+    .modal-header,
+    .modal-footer {
+        background-color: var(--ethara-surface);
+        border-color: var(--ethara-border);
+    }
+    .modal-header .modal-title {
+        color: var(--ethara-text);
+    }
+
+    // --- Native <select> options ------------------------------------
+    select option,
+    select optgroup {
+        background-color: var(--ethara-surface);
+        color: var(--ethara-text);
+    }
+
+    // --- Kanban view ------------------------------------------------
+    //  The renderer and the columns paint themselves with
+    //  --Kanban-background, a light gray baked in from
+    //  $o-kanban-background. Retint the kanban CSS variables so the
+    //  area behind the cards follows the dark theme.
+    .o_kanban_renderer {
+        --Kanban-background: var(--ethara-bg);
+        --KanbanGroup-background: var(--ethara-bg);
+        --KanbanColumn__highlight-background: var(--ethara-hover);
+        --KanbanColumn__highlight-selected: var(--ethara-active-bg);
+    }
+    //  Progress-bar tinted columns redefine --KanbanGroup-background
+    //  on the column itself, so flatten it back to the dark surface.
+    .o_kanban_renderer .o_kanban_group {
+        --KanbanGroup-background: var(--ethara-bg);
+    }
+    //  Progress-bar track behind the column counter.
+    .o_kanban_renderer .o_kanban_counter .o_column_progress .bg-200 {
+        --background-color: var(--ethara-border);
+    }
+    .o_kanban_renderer .o_kanban_quick_create {
+        background-color: var(--ethara-surface) !important;
+        border-color: var(--ethara-border) !important;
+    }
+    //  "New record" ghost card hover.
+    .o_kanban_renderer .o_kanban_record.o-kanban-button-new:hover,
+    .o_kanban_renderer .o_kanban_record.o-kanban-button-new:focus-within {
+        background-color: var(--ethara-hover);
+    }
+
+    // --- Discuss app (messaging) ------------------------------------
+    //  The full-page Discuss client, chat windows and the messaging
+    //  menu hardcode light backgrounds ($body-bg, $white,
+    //  $o-view-background-color). Odoo's own mail .dark.scss files only
+    //  load under Odoo's native dark mode, never under .o_ethara_dark.
+
+    //  Conversation area
+    .o-mail-Discuss,
+    .o-mail-DiscussContent,
+    .o-mail-DiscussContent-core {
+        background-color: var(--ethara-bg) !important;
+        color: var(--ethara-text);
+    }
+    .o-mail-DiscussContent-header {
+        background-color: var(--ethara-surface) !important;
+        border-bottom: 1px solid var(--ethara-border);
+        color: var(--ethara-text);
+    }
+    .o-mail-DiscussContent-headerActionsGroup {
+        background-color: var(--ethara-bg) !important;
+        outline-color: var(--ethara-border) !important;
+    }
+    .o-mail-DiscussContent-headerActions button:not(.o-isActive):hover {
+        background-color: var(--ethara-hover) !important;
+    }
+    .o-mail-DiscussContent-headerActions button.o-isActive,
+    .o-mail-DiscussContent-headerActions button.o-isActive:hover {
+        background-color: var(--ethara-active-bg) !important;
+    }
+
+    //  Channel sidebar
+    .o-mail-DiscussSidebar,
+    .o-mail-discussSidebarBgColor {
+        background-color: var(--ethara-surface) !important;
+        border-color: var(--ethara-border);
+        color: var(--ethara-text);
+    }
+    .o-mail-DiscussSidebar-item:hover,
+    .o-mail-DiscussSidebarCategory:hover {
+        background-color: var(--ethara-hover) !important;
+        outline-color: var(--ethara-border) !important;
+    }
+    .o-mail-DiscussSidebar-item.o-active {
+        --mail-DiscussSidebar-itemActiveBgColor: var(--ethara-active-bg);
+        --mail-DiscussSidebar-itemActiveOutlineColor: var(--ethara-border);
+        color: var(--ethara-active-fg);
+    }
+    .o-mail-DiscussSidebarChannel-container.o-bordered {
+        background-color: var(--ethara-bg) !important;
+    }
+    .o-mail-DiscussSidebar-item,
+    .o-mail-DiscussSidebarCategory-title,
+    .o-mail-DiscussSidebarChannel-itemName {
+        color: var(--ethara-text);
+    }
+
+    //  Message thread
+    .o-mail-Thread,
+    .o-mail-Thread .o-mail-Message,
+    .o-mail-Thread .o-mail-Message-body,
+    .o-mail-Thread .o-mail-Message-content,
+    .o-discuss-text-body {
+        color: var(--ethara-text);
+    }
+    .o-mail-Message.o-card {
+        background-color: var(--ethara-surface) !important;
+    }
+    .o-mail-Message-bubble.o-muted {
+        background-color: var(--ethara-surface) !important;
+    }
+    .o-mail-Message-date,
+    .o-mail-Message .text-muted {
+        color: var(--ethara-text-muted);
+    }
+
+    //  Side panels (member list, thread settings, search)
+    .o-mail-ActionPanel {
+        background-color: var(--ethara-surface) !important;
+        border-color: var(--ethara-border);
+        color: var(--ethara-text);
+    }
+    .o-mail-ActionPanel .form-check-input {
+        --form-check-bg: var(--ethara-surface);
+    }
+
+    //  Chat windows (bottom-right popups)
+    .o-mail-ChatWindow {
+        background-color: var(--ethara-surface) !important;
+        color: var(--ethara-text);
+    }
+    .o-mail-ChatWindow-header {
+        background-color: var(--ethara-bg) !important;
+        border-color: var(--ethara-border) !important;
+    }
+
+    //  Messaging-menu systray dropdown
+    .o-mail-MessagingMenu,
+    .o-mail-MessagingMenu-list {
+        --mail-MessagingMenu-bg: var(--ethara-surface);
+        --mail-MessagingMenu-listBorderColor: var(--ethara-border);
+        color: var(--ethara-text);
+    }
+    .o-mail-MessagingMenu .o-mail-NotificationItem,
+    .o-mail-MessagingMenu .list-group-item {
+        background-color: transparent !important;
+        color: var(--ethara-text);
+        border-color: var(--ethara-border);
+    }
+    .o-mail-MessagingMenu .o-mail-NotificationItem:hover,
+    .o-mail-MessagingMenu .list-group-item:hover {
+        background-color: var(--ethara-hover) !important;
+    }
+
+    // --- Rich-text (HTML) field editor ------------------------------
+    .note-editable,
+    .odoo-editor-editable,
+    .o_field_html .o_readonly {
+        background-color: var(--ethara-surface);
+        color: var(--ethara-text);
+    }
+
+    // --- Tooltips & popovers ----------------------------------------
+    .o-tooltip .tooltip-inner,
+    .tooltip-inner,
+    .popover,
+    .popover .popover-body {
+        background-color: var(--ethara-surface) !important;
+        color: var(--ethara-text) !important;
+        border-color: var(--ethara-border) !important;
+    }
+}

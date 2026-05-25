@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ethara_menu_icon_user,ethara.menu.icon.user,model_ethara_menu_icon,base.group_user,1,0,0,0
+access_ethara_menu_icon_manager,ethara.menu.icon.manager,model_ethara_menu_icon,base.group_system,1,1,1,1
+access_ethara_menu_favorite_user,ethara.menu.favorite.user,model_ethara_menu_favorite,base.group_user,1,1,1,1

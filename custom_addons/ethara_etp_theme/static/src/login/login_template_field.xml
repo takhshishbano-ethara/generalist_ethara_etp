@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<templates xml:space="preserve">
+
+    <t t-name="ethara_etp_theme.LoginTemplateField">
+        <div class="o_ethara_ltf">
+            <div class="o_ethara_ltf_cards">
+                <t t-foreach="templates" t-as="tmpl" t-key="tmpl.id">
+                    <div class="o_ethara_ltf_card"
+                         t-att-class="{ o_ethara_ltf_selected: selected === tmpl.id }"
+                         t-on-click="() => this.selectTemplate(tmpl.id)">
+                        <div t-attf-class="o_ethara_ltf_thumb o_ethara_ltf_thumb_{{tmpl.id}}">
+                            <span class="o_ethara_ltf_thumb_aside"/>
+                            <span class="o_ethara_ltf_thumb_card">
+                                <span class="o_ethara_ltf_thumb_line o_ethara_ltf_thumb_line_lg"/>
+                                <span class="o_ethara_ltf_thumb_line"/>
+                                <span class="o_ethara_ltf_thumb_line"/>
+                                <span class="o_ethara_ltf_thumb_btn"/>
+                            </span>
+                        </div>
+                        <div class="o_ethara_ltf_meta">
+                            <div class="o_ethara_ltf_name">
+                                <i class="fa fa-check-circle o_ethara_ltf_check"/>
+                                <span t-esc="tmpl.name"/>
+                            </div>
+                            <div class="o_ethara_ltf_desc" t-esc="tmpl.description"/>
+                        </div>
+                    </div>
+                </t>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="ethara_etp_theme.LoginTemplatePreview">
+        <div class="o_ethara_ltf">
+            <div class="o_ethara_ltf_preview_wrap">
+                <div t-attf-class="o_ethara_lp o_ethara_lp_{{selected}}">
+                    <div class="o_ethara_lp_aside">
+                        <div class="o_ethara_lp_media"
+                             t-att-style="imageSrc ? 'background-image:url(' + imageSrc + ')' : false"/>
+                        <div class="o_ethara_lp_overlay"/>
+                        <div class="o_ethara_lp_brand">Your Brand</div>
+                    </div>
+                    <div class="o_ethara_lp_stage">
+                        <div class="o_ethara_lp_card">
+                            <div class="o_ethara_lp_logo"/>
+                            <div class="o_ethara_lp_field">
+                                <span class="o_ethara_lp_flabel"/>
+                                <span class="o_ethara_lp_finput"/>
+                            </div>
+                            <div class="o_ethara_lp_field">
+                                <span class="o_ethara_lp_flabel"/>
+                                <span class="o_ethara_lp_finput"/>
+                            </div>
+                            <div class="o_ethara_lp_btn">Log in</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+
+</templates>
