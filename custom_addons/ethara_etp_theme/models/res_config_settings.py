@@ -38,6 +38,11 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="ethara_etp_theme.sidebar_bg",
         default="#ffffff",
     )
+    ethara_navbar_bg = fields.Char(
+        string="Navbar Background",
+        config_parameter="ethara_etp_theme.navbar_bg",
+        default="",
+    )
     ethara_content_bg = fields.Char(
         string="Content Background",
         config_parameter="ethara_etp_theme.content_bg",
@@ -154,6 +159,7 @@ class ResConfigSettings(models.TransientModel):
         default="centered",
     )
     ethara_login_image = fields.Binary(string="Login Image")
+    ethara_favorites_bg = fields.Binary(string="Favorites Home Background")
 
     ethara_chatter_position = fields.Selection(
         selection=[
@@ -169,41 +175,65 @@ class ResConfigSettings(models.TransientModel):
     def get_values(self):
         res = super().get_values()
         params = self.env["ir.config_parameter"].sudo()
-        attachment_id = params.get_param("ethara_etp_theme.login_image_attachment_id")
-        image = False
-        if attachment_id and str(attachment_id).isdigit():
-            attachment = self.env["ir.attachment"].sudo().browse(int(attachment_id))
-            if attachment.exists():
-                image = attachment.datas
-        res["ethara_login_image"] = image
+
+        def _load(param_key):
+            attachment_id = params.get_param(param_key)
+            if attachment_id and str(attachment_id).isdigit():
+                attachment = self.env["ir.attachment"].sudo().browse(int(attachment_id))
+                if attachment.exists():
+                    return attachment.datas
+            return False
+
+        res["ethara_login_image"] = _load("ethara_etp_theme.login_image_attachment_id")
+        res["ethara_favorites_bg"] = _load("ethara_etp_theme.favorites_bg_attachment_id")
         return res
 
     def set_values(self):
         super().set_values()
         params = self.env["ir.config_parameter"].sudo()
         attachments = self.env["ir.attachment"].sudo()
-        attachment_id = params.get_param("ethara_etp_theme.login_image_attachment_id")
-        attachment = (
-            attachments.browse(int(attachment_id))
-            if attachment_id and str(attachment_id).isdigit()
-            else attachments
-        )
-        attachment = attachment.exists()
-        if self.ethara_login_image:
-            mimetype = guess_mimetype(base64.b64decode(self.ethara_login_image))
-            values = {"datas": self.ethara_login_image, "mimetype": mimetype}
-            if attachment:
-                attachment.write(values)
-            else:
-                attachment = attachments.create(
-                    dict(values, name="ethara_login_image", type="binary", public=True)
-                )
-            params.set_param("ethara_etp_theme.login_image_attachment_id", attachment.id)
-            params.set_param(
-                "ethara_etp_theme.login_image_url", "/web/image/%s" % attachment.id
+
+        def _persist(binary_value, name, attachment_param, url_param,
+                     mime_param=None, url_prefix="/web/image/"):
+            attachment_id = params.get_param(attachment_param)
+            attachment = (
+                attachments.browse(int(attachment_id))
+                if attachment_id and str(attachment_id).isdigit()
+                else attachments
             )
-        else:
-            if attachment:
-                attachment.unlink()
-            params.set_param("ethara_etp_theme.login_image_attachment_id", "")
-            params.set_param("ethara_etp_theme.login_image_url", "")
+            attachment = attachment.exists()
+            if binary_value:
+                mimetype = guess_mimetype(base64.b64decode(binary_value))
+                values = {"datas": binary_value, "mimetype": mimetype}
+                if attachment:
+                    attachment.write(values)
+                else:
+                    attachment = attachments.create(
+                        dict(values, name=name, type="binary", public=True)
+                    )
+                params.set_param(attachment_param, attachment.id)
+                params.set_param(url_param, "%s%s" % (url_prefix, attachment.id))
+                if mime_param:
+                    params.set_param(mime_param, mimetype or "")
+            else:
+                if attachment:
+                    attachment.unlink()
+                params.set_param(attachment_param, "")
+                params.set_param(url_param, "")
+                if mime_param:
+                    params.set_param(mime_param, "")
+
+        _persist(
+            self.ethara_login_image,
+            "ethara_login_image",
+            "ethara_etp_theme.login_image_attachment_id",
+            "ethara_etp_theme.login_image_url",
+        )
+        _persist(
+            self.ethara_favorites_bg,
+            "ethara_favorites_bg",
+            "ethara_etp_theme.favorites_bg_attachment_id",
+            "ethara_etp_theme.favorites_bg_url",
+            mime_param="ethara_etp_theme.favorites_bg_mime",
+            url_prefix="/web/content/",
+        )

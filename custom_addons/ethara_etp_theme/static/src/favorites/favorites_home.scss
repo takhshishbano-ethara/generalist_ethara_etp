@@ -3,19 +3,77 @@
 // =====================================================================
 
 .o_ethara_home {
+    position: relative;
     min-height: 100%;
     background: var(--ethara-bg);
     font-family: var(--ethara-font);
+    overflow: hidden;
+}
+
+.o_ethara_home_bg {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+
+.o_ethara_home_bg_media {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.o_ethara_home_overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(180deg, rgba(15, 17, 23, 0.55) 0%, rgba(15, 17, 23, 0.65) 100%);
 }
 
 .o_ethara_home_inner {
+    position: relative;
+    z-index: 1;
     max-width: 1080px;
     margin: 0 auto;
     padding: 40px 32px 56px;
 }
 
+.o_ethara_home.o_ethara_home_has_bg {
+    .o_ethara_home_title,
+    .o_ethara_home_time {
+        color: #ffffff;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+    }
+    .o_ethara_home_subtitle,
+    .o_ethara_home_date {
+        color: rgba(255, 255, 255, 0.85);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    }
+    .o_ethara_home_empty {
+        color: rgba(255, 255, 255, 0.9);
+        h2 { color: #ffffff; }
+        p { color: rgba(255, 255, 255, 0.85); }
+        > i { color: rgba(255, 255, 255, 0.8); }
+    }
+    .o_ethara_home_tile {
+        background: rgba(255, 255, 255, 0.92);
+        backdrop-filter: blur(6px);
+        border-color: rgba(255, 255, 255, 0.4);
+    }
+}
+
 .o_ethara_home_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
     margin-bottom: 28px;
+    flex-wrap: wrap;
+}
+
+.o_ethara_home_header_left {
+    flex: 1 1 auto;
+    min-width: 0;
 }
 
 .o_ethara_home_title {
@@ -28,6 +86,35 @@
 .o_ethara_home_subtitle {
     margin: 4px 0 0;
     font-size: 14px;
+    color: var(--ethara-text-muted);
+}
+
+.o_ethara_home_clock {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    min-width: 0;
+}
+
+.o_ethara_home_time {
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--ethara-primary);
+    line-height: 1.1;
+    letter-spacing: 0.5px;
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+}
+
+.o_ethara_home_date {
+    margin-top: 4px;
+    font-size: 13px;
+    font-weight: 500;
     color: var(--ethara-text-muted);
 }
 

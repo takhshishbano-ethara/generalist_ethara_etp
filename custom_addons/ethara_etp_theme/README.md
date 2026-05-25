@@ -59,11 +59,15 @@ re-skin the backend.
 * In-sidebar menu search — type to filter across every app, jump to a
   result with breadcrumbs.
 * Per-user favorites: pin any menu and re-open it from the sidebar or
-  from a dedicated **Home / Favorites** page.
+  from a dedicated **Home / Favorites** page that opens automatically
+  on every login, shows a **live clock and date** alongside the user's
+  welcome message, and supports a **dynamic image / GIF / video
+  background** picked from the settings panel.
 * **Profile Card with Quick Actions** in the sidebar — user avatar,
-  name and time-of-day greeting, plus one-click shortcuts for language,
-  company, debug, theme settings, sidebar pin, dark mode, conversations
-  and activities (with live unread / pending badges and toast feedback).
+  name and time-of-day greeting, plus one-click shortcuts for profile
+  preferences, debug, theme settings, sidebar pin, dark mode,
+  conversations and activities (with live unread / pending badges and
+  toast feedback).
   Dark-mode preference is persisted in the browser.
 * **Full-height workspace.** The entire top Odoo navbar (app launcher,
   menu, breadcrumb bar, systray) is hidden; the content area starts
@@ -141,7 +145,8 @@ to the default.
 | **Primary Color** | `#6366f1` | Main accent — primary buttons, active items, indicator dots. |
 | **Hover / Active Shade** | `#4f46e5` | Darker accent used on hover and pressed states. |
 | **Soft Highlight** | `#eef2ff` | Tinted background behind the active menu items. |
-| **Sidebar & Card Background** | `#ffffff` | Background of the sidebar, top bar and cards. *Ignored in dark mode.* |
+| **Card & Surface Background** | `#ffffff` | Background of cards, dropdowns, modals and the top bar. *Ignored in dark mode.* |
+| **Navbar Background** | `#ffffff` | Background of the left sidebar / navbar. Defaults to the Card & Surface background — pick any color to make the navbar stand apart. *Ignored in dark mode.* |
 | **Content Background** | `#f6f7fb` | Background of the main content area. *Ignored in dark mode.* |
 
 In dark mode the sidebar, surface, content background, border, hover
@@ -246,10 +251,10 @@ shortcuts. The card has three regions:
    Afternoon" / "Good Evening", computed from `new Date().getHours()`).
    A soft radial halo painted with `--ethara-primary-soft` sits behind
    the avatar.
-2. **Main actions row** — six icons: Language, Company, Debug, Theme
+2. **Main actions row** — five icons: Profile preferences, Debug, Theme
    Settings, Sidebar Pin/Unpin, Dark/Light Mode.
-3. **Badged actions row** — two icons with live counters: Conversations
-   and Activities.
+3. **Badged actions row** — two icons with live counters (Conversations
+   and Activities) plus a Sign Out button.
 
 The card itself uses a gradient from `--ethara-active-bg` to
 `--ethara-surface`, a `--ethara-border` outline and the theme
@@ -258,8 +263,7 @@ The card itself uses a gradient from `--ethara-active-bg` to
 
 | Icon | Action | Behaviour |
 | --- | --- | --- |
-| `fa fa-language` | **Language** | Opens the current user's preferences dialog (`res.users` form, `target="new"`) so the language can be changed. Notifies with the active language. |
-| `fa fa-building-o` | **Company** | Opens the same preferences dialog focused on the company picker. Notifies with the active company name. |
+| `fa fa-user-circle-o` | **Profile preferences** | Opens the current user's preferences dialog (`res.users` form, `target="new"`) where language, company, timezone, signature and other personal settings can be edited. |
 | `fa fa-code` | **Debug** | Toggles the `?debug=1` URL parameter and reloads the page. The button shows an `o_ethara_quick_btn_active` accent when debug mode is on. |
 | `fa fa-cog` | **Theme Settings** | Opens **Settings → Ethara Theme** inline via `res.config.settings`. |
 | `fa fa-thumb-tack` / `fa fa-lock` | **Sidebar Pin / Unpin** | Collapses or expands the sidebar. Icon and title swap based on `etharaState.collapsed`. |
@@ -372,6 +376,56 @@ from the **Favorites Home** client action
 (`ethara_favorites_home`), which is opened by clicking the **Home** row
 in the sidebar. The action renders a dashboard of all the user's
 favorites with the same app icons as the sidebar.
+
+### Auto-redirect on login
+
+`static/src/home_redirect/home_redirect.js` patches `WebClient.prototype`
+and overrides `_loadDefaultApp()` — Odoo's own "no action in the URL,
+fall back to home" hook. When the user signs in (or hits `/odoo` with no
+action in the URL), Odoo calls `_loadDefaultApp` and our override
+dispatches `ethara_etp_theme.ethara_favorites_home_action` instead of
+the first sidebar app. Deep links, refreshes and back-button navigation
+are unaffected because they go through `loadState()` and never reach
+`_loadDefaultApp`. If the action fails to load (for example, when the
+module is half-installed) the patch falls back to Odoo's original
+behaviour via `super._loadDefaultApp(...)`.
+
+### Live clock & date
+
+The Favorites Home renders the **current time** (12-hour
+`HH:MM:SS AM/PM`, tabular-nums for steady width) and the **full date**
+(`Weekday, Month Day, Year`) in the top-right corner of the header, on
+a transparent background that matches the page. A `setInterval` in
+`setup()` refreshes the reactive state every second; the timer is
+cleared in `onWillUnmount` so it does not leak when the user navigates
+away.
+
+### Dynamic background (image, GIF or video)
+
+Upload any image, GIF or video under **Settings &rarr; Ethara Theme
+&rarr; Favorites Home &rarr; Home Background**. The file is stored as
+a public `ir.attachment` and served from `/web/image/<id>`. The
+favorites page fetches it on mount via
+`orm.call('ethara.theme', 'get_favorites_bg', [])` which returns
+`{url, mime}` or `false`.
+
+The MIME type decides how the asset is rendered:
+
+| MIME prefix | Renders as |
+| --- | --- |
+| `video/*` | `<video autoplay muted loop playsinline>` |
+| `image/*` (incl. GIF) | `<img>` |
+
+The asset is full-bleed via `object-fit: cover` and sits behind a dim
+gradient overlay (`rgba(15,17,23,0.55) → 0.65`) so the welcome text
+and live clock remain readable. When a background is active, the
+`.o_ethara_home` root gets the `.o_ethara_home_has_bg` class and the
+title / clock / subtitle / date flip to light colors with a subtle
+text shadow; favorite tiles use a translucent white background with a
+6px backdrop blur for a frosted-glass effect.
+
+Leaving the field empty removes the attachment and falls back to the
+plain `--ethara-bg` color.
 
 Access rules (`security/ethara_security.xml`) restrict every row to its
 owner: regular users can read, write, create and delete only their own
@@ -627,9 +681,11 @@ ethara_etp_theme/
       navbar_patch.js          # OWL patch on web.NavBar adding the sidebar
       navbar.xml               # Template inherit injecting the <aside>
     favorites/
-      favorites_home.js
+      favorites_home.js          # Favorites dashboard + live clock/date
       favorites_home.xml
       favorites_home.scss
+    home_redirect/
+      home_redirect.js           # WebClient patch: auto-open Home on login
     listview/
       column_filter.js         # ListRenderer patch: per-column filter row + domain builder
       column_filter.xml        # Template inherit injecting the filter <tr> under <thead>
