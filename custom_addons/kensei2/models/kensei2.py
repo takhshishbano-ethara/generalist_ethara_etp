@@ -278,7 +278,13 @@ def _run_task_description_background(db_name, task_id, notify_partner_id):
             soul_md = persona.soul_md or "" if persona else ""
 
             ICP = env["ir.config_parameter"].sudo()
-            inference_arn = (ICP.get_param("kensei2.bedrock_inference_arn") or "").strip()
+            # Pair description generation with the test-gen Sonnet ARN — same
+            # model, same key resolution as kensei2_sandbox._generate_task_tests_background.
+            inference_arn = (
+                ICP.get_param("kensei2.test_gen_inference_arn")
+                or ICP.get_param("kensei2.bedrock_inference_arn")
+                or ""
+            ).strip()
             region = (ICP.get_param("kensei2.bedrock_region") or "ap-south-1").strip()
 
             dotenv = _load_dotenv()
@@ -581,22 +587,35 @@ def _is_degenerate_output(text):
 
 
 def generate_task_description_sync(env, seed_prompt, messages_json, system_prompt=None):
-    """Call Qwen/Bedrock to generate a single-line task description.
+    """Call Bedrock (Sonnet by default) to generate a single-line task description.
 
-    *system_prompt* overrides the kensei2-local prompt when provided —
-    callers needing to reuse the talos task-description prompt pass that
-    file's contents in directly.
+    Uses the same ARN as test code generation (``kensei2.test_gen_inference_arn``)
+    so the description and the tests are produced by the same model — this
+    matters for accuracy because the kensei2/task_description_prompt.md
+    system prompt is tuned for Sonnet's instruction-following. Falls back to
+    ``kensei2.bedrock_inference_arn`` if the test_gen ARN isn't configured.
+
+    *system_prompt* overrides the kensei2-local prompt when provided.
 
     Returns:
         Tuple of (description_string, usage_dict).
     """
     try:
         ICP = env["ir.config_parameter"].sudo()
-        inference_arn = (ICP.get_param("kensei2.bedrock_inference_arn") or "").strip()
+        # Prefer the Sonnet ARN that test-gen uses; fall back to the
+        # generic kensei2 inference ARN if it's not set.
+        inference_arn = (
+            ICP.get_param("kensei2.test_gen_inference_arn")
+            or ICP.get_param("kensei2.bedrock_inference_arn")
+            or ""
+        ).strip()
         region = (ICP.get_param("kensei2.bedrock_region") or "ap-south-1").strip()
 
         dotenv = _load_dotenv()
-        api_key = dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
+        api_key = (
+            dotenv.get("KENSEI2_AWS_BEARER_TOKEN")
+            or dotenv.get("AWS_BEARER_TOKEN_BEDROCK", "")
+        ).strip()
 
         if not api_key or not inference_arn:
             _logger.warning("generate_task_description_sync: missing credentials")
@@ -623,7 +642,7 @@ def generate_task_description_sync(env, seed_prompt, messages_json, system_promp
         from ..controllers.llm_assisst_qc import _call_bedrock_converse
 
         _logger.info(
-            "task_desc: calling GLM arn=%s region=%s prompt_len=%d",
+            "task_desc: calling Sonnet (test_gen ARN) arn=%s region=%s prompt_len=%d",
             inference_arn,
             region,
             len(user_message),
