@@ -47,9 +47,23 @@ peak load Karpenter provisions extra nodes for the new pods.
    Deployment's replica count** via the Kubernetes API. Range:
    `min_replicas`..`max_replicas` (default 1..10). Karpenter then provisions
    nodes for any new pods.
-6. An Odoo cron — **"Vegeta: PRD Reconcile"** (every 1 min) — finds records
-   whose `last_heartbeat` is older than 5 minutes (worker pod crashed / hard
-   killed) and clears `job_name`, returning them to the queue for re-claim.
+6. An Odoo cron — **"Vegeta: PRD Reconcile"** (every 1 min) — uses a
+   **two-gate recovery** to detect dead workers without false positives:
+   - **Normal gate**: `last_heartbeat >5min stale` AND
+     `heartbeat_failure_count >3`. The heartbeat thread increments the
+     counter whenever its write to Postgres fails (e.g. saturated pool);
+     a single transient blip won't trigger recovery, only sustained
+     failures will.
+   - **Safety net gate**: `last_heartbeat >15min stale` regardless of
+     failure count. Catches the case where even the failure-counter
+     increment can't write to Postgres (DB very broken).
+   On match: clears `job_name` and resets `heartbeat_failure_count` so
+   another worker can re-claim.
+
+   ⚠️ The single-gate "stale heartbeat alone triggers recovery" design
+   was unsafe — a transiently saturated Postgres pool failed heartbeat
+   writes silently and triggered double-Bedrock-spend on the same task.
+   See known-issue history at the bottom of this document.
 
 ---
 
@@ -117,9 +131,16 @@ cron scales down to `min_replicas` (default 1) to minimise idle cost.
   re-pushed every time the vegeta addon changes, in lockstep with the Odoo
   backend deploy. A stale worker image = pods running old code = silent bugs.
   **Please set up a CI job for this.**
-- On image roll: the Deployment's rolling-update brings up new pods one at a
-  time with `maxUnavailable: 0`, and old pods drain in-flight jobs (up to
-  `terminationGracePeriodSeconds = 1860`) before exiting. No tasks are lost.
+- On image roll: the Deployment's rolling-update brings up new pods one at
+  a time with `maxUnavailable: 0`. Old pods receive SIGTERM and drain
+  in-flight jobs for **up to `VEGETA_WORKER_SHUTDOWN_TIMEOUT_S=1800` s**
+  (the worker's bounded-drain budget — must be < `terminationGracePeriodSeconds`
+  so K8s doesn't SIGKILL mid-drain). Any future still running past that
+  budget is **abandoned to SIGKILL** — the worker logs a WARNING with the
+  abandoned future count, and the reconcile cron's stale-heartbeat path
+  later requeues those jobs for another worker. No tasks are silently
+  lost, but a small number may complete on a different pod than where
+  they started during high-churn rolling deploys.
 
 ### 4.2 Kubernetes RBAC
 

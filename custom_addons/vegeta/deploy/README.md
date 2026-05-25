@@ -34,9 +34,14 @@ DevOps infra repo** — this addon ships no manifests.
    replica count via the Kubernetes API:
    `replicas = clamp(min, ceil(load / VEGETA_WORKER_CONCURRENCY), max)`.
 5. The **reconcile cron** (`vegeta.job._cron_reconcile_prd_jobs`, every 1 min,
-   advisory-locked) finds records whose `last_heartbeat` is older than 5 min
-   (worker pod crashed / hard killed) and clears `job_name` so another worker
-   can re-claim them.
+   advisory-locked) uses **two-gate recovery** to detect dead workers:
+   recovery fires when `last_heartbeat >5min stale AND heartbeat_failure_count >3`
+   (worker pod really died), OR when `last_heartbeat >15min stale` regardless
+   of failure count (safety net for badly-broken DB). On match it clears
+   `job_name` + resets `heartbeat_failure_count` so another worker can
+   re-claim. Single-gate "stale heartbeat alone" was unsafe — a saturated
+   Postgres pool would silently fail heartbeats and trigger double-Bedrock
+   spend. See `DEVOPS-HANDOFF.md` §2 for incident history.
 6. The **watchdog** (`_cron_watchdog_stuck_jobs`) is a 3 h last-resort
    backstop for when both crons above are down.
 
