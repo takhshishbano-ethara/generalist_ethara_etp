@@ -193,7 +193,21 @@ def _run_trajectory_qc_background(
         label = f"record={record_id}/field={field_name}/entry={entry_index}"
         _logger.info("QC bg: running deterministic validation for %s", label)
 
-        checks = validate_trajectory(label, trajectory_str)
+        taxonomy_names = set()
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                taxonomy_names = set(
+                    env["skoll.taxonomy"].search([]).mapped("name")
+                )
+        except Exception:
+            _logger.warning("QC bg: could not load skoll.taxonomy, using defaults")
+
+        checks = validate_trajectory(
+            label,
+            trajectory_str,
+            valid_task_types=taxonomy_names if taxonomy_names else None,
+        )
         qc_verdict = build_report(label, checks)
         elapsed = time.monotonic() - t0
 

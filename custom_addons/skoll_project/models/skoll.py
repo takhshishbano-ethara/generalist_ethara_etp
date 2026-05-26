@@ -1298,7 +1298,7 @@ class Skoll(models.Model):
         meta_info = {
             "cluster": ", ".join(self.cluster_ids.mapped("name")) if self.cluster_ids else "",
             "task_type": ", ".join(self.task_type_ids.mapped("name")) if self.task_type_ids else "",
-            "task_description": self.task_id or "",
+            "task_description": self.task_description or self.task_id or "",
             "task_completion_status": "success",
             "system_prompt": self.system_prompt or "",
             "platform": "macOS",

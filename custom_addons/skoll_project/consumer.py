@@ -17,6 +17,7 @@ Environment variables required:
     CONSUMER_WORKERS          -- concurrent worker threads (default 10)
     CONSUMER_MAX_RETRIES      -- max retries per message (default 3)
     SANDBOX_START_TIMEOUT     -- seconds to wait for sandbox start (default 300)
+    WS_RESPONSE_TIMEOUT       -- seconds to wait for LLM response (default 600)
 """
 
 import functools
@@ -55,6 +56,7 @@ QUEUE_AUTO_PROCESS = "skoll_auto_process"
 WORKER_THREADS = int(os.getenv("CONSUMER_WORKERS", "10"))
 MAX_RETRIES = int(os.getenv("CONSUMER_MAX_RETRIES", "3"))
 SANDBOX_START_TIMEOUT = int(os.getenv("SANDBOX_START_TIMEOUT", "300"))
+WS_RESPONSE_TIMEOUT = int(os.getenv("WS_RESPONSE_TIMEOUT", "600"))
 # ── Odoo XML-RPC Config ──────────────────────────────────────────────────────
 ODOO_URL = os.getenv("ODOO_URL", "http://localhost:8069")
 ODOO_DB = os.getenv("ODOO_DB", "ethara_new")
@@ -289,7 +291,7 @@ def _process_task(connection, channel, delivery_tag, properties, body):
         _logger.info(
             "Waiting for response (sandbox=%s, turn=%s)...", sandbox_id, turn_id
         )
-        response = ws_client.wait_for_response(timeout=600)
+        response = ws_client.wait_for_response(timeout=WS_RESPONSE_TIMEOUT)
         _logger.info(
             "Response received (sandbox=%s, turn=%s): %d chars",
             sandbox_id,
@@ -318,6 +320,9 @@ def _process_task(connection, channel, delivery_tag, properties, body):
 
         # 8b. Save sub-agent messages + spawn tree (real-time capture + child history fallback)
         try:
+            time.sleep(2)
+
+            child_history_msgs = []
             for child_key in list(ws_client.get_child_sessions().keys()):
                 try:
                     child_history = ws_client.fetch_child_history(child_key)
@@ -328,10 +333,37 @@ def _process_task(connection, channel, delivery_tag, properties, body):
                             child_key,
                             sandbox_id,
                         )
+                        for msg in child_history:
+                            if not isinstance(msg, dict):
+                                continue
+                            child_history_msgs.append({
+                                "sessionKey": child_key,
+                                "role": msg.get("role", "unknown"),
+                                "text": msg.get("text", "") or (
+                                    msg.get("content", [{}])[0].get("text", "")
+                                    if isinstance(msg.get("content"), list) and msg.get("content")
+                                    else ""
+                                ),
+                                "provenance": msg.get("provenance", {}),
+                                "timestamp": msg.get("timestamp"),
+                                "kind": "child_history",
+                            })
                 except Exception as e:
                     _logger.warning("fetch_child_history(%s) failed: %s", child_key, e)
 
             sub_agent_msgs = ws_client.get_sub_agent_messages()
+            if child_history_msgs:
+                seen_texts = {(m.get("sessionKey", ""), m.get("text", "")[:200]) for m in sub_agent_msgs}
+                for chm in child_history_msgs:
+                    dedup_key = (chm.get("sessionKey", ""), chm.get("text", "")[:200])
+                    if dedup_key not in seen_texts:
+                        sub_agent_msgs.append(chm)
+                        seen_texts.add(dedup_key)
+                _logger.info(
+                    "Merged child history: %d new messages added (sandbox=%s)",
+                    len(child_history_msgs),
+                    sandbox_id,
+                )
             spawn_tree = ws_client.get_spawn_tree()
 
             if sub_agent_msgs or spawn_tree:

@@ -152,6 +152,9 @@ class CrowleyGeneration(models.Model):
         string="Priority", default="medium", tracking=True,
     )
     topic = fields.Char(string="Topic", tracking=True)
+    language = fields.Char(string="Language", default="English", tracking=True)
+    speaker_count = fields.Integer(string="Speaker Count", default=0, tracking=True)
+    dialogue_transcript = fields.Text(string="Dialogue Transcript")
     complexity = fields.Selection(
         [("simple", "Simple"), ("moderate", "Moderate"), ("complex", "Complex")],
         string="Complexity", default="moderate", tracking=True,
@@ -469,7 +472,7 @@ class CrowleyGeneration(models.Model):
             rec.is_golden = bool((rec.golden_prompt or "").strip())
 
     @api.depends(
-        "attempt_ids.review_ids.verdict",
+        "attempt_ids.review_ids.effective_verdict",
         "attempt_ids.review_ids.state",
         "attempt_ids.review_ids.completed_at",
     )
@@ -482,9 +485,10 @@ class CrowleyGeneration(models.Model):
                 rec.review_status = False
                 continue
             latest = done.sorted("completed_at", reverse=True)[:1]
-            if latest.verdict == "accept":
+            effective = latest.effective_verdict
+            if effective == "accept":
                 rec.review_status = "pass"
-            elif latest.verdict == "review":
+            elif effective == "review":
                 rec.review_status = "review"
             else:
                 rec.review_status = "fail"

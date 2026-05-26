@@ -18,13 +18,17 @@ _BOOL_FALSE = {"false", "0", "no", "n", "f"}
 _MAX_PROMPT_LEN = 2000
 _MAX_TOPIC_LEN = 200
 _MAX_SUB_CATEGORY_LEN = 200
+_MAX_LANGUAGE_LEN = 50
+_MAX_DIALOGUE_TRANSCRIPT_LEN = 4000
 _MAX_SEED = 2_147_483_647
+_MAX_SPEAKER_COUNT = 16
 
 _REQUIRED_COLUMNS = ("prompt", "category")
 _OPTIONAL_COLUMNS = (
     "negative_prompt", "duration", "resolution",
     "aspect_ratio", "seed", "generate_audio",
     "sub_category", "style", "priority", "topic", "complexity",
+    "language", "speaker_count", "dialogue_transcript",
 )
 
 
@@ -62,7 +66,8 @@ class CrowleyImportWizard(models.TransientModel):
                 "Required: prompt, category. "
                 "Optional: negative_prompt, duration, resolution, "
                 "aspect_ratio, seed, generate_audio, "
-                "sub_category, style, priority, topic, complexity."
+                "sub_category, style, priority, topic, complexity, "
+                "language, speaker_count, dialogue_transcript."
             ) % {"cols": ", ".join(missing_required)})
 
         category_lookup = self._build_category_lookup()
@@ -275,5 +280,42 @@ class CrowleyImportWizard(models.TransientModel):
                 ) % {"row": row_num, "len": len(sub_category), "max": _MAX_SUB_CATEGORY_LEN})
             else:
                 vals["sub_category"] = sub_category
+
+        language = get("language")
+        if language:
+            if len(language) > _MAX_LANGUAGE_LEN:
+                errors.append(_(
+                    "Row %(row)d: language is %(len)d chars; max is %(max)d."
+                ) % {"row": row_num, "len": len(language), "max": _MAX_LANGUAGE_LEN})
+            else:
+                vals["language"] = language
+
+        speaker_count = get("speaker_count")
+        if speaker_count:
+            try:
+                speaker_count_int = int(speaker_count)
+            except (TypeError, ValueError):
+                errors.append(_(
+                    "Row %(row)d: speaker_count '%(val)s' is not an integer."
+                ) % {"row": row_num, "val": speaker_count})
+            else:
+                if speaker_count_int < 0 or speaker_count_int > _MAX_SPEAKER_COUNT:
+                    errors.append(_(
+                        "Row %(row)d: speaker_count must be 0..%(max)d."
+                    ) % {"row": row_num, "max": _MAX_SPEAKER_COUNT})
+                else:
+                    vals["speaker_count"] = speaker_count_int
+
+        dialogue_transcript = get("dialogue_transcript")
+        if dialogue_transcript:
+            if len(dialogue_transcript) > _MAX_DIALOGUE_TRANSCRIPT_LEN:
+                errors.append(_(
+                    "Row %(row)d: dialogue_transcript is %(len)d chars; max is %(max)d."
+                ) % {
+                    "row": row_num, "len": len(dialogue_transcript),
+                    "max": _MAX_DIALOGUE_TRANSCRIPT_LEN,
+                })
+            else:
+                vals["dialogue_transcript"] = dialogue_transcript
 
         return errors, vals

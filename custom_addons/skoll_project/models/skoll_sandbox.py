@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import subprocess
@@ -550,6 +551,31 @@ class SkollSandbox(models.Model):
     }
     _INTERNAL_BLOCK_FIELDS = {"api", "provider", "model", "usage"}
 
+    _SUBAGENT_PREAMBLE_RE = re.compile(
+        r"You are running as a subagent \(depth \d+/\d+\).*?(?:\n\n|\Z)",
+        re.DOTALL,
+    )
+
+    _HEARTBEAT_KEYWORDS = {"heartbeat", "heartbeat_ok", "pong", "sessions.list"}
+
+    @staticmethod
+    def _is_heartbeat_message(msg):
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content.strip().lower() in SkollSandbox._HEARTBEAT_KEYWORDS or \
+                "heartbeat" in content.lower()
+        if isinstance(content, list):
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                text = block.get("text", "")
+                if isinstance(text, str) and (
+                    text.strip().lower() in SkollSandbox._HEARTBEAT_KEYWORDS
+                    or "heartbeat" in text.lower()
+                ):
+                    return True
+        return False
+
     @staticmethod
     def _sanitize_jsonl_message(msg):
         """Strip internal OpenClaw metadata from a JSONL message before export."""
@@ -592,6 +618,13 @@ class SkollSandbox(models.Model):
                         and "|" in tc_id
                     ):
                         block["id"] = tc_id.split("|", 1)[0]
+                    txt = block.get("text", "")
+                    if isinstance(txt, str) and "You are running as a subagent" in txt:
+                        txt = SkollSandbox._SUBAGENT_PREAMBLE_RE.sub("", txt).strip()
+                        if txt:
+                            block["text"] = txt
+                        else:
+                            continue
                 cleaned.append(block)
             msg["content"] = cleaned
 
@@ -624,7 +657,7 @@ class SkollSandbox(models.Model):
         meta_info = {
             "cluster": ", ".join(task.cluster_ids.mapped("name")) if task.cluster_ids else "",
             "task_type": ", ".join(task.task_type_ids.mapped("name")) if task.task_type_ids else "",
-            "task_description": task.task_id or "",
+            "task_description": task.task_description or task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
@@ -648,6 +681,9 @@ class SkollSandbox(models.Model):
             if not role:
                 continue
 
+            if self._is_heartbeat_message(msg):
+                continue
+
             # Skip session startup messages (system init before first user message)
             if role == "user":
                 seen_user_msg = True
@@ -669,14 +705,23 @@ class SkollSandbox(models.Model):
             messages.append(delivery_msg)
             last_kept_id = entry_id
 
-        # Apply hint/feedback wrappers from Odoo turn data
         all_turns = self.turn_ids.sorted("turn_number")
         if all_turns:
             messages = _wrap_messages_with_turn_feedback(messages, all_turns)
         else:
             messages = [_wrap_trajectory_message(m) for m in messages]
 
-        return {"meta_info": meta_info, "messages": messages}
+        result = {"meta_info": meta_info, "messages": messages}
+
+        sub_agent_entries = self._collect_sub_agent_messages(all_turns)
+        if sub_agent_entries:
+            sub_agent_trajectories = {}
+            for entry in sub_agent_entries:
+                sk = entry.get("sessionKey", "") or entry.get("message", {}).get("sessionKey", "")
+                sub_agent_trajectories.setdefault(sk, []).append(entry)
+            result["sub_agent_trajectories"] = sub_agent_trajectories
+
+        return result
 
     @staticmethod
     def _extract_tokens_from_jsonl(entries):
@@ -879,7 +924,7 @@ class SkollSandbox(models.Model):
         meta_info = {
             "cluster": ", ".join(task.cluster_ids.mapped("name")) if task.cluster_ids else "",
             "task_type": ", ".join(task.task_type_ids.mapped("name")) if task.task_type_ids else "",
-            "task_description": task.task_id or "",
+            "task_description": task.task_description or task.task_id or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
@@ -928,11 +973,15 @@ class SkollSandbox(models.Model):
             )
 
         sub_agent_entries = self._collect_sub_agent_messages(all_turns)
+        sub_agent_trajectories = {}
         if sub_agent_entries:
-            messages.extend(sub_agent_entries)
+            for entry in sub_agent_entries:
+                sk = entry.get("sessionKey", "") or entry.get("message", {}).get("sessionKey", "")
+                sub_agent_trajectories.setdefault(sk, []).append(entry)
             _logger.info(
-                "Appended %d sub-agent messages to trajectory (sandbox=%s)",
+                "Collected %d sub-agent messages across %d sessions (sandbox=%s)",
                 len(sub_agent_entries),
+                len(sub_agent_trajectories),
                 self.id,
             )
 
@@ -952,7 +1001,10 @@ class SkollSandbox(models.Model):
             "spawned": spawned_keys,
         }
 
-        return {"meta_info": meta_info, "messages": messages}
+        result = {"meta_info": meta_info, "messages": messages}
+        if sub_agent_trajectories:
+            result["sub_agent_trajectories"] = sub_agent_trajectories
+        return result
 
     def _trajectory_from_ws(self):
         self.ensure_one()
@@ -1624,10 +1676,10 @@ class SkollSandbox(models.Model):
                 from datetime import datetime as _dt
                 from datetime import timezone as _tz
 
-                # Replace-on-stop semantics: each sandbox stop for this model
-                # REPLACES any previously stored trajectory. One trajectory
-                # per model, always the latest. Token spend window therefore
-                # spans this sandbox's full lifetime (create_date -> now).
+                # Append-on-stop semantics: each sandbox stop for this model
+                # APPENDS the new trajectory session to any previously stored
+                # entries. Empty/heartbeat-only trajectories are skipped to
+                # prevent overwriting real data.
                 window_end = _dt.now(_tz.utc)
 
                 session_in, session_out = 0, 0
@@ -1643,54 +1695,74 @@ class SkollSandbox(models.Model):
                         )
                         source = "jsonl"
 
-                session_entry = {
-                    "session_id": secrets.token_hex(8),
-                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "trajectory": trajectory,
-                    "tokens_in": session_in,
-                    "tokens_out": session_out,
-                    "token_source": source,
-                    "window_end": window_end.isoformat(),
-                }
-
-                entries = [session_entry]
-                new_value = json.dumps(entries, indent=2, ensure_ascii=False)
-
-                self.skoll_id.write({field_name: new_value})
-                _logger.info(
-                    "Stored trajectory session %s (tokens_in=%d, tokens_out=%d, source=%s) to %s for task %s",
-                    session_entry["session_id"],
-                    session_in,
-                    session_out,
-                    source,
-                    field_name,
-                    self.skoll_id.id,
-                )
-
-                token_field_map = {
-                    "claude": ("claude_input_tokens", "claude_output_tokens"),
-                    "glm": ("glm_input_tokens", "glm_output_tokens"),
-                    "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
-                    "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
-                    "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
-                    "1pd": ("onePD_input_tokens", "onePD_output_tokens"),
-                }
-                fields_pair = token_field_map.get(self.model_type)
-                if fields_pair:
-                    self.skoll_id.write(
-                        {
-                            fields_pair[0]: session_in,
-                            fields_pair[1]: session_out,
-                        }
-                    )
+                new_messages = trajectory.get("messages", [])
+                if not new_messages:
                     _logger.info(
-                        "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                        "Skipping trajectory export: no messages (sandbox=%s, field=%s)",
+                        self.id,
+                        field_name,
+                    )
+                else:
+                    session_entry = {
+                        "session_id": secrets.token_hex(8),
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                        "trajectory": trajectory,
+                        "tokens_in": session_in,
+                        "tokens_out": session_out,
+                        "token_source": source,
+                        "window_end": window_end.isoformat(),
+                    }
+
+                    existing_raw = self.skoll_id[field_name] or ""
+                    existing_entries = []
+                    if existing_raw.strip():
+                        try:
+                            existing_entries = json.loads(existing_raw)
+                            if not isinstance(existing_entries, list):
+                                existing_entries = []
+                        except (json.JSONDecodeError, TypeError):
+                            existing_entries = []
+
+                    existing_entries.append(session_entry)
+                    new_value = json.dumps(existing_entries, indent=2, ensure_ascii=False)
+
+                    self.skoll_id.write({field_name: new_value})
+                    _logger.info(
+                        "Stored trajectory session %s (tokens_in=%d, tokens_out=%d, source=%s) "
+                        "to %s for task %s (total_sessions=%d)",
+                        session_entry["session_id"],
                         session_in,
                         session_out,
-                        fields_pair[0],
-                        fields_pair[1],
+                        source,
+                        field_name,
                         self.skoll_id.id,
+                        len(existing_entries),
                     )
+
+                    token_field_map = {
+                        "claude": ("claude_input_tokens", "claude_output_tokens"),
+                        "glm": ("glm_input_tokens", "glm_output_tokens"),
+                        "1pa": ("onePA_input_tokens", "onePA_output_tokens"),
+                        "1pb": ("onePB_input_tokens", "onePB_output_tokens"),
+                        "1pc": ("onePC_input_tokens", "onePC_output_tokens"),
+                        "1pd": ("onePD_input_tokens", "onePD_output_tokens"),
+                    }
+                    fields_pair = token_field_map.get(self.model_type)
+                    if fields_pair:
+                        self.skoll_id.write(
+                            {
+                                fields_pair[0]: session_in,
+                                fields_pair[1]: session_out,
+                            }
+                        )
+                        _logger.info(
+                            "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
+                            session_in,
+                            session_out,
+                            fields_pair[0],
+                            fields_pair[1],
+                            self.skoll_id.id,
+                        )
 
 
         if self.turn_ids:

@@ -194,20 +194,32 @@
                             <page string="Reviews" name="reviews">
                                 <field name="review_ids" readonly="1">
                                     <list create="false" delete="false" edit="false"
-                                          decoration-success="verdict == 'accept'"
-                                          decoration-warning="verdict == 'review'"
-                                          decoration-danger="verdict == 'reject' or state == 'error'"
+                                          decoration-success="effective_verdict == 'accept'"
+                                          decoration-warning="effective_verdict == 'review'"
+                                          decoration-danger="effective_verdict == 'reject' or state == 'error'"
                                           decoration-info="state in ('queued','submitting')">
                                         <field name="create_date" string="Started"/>
                                         <field name="state" widget="badge"
                                                decoration-info="state in ('queued','submitting')"
                                                decoration-success="state == 'done'"
                                                decoration-danger="state == 'error'"/>
+                                        <field name="effective_verdict" widget="badge"
+                                               decoration-success="effective_verdict == 'accept'"
+                                               decoration-warning="effective_verdict == 'review'"
+                                               decoration-danger="effective_verdict == 'reject'"
+                                               optional="show"/>
                                         <field name="verdict" widget="badge"
                                                decoration-success="verdict == 'accept'"
                                                decoration-warning="verdict == 'review'"
                                                decoration-danger="verdict == 'reject'"
+                                               optional="hide"/>
+                                        <field name="human_verdict" widget="badge"
+                                               decoration-success="human_verdict == 'accept'"
+                                               decoration-warning="human_verdict == 'review'"
+                                               decoration-danger="human_verdict == 'reject'"
                                                optional="show"/>
+                                        <field name="human_override_user_id" optional="hide"/>
+                                        <field name="human_override_at" optional="hide"/>
                                         <field name="passed" optional="hide"/>
                                         <field name="fatal_count" sum="FATAL" optional="show"/>
                                         <field name="major_count" sum="MAJOR" optional="show"/>
@@ -215,22 +227,43 @@
                                         <field name="unverifiable_count" sum="UNV" optional="hide"/>
                                         <field name="num_frames" optional="hide"/>
                                         <field name="tokens_used" sum="Tokens" optional="show"/>
-                                        <field name="model_id_display" optional="hide" string="Model"/>
+                                        <field name="model_id_display" column_invisible="1"/>
+                                        <field name="video_delivery" optional="hide"/>
                                         <field name="completed_at" optional="show"/>
                                         <field name="regenerate_recommended" optional="show"/>
                                         <field name="rebuilder_hint" optional="show"/>
                                         <field name="error_code" optional="show"/>
                                     </list>
                                     <form>
+                                        <header>
+                                            <button name="action_override_accept" type="object"
+                                                    string="Mark Accepted" class="btn-success"
+                                                    groups="crowley.group_crowley_manager"
+                                                    invisible="state != 'done'"
+                                                    confirm="Override this review's verdict to ACCEPT? You will be asked for a reason."/>
+                                            <button name="action_override_reject" type="object"
+                                                    string="Mark Rejected" class="btn-danger"
+                                                    groups="crowley.group_crowley_manager"
+                                                    invisible="state != 'done'"
+                                                    confirm="Override this review's verdict to REJECT? You will be asked for a reason."/>
+                                            <button name="action_override_clear" type="object"
+                                                    string="Clear Override" class="btn-secondary"
+                                                    groups="crowley.group_crowley_manager"
+                                                    invisible="state != 'done' or not human_verdict"
+                                                    confirm="Clear the human override and revert to the model's verdict? You will be asked for a reason."/>
+                                        </header>
                                         <sheet>
                                             <group>
                                                 <group>
                                                     <field name="state" widget="badge" readonly="1"/>
+                                                    <field name="effective_verdict" widget="badge" readonly="1"/>
                                                     <field name="verdict" widget="badge" readonly="1"/>
                                                     <field name="passed" readonly="1"/>
-                                                    <field name="model_id_display" readonly="1" string="Model"/>
+                                                    <field name="model_id_display" invisible="1"/>
                                                     <field name="region" readonly="1"/>
                                                     <field name="num_frames" readonly="1"/>
+                                                    <field name="video_delivery" readonly="1"
+                                                           invisible="not video_delivery"/>
                                                 </group>
                                                 <group>
                                                     <field name="fatal_count" readonly="1"/>
@@ -242,20 +275,29 @@
                                                     <field name="completed_at" readonly="1"/>
                                                 </group>
                                             </group>
+                                            <group string="Human Override" invisible="not human_verdict and not human_override_reason">
+                                                <field name="human_verdict" widget="badge" readonly="1"/>
+                                                <field name="human_override_user_id" readonly="1"/>
+                                                <field name="human_override_at" readonly="1"/>
+                                                <field name="human_override_reason" readonly="1" nolabel="1"
+                                                       invisible="not human_override_reason"/>
+                                            </group>
                                             <group>
                                                 <field name="regenerate_recommended" readonly="1"/>
                                                 <field name="rebuilder_hint" readonly="1"
                                                        invisible="not rebuilder_hint"/>
-                                                <field name="bedrock_request_id" readonly="1"
-                                                       invisible="not bedrock_request_id"/>
+                                <field name="bedrock_request_id" invisible="1"/>
                                             </group>
-                                            <group string="Prose Report" invisible="not prose_report">
+                                            <group string="Prose Report" col="1" invisible="not prose_report">
                                                 <field name="prose_report" readonly="1" nolabel="1"/>
                                             </group>
-                                            <group string="Findings (JSON)" invisible="not findings_json">
+                                            <group string="Reasoning" col="1" invisible="not reasoning_text">
+                                                <field name="reasoning_text" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Findings (JSON)" col="1" invisible="not findings_json">
                                                 <field name="findings_json" readonly="1" nolabel="1"/>
                                             </group>
-                                            <group string="Rendered Info (JSON)" invisible="not rendered_info">
+                                            <group string="Rendered Info (JSON)" col="1" groups="base.group_system" invisible="not rendered_info">
                                                 <field name="rendered_info" readonly="1" nolabel="1"/>
                                             </group>
                                             <group string="Error" invisible="not error_message">
