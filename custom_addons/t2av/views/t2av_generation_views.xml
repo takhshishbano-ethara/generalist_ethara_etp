@@ -1,0 +1,545 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- Form View -->
+        <record id="view_t2av_generation_form" model="ir.ui.view">
+            <field name="name">t2av.generation.form</field>
+            <field name="model">t2av.generation</field>
+            <field name="arch" type="xml">
+                <form string="Video Generation">
+                    <header>
+                        <button name="action_enrich" string="Enrich Prompt" type="object"
+                                class="btn-primary"
+                                groups="t2av.group_t2av_manager"
+                                invisible="state not in ('draft','not_assigned') or last_enrichment_state in ('queued','submitting','validating')"
+                                confirm="Send the prompt to AWS Bedrock for enrichment? The enriched + validated text will appear below once complete."/>
+                        <button name="action_revalidate" string="Run QC" type="object"
+                                class="btn-secondary"
+                                groups="t2av.group_t2av_manager"
+                                invisible="not enriched_prompt"
+                                help="Re-run the T2AV validator on the enriched prompt without calling Bedrock. Use after editing the validator or when you want to re-check existing rows."/>
+                        <button name="action_regenerate_with_failure" string="Regenerate with Failure Reason" type="object"
+                                class="btn-warning"
+                                groups="t2av.group_t2av_manager"
+                                invisible="last_enrichment_state != 'fatal'"
+                                confirm="Re-run enrichment with the validator's failure reasons fed to the LLM? This incurs another Bedrock call."
+                                help="Spawn a new enrichment attempt that includes the previous attempt's validator failures as feedback. Auto-stops at the enrichment max-attempts cap."/>
+
+                        <!-- First-run only -->
+                        <button name="action_generate" string="Generate" type="object"
+                                class="oe_highlight"
+                                invisible="attempts_used > 0 or state not in ('draft','not_assigned')"
+                                confirm="This will submit the prompt to OpenRouter Seedance 2.0 and incur usage costs. Continue?"/>
+
+                        <!-- Retry flow buttons -->
+                        <button name="action_start_retry" string="Retry" type="object"
+                                class="oe_highlight"
+                                invisible="attempts_used == 0 or attempts_used &gt;= 3 or state not in ('done','failed') or ui_retry_pending"/>
+                        <button name="action_submit_retry" string="Submit New Attempt"
+                                type="object" class="oe_highlight"
+                                invisible="not ui_retry_pending"
+                                confirm="This will start a new generation attempt and incur usage costs. Continue?"/>
+                        <button name="action_discard_retry" string="Discard Changes"
+                                type="object" invisible="not ui_retry_pending"/>
+
+                        <!-- Cancel / Reconcile -->
+                        <button name="action_cancel" string="Cancel" type="object"
+                                invisible="state not in ('queued','submitting','processing','downloading') or ui_retry_pending"/>
+                        <button name="action_reconcile" string="Reconcile" type="object"
+                                class="btn-warning"
+                                invisible="state not in ('submitting','processing','downloading') or ui_retry_pending"
+                                help="Force a fresh poll of OpenRouter. Use if the job appears stuck."/>
+
+                        <!-- Final-state actions -->
+                        <button name="action_download" string="Download MP4" type="object"
+                                invisible="state != 'done' or ui_retry_pending"/>
+                        <button name="action_open_video" string="Open Video" type="object"
+                                class="btn-secondary"
+                                invisible="state != 'done' or ui_retry_pending"/>
+                        <button name="action_run_review" string="Run Review" type="object"
+                                class="btn-info"
+                                groups="t2av.group_t2av_manager"
+                                invisible="state != 'done' or ui_retry_pending"
+                                confirm="Send this video to the multimodal reviewer? An AWS Bedrock call will incur usage cost."/>
+
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,queued,processing,done"/>
+                    </header>
+
+                    <sheet>
+                        <!-- Counter chip -->
+                        <div class="oe_button_box" name="button_box">
+                            <field name="attempts_label" widget="badge"
+                                   decoration-info="attempts_used &gt; 0 and attempts_used &lt; 3"
+                                   decoration-warning="attempts_used == 3"
+                                   readonly="1" nolabel="1"/>
+                        </div>
+
+                        <!-- Live status spinner (only during non-terminal states) -->
+                        <field name="state" widget="t2av_live_status" nolabel="1"
+                               invisible="state in ('not_assigned','draft','done','failed','cancelled') or ui_retry_pending"/>
+
+                        <!-- Banners -->
+                        <div class="alert alert-info" role="alert" invisible="not ui_retry_pending">
+                            <strong>Editing for Attempt <field name="attempts_used" readonly="1" nolabel="1"/>+1.</strong>
+                            Change at least one field below, then click <em>Submit New Attempt</em>.
+                        </div>
+                        <div class="alert alert-danger" role="alert" invisible="not error_message or ui_retry_pending">
+                            <strong>Error: </strong>
+                            <field name="error_message" nolabel="1" readonly="1"/>
+                            <span invisible="not error_code"> (code: <field name="error_code" nolabel="1" readonly="1"/>)</span>
+                        </div>
+                        <div class="alert alert-warning" role="alert" invisible="state != 'cancelled' or ui_retry_pending">
+                            This generation was cancelled.
+                        </div>
+                        <div class="alert alert-secondary" role="alert"
+                             invisible="attempts_used &lt; 3 or ui_retry_pending">
+                            Maximum 3 attempts reached. To generate more variations, create a new generation.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1><field name="name" readonly="1"/></h1>
+                        </div>
+
+                        <!-- Top-of-form video (latest attempt's playback) -->
+                        <group invisible="state != 'done' or not active_attempt_id or ui_retry_pending"
+                               string="Latest Video">
+                            <field name="active_attempt_id" invisible="1"/>
+                            <field name="video_s3_url" widget="t2av_video_player" nolabel="1"
+                                   colspan="2" readonly="1"/>
+                            <div class="mt-2 oe_grey">
+                                <field name="video_s3_url" widget="CopyClipboardChar" readonly="1" nolabel="1"/>
+                            </div>
+                        </group>
+
+                        <!-- Input fields (unlock when ui_retry_pending is True OR state is draft) -->
+                        <group>
+                            <group string="Prompt &amp; Output">
+                                <field name="category" required="1"
+                                       readonly="category_locked"
+                                       options="{'no_create': True}"/>
+                                <field name="category_locked" invisible="1"/>
+                                <field name="prompt"
+                                       placeholder="Describe the video you want to generate..."
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
+                                       required="1"/>
+                                <field name="enriched_prompt" readonly="1"
+                                       invisible="not enriched_prompt"
+                                       placeholder="Will be populated by the Enrich Prompt button."/>
+                                <field name="golden_prompt" readonly="1"
+                                       invisible="not golden_prompt"
+                                       placeholder="Set when QC passes clean."/>
+                                <field name="is_golden" invisible="1"/>
+                                <div class="text-success mt-2" colspan="2"
+                                     invisible="not is_golden">
+                                    <i class="fa fa-check-circle"/>
+                                    <strong> Golden:</strong> validator passed clean. Ready for video generation.
+                                </div>
+                                <div class="text-warning mt-2" colspan="2"
+                                     invisible="not enriched_prompt or is_golden or last_enrichment_state in ('queued','submitting','validating')">
+                                    <i class="fa fa-exclamation-triangle"/>
+                                    <strong> Not Golden:</strong> validator has warnings or hasn't been re-run. Click <em>Run QC</em>.
+                                </div>
+                                <field name="duration"
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                <field name="resolution"
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                <field name="aspect_ratio"
+                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                            </group>
+                            <group string="Metadata">
+                                <field name="user_id" readonly="not context.get('t2av_is_manager')"/>
+                                <field name="submitted_at" readonly="1" invisible="not submitted_at"/>
+                                <field name="completed_at" readonly="1" invisible="not completed_at"/>
+                                <field name="duration_seconds" readonly="1" invisible="not duration_seconds"/>
+                                <field name="tokens_used" readonly="1" invisible="not tokens_used"
+                                       help="Total billable tokens (latest attempt). Formula: (width * height * fps * duration) / 1024"/>
+                                <field name="total_cost_usd" readonly="1" widget="monetary"
+                                       string="Total Cost"
+                                       options="{'currency_field': 'currency_id'}"
+                                       help="Sum of cost across all attempts."/>
+                                <field name="cost_usd_estimate" readonly="1" widget="monetary"
+                                       string="Next Attempt Estimate"
+                                       options="{'currency_field': 'currency_id'}"
+                                       help="Estimated cost of the next attempt using the current input fields."/>
+                                <field name="review_status" widget="badge" readonly="1"
+                                       decoration-success="review_status == 'pass'"
+                                       decoration-warning="review_status == 'review'"
+                                       decoration-danger="review_status == 'fail'"
+                                       invisible="not review_status"/>
+                                <field name="currency_id" invisible="1"/>
+                                <field name="attempts_used" invisible="1"/>
+                                <field name="attempts_remaining" invisible="1"/>
+                                <field name="ui_retry_pending" invisible="1"/>
+                                <field name="enrichments_used" invisible="1"/>
+                                <field name="last_enrichment_state" invisible="1"/>
+                            </group>
+                        </group>
+
+                        <group string="T2AV Enrichment Metadata"
+                               help="Drives the enhance.md system prompt. Leave blank to fall back to defaults (precise / medium / moderate).">
+                            <group>
+                                <field name="style" placeholder="precise"/>
+                                <field name="priority"/>
+                                <field name="complexity"/>
+                            </group>
+                            <group>
+                                <field name="topic" placeholder="e.g. coffee shop morning"/>
+                                <field name="sub_category" placeholder="e.g. footstep_sync"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Reviews" name="reviews">
+                                <field name="review_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="effective_verdict == 'accept'"
+                                          decoration-warning="effective_verdict == 'review'"
+                                          decoration-danger="effective_verdict == 'reject' or state == 'error'"
+                                          decoration-info="state in ('queued','submitting')">
+                                        <field name="create_date" string="Started"/>
+                                        <field name="state" widget="badge"
+                                               decoration-info="state in ('queued','submitting')"
+                                               decoration-success="state == 'done'"
+                                               decoration-danger="state == 'error'"/>
+                                        <field name="effective_verdict" widget="badge"
+                                               decoration-success="effective_verdict == 'accept'"
+                                               decoration-warning="effective_verdict == 'review'"
+                                               decoration-danger="effective_verdict == 'reject'"
+                                               optional="show"/>
+                                        <field name="verdict" widget="badge"
+                                               decoration-success="verdict == 'accept'"
+                                               decoration-warning="verdict == 'review'"
+                                               decoration-danger="verdict == 'reject'"
+                                               optional="hide"/>
+                                        <field name="human_verdict" widget="badge"
+                                               decoration-success="human_verdict == 'accept'"
+                                               decoration-warning="human_verdict == 'review'"
+                                               decoration-danger="human_verdict == 'reject'"
+                                               optional="show"/>
+                                        <field name="human_override_user_id" optional="hide"/>
+                                        <field name="human_override_at" optional="hide"/>
+                                        <field name="passed" optional="hide"/>
+                                        <field name="fatal_count" sum="FATAL" optional="show"/>
+                                        <field name="major_count" sum="MAJOR" optional="show"/>
+                                        <field name="minor_count" sum="MINOR" optional="hide"/>
+                                        <field name="unverifiable_count" sum="UNV" optional="hide"/>
+                                        <field name="num_frames" optional="hide"/>
+                                        <field name="tokens_used" sum="Tokens" optional="show"/>
+                                        <field name="model_id_display" column_invisible="1"/>
+                                        <field name="video_delivery" optional="hide"/>
+                                        <field name="completed_at" optional="show"/>
+                                        <field name="regenerate_recommended" optional="show"/>
+                                        <field name="rebuilder_hint" optional="show"/>
+                                        <field name="error_code" optional="show"/>
+                                    </list>
+                                    <form>
+                                        <header>
+                                            <button name="action_override_accept" type="object"
+                                                    string="Mark Accepted" class="btn-success"
+                                                    groups="t2av.group_t2av_manager"
+                                                    invisible="state != 'done'"
+                                                    confirm="Override this review's verdict to ACCEPT? You will be asked for a reason."/>
+                                            <button name="action_override_reject" type="object"
+                                                    string="Mark Rejected" class="btn-danger"
+                                                    groups="t2av.group_t2av_manager"
+                                                    invisible="state != 'done'"
+                                                    confirm="Override this review's verdict to REJECT? You will be asked for a reason."/>
+                                            <button name="action_override_clear" type="object"
+                                                    string="Clear Override" class="btn-secondary"
+                                                    groups="t2av.group_t2av_manager"
+                                                    invisible="state != 'done' or not human_verdict"
+                                                    confirm="Clear the human override and revert to the model's verdict? You will be asked for a reason."/>
+                                        </header>
+                                        <sheet>
+                                            <group>
+                                                <group>
+                                                    <field name="state" widget="badge" readonly="1"/>
+                                                    <field name="effective_verdict" widget="badge" readonly="1"/>
+                                                    <field name="verdict" widget="badge" readonly="1"/>
+                                                    <field name="passed" readonly="1"/>
+                                                    <field name="model_id_display" invisible="1"/>
+                                                    <field name="region" readonly="1"/>
+                                                    <field name="num_frames" readonly="1"/>
+                                                    <field name="video_delivery" readonly="1"
+                                                           invisible="not video_delivery"/>
+                                                </group>
+                                                <group>
+                                                    <field name="fatal_count" readonly="1"/>
+                                                    <field name="major_count" readonly="1"/>
+                                                    <field name="minor_count" readonly="1"/>
+                                                    <field name="unverifiable_count" readonly="1"/>
+                                                    <field name="tokens_used" readonly="1"/>
+                                                    <field name="submitted_at" readonly="1"/>
+                                                    <field name="completed_at" readonly="1"/>
+                                                </group>
+                                            </group>
+                                            <group string="Human Override" invisible="not human_verdict and not human_override_reason">
+                                                <field name="human_verdict" widget="badge" readonly="1"/>
+                                                <field name="human_override_user_id" readonly="1"/>
+                                                <field name="human_override_at" readonly="1"/>
+                                                <field name="human_override_reason" readonly="1" nolabel="1"
+                                                       invisible="not human_override_reason"/>
+                                            </group>
+                                            <group>
+                                                <field name="regenerate_recommended" readonly="1"/>
+                                                <field name="rebuilder_hint" readonly="1"
+                                                       invisible="not rebuilder_hint"/>
+                                <field name="bedrock_request_id" invisible="1"/>
+                                            </group>
+                                            <group string="Prose Report" col="1" invisible="not prose_report">
+                                                <field name="prose_report" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Reasoning" col="1" invisible="not reasoning_text">
+                                                <field name="reasoning_text" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Findings (JSON)" col="1" invisible="not findings_json">
+                                                <field name="findings_json" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Rendered Info (JSON)" col="1" groups="base.group_system" invisible="not rendered_info">
+                                                <field name="rendered_info" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Error" invisible="not error_message">
+                                                <field name="error_code" readonly="1"/>
+                                                <field name="error_message" readonly="1" nolabel="1"/>
+                                            </group>
+                                        </sheet>
+                                    </form>
+                                </field>
+                            </page>
+
+                            <page string="Enrichments" name="enrichments">
+                                <field name="enrichment_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="state == 'clean'"
+                                          decoration-warning="state == 'warned'"
+                                          decoration-danger="state in ('fatal','error')"
+                                          decoration-info="state in ('queued','submitting','validating')">
+                                        <field name="attempt_number" string="#" width="40"/>
+                                        <field name="state" widget="badge"
+                                               decoration-success="state == 'clean'"
+                                               decoration-warning="state == 'warned'"
+                                               decoration-danger="state in ('fatal','error')"
+                                               decoration-info="state in ('queued','submitting','validating')"/>
+                                        <field name="word_count" optional="show"/>
+                                        <field name="tokens_used" optional="show" sum="Tokens"/>
+                                        <field name="submitted_at" optional="show"/>
+                                        <field name="completed_at" optional="hide"/>
+                                        <field name="error_code" optional="show"/>
+                                    </list>
+                                    <form>
+                                        <sheet>
+                                            <group>
+                                                <group>
+                                                    <field name="attempt_number" readonly="1"/>
+                                                    <field name="state" widget="badge" readonly="1"/>
+                                                </group>
+                                                <group>
+                                                    <field name="word_count" readonly="1"/>
+                                                    <field name="input_tokens" readonly="1"/>
+                                                    <field name="output_tokens" readonly="1"/>
+                                                    <field name="submitted_at" readonly="1"/>
+                                                    <field name="completed_at" readonly="1"/>
+                                                </group>
+                                            </group>
+                                            <group string="Enriched Prompt" invisible="not enriched_text">
+                                                <field name="enriched_text" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Validator Warnings" invisible="not validator_warnings">
+                                                <field name="validator_warnings" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Validator Fatals" invisible="not validator_fatals">
+                                                <field name="validator_fatals" readonly="1" nolabel="1"/>
+                                            </group>
+                                            <group string="Error" invisible="not error_message">
+                                                <field name="error_code" readonly="1"/>
+                                                <field name="error_message" readonly="1" nolabel="1"/>
+                                            </group>
+                                        </sheet>
+                                    </form>
+                                </field>
+                            </page>
+                            <page string="Attempts" name="attempts">
+                                <field name="attempt_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="state == 'done'"
+                                          decoration-danger="state in ('failed','cancelled')"
+                                          decoration-info="state in ('queued','submitting','processing','downloading')"
+                                          decoration-muted="state == 'draft'">
+                                        <field name="attempt_number" string="#" width="40"/>
+                                        <field name="video_file" string="Dataset Filename" optional="show"/>
+                                        <field name="category" optional="hide"/>
+                                        <field name="sequence_number" string="Seq #" optional="show"/>
+                                        <field name="state" widget="badge"
+                                               decoration-success="state == 'done'"
+                                               decoration-danger="state in ('failed','cancelled')"
+                                               decoration-info="state in ('queued','submitting','processing','downloading')"
+                                               decoration-muted="state == 'draft'"/>
+                                        <field name="prompt" optional="show"/>
+                                        <field name="change_log" string="Changes" optional="show"/>
+                                        <field name="duration" optional="hide"/>
+                                        <field name="resolution" optional="hide"/>
+                                        <field name="aspect_ratio" optional="hide"/>
+                                        <field name="seed" optional="hide"/>
+                                        <field name="cost_usd" widget="monetary"
+                                               options="{'currency_field': 'currency_id'}"
+                                               sum="Attempt Costs"/>
+                                        <field name="currency_id" column_invisible="1"/>
+                                        <field name="completed_at" optional="show"/>
+                                        <field name="video_s3_url" widget="url" optional="hide"
+                                               string="Direct URL"/>
+                                        <button name="action_open_video" type="object" icon="fa-play"
+                                                string="Play"
+                                                invisible="state != 'done'"/>
+                                    </list>
+                                </field>
+                            </page>
+
+                            <page string="Advanced" name="advanced">
+                                <group>
+                                    <field name="negative_prompt"
+                                           placeholder="Things to avoid in the video (optional)"
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                    <field name="seed"
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
+                                           help="Leave 0 for random seed."/>
+                                    <field name="generate_audio"
+                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                    <field name="model_name" readonly="1"/>
+                                </group>
+                            </page>
+
+                            <page string="Technical" name="technical" groups="t2av.group_t2av_user">
+                                <group>
+                                    <group string="OpenRouter">
+                                        <field name="openrouter_job_id" readonly="1" widget="CopyClipboardChar"/>
+                                        <field name="openrouter_status" readonly="1"/>
+                                        <field name="poll_attempts" readonly="1"/>
+                                        <field name="last_polled_at" readonly="1"/>
+                                    </group>
+                                    <group string="Retry / Errors">
+                                        <field name="retry_count" readonly="1"/>
+                                        <field name="error_code" readonly="1"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- List View -->
+        <record id="view_t2av_generation_list" model="ir.ui.view">
+            <field name="name">t2av.generation.list</field>
+            <field name="model">t2av.generation</field>
+            <field name="arch" type="xml">
+                <list string="Video Generations"
+                      decoration-muted="(not category and state == 'done') or state == 'not_assigned'"
+                      decoration-success="state == 'done' and category"
+                      decoration-danger="state in ('failed','cancelled')"
+                      decoration-info="state in ('queued','submitting','processing','downloading')">
+                    <field name="name"/>
+                    <field name="prompt" optional="show"/>
+                    <field name="user_id" optional="show" groups="t2av.group_t2av_manager"/>
+                    <field name="category" optional="show"/>
+                    <field name="resolution" optional="show"/>
+                    <field name="duration" optional="hide"/>
+                    <field name="attempts_used" string="Attempts" optional="show"/>
+                    <field name="total_cost_usd" string="Total Cost" widget="monetary"
+                           options="{'currency_field': 'currency_id'}"
+                           sum="Grand Total" optional="show"/>
+                    <field name="currency_id" column_invisible="1"/>
+                    <field name="completed_at" optional="show"/>
+                    <field name="state" widget="badge"
+                           decoration-success="state == 'done'"
+                           decoration-danger="state in ('failed','cancelled')"
+                           decoration-info="state in ('queued','submitting','processing','downloading')"
+                           decoration-muted="state in ('draft','not_assigned')"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- Search View -->
+        <record id="view_t2av_generation_search" model="ir.ui.view">
+            <field name="name">t2av.generation.search</field>
+            <field name="model">t2av.generation</field>
+            <field name="arch" type="xml">
+                <search string="Search Generations">
+                    <field name="name" string="Reference"/>
+                    <field name="prompt"/>
+                    <field name="user_id" groups="t2av.group_t2av_manager"/>
+                    <field name="openrouter_job_id"/>
+                    <field name="category"/>
+
+                    <filter name="filter_my" string="My Generations" domain="[('user_id', '=', uid)]"/>
+                    <separator/>
+                    <filter name="filter_not_assigned" string="Not Assigned" domain="[('state', '=', 'not_assigned')]"/>
+                    <filter name="filter_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                    <filter name="filter_processing" string="Processing"
+                            domain="[('state', 'in', ('queued','submitting','processing','downloading'))]"/>
+                    <filter name="filter_done" string="Done" domain="[('state', '=', 'done')]"/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('state', 'in', ('failed','cancelled'))]"/>
+                    <separator/>
+                    <filter name="filter_review_pass" string="Review: Pass"
+                            domain="[('review_status', '=', 'pass')]"/>
+                    <filter name="filter_review_needs" string="Review: Needs Attention"
+                            domain="[('review_status', '=', 'review')]"/>
+                    <filter name="filter_review_fail" string="Review: Fail"
+                            domain="[('review_status', '=', 'fail')]"/>
+                    <separator/>
+                    <filter name="filter_stuck" string="Stuck (needs reconcile)"
+                            domain="[
+                                ('state', 'in', ('submitting','processing','downloading')),
+                                ('last_polled_at', '&lt;', (datetime.datetime.now() - datetime.timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S'))
+                            ]"/>
+                    <separator/>
+                    <filter name="filter_24h" string="Last 24h"
+                            domain="[('create_date','&gt;=', (context_today() - relativedelta(days=1)).strftime('%Y-%m-%d'))]"/>
+                    <filter name="filter_7d" string="Last 7d"
+                            domain="[('create_date','&gt;=', (context_today() - relativedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+
+                    <separator/>
+                    <filter name="filter_no_category" string="No Category (legacy)"
+                            domain="[('category', '=', False)]"/>
+                    <filter name="filter_av_sync" string="AV Sync Sound Effects"
+                            domain="[('category', '=', 'av_sync_sound_effects')]"/>
+                    <filter name="filter_multi_speaker" string="Multi-Speaker Dialogue"
+                            domain="[('category', '=', 'multi_speaker_dialogue')]"/>
+                    <filter name="filter_human_activities" string="Human Activities"
+                            domain="[('category', '=', 'human_activities')]"/>
+                    <filter name="filter_high_motion" string="High Motion Action"
+                            domain="[('category', '=', 'high_motion_action')]"/>
+                    <filter name="filter_educational" string="Educational Videos"
+                            domain="[('category', '=', 'educational_videos')]"/>
+
+                    <group>
+                        <filter name="group_user" string="User" context="{'group_by': 'user_id'}"
+                                groups="t2av.group_t2av_manager"/>
+                        <filter name="group_state" string="State" context="{'group_by': 'state'}"/>
+                        <filter name="group_category" string="Category" context="{'group_by': 'category'}"/>
+                        <filter name="group_resolution" string="Resolution" context="{'group_by': 'resolution'}"/>
+                        <filter name="group_date" string="Created" context="{'group_by': 'create_date:day'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- Action -->
+        <record id="action_t2av_generation" model="ir.actions.act_window">
+            <field name="name">Generations</field>
+            <field name="res_model">t2av.generation</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_t2av_generation_search"/>
+            <field name="context">{'search_default_filter_my': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">Create your first video generation</p>
+                <p>Write a prompt, pick a resolution and duration, then hit Generate.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

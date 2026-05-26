@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="res_config_settings_view_form_t2av" model="ir.ui.view">
+            <field name="name">res.config.settings.view.form.inherit.t2av</field>
+            <field name="model">res.config.settings</field>
+            <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//form" position="inside">
+                    <app data-string="T2AV" string="T2AV" name="t2av"
+                         groups="t2av.group_t2av_manager">
+                        <block title="OpenRouter API" name="t2av_api_block">
+                            <setting string="OpenRouter API Key"
+                                     help="Stored encrypted via ir.config_parameter. Required to submit generations.">
+                                <field name="t2av_api_key_is_set" invisible="1"/>
+                                <field name="t2av_openrouter_api_key" password="True"/>
+                                <div class="text-success mt8" invisible="not t2av_api_key_is_set">
+                                    <i class="fa fa-check"/> API key configured
+                                </div>
+                            </setting>
+                            <setting string="HTTP Referer"
+                                     help="Sent as HTTP-Referer header for OpenRouter attribution.">
+                                <field name="t2av_http_referer"/>
+                            </setting>
+                            <setting string="App Title"
+                                     help="Sent as X-Title header to OpenRouter.">
+                                <field name="t2av_app_title"/>
+                            </setting>
+                            <setting string="Default Model">
+                                <field name="t2av_default_model"/>
+                            </setting>
+                        </block>
+                        <block title="Generation Defaults" name="t2av_defaults_block">
+                            <setting string="Default Resolution">
+                                <field name="t2av_default_resolution"/>
+                            </setting>
+                            <setting string="Default Duration (seconds)">
+                                <field name="t2av_default_duration"/>
+                            </setting>
+                        </block>
+                        <block title="Polling &amp; Storage" name="t2av_polling_block">
+                            <setting string="Poll Interval (seconds)"
+                                     help="How often the inline poller checks OpenRouter for in-flight jobs.">
+                                <field name="t2av_poll_interval_seconds"/>
+                            </setting>
+                            <setting string="Max Poll Attempts"
+                                     help="After this many polls without resolution, the generation is marked failed.">
+                                <field name="t2av_max_poll_attempts"/>
+                            </setting>
+                            <setting string="S3 Connector"
+                                     help="Which s3.connector to use for storing generated MP4 files.">
+                                <field name="t2av_s3_connector_id"/>
+                            </setting>
+                            <setting string="S3 Key Prefix"
+                                     help="Object key prefix in the S3 bucket (e.g. 't2av/').">
+                                <field name="t2av_s3_prefix"/>
+                            </setting>
+                            <setting string="Presigned URL TTL (seconds)"
+                                     help="How long the per-attempt presigned video URL stays valid. Refreshed on every form render.">
+                                <field name="t2av_presigned_ttl_seconds"/>
+                            </setting>
+                            <setting string="Verify SHA-256 after S3 upload"
+                                     help="Re-read each uploaded MP4 from S3 and verify its SHA-256 matches what OpenRouter sent. Doubles S3 egress; default off.">
+                                <field name="t2av_verify_after_upload"/>
+                            </setting>
+                        </block>
+                        <block title="Bedrock Enrichment" name="t2av_bedrock_block">
+                            <setting string="Bedrock API Key (preferred)"
+                                     help="AWS Bedrock API Key (starts with ABSK...). Single-key auth, no AWS Access Key + Secret Key required. When set, this is used INSTEAD of AWS Credentials for all Bedrock calls (enrichment + optional Bedrock-backed review).">
+                                <field name="t2av_bedrock_api_key_is_set" invisible="1"/>
+                                <field name="t2av_bedrock_api_key" password="True"/>
+                                <div class="text-success mt8" invisible="not t2av_bedrock_api_key_is_set">
+                                    <i class="fa fa-check"/> Bedrock API key configured (used instead of AWS Access/Secret)
+                                </div>
+                            </setting>
+                            <setting string="Bedrock AWS Region"
+                                     help="AWS region for the Bedrock Converse API used by prompt enrichment. Defaults to ap-south-1.">
+                                <field name="t2av_bedrock_region"/>
+                            </setting>
+                            <setting string="Enrichment Model ID (Bedrock)"
+                                     help="Target: Claude Sonnet 4.6 — paste exact ARN when AWS publishes it. Default falls back to Claude 3.5 Sonnet.">
+                                <field name="t2av_bedrock_model_id"/>
+                            </setting>
+                            <setting string="Video Review Provider"
+                                     help="OpenRouter (Gemini multimodal) is the default — sends prompt + presigned video URL in one turn. Switch to Bedrock for Claude vision via 20 ffmpeg-extracted frames.">
+                                <field name="t2av_review_provider"/>
+                            </setting>
+                            <setting string="Review Model ID (OpenRouter)"
+                                     help="OpenRouter model slug when Review Provider is OpenRouter. Default: google/gemini-3.1-pro-preview (multimodal). Existing live value is preserved on upgrade.">
+                                <field name="t2av_openrouter_review_model_id"/>
+                            </setting>
+                            <setting string="Bedrock Max Retries"
+                                     help="Per-call retry attempts on transient Bedrock errors (throttling, 5xx).">
+                                <field name="t2av_bedrock_max_retries"/>
+                            </setting>
+                            <setting string="Enrichment Max Attempts"
+                                     help="How many enrichment attempts a job can spend before the row is locked out.">
+                                <field name="t2av_enrichment_max_attempts"/>
+                            </setting>
+                            <div class="text-muted o_text_neutral">
+                                <i class="fa fa-info-circle"/> Bedrock uses the AWS credentials configured in the section below. Once you add the AWS Access Key ID and Secret Access Key, prompt enrichment via Claude on Bedrock becomes available.
+                            </div>
+                        </block>
+                        <block title="Video Review (Gemini)" name="t2av_review_block">
+                            <setting string="Review Max Attempts per Attempt"
+                                     help="Hard cap on review rounds. Each REJECT below this limit auto-queues the next round with the prior FATAL/MAJOR findings injected into the user turn.">
+                                <field name="t2av_review_max_attempts"/>
+                            </setting>
+                            <setting string="Review Max Parallel In-Flight"
+                                     help="Concurrency cap. The cron dispatcher counts rows in 'submitting' state and only releases capacity = max_parallel - in_flight per tick.">
+                                <field name="t2av_review_max_parallel"/>
+                            </setting>
+                            <setting string="Review Batch Size per Cron Tick"
+                                     help="Maximum queued reviews picked up per cron run. Effective dispatch is min(batch_size, capacity).">
+                                <field name="t2av_review_batch_size"/>
+                            </setting>
+                            <setting string="Review Video URL TTL (seconds)"
+                                     help="Lifetime of the presigned S3 URL sent to the reviewer. Must outlive the LLM round-trip. Bump if Gemini reports url-fetch / 4xx errors before the URL expires.">
+                                <field name="t2av_review_video_url_ttl_seconds"/>
+                            </setting>
+                        </block>
+                        <block title="AWS Credentials (optional)" name="t2av_aws_block">
+                            <setting string="AWS Access Key ID"
+                                     help="Encrypted at rest. Leave blank to use credentials from the s3.connector record or the AWS default credential chain (IAM role / env vars).">
+                                <field name="t2av_aws_access_key_is_set" invisible="1"/>
+                                <field name="t2av_aws_access_key" password="True"/>
+                                <div class="text-success mt8" invisible="not t2av_aws_access_key_is_set">
+                                    <i class="fa fa-check"/> AWS access key configured
+                                </div>
+                            </setting>
+                            <setting string="AWS Secret Access Key"
+                                     help="Encrypted at rest. Required if you set the access key above.">
+                                <field name="t2av_aws_secret_key_is_set" invisible="1"/>
+                                <field name="t2av_aws_secret_key" password="True"/>
+                                <div class="text-success mt8" invisible="not t2av_aws_secret_key_is_set">
+                                    <i class="fa fa-check"/> AWS secret configured
+                                </div>
+                            </setting>
+                        </block>
+                        <block title="Webhook (optional)" name="t2av_webhook_block">
+                            <setting string="Webhook HMAC Secret"
+                                     help="Configure both this secret and OpenRouter's dashboard with the same value to enable webhook callbacks (sub-second completion notifications). Encrypted at rest. Leave blank to disable webhooks (cron polling remains active).">
+                                <field name="t2av_webhook_secret_is_set" invisible="1"/>
+                                <field name="t2av_webhook_secret" password="True"/>
+                                <div class="text-success mt8" invisible="not t2av_webhook_secret_is_set">
+                                    <i class="fa fa-check"/> Webhook secret configured — webhooks active
+                                </div>
+                                <div class="text-muted mt8" invisible="t2av_webhook_secret_is_set">
+                                    <i class="fa fa-info-circle"/> No secret set — webhook endpoint returns 503; polling-only.
+                                </div>
+                            </setting>
+                            <setting string="Webhook URL"
+                                     help="Public URL to register with OpenRouter. Auto-suggested from web.base.url. Edit to override (e.g. for an ngrok / Cloudflare Tunnel domain that differs from Odoo's base URL). The path MUST end in /t2av/webhook for the route to match.">
+                                <field name="t2av_webhook_path"
+                                       placeholder="https://your-host.example.com/t2av/webhook"/>
+                            </setting>
+                        </block>
+                    </app>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="action_t2av_config_settings" model="ir.actions.act_window">
+            <field name="name">T2AV Settings</field>
+            <field name="res_model">res.config.settings</field>
+            <field name="view_mode">form</field>
+            <field name="target">main</field>
+            <field name="context">{'module': 't2av'}</field>
+        </record>
+    </data>
+</odoo>

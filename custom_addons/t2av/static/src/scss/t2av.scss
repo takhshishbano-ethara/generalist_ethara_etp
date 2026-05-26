@@ -1,0 +1,18 @@
+.o_t2av_live_status {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--bs-info-bg-subtle, #cff4fc);
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+}
+
+.o_t2av_video_container {
+    padding: 0.5rem;
+}
+
+.o_t2av_video_container video {
+    max-width: 720px;
+    width: 100%;
+    border-radius: 8px;
+}
