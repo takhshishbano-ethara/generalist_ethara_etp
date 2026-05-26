@@ -1,6 +1,6 @@
 {
     "name": "Gohan PRD Pipeline",
-    "version": "19.0.2.6.0",
+    "version": "19.0.2.7.0",
     "category": "Productivity",
     "summary": "Operator UI for the Gohan functional-PRD scraping pipeline",
     "description": (
@@ -55,6 +55,7 @@
         "views/res_config_settings_views.xml",
         "views/gohan_job_views.xml",
         "views/gohan_category_views.xml",
+        "views/gohan_website_sheet_views.xml",
         "views/menuitems.xml",
     ],
     "assets": {

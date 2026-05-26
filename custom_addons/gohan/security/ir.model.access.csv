@@ -9,3 +9,9 @@ access_gohan_rerun_wizard_user,gohan.rerun.wizard.user,model_gohan_rerun_wizard,
 access_gohan_import_wizard_admin,gohan.import.wizard.admin,model_gohan_import_wizard,group_gohan_admin,1,1,1,0
 access_gohan_start_task_wizard_user,gohan.start.task.wizard.user,model_gohan_start_task_wizard,group_gohan_user,1,1,1,0
 access_gohan_bulk_assign_wizard_admin,gohan.bulk.assign.wizard.admin,model_gohan_bulk_assign_wizard,group_gohan_admin,1,1,1,0
+access_gohan_website_sheet_user,gohan.website.sheet.user,model_gohan_website_sheet,group_gohan_user,1,0,0,0
+access_gohan_website_sheet_admin,gohan.website.sheet.admin,model_gohan_website_sheet,group_gohan_admin,1,1,1,1
+access_gohan_website_sheet_line_user,gohan.website.sheet.line.user,model_gohan_website_sheet_line,group_gohan_user,1,1,0,0
+access_gohan_website_sheet_line_admin,gohan.website.sheet.line.admin,model_gohan_website_sheet_line,group_gohan_admin,1,1,1,1
+access_gohan_website_sheet_upload_admin,gohan.website.sheet.upload.admin,model_gohan_website_sheet_upload_wizard,group_gohan_admin,1,1,1,0
+access_gohan_website_pick_user,gohan.website.pick.user,model_gohan_website_pick_wizard,group_gohan_user,1,1,1,0

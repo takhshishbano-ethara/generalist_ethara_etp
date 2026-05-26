@@ -22,6 +22,31 @@
               sequence="11"
               groups="group_gohan_user"/>
 
+    <!-- "New Task" — pick a category, get a website auto-assigned.
+         Odoo 19's menuitem parser does NOT support the "!group" negation
+         syntax that works for view fields, so we cannot mechanically hide
+         this from admins who inherit group_gohan_user via implied_ids.
+         Admin sees this entry too — harmless (clicking it just creates a
+         draft gohan.job for them as well). To hide it from admin we'd need
+         a separate non-inherited "tasker-only" group. -->
+    <menuitem id="menu_gohan_website_pick"
+              name="New Task"
+              parent="menu_gohan_root"
+              action="action_gohan_website_pick_wizard"
+              sequence="15"
+              groups="group_gohan_user"/>
+
+    <!-- Admin-only: single "Upload Data" tab.
+         Opens the sheets list — admin sees status counts per sheet, drills
+         into any sheet to manage individual URLs, and uses the "Upload Sheet"
+         header button (on the list view) to launch the upload wizard. -->
+    <menuitem id="menu_gohan_website_sheets_root"
+              name="Upload Data"
+              parent="menu_gohan_root"
+              action="action_gohan_website_sheet"
+              sequence="20"
+              groups="group_gohan_admin"/>
+
     <menuitem id="menu_gohan_config"
               name="Configuration"
               parent="menu_gohan_root"

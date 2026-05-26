@@ -2,7 +2,7 @@
 <templates xml:space="preserve">
     <t t-name="gohan.ListButtons">
         <button type="button" class="btn btn-primary" t-on-click="() => this.onStartTask()">
-            Start Task
+            New Task
         </button>
     </t>
 </templates>
