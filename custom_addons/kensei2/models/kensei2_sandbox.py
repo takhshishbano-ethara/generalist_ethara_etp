@@ -254,11 +254,33 @@ MODEL_DEFAULTS = {
     "gpt": "litellm/gpt-5.5",
 }
 
-# Batch execution pool — supports parallel deploy/prompt/stop for 16+ pods
-_BATCH_POOL_WORKERS = int(os.getenv("BATCH_POOL_WORKERS", "20"))
+# Batch execution — two-tier pool to prevent parent-child deadlock.
+#
+# _ORCHESTRATOR_POOL: runs orchestrator functions (_run_batch_deploy_background,
+#   _run_batch_prompt_background, _run_batch_stop_background) that WAIT for
+#   child futures.  One worker per active task — 50 allows ~50 concurrent tasks.
+#
+# _BATCH_POOL: runs actual pod work (_batch_deploy_pod, _batch_prompt_single_sandbox,
+#   _batch_stop_single_sandbox).  These are the child futures orchestrators wait on.
+#   Sized for ~3 concurrent tasks × 16 pods = 48 workers.
+#
+# Deadlock scenario without separation: 20-worker pool, 26 parent tasks claim all
+# workers, each parent submits 16 children to the same pool → children can never
+# get workers → parents wait forever.
+_ORCHESTRATOR_POOL_WORKERS = int(os.getenv("ORCHESTRATOR_POOL_WORKERS", "50"))
+_ORCHESTRATOR_POOL = ThreadPoolExecutor(
+    max_workers=_ORCHESTRATOR_POOL_WORKERS, thread_name_prefix="kensei2-orch"
+)
+_BATCH_POOL_WORKERS = int(os.getenv("BATCH_POOL_WORKERS", "48"))
 _BATCH_POOL = ThreadPoolExecutor(
     max_workers=_BATCH_POOL_WORKERS, thread_name_prefix="kensei2-batch"
 )
+# Semaphore: limits how many tasks can deploy pods simultaneously.
+# Prevents K8s API overload when 26+ tasks start at once.
+# Each task acquires the semaphore before deploying, releases after.
+_DEPLOY_CONCURRENCY = int(os.getenv("BATCH_DEPLOY_CONCURRENCY", "3"))
+_DEPLOY_SEMAPHORE = threading.Semaphore(_DEPLOY_CONCURRENCY)
+
 _POD_MAX_RETRIES = int(os.getenv("BATCH_POD_MAX_RETRIES", "2"))
 _BATCH_START_TIMEOUT = int(os.getenv("BATCH_START_TIMEOUT", "600"))
 _BATCH_WAVE_SIZE = int(os.getenv("BATCH_WAVE_SIZE", "4"))
@@ -267,6 +289,11 @@ _BATCH_WAVE_DELAY = int(os.getenv("BATCH_WAVE_DELAY", "15"))
 GATEWAY_PORT_BASE = 21000
 LITELLM_PORT_BASE = 16000
 DB_PORT_BASE = 17432
+
+# Dedup guard: prevents duplicate concurrent starts of the same sandbox
+# from interactive UI (action_start_sandbox / action_retry_pod / cron).
+_SANDBOX_LOCK = threading.Lock()
+_SANDBOX_STARTING = set()
 
 TRAJECTORY_FIELD_MAP = {
     "claude": "claude_trajectory",
@@ -1542,87 +1569,108 @@ def _batch_ws_health_check(db_name, sandbox_id, retries=3, timeout=15):
 
 def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
     max_attempts = _POD_MAX_RETRIES + 1
+    restarts_used = 0
+    poll_interval = 10
 
     for pod_attempt in range(1, max_attempts + 1):
         if task_id and _batch_is_cancelled(db_name, task_id):
-            return False, "Batch cancelled", pod_attempt - 1
+            return False, "Batch cancelled", restarts_used
+
+        need_deploy = (pod_attempt == 1)
 
         if pod_attempt > 1:
-            _logger.warning(
-                "[BATCH] Pod restart %d/%d for sandbox %s",
-                pod_attempt - 1, _POD_MAX_RETRIES, sandbox_id,
-            )
-            try:
-                _batch_restart_pod(db_name, sandbox_id, mode)
-            except Exception as e:
-                _logger.error("[BATCH] Pod restart failed for sandbox %s: %s", sandbox_id, e)
-                return False, "Pod restart failed: %s" % e, pod_attempt - 1
-            time.sleep(5)
-
-        _logger.info(
-            "[BATCH] Deploying sandbox %s (mode=%s, attempt=%d/%d)",
-            sandbox_id, mode, pod_attempt, max_attempts,
-        )
-
-        deploy_ok = False
-        if mode == "k8s":
+            backoff = min(10 * (2 ** (restarts_used - 1)), 60) if restarts_used else 5
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
-                sandbox = env["kensei2.sandbox"].browse(sandbox_id)
-                if not sandbox.exists():
-                    return False, "Sandbox %s does not exist" % sandbox_id, pod_attempt - 1
-                if not sandbox.docker_gateway_token:
-                    sandbox.write({"docker_gateway_token": secrets.token_hex(32)})
+                k8s_status = env["kensei2.sandbox.k8s"].get_sandbox_status(
+                    env["kensei2.sandbox"].browse(sandbox_id)
+                )
+            if k8s_status == "starting":
+                _logger.info(
+                    "[BATCH] Sandbox %s still pending in K8s, extending wait (attempt %d/%d)",
+                    sandbox_id, pod_attempt, max_attempts,
+                )
+                poll_interval = min(poll_interval + 5, 30)
+                need_deploy = False
+            else:
+                restarts_used += 1
+                _logger.warning(
+                    "[BATCH] Pod restart %d/%d for sandbox %s (k8s_status=%s, backoff=%ds)",
+                    restarts_used, _POD_MAX_RETRIES, sandbox_id, k8s_status, backoff,
+                )
+                time.sleep(backoff)
                 try:
-                    env["kensei2.sandbox.k8s"].deploy_sandbox(sandbox)
-                    sandbox.write({
-                        "docker_compose_project": "kensei2-sandbox-%s" % sandbox_id,
-                        "docker_port": 18789,
-                    })
-                    deploy_ok = True
+                    _batch_restart_pod(db_name, sandbox_id, mode)
                 except Exception as e:
-                    _logger.error("[BATCH] K8s deploy failed for sandbox %s: %s", sandbox_id, e)
-                    sandbox.write({"docker_status": "error", "docker_error": str(e)[:1000]})
-        else:
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                sandbox = env["kensei2.sandbox"].browse(sandbox_id)
-                if not sandbox.exists():
-                    return False, "Sandbox %s does not exist" % sandbox_id, pod_attempt - 1
-                sandbox._start_local_bg()
-                deploy_ok = sandbox.docker_status != "error"
+                    _logger.error("[BATCH] Pod restart failed for sandbox %s: %s", sandbox_id, e)
+                    return False, "Pod restart failed: %s" % e, restarts_used
+                need_deploy = True
 
-        if not deploy_ok:
-            if pod_attempt < max_attempts:
-                continue
-            with Registry(db_name).cursor() as cr:
-                env = api.Environment(cr, SUPERUSER_ID, {})
-                sandbox = env["kensei2.sandbox"].browse(sandbox_id)
-                return False, "Error: %s" % (sandbox.docker_error or "deploy failed"), pod_attempt - 1
+        if need_deploy:
+            _logger.info(
+                "[BATCH] Deploying sandbox %s (mode=%s, attempt=%d/%d)",
+                sandbox_id, mode, pod_attempt, max_attempts,
+            )
+
+            deploy_ok = False
+            if mode == "k8s":
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["kensei2.sandbox"].browse(sandbox_id)
+                    if not sandbox.exists():
+                        return False, "Sandbox %s does not exist" % sandbox_id, restarts_used
+                    if not sandbox.docker_gateway_token:
+                        sandbox.write({"docker_gateway_token": secrets.token_hex(32)})
+                    try:
+                        env["kensei2.sandbox.k8s"].deploy_sandbox(sandbox)
+                        sandbox.write({
+                            "docker_compose_project": "kensei2-sandbox-%s" % sandbox_id,
+                            "docker_port": 18789,
+                        })
+                        deploy_ok = True
+                    except Exception as e:
+                        _logger.error("[BATCH] K8s deploy failed for sandbox %s: %s", sandbox_id, e)
+                        sandbox.write({"docker_status": "error", "docker_error": str(e)[:1000]})
+            else:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["kensei2.sandbox"].browse(sandbox_id)
+                    if not sandbox.exists():
+                        return False, "Sandbox %s does not exist" % sandbox_id, restarts_used
+                    sandbox._start_local_bg()
+                    deploy_ok = sandbox.docker_status != "error"
+
+            if not deploy_ok:
+                if pod_attempt < max_attempts:
+                    continue
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    sandbox = env["kensei2.sandbox"].browse(sandbox_id)
+                    return False, "Error: %s" % (sandbox.docker_error or "deploy failed"), restarts_used
 
         deadline = time.monotonic() + _BATCH_START_TIMEOUT
         while time.monotonic() < deadline:
-            time.sleep(10)
+            time.sleep(poll_interval)
             try:
                 with Registry(db_name).cursor() as cr:
                     env = api.Environment(cr, SUPERUSER_ID, {})
                     if task_id:
                         task = env["kensei2.kensei2"].browse(task_id)
                         if task.exists() and task.batch_status in ("stopping", "done", "error"):
-                            return False, "Batch cancelled", pod_attempt - 1
+                            return False, "Batch cancelled", restarts_used
                     sandbox = env["kensei2.sandbox"].browse(sandbox_id)
                     if not sandbox.exists():
-                        return False, "Sandbox disappeared", pod_attempt - 1
+                        return False, "Sandbox disappeared", restarts_used
                     if sandbox.docker_status == "running":
-                        _logger.info("[BATCH] Sandbox %s already running in DB (attempt %d)", sandbox_id, pod_attempt)
-                        return True, "", pod_attempt - 1
+                        _logger.info("[BATCH] Sandbox %s running (attempt %d)", sandbox_id, pod_attempt)
+                        return True, "", restarts_used
                     if sandbox.docker_status == "error":
                         break
                     k8s_status = env["kensei2.sandbox.k8s"].get_sandbox_status(sandbox)
                     if k8s_status == "running":
                         sandbox.write({"docker_status": "running", "docker_port": 18789})
-                        _logger.info("[BATCH] Sandbox %s is running (attempt %d)", sandbox_id, pod_attempt)
-                        return True, "", pod_attempt - 1
+                        _logger.info("[BATCH] Sandbox %s running (attempt %d)", sandbox_id, pod_attempt)
+                        return True, "", restarts_used
                     if k8s_status == "error":
                         sandbox.write({"docker_status": "error", "docker_error": "K8s deployment failed"})
                         break
@@ -1630,13 +1678,9 @@ def _batch_deploy_pod(db_name, sandbox_id, mode, task_id=None):
                 _logger.warning("[BATCH] Poll error for sandbox %s: %s", sandbox_id, poll_err)
 
         if pod_attempt < max_attempts:
-            _logger.warning(
-                "[BATCH] Sandbox %s not ready after %ds, retrying (attempt %d/%d)",
-                sandbox_id, _BATCH_START_TIMEOUT, pod_attempt, max_attempts,
-            )
             continue
 
-    return False, "Pod never became ready after %d attempts" % max_attempts, _POD_MAX_RETRIES
+    return False, "Pod never became ready after %d attempts" % max_attempts, restarts_used
 
 
 def _batch_run_single_sandbox(db_name, sandbox_id, prompt, mode, attachment_ids=None):
@@ -1930,9 +1974,24 @@ def _run_batch_background(db_name, task_id, sandbox_ids, prompt, mode, notify_pa
 
 def _run_batch_deploy_background(db_name, task_id, sandbox_ids, mode, notify_partner_id):
     _logger.info(
+        "[BATCH-DEPLOY] Waiting for deploy semaphore: task=%s, sandboxes=%d (concurrency limit=%d)",
+        task_id, len(sandbox_ids), _DEPLOY_CONCURRENCY,
+    )
+    _DEPLOY_SEMAPHORE.acquire()
+    _logger.info(
         "[BATCH-DEPLOY] Starting deploy: task=%s, sandboxes=%d, mode=%s, wave_size=%d, wave_delay=%ds",
         task_id, len(sandbox_ids), mode, _BATCH_WAVE_SIZE, _BATCH_WAVE_DELAY,
     )
+    from concurrent.futures import as_completed
+
+    try:
+        _run_batch_deploy_inner(db_name, task_id, sandbox_ids, mode, notify_partner_id)
+    finally:
+        _DEPLOY_SEMAPHORE.release()
+        _logger.info("[BATCH-DEPLOY] Released deploy semaphore: task=%s", task_id)
+
+
+def _run_batch_deploy_inner(db_name, task_id, sandbox_ids, mode, notify_partner_id):
     from concurrent.futures import as_completed
 
     futures = {}
