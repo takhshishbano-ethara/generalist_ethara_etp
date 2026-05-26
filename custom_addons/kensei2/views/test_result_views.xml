@@ -34,6 +34,11 @@
         <field name="arch" type="xml">
             <form create="false">
                 <header>
+                    <button name="action_rerun_test" type="object"
+                        string="Re-execute"
+                        class="btn-primary"
+                        invisible="status in ('generating', 'running')"
+                        confirm="Re-run this test against the sandbox? Requires the sandbox container/pod to still be running." />
                     <field name="status" widget="statusbar"
                         statusbar_visible="generating,running,passed,failed" />
                 </header>
