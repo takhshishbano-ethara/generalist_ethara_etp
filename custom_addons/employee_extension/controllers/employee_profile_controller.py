@@ -590,7 +590,7 @@ class EmployeeProfileController(http.Controller):
             mfields = model._fields
             if "user_id" not in mfields or "project_id" not in mfields:
                 continue
-            domain = [("project_id", "=", project.id)]
+            domain = []
             if viewed_is_privileged:
                 pass
             elif viewed_is_pl_or_qc:
