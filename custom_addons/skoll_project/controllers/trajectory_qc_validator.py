@@ -671,16 +671,23 @@ def unwrap_mixed_messages(messages):
     return unwrapped
 
 
-def validate_trajectory(file_path, raw_content):
+def validate_trajectory(file_path, raw_content, valid_task_types=None):
     """Validate a trajectory JSON string against the full Skoll spec.
 
     Args:
         file_path: Label for the trajectory (used in report output).
         raw_content: The raw JSON string to validate.
+        valid_task_types: Optional set/list of allowed task_type values.
+            When *None* (default), falls back to the module-level
+            ``VALID_TASK_TYPES`` constant for backward compatibility.
 
     Returns:
         List of check dicts, each with keys: check, name, verdict, reason, fix (optional).
     """
+    if valid_task_types is not None:
+        _valid_tt = set(valid_task_types)
+    else:
+        _valid_tt = VALID_TASK_TYPES
     checks = []
     check_num = [0]
 
@@ -831,13 +838,13 @@ def validate_trajectory(file_path, raw_content):
                     cn,
                     "task_type",
                     "task_type must be a non-empty string",
-                    f"Set task_type to one of: {sorted(VALID_TASK_TYPES)}",
+                    f"Set task_type to one of: {sorted(_valid_tt)}",
                 )
             )
-        elif tt not in VALID_TASK_TYPES:
+        elif tt not in _valid_tt:
             hint = ""
             tt_lower = tt.lower().replace("-", "_").replace(" ", "_")
-            for valid in VALID_TASK_TYPES:
+            for valid in _valid_tt:
                 if tt_lower == valid:
                     hint = f" (did you mean '{valid}'? Check casing)"
                     break
@@ -849,7 +856,7 @@ def validate_trajectory(file_path, raw_content):
                     cn,
                     "task_type",
                     f"Invalid task_type '{tt}'{hint}",
-                    f"Must be one of: {sorted(VALID_TASK_TYPES)}",
+                    f"Must be one of: {sorted(_valid_tt)}",
                 )
             )
         else:
