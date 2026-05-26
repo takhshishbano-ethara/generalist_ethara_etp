@@ -139,6 +139,17 @@
         }
     }
 
+    .kensei2-json-toolbar {
+        display: flex;
+        justify-content: flex-end;
+        padding: 6px 4px 10px;
+    }
+
+    .kensei2-json-regen-all-btn {
+        padding: 6px 14px;
+        font-size: 0.9em;
+    }
+
     .kensei2-json-entry-body {
         .kensei2-json-block {
             border-radius: 0 0 6px 6px;

@@ -210,7 +210,7 @@ export class Kensei2JsonField extends Component {
             if (entry.qcStatus === "pending") {
                 this._startQcPolling(entry.index);
             }
-            if (entry.taskDescriptionStatus === "pending") {
+            if (entry.taskDescriptionStatus === "pending" && this.state.taskDescGenerating === -1) {
                 this.state.taskDescGenerating = entry.index;
                 this._startTaskDescPolling(entry.index);
             }
@@ -242,7 +242,7 @@ export class Kensei2JsonField extends Component {
         if (!payload) return;
         const { field_name, entry_index } = payload;
         if (field_name !== this.props.name) return;
-        if (this.state.taskDescGenerating >= 0) return;
+        if (this.state.taskDescGenerating !== -1) return;
         this.state.taskDescGenerating = entry_index;
         this._startTaskDescPolling(entry_index);
     }
@@ -403,7 +403,7 @@ export class Kensei2JsonField extends Component {
     }
 
     get isAnyActionRunning() {
-        return this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0;
+        return this.state.qcRunning >= 0 || this.state.taskDescGenerating !== -1;
     }
 
     get isGoldenField() {
@@ -545,7 +545,7 @@ export class Kensei2JsonField extends Component {
     }
 
     async onQcEntry(index) {
-        if (this.state.qcRunning >= 0 || this.state.taskDescGenerating >= 0) return;
+        if (this.state.qcRunning >= 0 || this.state.taskDescGenerating !== -1) return;
 
         const recordId = this.props.record.resId;
         const fieldName = this.props.name;
@@ -581,7 +581,7 @@ export class Kensei2JsonField extends Component {
 
     async onGenerateTaskDesc(index) {
         if (!this.isQlOrPl) return;
-        if (this.state.taskDescGenerating >= 0 || this.state.qcRunning >= 0) return;
+        if (this.state.taskDescGenerating !== -1 || this.state.qcRunning >= 0) return;
 
         const recordId = this.props.record.resId;
         const fieldName = this.props.name;
@@ -611,6 +611,65 @@ export class Kensei2JsonField extends Component {
             );
             this.state.taskDescGenerating = -1;
         }
+    }
+
+    async onGenerateAllTaskDescs() {
+        if (!this.isQlOrPl) return;
+        if (this.state.taskDescGenerating !== -1 || this.state.qcRunning >= 0) return;
+
+        const recordId = this.props.record.resId;
+        const fieldName = this.props.name;
+        if (!recordId) {
+            this.notification.add(_t("Save the record first"), { type: "warning" });
+            return;
+        }
+
+        this.state.taskDescGenerating = -2; // sentinel: batch in progress
+
+        try {
+            const resp = await rpc("/kensei2/generate_all_task_descriptions", {
+                record_id: recordId,
+                field_name: fieldName,
+            });
+            if (resp.error) {
+                this.notification.add(resp.error, { type: "danger", sticky: false });
+                this.state.taskDescGenerating = -1;
+                return;
+            }
+            this.notification.add(
+                _t("Generating descriptions for ") + (resp.queued || 0) + _t(" trajectory entries…"),
+                { type: "info" },
+            );
+            this._startBatchTaskDescPolling();
+        } catch (e) {
+            this.notification.add(
+                _t("Batch description generation failed: ") + (e.message || String(e)),
+                { type: "danger", sticky: false },
+            );
+            this.state.taskDescGenerating = -1;
+        }
+    }
+
+    _startBatchTaskDescPolling() {
+        if (this._batchTaskDescTimer) return;
+        this._batchTaskDescTimer = setInterval(async () => {
+            try {
+                await this.props.record.load();
+                const raw = formatText(this.props.record.data[this.props.name]);
+                const entries = parseEntries(raw);
+                const stillPending = entries.some(
+                    (e) => e && e.task_description_status === "pending",
+                );
+                if (!stillPending) {
+                    clearInterval(this._batchTaskDescTimer);
+                    delete this._batchTaskDescTimer;
+                    this.state.taskDescGenerating = -1;
+                    this.notification.add(_t("Descriptions generated."), { type: "success" });
+                }
+            } catch (_e) {
+                // network hiccup — keep polling
+            }
+        }, 5000);
     }
 
     async onAbortQc(index) {

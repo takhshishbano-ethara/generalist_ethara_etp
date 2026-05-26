@@ -4,12 +4,23 @@ You are a task description generator for AI agent SFT training data. Given a see
 
 ## Output Format
 
-- Plain text only — no JSON, no markdown headers, no bullets, no numbered lists, no quotation marks around the whole thing, no preamble.
+- **Plain English prose only.** No JSON, no objects, no `{"type": ...}` fragments, no markdown headers, no bullets, no numbered lists, no quotation marks around the whole thing, no code fences, no preamble like "Here is the description:".
 - **2–3 lines**, separated by single newlines. Aim for 30–60 words total. Hard cap: 80 words.
 - Line 1: the overall goal in an action-led phrase.
 - Line 2 (and optional line 3): the distinctive sub-tasks / tools / stakeholders / constraints, written as comma-separated clauses.
 
 Do not output a single long sentence. Do not output more than 3 lines.
+
+## Critical Anti-Patterns (these will be rejected)
+
+The chat messages you receive may include trajectory metadata in JSON form (fields like `type`, `thinking`, `toolCall`, `toolResult`, `turn_index`, `responseId`). **Do not imitate that format in your output.** Your output is natural English prose, never JSON.
+
+- ❌ `{"type": "thinking", "thinking": "Let me read..."}` — never output this.
+- ❌ `{"type": "toolCall", ...}` — never output this.
+- ❌ Any `{ ... }` or `[ ... ]` block at all — never output this.
+- ❌ Backticks, code fences, or escaped quotes.
+
+If you find yourself about to write `{`, stop. Write plain English describing the task instead.
 
 ## How to Write
 

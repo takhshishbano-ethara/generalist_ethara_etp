@@ -4,6 +4,23 @@
     <t t-name="kensei2.JsonField">
         <div class="o_field_kensei2_json o_field_widget" t-ref="root" t-att-class="{'o_field_kensei2_json_readonly': props.readonly}">
             <t t-if="hasEntries">
+                <t t-if="isQlOrPl and isEditable">
+                    <div class="kensei2-json-toolbar">
+                        <button class="kensei2-json-regen-btn kensei2-json-regen-all-btn"
+                                t-att-disabled="isAnyActionRunning"
+                                t-on-click="onGenerateAllTaskDescs"
+                                title="Generate task descriptions for every trajectory entry in this field (QL/PL only).">
+                            <t t-if="state.taskDescGenerating === -2">
+                                <i class="fa fa-spinner fa-spin me-1"/>
+                                <span>Generating descriptions…</span>
+                            </t>
+                            <t t-else="">
+                                <i class="fa fa-magic me-1"/>
+                                <span>Generate Descriptions (All Trajectories)</span>
+                            </t>
+                        </button>
+                    </div>
+                </t>
                 <t t-foreach="state.entries" t-as="entry" t-key="entry.index">
                     <div class="kensei2-json-entry">
                             <div class="kensei2-json-entry-header"
@@ -37,21 +54,6 @@
                                         </button>
                                     </t>
                                     <t t-if="!entry.deleted and isEditable and state.editingIndex !== entry.index">
-                                        <t t-if="isQlOrPl">
-                                            <button class="kensei2-json-regen-btn"
-                                                    t-att-disabled="isAnyActionRunning"
-                                                    t-on-click="() => this.onGenerateTaskDesc(entry.index)"
-                                                    title="Generate task description from this trajectory (QL/PL only).">
-                                                <t t-if="state.taskDescGenerating === entry.index">
-                                                    <i class="fa fa-spinner fa-spin me-1"/>
-                                                    <span>Generating…</span>
-                                                </t>
-                                                <t t-else="">
-                                                    <i class="fa fa-magic me-1"/>
-                                                    <span>Generate Description</span>
-                                                </t>
-                                            </button>
-                                        </t>
                                         <button class="kensei2-json-copy-btn"
                                                 t-on-click="() => this.onCopyEntry(entry.index)"
                                                 title="Copy trajectory JSON to clipboard">
