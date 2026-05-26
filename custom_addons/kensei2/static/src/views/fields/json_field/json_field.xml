@@ -41,12 +41,14 @@
                                             <button class="kensei2-json-regen-btn"
                                                     t-att-disabled="isAnyActionRunning"
                                                     t-on-click="() => this.onGenerateTaskDesc(entry.index)"
-                                                    title="Regenerate task description from this trajectory (QL/PL only).">
+                                                    title="Generate task description from this trajectory (QL/PL only).">
                                                 <t t-if="state.taskDescGenerating === entry.index">
-                                                    <i class="fa fa-spinner fa-spin"/>
+                                                    <i class="fa fa-spinner fa-spin me-1"/>
+                                                    <span>Generating…</span>
                                                 </t>
                                                 <t t-else="">
-                                                    <i class="fa fa-refresh"/>
+                                                    <i class="fa fa-magic me-1"/>
+                                                    <span>Generate Description</span>
                                                 </t>
                                             </button>
                                         </t>

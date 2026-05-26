@@ -746,7 +746,7 @@ def generate_task_description_sync(env, seed_prompt, messages_json, system_promp
             len(response_text),
             response_text,
         )
-        desc = response_text.strip().replace("\n", " ")
+        desc = _re.sub(r"\n{2,}", "\n", response_text.strip())
 
         if _is_degenerate_output(desc):
             _logger.warning(
@@ -3188,7 +3188,7 @@ class Kensei2(models.Model):
 
         meta_info = {
             "task_type": self._slugify_task_type(),
-            "task_description": self.seed_prompt or self.task_id or "",
+            "task_description": self.task_description or "",
             "task_completion_status": "success",
             "system_prompt": self.system_prompt or "",
             "platform": "macOS",
