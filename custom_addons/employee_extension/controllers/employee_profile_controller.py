@@ -43,6 +43,13 @@ DELIVERY_STATUS_BY_PROJECT_STATUS = {
     "paused": "delayed",
 }
 
+DELIVERY_STATUS_LABELS = {
+    "in_progress": "In Progress",
+    "on_time": "On Time",
+    "missed": "Missed",
+    "delayed": "Delayed",
+}
+
 PRIVILEGED_ROLE_XMLIDS = (
     "api_auth_gateway.role_cto_technical",
     "api_auth_gateway.role_tpm_technical",
@@ -279,6 +286,14 @@ class EmployeeProfileController(http.Controller):
         if not self._caller_can_view(employee):
             return request.env["project.project"].browse()
         scope = self._caller_scope_projects()
+        viewed_role_id = (
+            employee.user_id.user_role.id
+            if employee.user_id and employee.user_id.user_role
+            else False
+        )
+        privileged_ids = _resolve_role_ids(request.env, PRIVILEGED_ROLE_XMLIDS)
+        if viewed_role_id in privileged_ids:
+            return scope
 
         def emp_in_project(project):
             for field_name in PROJECT_ROLE_FIELDS:
@@ -607,26 +622,37 @@ class EmployeeProfileController(http.Controller):
                         tasker_name = tasker_user.name or ""
                 start_at = rec.started_at if "started_at" in mfields else False
                 end_at = rec.completed_at if "completed_at" in mfields else False
+                raw_state = (rec.state if "state" in mfields else "") or ""
+                status = "completed" if raw_state in DELIVERED_STATES else "in_progress"
+                raw_duration = (
+                    rec.duration_seconds if "duration_seconds" in mfields else 0
+                ) or 0
                 tasks.append(
                     {
                         "task_id": rec.id,
                         "task_name": (rec.name if "name" in mfields else "") or "",
                         "sequence": (rec.site_name if "site_name" in mfields else "") or "",
+                        "project_id": project.id,
                         "project_name": project_name,
                         "start_time": start_at.isoformat() if start_at else None,
                         "end_time": end_at.isoformat() if end_at else None,
-                        "duration_seconds": (
-                            rec.duration_seconds if "duration_seconds" in mfields else 0.0
-                        )
-                        or 0.0,
-                        "status": (rec.state if "state" in mfields else "") or "",
+                        "duration_seconds": int(raw_duration),
+                        "status": status,
                         "tasker_name": tasker_name,
                         "qc_name": qc_name,
                         "pl_name": pl_name,
                     }
                 )
         tasks.sort(key=lambda t: t["start_time"] or "", reverse=True)
-        return tasks
+        today_iso = date.today().isoformat()
+        completed_today = sum(
+            1
+            for t in tasks
+            if t["status"] == "completed"
+            and t["end_time"]
+            and t["end_time"].startswith(today_iso)
+        )
+        return {"completed_today": completed_today, "items": tasks}
 
     def _build_project_task_stats(self, env, project):
         stats = {
@@ -738,7 +764,9 @@ class EmployeeProfileController(http.Controller):
                     "activity": role_labels.get(record.role, ""),
                     "state": record.state or "",
                     "work_type": _project_work_type(record.project_id),
-                    "delivery_status": _derive_delivery_status(record),
+                    "delivery_status": DELIVERY_STATUS_LABELS.get(
+                        _derive_delivery_status(record), ""
+                    ),
                 }
             )
         return history
