@@ -58,3 +58,6 @@ custom_addons/vegeta/local/artifacts/
 
 # Local deploy helper (contains creds / env-specific paths)
 custom_addons/vegeta/deploy/script.sh
+
+# Vegeta deploy/ helpers (local docs, scripts, manifests — not for git)
+custom_addons/vegeta/deploy/
