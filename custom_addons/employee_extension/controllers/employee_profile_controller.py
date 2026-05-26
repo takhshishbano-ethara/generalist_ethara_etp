@@ -223,44 +223,70 @@ class EmployeeProfileController(http.Controller):
             return return_Response(message=str(exc), status=400)
 
     def _caller_scope_projects(self):
-        """Return a recordset of projects for CTO / TPM callers, or ``None``.
-
-        ``None`` signals the default per-employee scope (search projects where
-        the target employee is in one of ``PROJECT_ROLE_FIELDS``).
-        """
         env = request.env
         Project = env["project.project"].sudo()
         caller = env.user
         caller_role_id = caller.user_role.id if caller.user_role else False
+
         cto_role = env.ref(
             "api_auth_gateway.role_cto_technical", raise_if_not_found=False
         )
+        if cto_role and caller_role_id == cto_role.id:
+            return Project.search([])
+
+        caller_emp = caller.employee_id
+        if not caller_emp:
+            return Project.browse()
+
         tpm_role = env.ref(
             "api_auth_gateway.role_tpm_technical", raise_if_not_found=False
         )
-        if cto_role and caller_role_id == cto_role.id:
-            return Project.search([])
         if tpm_role and caller_role_id == tpm_role.id:
-            caller_emp = caller.employee_id
-            if not caller_emp:
-                return Project.browse()
             pl_emps = env["hr.employee"].sudo().search(
                 [("task_forge_tpm_id", "=", caller_emp.id)]
             )
             if not pl_emps:
                 return Project.browse()
             return Project.search([("project_lead", "in", pl_emps.ids)])
-        return None
 
-    def _employee_projects(self, employee):
-        scope = self._caller_scope_projects()
-        if scope is not None:
-            return scope
-        Project = request.env["project.project"].sudo()
+        pl_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS)
+        if caller_role_id in pl_ids:
+            return Project.search([("project_lead", "in", caller_emp.ids)])
+
+        qc_ids = _resolve_role_ids(env, QC_ROLE_XMLIDS)
+        if caller_role_id in qc_ids:
+            return Project.search([("project_qc_reviewer", "in", caller_emp.ids)])
+
         domain = ["|"] * (len(PROJECT_ROLE_FIELDS) - 1)
         for field_name in PROJECT_ROLE_FIELDS:
-            domain.append((field_name, "in", employee.ids))
+            domain.append((field_name, "in", caller_emp.ids))
         return Project.search(domain)
+
+    def _caller_can_view(self, employee):
+        env = request.env
+        caller = env.user
+        caller_role_id = caller.user_role.id if caller.user_role else False
+        privileged_ids = _resolve_role_ids(env, PRIVILEGED_ROLE_XMLIDS)
+        pl_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS)
+        qc_ids = _resolve_role_ids(env, QC_ROLE_XMLIDS)
+        if caller_role_id in privileged_ids:
+            return True
+        if caller_role_id in pl_ids or caller_role_id in qc_ids:
+            return True
+        return bool(caller.employee_id) and caller.employee_id.id == employee.id
+
+    def _employee_projects(self, employee):
+        if not self._caller_can_view(employee):
+            return request.env["project.project"].browse()
+        scope = self._caller_scope_projects()
+
+        def emp_in_project(project):
+            for field_name in PROJECT_ROLE_FIELDS:
+                if employee.id in getattr(project, field_name).ids:
+                    return True
+            return False
+
+        return scope.filtered(emp_in_project)
 
     def _employee_session(self, employee):
         Attendance = request.env["hr.attendance"].sudo()
@@ -530,33 +556,15 @@ class EmployeeProfileController(http.Controller):
         if "connected_table" not in env["project.project"]._fields:
             return []
 
-        caller = env.user
-        caller_role_id = caller.user_role.id if caller.user_role else False
+        viewed_role_id = (
+            employee.user_id.user_role.id if employee.user_id.user_role else False
+        )
         privileged_ids = _resolve_role_ids(env, PRIVILEGED_ROLE_XMLIDS)
-        pl_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS)
-        qc_ids = _resolve_role_ids(env, QC_ROLE_XMLIDS)
-        is_privileged = caller_role_id in privileged_ids
-        is_pl_or_qc = caller_role_id in pl_ids or caller_role_id in qc_ids
-
-        if not is_privileged:
-            if is_pl_or_qc:
-                caller_emp = caller.employee_id
-                if not caller_emp:
-                    return []
-                caller_projects = env["project.project"].sudo().search(
-                    [
-                        "|",
-                        ("project_lead", "in", caller_emp.ids),
-                        ("project_qc_reviewer", "in", caller_emp.ids),
-                    ]
-                )
-                allowed_user_ids = set(
-                    caller_projects.mapped("project_tasker").mapped("user_id").ids
-                )
-                if employee.user_id.id not in allowed_user_ids:
-                    return []
-            elif employee.user_id.id != caller.id:
-                return []
+        pl_qc_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS) | _resolve_role_ids(
+            env, QC_ROLE_XMLIDS
+        )
+        viewed_is_privileged = viewed_role_id in privileged_ids
+        viewed_is_pl_or_qc = viewed_role_id in pl_qc_ids
 
         tasks = []
         for project in projects:
@@ -567,10 +575,16 @@ class EmployeeProfileController(http.Controller):
             mfields = model._fields
             if "user_id" not in mfields or "project_id" not in mfields:
                 continue
-            domain = [
-                ("project_id", "=", project.id),
-                ("user_id", "=", employee.user_id.id),
-            ]
+            domain = [("project_id", "=", project.id)]
+            if viewed_is_privileged:
+                pass
+            elif viewed_is_pl_or_qc:
+                tasker_user_ids = project.project_tasker.mapped("user_id").ids
+                if not tasker_user_ids:
+                    continue
+                domain.append(("user_id", "in", tasker_user_ids))
+            else:
+                domain.append(("user_id", "=", employee.user_id.id))
             if "started_at" in mfields:
                 domain += [
                     ("started_at", ">=", window[0]),
@@ -689,11 +703,17 @@ class EmployeeProfileController(http.Controller):
         )
 
     def _build_project_history(self, employee, window):
+        if not self._caller_can_view(employee):
+            return []
+        scope_project_ids = self._caller_scope_projects().ids
+        if not scope_project_ids:
+            return []
         History = request.env["project.member.history"].sudo()
         win_start = window[0].date()
         win_end = window[1].date()
         domain = [
             ("employee_id", "=", employee.id),
+            ("project_id", "in", scope_project_ids),
             ("start_date", "<=", win_end),
             "|",
             ("end_date", "=", False),
