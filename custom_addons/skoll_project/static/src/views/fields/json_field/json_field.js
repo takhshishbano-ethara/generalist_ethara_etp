@@ -58,43 +58,236 @@ function _extractAgentType(sessionKey) {
     return parts[parts.length - 1] || "unknown";
 }
 
+function _findRoleAndContent(msg) {
+    if (!msg || typeof msg !== "object") return { role: "", content: [] };
+    if (msg.role) return { role: msg.role, content: msg.content || [] };
+    if (msg.message) return _findRoleAndContent(msg.message);
+    return { role: "", content: [] };
+}
+
+function _getFirstText(content) {
+    if (!Array.isArray(content)) return "";
+    for (const block of content) {
+        if (block && block.type === "text" && block.text) return block.text;
+    }
+    return "";
+}
+
+function splitSubAgentMessages(trajectory) {
+    if (!trajectory || typeof trajectory !== "object") return trajectory;
+    if (
+        trajectory.sub_agent_trajectories &&
+        Object.keys(trajectory.sub_agent_trajectories).length > 0
+    ) {
+        return trajectory;
+    }
+
+    const messages = trajectory.messages;
+    if (!Array.isArray(messages) || messages.length === 0) return trajectory;
+
+    const tcidToArgs = {};
+    const tcidToChildKey = {};
+
+    for (const msg of messages) {
+        const { role, content } = _findRoleAndContent(msg);
+        if (role === "assistant" && Array.isArray(content)) {
+            for (const block of content) {
+                if (
+                    block &&
+                    block.type === "toolCall" &&
+                    block.name === "sessions_spawn"
+                ) {
+                    let args = block.arguments;
+                    if (typeof args === "string") {
+                        try {
+                            args = JSON.parse(args);
+                        } catch {
+                            args = {};
+                        }
+                    }
+                    args = args || {};
+                    tcidToArgs[block.id] = {
+                        taskName: args.taskName || args.name || "",
+                        taskText: args.task || args.prompt || "",
+                    };
+                }
+            }
+        }
+        if (role === "toolResult") {
+            const inner = msg.message || msg;
+            const innerMsg = inner.message || inner;
+            const toolName = innerMsg.toolName || inner.toolName || "";
+            const tcid = innerMsg.toolCallId || inner.toolCallId || "";
+            if (toolName === "sessions_spawn" && tcid) {
+                const text = _getFirstText(
+                    innerMsg.content || inner.content || [],
+                );
+                if (text) {
+                    try {
+                        const result = JSON.parse(text);
+                        if (result.childSessionKey) {
+                            tcidToChildKey[tcid] = result.childSessionKey;
+                        }
+                    } catch {}
+                }
+            }
+        }
+    }
+
+    const childKeyInfo = {};
+    const childKeys = [];
+    for (const [tcid, childKey] of Object.entries(tcidToChildKey)) {
+        const args = tcidToArgs[tcid] || {};
+        childKeyInfo[childKey] = args;
+        childKeys.push(childKey);
+    }
+
+    if (childKeys.length === 0) return trajectory;
+
+    const taskWordSets = {};
+    for (const [key, info] of Object.entries(childKeyInfo)) {
+        taskWordSets[key] = new Set(
+            (info.taskText || "")
+                .toLowerCase()
+                .split(/\s+/)
+                .filter((w) => w.length > 3),
+        );
+    }
+
+    const mainMessages = [];
+    const subGroups = {};
+    let currentKey = null;
+    const usedKeys = new Set();
+
+    for (const msg of messages) {
+        const { role, content } = _findRoleAndContent(msg);
+
+        if (role === "user") {
+            const text = _getFirstText(content);
+            if (text.includes("[Subagent Context]")) {
+                const contextWords = new Set(
+                    text
+                        .toLowerCase()
+                        .split(/\s+/)
+                        .filter((w) => w.length > 3),
+                );
+                let bestKey = null;
+                let bestOverlap = 0;
+                for (const [key, words] of Object.entries(taskWordSets)) {
+                    let overlap = 0;
+                    for (const w of words) {
+                        if (contextWords.has(w)) overlap++;
+                    }
+                    if (overlap > bestOverlap) {
+                        bestOverlap = overlap;
+                        bestKey = key;
+                    }
+                }
+                if (!bestKey) {
+                    bestKey =
+                        childKeys.find((k) => !usedKeys.has(k)) ||
+                        childKeys[0];
+                }
+                currentKey = bestKey;
+                usedKeys.add(currentKey);
+                subGroups[currentKey] = subGroups[currentKey] || [];
+                subGroups[currentKey].push(msg);
+                continue;
+            } else if (currentKey) {
+                currentKey = null;
+            }
+        }
+
+        if (currentKey) {
+            subGroups[currentKey] = subGroups[currentKey] || [];
+            subGroups[currentKey].push(msg);
+        } else {
+            mainMessages.push(msg);
+        }
+    }
+
+    if (Object.keys(subGroups).length === 0) return trajectory;
+
+    const result = { ...trajectory, messages: mainMessages };
+    const subTrajectories = {};
+    for (const [key, msgs] of Object.entries(subGroups)) {
+        const info = childKeyInfo[key] || {};
+        subTrajectories[key] = {
+            meta_info: {
+                task_name: info.taskName || "",
+                session_key: key,
+                message_count: msgs.length,
+            },
+            messages: msgs,
+        };
+    }
+    result.sub_agent_trajectories = subTrajectories;
+
+    if (result.meta_info && result.meta_info.agents) {
+        result.meta_info.agents.spawned = Object.keys(subTrajectories);
+    }
+
+    return result;
+}
+
 function renderTrajectoryHtml(trajectory) {
     if (typeof trajectory === "string") {
         return `<pre class="skoll-json-block"><code>${escapeHtml(trajectory)}</code></pre>`;
     }
 
-    const subAgentTrajectories = trajectory.sub_agent_trajectories;
+    const traj = splitSubAgentMessages(trajectory);
+
+    const subAgentTrajectories = traj.sub_agent_trajectories;
     const hasSubAgents =
         subAgentTrajectories &&
         typeof subAgentTrajectories === "object" &&
         Object.keys(subAgentTrajectories).length > 0;
 
-    let mainObj = trajectory;
+    let mainObj = traj;
     if (hasSubAgents) {
-        const { sub_agent_trajectories: _ignored, ...rest } = trajectory;
+        const { sub_agent_trajectories: _ignored, ...rest } = traj;
         mainObj = rest;
     }
+    const mainMsgCount = Array.isArray(mainObj.messages)
+        ? mainObj.messages.length
+        : 0;
     const mainPretty = JSON.stringify(mainObj, null, 2);
-    let html = `<pre class="skoll-json-block"><code>${syntaxHighlightJsonToHtml(mainPretty)}</code></pre>`;
+
+    let html = `<details open class="skoll-sa-traj-entry skoll-main-traj-entry">`;
+    html += `<summary class="skoll-sa-traj-summary">`;
+    html += `<span class="skoll-sa-traj-badge skoll-sa-traj-badge-main">Main Trajectory</span>`;
+    html += `<span class="skoll-sa-traj-msg-count">${mainMsgCount} msg${mainMsgCount !== 1 ? "s" : ""}</span>`;
+    html += `</summary>`;
+    html += `<pre class="skoll-json-block skoll-sa-traj-body"><code>${syntaxHighlightJsonToHtml(mainPretty)}</code></pre>`;
+    html += `</details>`;
 
     if (!hasSubAgents) return html;
 
     const sessionKeys = Object.keys(subAgentTrajectories);
-    html += `<div class="skoll-sa-traj-section">`;
-    html += `<div class="skoll-sa-traj-header">`;
-    html += `<i class="fa fa-sitemap"></i> Sub-Agent Trajectories `;
-    html += `<span class="skoll-sa-traj-count">${sessionKeys.length} session${sessionKeys.length !== 1 ? "s" : ""}</span>`;
-    html += `</div>`;
 
     for (const sk of sessionKeys) {
-        const messages = subAgentTrajectories[sk];
+        const entry = subAgentTrajectories[sk];
+        const isWrapped = entry && !Array.isArray(entry) && entry.messages;
+        const msgs = isWrapped
+            ? entry.messages
+            : Array.isArray(entry)
+              ? entry
+              : [];
+        const meta = isWrapped ? entry.meta_info || {} : {};
+
+        const taskName = meta.task_name || "";
         const agent = _extractAgentType(sk);
-        const msgCount = Array.isArray(messages) ? messages.length : 0;
-        const sessionPretty = JSON.stringify(messages, null, 2);
+        const msgCount = Array.isArray(msgs) ? msgs.length : 0;
+        const displayObj = isWrapped ? entry : msgs;
+        const sessionPretty = JSON.stringify(displayObj, null, 2);
 
         html += `<details class="skoll-sa-traj-entry">`;
         html += `<summary class="skoll-sa-traj-summary">`;
-        html += `<span class="skoll-sa-traj-badge skoll-sa-traj-badge-${agent}">${agent}</span>`;
+        if (taskName) {
+            html += `<span class="skoll-sa-traj-badge skoll-sa-traj-badge-task">${escapeHtml(taskName)}</span>`;
+        } else {
+            html += `<span class="skoll-sa-traj-badge skoll-sa-traj-badge-${agent}">${agent}</span>`;
+        }
         html += `<span class="skoll-sa-traj-key" title="${escapeHtml(sk)}">${escapeHtml(sk)}</span>`;
         html += `<span class="skoll-sa-traj-msg-count">${msgCount} msg${msgCount !== 1 ? "s" : ""}</span>`;
         html += `</summary>`;

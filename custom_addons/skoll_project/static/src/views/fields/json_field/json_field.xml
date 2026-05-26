@@ -8,7 +8,10 @@
                     <div class="skoll-json-entry">
                             <div class="skoll-json-entry-header">
                                 <span class="skoll-json-session-label">
-                                    Session <t t-esc="entry.index + 1"/>
+                                    Main Agent
+                                    <t t-if="state.entries.length > 1">
+                                        <span class="text-muted small ms-1">(Run <t t-esc="entry.index + 1"/>)</span>
+                                    </t>
                                     <t t-if="entry.timestamp">
                                         <span class="skoll-json-timestamp"> — <t t-esc="entry.timestamp"/></span>
                                     </t>

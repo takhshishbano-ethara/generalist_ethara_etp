@@ -739,25 +739,118 @@ class SkollSandbox(models.Model):
         else:
             messages = [_wrap_trajectory_message(m) for m in messages]
 
-        result = {"meta_info": meta_info, "messages": messages}
+        main_key = "odoo:sandbox:%s" % self.id
+        self._attribute_session_keys(messages, main_key)
 
-        sub_agent_trajectories = {}
+        parent_messages = []
+        content_sub = {}
+        for m in messages:
+            sk = (
+                m.get("sessionKey", "")
+                or (m.get("message") or {}).get("sessionKey", "")
+                or main_key
+            )
+            if sk == main_key:
+                parent_messages.append(m)
+            else:
+                content_sub.setdefault(sk, []).append(m)
+
+        spawn_info = self._extract_spawn_info(parent_messages)
+
+        result = {"meta_info": meta_info, "messages": parent_messages}
+
+        sub_agent_raw = {}
         for source_key, sub_entries in sub_entries_by_source.items():
             sub_messages = self._process_jsonl_entries(sub_entries)
             if sub_messages:
                 sub_messages = [_wrap_trajectory_message(m) for m in sub_messages]
-                sub_agent_trajectories[source_key] = sub_messages
+                sub_agent_raw[source_key] = sub_messages
+
+        for sk, msgs in content_sub.items():
+            sub_agent_raw.setdefault(sk, []).extend(msgs)
 
         sub_agent_entries = self._collect_sub_agent_messages(all_turns)
         if sub_agent_entries:
             for entry in sub_agent_entries:
                 sk = entry.get("sessionKey", "") or entry.get("message", {}).get("sessionKey", "")
-                sub_agent_trajectories.setdefault(sk, []).append(entry)
+                sub_agent_raw.setdefault(sk, []).append(entry)
 
-        if sub_agent_trajectories:
-            result["sub_agent_trajectories"] = sub_agent_trajectories
+        if sub_agent_raw:
+            wrapped = {}
+            for sk, msgs in sub_agent_raw.items():
+                info = spawn_info.get(sk, {})
+                wrapped[sk] = {
+                    "meta_info": {
+                        "task_name": info.get("task_name", ""),
+                        "session_key": sk,
+                        "message_count": len(msgs),
+                    },
+                    "messages": msgs,
+                }
+            result["sub_agent_trajectories"] = wrapped
+            meta_info["agents"]["spawned"] = list(wrapped.keys())
 
         return result
+
+    @staticmethod
+    def _extract_spawn_info(messages):
+        """Extract task names and child session keys from sessions_spawn tool interactions."""
+        tcid_to_args = {}
+        spawn_info = {}
+
+        for msg in messages:
+            if not isinstance(msg, dict):
+                continue
+            inner = msg
+            if "message" in inner and isinstance(inner["message"], dict):
+                inner = inner["message"]
+                if "message" in inner and isinstance(inner["message"], dict) and "role" in inner["message"]:
+                    inner = inner["message"]
+
+            role = inner.get("role", "")
+            content = inner.get("content", [])
+            if not isinstance(content, list):
+                continue
+
+            if role == "assistant":
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") == "toolCall" and block.get("name") == "sessions_spawn":
+                        args = block.get("arguments", {})
+                        if isinstance(args, str):
+                            try:
+                                args = json.loads(args)
+                            except (json.JSONDecodeError, TypeError):
+                                args = {}
+                        args = args or {}
+                        tcid_to_args[block.get("id", "")] = {
+                            "task_name": args.get("taskName", "") or args.get("name", ""),
+                            "task_text": args.get("task", "") or args.get("prompt", ""),
+                        }
+
+            elif role == "toolResult":
+                tool_name = inner.get("toolName", "")
+                tcid = inner.get("toolCallId", "")
+                if tool_name == "sessions_spawn" and tcid:
+                    text_block = next(
+                        (b for b in content if isinstance(b, dict) and b.get("type") == "text"),
+                        None,
+                    )
+                    if text_block:
+                        try:
+                            result_data = json.loads(text_block.get("text", ""))
+                            child_key = result_data.get("childSessionKey", "")
+                            if child_key:
+                                args_info = tcid_to_args.get(tcid, {})
+                                spawn_info[child_key] = {
+                                    "task_name": args_info.get("task_name", "") or result_data.get("taskName", ""),
+                                    "task_text": args_info.get("task_text", ""),
+                                }
+                        except (json.JSONDecodeError, TypeError, ValueError):
+                            pass
+
+        return spawn_info
 
     @staticmethod
     def _extract_tokens_from_jsonl(entries):
@@ -1128,15 +1221,15 @@ class SkollSandbox(models.Model):
             )
 
         sub_agent_entries = self._collect_sub_agent_messages(all_turns)
-        sub_agent_trajectories = {}
+        sub_agent_raw = {}
         if sub_agent_entries:
             for entry in sub_agent_entries:
                 sk = entry.get("sessionKey", "") or entry.get("message", {}).get("sessionKey", "")
-                sub_agent_trajectories.setdefault(sk, []).append(entry)
+                sub_agent_raw.setdefault(sk, []).append(entry)
             _logger.info(
                 "Collected %d sub-agent messages across %d sessions (sandbox=%s)",
                 len(sub_agent_entries),
-                len(sub_agent_trajectories),
+                len(sub_agent_raw),
                 self.id,
             )
 
@@ -1157,8 +1250,22 @@ class SkollSandbox(models.Model):
         }
 
         result = {"meta_info": meta_info, "messages": messages}
-        if sub_agent_trajectories:
-            result["sub_agent_trajectories"] = sub_agent_trajectories
+        if sub_agent_raw:
+            spawn_info = self._extract_spawn_info(messages)
+            wrapped = {}
+            for sk, msgs in sub_agent_raw.items():
+                info = spawn_info.get(sk, {})
+                wrapped[sk] = {
+                    "meta_info": {
+                        "task_name": info.get("task_name", ""),
+                        "session_key": sk,
+                        "message_count": len(msgs),
+                    },
+                    "messages": msgs,
+                }
+            result["sub_agent_trajectories"] = wrapped
+            if not spawned_keys:
+                meta_info["agents"]["spawned"] = list(wrapped.keys())
         return result
 
     def _trajectory_from_ws(self):
