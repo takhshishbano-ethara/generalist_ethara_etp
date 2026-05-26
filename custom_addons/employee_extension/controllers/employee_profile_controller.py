@@ -31,7 +31,41 @@ PERFORMANCE_COUNT_KEYS = (
 
 DELIVERED_STATES = ("done", "submitted")
 ON_TIME_VERDICTS = ("shippable", "fixes")
+DECIDED_VERDICTS = ("shippable", "fixes", "not_shippable")
 DEFAULT_WINDOW_DAYS = 30
+
+DELIVERY_STATUS_BY_PROJECT_STATUS = {
+    "production": "in_progress",
+    "not_started": "in_progress",
+    "draft": "in_progress",
+    "closed": "on_time",
+    "cancel": "missed",
+    "paused": "delayed",
+}
+
+PRIVILEGED_ROLE_XMLIDS = (
+    "api_auth_gateway.role_cto_technical",
+    "api_auth_gateway.role_tpm_technical",
+)
+PL_ROLE_XMLIDS = (
+    "api_auth_gateway.role_pl_technical",
+    "api_auth_gateway.role_pl_stem",
+    "api_auth_gateway.role_pl_non_stem",
+)
+QC_ROLE_XMLIDS = (
+    "api_auth_gateway.role_qc_technical",
+    "api_auth_gateway.role_qc_stem",
+    "api_auth_gateway.role_qc_non_stem",
+)
+
+
+def _resolve_role_ids(env, xmlids):
+    ids = set()
+    for xid in xmlids:
+        role = env.ref(xid, raise_if_not_found=False)
+        if role:
+            ids.add(role.id)
+    return ids
 
 
 def _pct(part, whole):
@@ -67,6 +101,33 @@ def _joining_date(employee):
         if starts:
             return min(starts)
     return employee.create_date.date() if employee.create_date else False
+
+
+def _indian_fiscal_year(today):
+    if today.month >= 4:
+        start = date(today.year, 4, 1)
+        end = date(today.year + 1, 3, 31)
+    else:
+        start = date(today.year - 1, 4, 1)
+        end = date(today.year, 3, 31)
+    return start, end
+
+
+def _derive_delivery_status(history_record):
+    project_status = history_record.project_id.non_stemp_project_status or ""
+    if history_record.state == "active":
+        if project_status == "cancel":
+            return "missed"
+        if project_status == "paused":
+            return "delayed"
+        return "in_progress"
+    return DELIVERY_STATUS_BY_PROJECT_STATUS.get(project_status, "in_progress")
+
+
+def _project_work_type(project):
+    if "task_template_type" in project._fields and project.task_template_type:
+        return project.task_template_type.name or ""
+    return ""
 
 
 class EmployeeProfileController(http.Controller):
@@ -137,15 +198,19 @@ class EmployeeProfileController(http.Controller):
             )
 
             projects = self._employee_projects(employee)
+            fy_start, fy_end = _indian_fiscal_year(today)
             data = {
                 "basic_information": self._build_basic_info(employee),
                 "performance_overview": self._build_performance(
                     employee, projects, window
                 ),
                 "leave_summary": self._build_leave_summary(employee),
+                "leave_fiscal_year_start": fy_start.isoformat(),
+                "leave_fiscal_year_end": fy_end.isoformat(),
                 "current_running_projects": self._build_running_projects(
                     employee, projects, window
                 ),
+                "task_list": self._build_task_list(employee, projects, window),
                 "project_history": self._build_project_history(employee, window),
                 "filter_window": {
                     "start_date": start_dt.isoformat(),
@@ -325,6 +390,32 @@ class EmployeeProfileController(http.Controller):
         measured = aggregated["aht_measured_count"]
         avg_seconds = round(weighted_seconds / measured, 2) if measured else 0.0
         tasker_count = len({tid for p in projects for tid in p.project_tasker.ids})
+        qc_reviewers_count = len(
+            {rid for p in projects for rid in p.project_qc_reviewer.ids}
+        )
+        reviews_completed = 0
+        if "connected_table" in env["project.project"]._fields:
+            qc_projects = projects.filtered(
+                lambda p: employee.id in p.project_qc_reviewer.ids
+            )
+            for project in qc_projects:
+                table = (project.connected_table or "").strip()
+                if not table or table not in env:
+                    continue
+                model = env[table].sudo()
+                mfields = model._fields
+                if all(
+                    f in mfields
+                    for f in ("project_id", "qc_verdict", "completed_at")
+                ):
+                    reviews_completed += model.search_count(
+                        [
+                            ("project_id", "=", project.id),
+                            ("qc_verdict", "in", list(DECIDED_VERDICTS)),
+                            ("completed_at", ">=", window[0]),
+                            ("completed_at", "<=", window[1]),
+                        ]
+                    )
         overview = dict(aggregated)
         overview.update(
             {
@@ -338,6 +429,8 @@ class EmployeeProfileController(http.Controller):
                 "avg_handling_time_minutes": round(avg_seconds / 60.0, 2),
                 "projects_assigned": len(projects),
                 "tasker_count": tasker_count,
+                "qc_reviewers_count": qc_reviewers_count,
+                "reviews_completed": reviews_completed,
                 "on_time_delivery": _pct(on_time_total, delivered_total),
                 "delivered_count": delivered_total,
                 "on_time_count": on_time_total,
@@ -396,6 +489,7 @@ class EmployeeProfileController(http.Controller):
         return list(summary.values())
 
     def _build_running_projects(self, employee, projects, window):
+        env = request.env
         running = []
         win_start = window[0].date()
         win_end = window[1].date()
@@ -421,9 +515,178 @@ class EmployeeProfileController(http.Controller):
                     "allocated_date": chosen.start_date.isoformat()
                     if chosen and chosen.start_date
                     else None,
+                    "work_type": _project_work_type(project),
+                    "taskers_count": len(project.project_tasker),
+                    "reviews_count": self._project_reviews_count(env, project, window),
+                    "task_stats": self._build_project_task_stats(env, project),
                 }
             )
         return running
+
+    def _build_task_list(self, employee, projects, window):
+        env = request.env
+        if not employee.user_id:
+            return []
+        if "connected_table" not in env["project.project"]._fields:
+            return []
+
+        caller = env.user
+        caller_role_id = caller.user_role.id if caller.user_role else False
+        privileged_ids = _resolve_role_ids(env, PRIVILEGED_ROLE_XMLIDS)
+        pl_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS)
+        qc_ids = _resolve_role_ids(env, QC_ROLE_XMLIDS)
+        is_privileged = caller_role_id in privileged_ids
+        is_pl_or_qc = caller_role_id in pl_ids or caller_role_id in qc_ids
+
+        if not is_privileged:
+            if is_pl_or_qc:
+                caller_emp = caller.employee_id
+                if not caller_emp:
+                    return []
+                caller_projects = env["project.project"].sudo().search(
+                    [
+                        "|",
+                        ("project_lead", "in", caller_emp.ids),
+                        ("project_qc_reviewer", "in", caller_emp.ids),
+                    ]
+                )
+                allowed_user_ids = set(
+                    caller_projects.mapped("project_tasker").mapped("user_id").ids
+                )
+                if employee.user_id.id not in allowed_user_ids:
+                    return []
+            elif employee.user_id.id != caller.id:
+                return []
+
+        tasks = []
+        for project in projects:
+            table = (project.connected_table or "").strip()
+            if not table or table not in env:
+                continue
+            model = env[table].sudo()
+            mfields = model._fields
+            if "user_id" not in mfields or "project_id" not in mfields:
+                continue
+            domain = [
+                ("project_id", "=", project.id),
+                ("user_id", "=", employee.user_id.id),
+            ]
+            if "started_at" in mfields:
+                domain += [
+                    ("started_at", ">=", window[0]),
+                    ("started_at", "<=", window[1]),
+                ]
+            order = "started_at desc" if "started_at" in mfields else "id desc"
+            records = model.search(domain, order=order)
+            if not records:
+                continue
+            pl_name = ", ".join(project.project_lead.mapped("name"))
+            qc_name = ", ".join(project.project_qc_reviewer.mapped("name"))
+            project_name = project.name or ""
+            for rec in records:
+                tasker_name = ""
+                tasker_user = rec.user_id if "user_id" in mfields else False
+                if tasker_user:
+                    if tasker_user.employee_id:
+                        tasker_name = tasker_user.employee_id.name or tasker_user.name or ""
+                    else:
+                        tasker_name = tasker_user.name or ""
+                start_at = rec.started_at if "started_at" in mfields else False
+                end_at = rec.completed_at if "completed_at" in mfields else False
+                tasks.append(
+                    {
+                        "task_id": rec.id,
+                        "task_name": (rec.name if "name" in mfields else "") or "",
+                        "sequence": (rec.site_name if "site_name" in mfields else "") or "",
+                        "project_name": project_name,
+                        "start_time": start_at.isoformat() if start_at else None,
+                        "end_time": end_at.isoformat() if end_at else None,
+                        "duration_seconds": (
+                            rec.duration_seconds if "duration_seconds" in mfields else 0.0
+                        )
+                        or 0.0,
+                        "status": (rec.state if "state" in mfields else "") or "",
+                        "tasker_name": tasker_name,
+                        "qc_name": qc_name,
+                        "pl_name": pl_name,
+                    }
+                )
+        tasks.sort(key=lambda t: t["start_time"] or "", reverse=True)
+        return tasks
+
+    def _build_project_task_stats(self, env, project):
+        stats = {
+            "total_tasks": 0,
+            "completed": 0,
+            "in_progress": 0,
+            "qc_approved": 0,
+            "qc_rework": 0,
+            "avg_score": 0.0,
+            "avg_duration_seconds": 0.0,
+        }
+        if "connected_table" not in project._fields:
+            return stats
+        table = (project.connected_table or "").strip()
+        if not table or table not in env:
+            return stats
+        model = env[table].sudo()
+        mfields = model._fields
+        if "project_id" not in mfields:
+            return stats
+        base = [("project_id", "=", project.id)]
+        stats["total_tasks"] = model.search_count(base)
+        if "state" in mfields:
+            stats["completed"] = model.search_count(
+                base + [("state", "in", list(DELIVERED_STATES))]
+            )
+            stats["in_progress"] = model.search_count(
+                base
+                + [
+                    (
+                        "state",
+                        "not in",
+                        list(DELIVERED_STATES)
+                        + ["cancel", "cancelled", "error", "failed"],
+                    )
+                ]
+            )
+        if "qc_verdict" in mfields:
+            stats["qc_approved"] = model.search_count(
+                base + [("qc_verdict", "=", "shippable")]
+            )
+            stats["qc_rework"] = model.search_count(
+                base + [("qc_verdict", "=", "fixes")]
+            )
+        if "score" in mfields:
+            groups = model._read_group(base, [], ["score:avg"])
+            if groups and groups[0] and groups[0][0] is not None:
+                stats["avg_score"] = round(groups[0][0], 2)
+        if "duration_seconds" in mfields:
+            groups = model._read_group(base, [], ["duration_seconds:avg"])
+            if groups and groups[0] and groups[0][0] is not None:
+                stats["avg_duration_seconds"] = round(groups[0][0], 2)
+        return stats
+
+    def _project_reviews_count(self, env, project, window):
+        if "connected_table" not in project._fields:
+            return 0
+        table = (project.connected_table or "").strip()
+        if not table or table not in env:
+            return 0
+        model = env[table].sudo()
+        mfields = model._fields
+        if not all(
+            f in mfields for f in ("project_id", "qc_verdict", "completed_at")
+        ):
+            return 0
+        return model.search_count(
+            [
+                ("project_id", "=", project.id),
+                ("qc_verdict", "in", list(DECIDED_VERDICTS)),
+                ("completed_at", ">=", window[0]),
+                ("completed_at", "<=", window[1]),
+            ]
+        )
 
     def _build_project_history(self, employee, window):
         History = request.env["project.member.history"].sudo()
@@ -454,6 +717,8 @@ class EmployeeProfileController(http.Controller):
                     "role": record.role or "",
                     "activity": role_labels.get(record.role, ""),
                     "state": record.state or "",
+                    "work_type": _project_work_type(record.project_id),
+                    "delivery_status": _derive_delivery_status(record),
                 }
             )
         return history
