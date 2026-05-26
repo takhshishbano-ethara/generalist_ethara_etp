@@ -388,10 +388,10 @@ _LAZY_STOPWORDS = frozenset({
 })
 
 _TRIVIALITY_PATTERNS = (
-    re.compile(r"len\s*\(\s*lines\s*\)\s*>=?\s*\d"),
+    re.compile(r"len\s*\(\s*lines\s*\)\s*>=?\s*[01]\b"),
     re.compile(r"len\s*\(\s*content\s*\)\s*>\s*0"),
     re.compile(r"getsize\s*\([^)]+\)\s*>\s*0"),
-    re.compile(r"len\s*\([^)]+\)\s*>\s*0\b"),
+    re.compile(r"len\s*\([^)]+\)\s*==\s*0\b"),
 )
 
 _ALLOWED_IMPORTS = frozenset({
