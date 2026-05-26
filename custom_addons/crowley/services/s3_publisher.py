@@ -47,12 +47,31 @@ class S3UploadError(S3PublishError):
 # Re-export S3VerificationError under the publisher namespace.
 __all__ = [
     "persist_video_to_s3",
+    "copy_and_delete_object",
     "S3PublishError",
     "S3DownloadError",
     "S3UploadError",
     "S3VerificationError",
     "S3StorageError",
 ]
+
+
+def copy_and_delete_object(
+    env,
+    *,
+    connector_id: int,
+    src_key: str,
+    dst_key: str,
+) -> None:
+    """Move an S3 object within the same bucket via server-side copy + delete.
+
+    No-op when src_key == dst_key. Raises S3StorageError on either step's failure.
+    """
+    if src_key == dst_key:
+        return
+    storage = env["crowley.s3.storage"]
+    storage.copy_object(connector_id, src_key, dst_key)
+    storage.delete_object(connector_id, src_key)
 
 
 def persist_video_to_s3(

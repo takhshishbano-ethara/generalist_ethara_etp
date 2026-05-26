@@ -662,6 +662,98 @@ def _is_degenerate_output(text):
     return False
 
 
+_TASKDESC_JSON_BLOCK_RE = _re.compile(
+    r'\{\s*"(?:type|thinking|thinkingSignature|toolCall|toolResult|role|content|message|turn_index|responseId|stopReason|timestamp|id)"\s*:.*?\}',
+    _re.DOTALL,
+)
+_TASKDESC_LEADING_BRACE_RE = _re.compile(r'^\s*[\{\[].*?[\}\]]\s*', _re.DOTALL)
+
+
+def _strip_thinking_artifacts(text):
+    """Remove `{"type": "thinking", ...}` style JSON fragments from arbitrary text."""
+    if not text:
+        return ""
+    cleaned = _TASKDESC_JSON_BLOCK_RE.sub(" ", text)
+    cleaned = _re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def _summarize_messages_for_taskdesc(messages):
+    """Render trajectory messages as plain text for the LLM, never as JSON.
+
+    Dropping `thinking`/`reasoningContent`/`toolCallId`/`responseId` fields and
+    rendering tool calls + results compactly keeps the model from mimicking the
+    trajectory's JSON schema in its description output.
+    """
+    parts = []
+    for msg in messages or []:
+        if not isinstance(msg, dict):
+            continue
+        inner = msg.get("message", msg)
+        role = inner.get("role", "user")
+        content = inner.get("content", "")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            chunks = []
+            for c in content:
+                if not isinstance(c, dict):
+                    continue
+                ctype = c.get("type", "")
+                if ctype == "thinking":
+                    continue
+                if ctype == "text":
+                    chunks.append(c.get("text", ""))
+                elif ctype == "toolCall":
+                    name = c.get("name", "tool")
+                    args = c.get("arguments") or c.get("input") or {}
+                    if isinstance(args, dict):
+                        args_str = ", ".join(
+                            "%s=%s" % (k, str(v)[:80]) for k, v in list(args.items())[:6]
+                        )
+                    else:
+                        args_str = str(args)[:200]
+                    chunks.append("[tool:%s %s]" % (name, args_str))
+                elif ctype == "toolResult":
+                    inner_content = c.get("content") or []
+                    if isinstance(inner_content, list):
+                        text_pieces = [
+                            ic.get("text", "")
+                            for ic in inner_content
+                            if isinstance(ic, dict) and ic.get("type") == "text"
+                        ]
+                        chunks.append("[tool-result: %s]" % " ".join(text_pieces)[:200])
+                    else:
+                        chunks.append("[tool-result: %s]" % str(inner_content)[:200])
+            text = " ".join(p for p in chunks if p)
+        else:
+            text = str(content)
+        text = _strip_thinking_artifacts(text)
+        if text:
+            parts.append("%s: %s" % (role, text[:1000]))
+    return "\n".join(parts)
+
+
+def _clean_taskdesc_output(text):
+    """Strip thinking JSON blobs, surrounding quotes, and excess whitespace."""
+    if not text:
+        return ""
+    cleaned = text.strip()
+    # Drop a leading JSON block (`{...}` or `[...]`) that some models prepend
+    # when they leak thinking output as text.
+    while True:
+        m = _TASKDESC_LEADING_BRACE_RE.match(cleaned)
+        if not m:
+            break
+        cleaned = cleaned[m.end():].lstrip()
+    cleaned = _TASKDESC_JSON_BLOCK_RE.sub(" ", cleaned)
+    if cleaned.startswith('"') and cleaned.endswith('"') and len(cleaned) > 1:
+        cleaned = cleaned[1:-1].strip()
+    cleaned = _re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = _re.sub(r"\n{2,}", "\n", cleaned).strip()
+    return cleaned
+
+
 def generate_task_description_sync(env, seed_prompt, messages_json, system_prompt=None):
     """Call Bedrock (Sonnet by default) to generate a single-line task description.
 
@@ -706,12 +798,12 @@ def generate_task_description_sync(env, seed_prompt, messages_json, system_promp
             return "", {}
 
         if isinstance(messages_json, list):
-            messages_text = json.dumps(messages_json, ensure_ascii=False)[:16000]
+            messages_text = _summarize_messages_for_taskdesc(messages_json)[:16000]
         else:
-            messages_text = str(messages_json)[:16000]
+            messages_text = _strip_thinking_artifacts(str(messages_json))[:16000]
 
         user_message = ("## Seed Prompt\n%s\n\n## Chat Messages\n%s") % (
-            seed_prompt or "",
+            _strip_thinking_artifacts(seed_prompt or ""),
             messages_text,
         )
 
@@ -746,7 +838,7 @@ def generate_task_description_sync(env, seed_prompt, messages_json, system_promp
             len(response_text),
             response_text,
         )
-        desc = _re.sub(r"\n{2,}", "\n", response_text.strip())
+        desc = _clean_taskdesc_output(response_text)
 
         if _is_degenerate_output(desc):
             _logger.warning(

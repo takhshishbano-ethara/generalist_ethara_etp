@@ -55,3 +55,6 @@ custom_addons/gohan/data/vegeta.env.gohan
 # ── Vegeta Lambda (deployed separately) ──────────────────────────────────────
 custom_addons/vegeta/lambda_extraction/
 custom_addons/vegeta/local/artifacts/
+
+# Local deploy helper (contains creds / env-specific paths)
+custom_addons/vegeta/deploy/script.sh

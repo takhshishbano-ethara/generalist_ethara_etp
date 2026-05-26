@@ -13,6 +13,25 @@
                   action="action_crowley_generation"
                   sequence="10"/>
 
+        <menuitem id="menu_crowley_sheets"
+                  name="Sequence Sheets"
+                  parent="menu_crowley_root"
+                  sequence="20"
+                  groups="crowley.group_crowley_user"/>
+
+        <menuitem id="menu_crowley_sheet_rows"
+                  name="All Rows"
+                  parent="menu_crowley_sheets"
+                  action="action_crowley_sequence_sheet_row"
+                  sequence="10"/>
+
+        <menuitem id="menu_crowley_sheet_export"
+                  name="Export to XLSX"
+                  parent="menu_crowley_sheets"
+                  action="action_crowley_sequence_sheet_export"
+                  sequence="20"
+                  groups="crowley.group_crowley_manager"/>
+
         <menuitem id="menu_crowley_config"
                   name="Configuration"
                   parent="menu_crowley_root"

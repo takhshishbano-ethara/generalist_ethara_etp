@@ -12,7 +12,7 @@ import json
 import logging
 import time
 import traceback
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -193,7 +193,15 @@ class CrowleyAttempt(models.Model):
         string="Video File",
         compute="_compute_video_file",
         store=True, readonly=True, index=True,
-        help="Canonical dataset filename: T2AV_<category>_<NNNNNN>.mp4",
+        help="Canonical dataset filename: T2AV_<category>_<NNNNNNN>.mp4 (padding 7 since v19.0.1.14.0).",
+    )
+    fps = fields.Float(
+        string="FPS",
+        default=24.0,
+        readonly=True,
+        copy=False,
+        help="Frames per second captured from the Seedance response when present; "
+             "defaults to 24.0 (Seedance 2.0's standard output rate).",
     )
 
     video_play_url = fields.Char(
@@ -308,7 +316,7 @@ class CrowleyAttempt(models.Model):
     def _compute_video_file(self):
         for rec in self:
             if rec.category and rec.sequence_number:
-                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:06d}.mp4"
+                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:07d}.mp4"
             else:
                 rec.video_file = False
 
@@ -598,6 +606,25 @@ class CrowleyAttempt(models.Model):
     # ------------------------------------------------------------------
     # Pipeline — completion handler (idempotent compare-and-set)
     # ------------------------------------------------------------------
+    def _extract_fps_from_response(self, resp):
+        if not isinstance(resp, dict):
+            return 0.0
+        sources = (
+            resp,
+            resp.get("metadata") if isinstance(resp.get("metadata"), dict) else {},
+            resp.get("video") if isinstance(resp.get("video"), dict) else {},
+            resp.get("output") if isinstance(resp.get("output"), dict) else {},
+        )
+        for src in sources:
+            for key in ("fps", "frames_per_second", "frame_rate"):
+                cand = src.get(key)
+                if cand:
+                    try:
+                        return float(cand)
+                    except (TypeError, ValueError):
+                        continue
+        return 0.0
+
     def _handle_completion(self, resp):
         """Transition to downloading; trigger _run_download. Idempotent via compare-and-set."""
         self.ensure_one()
@@ -607,6 +634,7 @@ class CrowleyAttempt(models.Model):
 
         cost = float(usage.get("cost") or usage.get("cost_in_usd") or 0.0)
         tokens = int(usage.get("tokens") or 0)
+        fps_value = self._extract_fps_from_response(resp)
 
         if not video_url:
             self._fail("no_video_url", "OpenRouter reported completed but returned no URL.")
@@ -634,6 +662,8 @@ class CrowleyAttempt(models.Model):
 
         # Refresh ORM cache so subsequent reads see the new values
         self.invalidate_recordset()
+        if fps_value:
+            self.write({"fps": fps_value})
         self.message_post(body=_("OpenRouter completed; downloading video (cost $%.4f).") % cost)
         self._push_bus()
 
@@ -684,8 +714,9 @@ class CrowleyAttempt(models.Model):
         # _fail() writes via a fresh cursor that commits independently). Dataset
         # consumers should filter on video_file IS NOT NULL, not on sequence_number
         # being contiguous.
-        video_filename = f"T2AV_{category}_{seq_int:06d}.mp4"
-        s3_key = f"T2AV/{category}/{video_filename}"
+        today = datetime.utcnow().strftime("%Y%m%d")
+        video_filename = f"T2AV_{category}_{seq_int:07d}.mp4"
+        s3_key = f"generated_videos/{today}/master/{video_filename}"
 
         try:
             info = s3_publisher.persist_video_to_s3(
@@ -732,17 +763,18 @@ class CrowleyAttempt(models.Model):
 
         # Eager ir.attachment creation — appears in the job's chatter automatically.
         try:
-            attachment = self.env["ir.attachment"].sudo().create({
-                "name": f"{self.display_name or self.job_id.name}.mp4",
-                "res_model": "crowley.generation",
-                "res_id": self.job_id.id,
-                "type": "url",
-                "url": self.video_play_url or info["s3_url"],
-                "mimetype": "video/mp4",
-                "crowley_job_id": self.job_id.id,
-                "crowley_attempt_id": self.id,
-            })
-            self.write({"video_attachment_id": attachment.id})
+            with self.env.cr.savepoint():
+                attachment = self.env["ir.attachment"].sudo().create({
+                    "name": f"{self.display_name or self.job_id.name}.mp4",
+                    "res_model": "crowley.generation",
+                    "res_id": self.job_id.id,
+                    "type": "url",
+                    "url": self.video_play_url or info["s3_url"],
+                    "mimetype": "video/mp4",
+                    "crowley_job_id": self.job_id.id,
+                    "crowley_attempt_id": self.id,
+                })
+                self.write({"video_attachment_id": attachment.id})
         except Exception:
             _logger.exception(
                 "Crowley: failed to create ir.attachment for attempt %s "

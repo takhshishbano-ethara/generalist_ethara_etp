@@ -609,6 +609,73 @@ class LlmAssistQc(http.Controller):
 
         return {"success": True}
 
+    @http.route("/kensei2/generate_all_task_descriptions", type="json", auth="user")
+    def generate_all_task_descriptions(self, record_id=0, field_name="", **kw):
+        """Trigger task-description generation for every entry in a trajectory field."""
+        user = request.env.user
+        if not (
+            user.has_group("kensei2.group_kensei2_ql")
+            or user.has_group("kensei2.group_kensei2_pl")
+        ):
+            return {"error": "Only Quality Leads and Project Leads can regenerate task descriptions"}
+
+        record_id = int(record_id or 0)
+        if not record_id or not field_name:
+            return {"error": "record_id and field_name are required"}
+
+        task = request.env["kensei2.kensei2"].browse(record_id)
+        if not task.exists():
+            return {"error": "Task not found"}
+
+        raw = task[field_name] or ""
+        if not raw.strip():
+            return {"error": "No trajectory data"}
+
+        try:
+            data = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return {"error": "Could not parse trajectory JSON"}
+
+        entries = data if isinstance(data, list) else [data]
+        if not entries:
+            return {"error": "No trajectory entries"}
+
+        seed_prompt = task.seed_prompt or ""
+        jobs = []
+        for idx, entry in enumerate(entries):
+            traj = entry.get("trajectory", entry) if isinstance(entry, dict) else {}
+            messages = traj.get("messages", []) if isinstance(traj, dict) else []
+            if not messages:
+                continue
+            entry["task_description_status"] = "pending"
+            jobs.append((idx, messages))
+
+        if not jobs:
+            return {"error": "No entries with trajectory messages"}
+
+        task.write({field_name: json.dumps(data, indent=2, ensure_ascii=False)})
+
+        db_name = request.env.cr.dbname
+
+        from ..models.kensei2 import _TASKDESC_POOL
+        from ..models.kensei2_sandbox import _inject_task_description_bg
+
+        def _submit():
+            for idx, messages in jobs:
+                _TASKDESC_POOL.submit(
+                    _inject_task_description_bg,
+                    db_name,
+                    record_id,
+                    field_name,
+                    seed_prompt,
+                    messages,
+                    idx,
+                )
+
+        request.env.cr.postcommit.add(_submit)
+
+        return {"success": True, "queued": len(jobs)}
+
     @http.route("/kensei2/abort_trajectory_action", type="json", auth="user")
     def abort_trajectory_action(
         self, record_id=0, field_name="", entry_index=-1, action_type="", **kw
