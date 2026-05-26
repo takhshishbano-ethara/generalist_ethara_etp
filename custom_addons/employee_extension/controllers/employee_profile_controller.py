@@ -204,6 +204,7 @@ class EmployeeProfileController(http.Controller):
                 datetime.combine(end_dt, datetime.max.time()),
             )
 
+            debug_flag = str(params.get("debug") or "").lower() in ("1", "true", "yes")
             projects = self._employee_projects(employee)
             fy_start, fy_end = _indian_fiscal_year(today)
             data = {
@@ -217,7 +218,9 @@ class EmployeeProfileController(http.Controller):
                 "current_running_projects": self._build_running_projects(
                     employee, projects, window
                 ),
-                "task_list": self._build_task_list(employee, projects, window),
+                "task_list": self._build_task_list(
+                    employee, window, debug=debug_flag
+                ),
                 "project_history": self._build_project_history(employee, window),
                 "filter_window": {
                     "start_date": start_dt.isoformat(),
@@ -283,25 +286,26 @@ class EmployeeProfileController(http.Controller):
         return bool(caller.employee_id) and caller.employee_id.id == employee.id
 
     def _employee_projects(self, employee):
-        if not self._caller_can_view(employee):
-            return request.env["project.project"].browse()
-        scope = self._caller_scope_projects()
+        env = request.env
+        Project = env["project.project"].sudo()
         viewed_role_id = (
             employee.user_id.user_role.id
             if employee.user_id and employee.user_id.user_role
             else False
         )
-        privileged_ids = _resolve_role_ids(request.env, PRIVILEGED_ROLE_XMLIDS)
+        privileged_ids = _resolve_role_ids(env, PRIVILEGED_ROLE_XMLIDS)
+        pl_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS)
+        qc_ids = _resolve_role_ids(env, QC_ROLE_XMLIDS)
         if viewed_role_id in privileged_ids:
-            return scope
-
-        def emp_in_project(project):
-            for field_name in PROJECT_ROLE_FIELDS:
-                if employee.id in getattr(project, field_name).ids:
-                    return True
-            return False
-
-        return scope.filtered(emp_in_project)
+            return Project.search([])
+        if viewed_role_id in pl_ids:
+            return Project.search([("project_lead", "in", employee.ids)])
+        if viewed_role_id in qc_ids:
+            return Project.search([("project_qc_reviewer", "in", employee.ids)])
+        domain = ["|"] * (len(PROJECT_ROLE_FIELDS) - 1)
+        for field_name in PROJECT_ROLE_FIELDS:
+            domain.append((field_name, "in", employee.ids))
+        return Project.search(domain)
 
     def _employee_session(self, employee):
         Attendance = request.env["hr.attendance"].sudo()
@@ -564,31 +568,79 @@ class EmployeeProfileController(http.Controller):
             )
         return running
 
-    def _build_task_list(self, employee, projects, window):
+    def _build_task_list(self, employee, window, debug=False):
         env = request.env
+        diag = {
+            "viewed_id": employee.id,
+            "viewed_user_id": employee.user_id.id if employee.user_id else None,
+            "viewed_role": (
+                employee.user_id.user_role.name
+                if employee.user_id and employee.user_id.user_role
+                else None
+            ),
+            "viewed_bucket": None,
+            "projects_in_scope": [],
+            "per_project": [],
+            "window": [window[0].isoformat(), window[1].isoformat()],
+        }
         if not employee.user_id:
-            return []
+            diag["abort"] = "employee.user_id is empty"
+            return {"completed_today": 0, "items": [], "_diagnostics": diag} if debug else {"completed_today": 0, "items": []}
         if "connected_table" not in env["project.project"]._fields:
-            return []
+            diag["abort"] = "project.project has no connected_table field"
+            return {"completed_today": 0, "items": [], "_diagnostics": diag} if debug else {"completed_today": 0, "items": []}
 
         viewed_role_id = (
             employee.user_id.user_role.id if employee.user_id.user_role else False
         )
         privileged_ids = _resolve_role_ids(env, PRIVILEGED_ROLE_XMLIDS)
-        pl_qc_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS) | _resolve_role_ids(
-            env, QC_ROLE_XMLIDS
-        )
+        pl_ids = _resolve_role_ids(env, PL_ROLE_XMLIDS)
+        qc_ids = _resolve_role_ids(env, QC_ROLE_XMLIDS)
         viewed_is_privileged = viewed_role_id in privileged_ids
-        viewed_is_pl_or_qc = viewed_role_id in pl_qc_ids
+        viewed_is_pl = viewed_role_id in pl_ids
+        viewed_is_qc = viewed_role_id in qc_ids
+        viewed_is_pl_or_qc = viewed_is_pl or viewed_is_qc
+        diag["viewed_bucket"] = (
+            "cto_or_tpm"
+            if viewed_is_privileged
+            else "pl_or_qc"
+            if viewed_is_pl_or_qc
+            else "tasker_or_other"
+        )
+
+        Project = env["project.project"].sudo()
+        if viewed_is_privileged:
+            projects = Project.search([])
+        elif viewed_is_pl:
+            projects = Project.search([("project_lead", "in", employee.ids)])
+        elif viewed_is_qc:
+            projects = Project.search([("project_qc_reviewer", "in", employee.ids)])
+        else:
+            membership_domain = ["|"] * (len(PROJECT_ROLE_FIELDS) - 1)
+            for field_name in PROJECT_ROLE_FIELDS:
+                membership_domain.append((field_name, "in", employee.ids))
+            projects = Project.search(membership_domain)
+        diag["projects_in_scope"] = projects.ids
 
         tasks = []
+        seen_task_keys = set()
         for project in projects:
+            pdiag = {"project_id": project.id, "name": project.name or ""}
             table = (project.connected_table or "").strip()
-            if not table or table not in env:
+            if not table:
+                pdiag["skip"] = "connected_table empty"
+                diag["per_project"].append(pdiag)
+                continue
+            if table not in env:
+                pdiag["skip"] = f"model '{table}' not registered"
+                diag["per_project"].append(pdiag)
                 continue
             model = env[table].sudo()
             mfields = model._fields
-            if "user_id" not in mfields or "project_id" not in mfields:
+            pdiag["connected_table"] = table
+            if "user_id" not in mfields:
+                pdiag["skip"] = f"model '{table}' missing user_id"
+                diag["per_project"].append(pdiag)
                 continue
             domain = []
             if viewed_is_privileged:
@@ -596,6 +648,8 @@ class EmployeeProfileController(http.Controller):
             elif viewed_is_pl_or_qc:
                 tasker_user_ids = project.project_tasker.mapped("user_id").ids
                 if not tasker_user_ids:
+                    pdiag["skip"] = "no project_tasker.user_id available"
+                    diag["per_project"].append(pdiag)
                     continue
                 domain.append(("user_id", "in", tasker_user_ids))
             else:
@@ -605,14 +659,21 @@ class EmployeeProfileController(http.Controller):
                     ("started_at", ">=", window[0]),
                     ("started_at", "<=", window[1]),
                 ]
+            pdiag["domain"] = [list(t) if isinstance(t, tuple) else t for t in domain]
             order = "started_at desc" if "started_at" in mfields else "id desc"
             records = model.search(domain, order=order)
+            pdiag["records_found"] = len(records)
+            diag["per_project"].append(pdiag)
             if not records:
                 continue
             pl_name = ", ".join(project.project_lead.mapped("name"))
             qc_name = ", ".join(project.project_qc_reviewer.mapped("name"))
             project_name = project.name or ""
             for rec in records:
+                dedup_key = (table, rec.id)
+                if dedup_key in seen_task_keys:
+                    continue
+                seen_task_keys.add(dedup_key)
                 tasker_name = ""
                 tasker_user = rec.user_id if "user_id" in mfields else False
                 if tasker_user:
@@ -652,7 +713,11 @@ class EmployeeProfileController(http.Controller):
             and t["end_time"]
             and t["end_time"].startswith(today_iso)
         )
-        return {"completed_today": completed_today, "items": tasks}
+        result = {"completed_today": completed_today, "items": tasks}
+        if debug:
+            diag["total_items"] = len(tasks)
+            result["_diagnostics"] = diag
+        return result
 
     def _build_project_task_stats(self, env, project):
         stats = {
@@ -729,9 +794,7 @@ class EmployeeProfileController(http.Controller):
         )
 
     def _build_project_history(self, employee, window):
-        if not self._caller_can_view(employee):
-            return []
-        scope_project_ids = self._caller_scope_projects().ids
+        scope_project_ids = self._employee_projects(employee).ids
         if not scope_project_ids:
             return []
         History = request.env["project.member.history"].sudo()
