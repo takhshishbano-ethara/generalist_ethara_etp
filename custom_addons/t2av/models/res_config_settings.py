@@ -27,17 +27,17 @@ class ResConfigSettings(models.TransientModel):
     )
     t2av_api_key_is_set = fields.Boolean(
         string="API Key Configured",
-        compute="_compute_api_key_is_set",
+        compute="_compute_t2av_api_key_is_set",
     )
 
     # ── AWS credentials (encrypted, masked on read) ───────────────────────
     t2av_aws_access_key = fields.Char(string="AWS Access Key ID")
     t2av_aws_access_key_is_set = fields.Boolean(
-        string="AWS Access Key Configured", compute="_compute_aws_access_key_is_set"
+        string="AWS Access Key Configured", compute="_compute_t2av_aws_access_key_is_set"
     )
     t2av_aws_secret_key = fields.Char(string="AWS Secret Access Key")
     t2av_aws_secret_key_is_set = fields.Boolean(
-        string="AWS Secret Configured", compute="_compute_aws_secret_key_is_set"
+        string="AWS Secret Configured", compute="_compute_t2av_aws_secret_key_is_set"
     )
     t2av_bedrock_api_key = fields.Char(
         string="Bedrock API Key",
@@ -48,11 +48,11 @@ class ResConfigSettings(models.TransientModel):
     )
     t2av_bedrock_api_key_is_set = fields.Boolean(
         string="Bedrock API Key Configured",
-        compute="_compute_bedrock_api_key_is_set",
+        compute="_compute_t2av_bedrock_api_key_is_set",
     )
     t2av_webhook_secret = fields.Char(string="Webhook HMAC Secret")
     t2av_webhook_secret_is_set = fields.Boolean(
-        string="Webhook Secret Configured", compute="_compute_webhook_secret_is_set"
+        string="Webhook Secret Configured", compute="_compute_t2av_webhook_secret_is_set"
     )
     t2av_presigned_ttl_seconds = fields.Integer(
         string="Presigned URL TTL (seconds)",
@@ -201,31 +201,31 @@ class ResConfigSettings(models.TransientModel):
 
     # ── Computed: whether API key is configured ───────────────────────────
     @api.depends()
-    def _compute_api_key_is_set(self):
+    def _compute_t2av_api_key_is_set(self):
         for rec in self:
             rec.t2av_api_key_is_set = bool(
                 credential_manager.get_encrypted_param(self.env, _API_KEY_PARAM)
             )
 
-    def _compute_aws_access_key_is_set(self):
+    def _compute_t2av_aws_access_key_is_set(self):
         for rec in self:
             rec.t2av_aws_access_key_is_set = bool(
                 credential_manager.get_encrypted_param(self.env, "t2av.aws_access_key")
             )
 
-    def _compute_aws_secret_key_is_set(self):
+    def _compute_t2av_aws_secret_key_is_set(self):
         for rec in self:
             rec.t2av_aws_secret_key_is_set = bool(
                 credential_manager.get_encrypted_param(self.env, "t2av.aws_secret_key")
             )
 
-    def _compute_bedrock_api_key_is_set(self):
+    def _compute_t2av_bedrock_api_key_is_set(self):
         for rec in self:
             rec.t2av_bedrock_api_key_is_set = bool(
                 credential_manager.get_encrypted_param(self.env, _BEDROCK_API_KEY_PARAM)
             )
 
-    def _compute_webhook_secret_is_set(self):
+    def _compute_t2av_webhook_secret_is_set(self):
         for rec in self:
             rec.t2av_webhook_secret_is_set = bool(
                 credential_manager.get_encrypted_param(self.env, "t2av.webhook_secret")
