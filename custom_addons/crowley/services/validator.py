@@ -40,6 +40,14 @@ def validate(prompt: str, *, style=None, category=None):
     return mod.validate(prompt, style=style_norm, category=category_norm)
 
 
+def word_band_for_style(style):
+    mod = _get_validator()
+    style_norm = (style or "").strip().lower()
+    band = mod.STYLE_WORD_BANDS.get(style_norm) or mod.GLOBAL_WORD_BAND
+    lo, hi = int(band[0]), int(band[1])
+    return lo, hi
+
+
 def categorize(report) -> str:
     if report.fatal:
         return "fatal"

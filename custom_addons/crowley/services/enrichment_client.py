@@ -74,13 +74,29 @@ def load_system_prompt() -> str:
     return content
 
 
+def _build_word_budget_header(style) -> str:
+    from . import validator as _validator_svc
+    lo, hi = _validator_svc.word_band_for_style(style)
+    target = (lo + hi) // 2
+    style_label = (style or "").strip().lower() or "precise"
+    return (
+        "OUTPUT WORD BUDGET (HARD CONSTRAINT):\n"
+        f"- Style is '{style_label}'. Produce between {lo} and {hi} words, inclusive.\n"
+        f"- Aim for approximately {target} words. Stay strictly inside [{lo}, {hi}].\n"
+        f"- Counts outside this band are REJECTED by the deterministic T2AV validator.\n"
+        f"- The mandatory final 1920x1080 suffix sentence counts toward this total.\n"
+        f"- A 'word' is any whitespace-separated token; count carefully before finalizing.\n"
+        "\n"
+    )
+
+
 def build_user_turn(metadata: dict, previous_failures=None) -> str:
     lines = []
     for key, label in _USER_TURN_KEYS:
         val = (metadata.get(key) or "").strip()
         val = val.replace("\n", " ").replace("\r", " ").replace("\t", " ")
         lines.append(f"{label}: {val}")
-    out = "\n".join(lines)
+    out = _build_word_budget_header(metadata.get("Style")) + "\n".join(lines)
     if previous_failures:
         feedback = ["", "PREVIOUS_ATTEMPT_FAILURES:",
                     "Your last attempt failed the deterministic T2AV validator. "
