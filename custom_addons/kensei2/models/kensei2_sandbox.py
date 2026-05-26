@@ -267,18 +267,15 @@ MODEL_DEFAULTS = {
 # Deadlock scenario without separation: 20-worker pool, 26 parent tasks claim all
 # workers, each parent submits 16 children to the same pool → children can never
 # get workers → parents wait forever.
-_ORCHESTRATOR_POOL_WORKERS = int(os.getenv("ORCHESTRATOR_POOL_WORKERS", "50"))
+_ORCHESTRATOR_POOL_WORKERS = int(os.getenv("ORCHESTRATOR_POOL_WORKERS", "100"))
 _ORCHESTRATOR_POOL = ThreadPoolExecutor(
     max_workers=_ORCHESTRATOR_POOL_WORKERS, thread_name_prefix="kensei2-orch"
 )
-_BATCH_POOL_WORKERS = int(os.getenv("BATCH_POOL_WORKERS", "48"))
+_BATCH_POOL_WORKERS = int(os.getenv("BATCH_POOL_WORKERS", "400"))
 _BATCH_POOL = ThreadPoolExecutor(
     max_workers=_BATCH_POOL_WORKERS, thread_name_prefix="kensei2-batch"
 )
-# Semaphore: limits how many tasks can deploy pods simultaneously.
-# Prevents K8s API overload when 26+ tasks start at once.
-# Each task acquires the semaphore before deploying, releases after.
-_DEPLOY_CONCURRENCY = int(os.getenv("BATCH_DEPLOY_CONCURRENCY", "3"))
+_DEPLOY_CONCURRENCY = int(os.getenv("BATCH_DEPLOY_CONCURRENCY", "20"))
 _DEPLOY_SEMAPHORE = threading.Semaphore(_DEPLOY_CONCURRENCY)
 
 _POD_MAX_RETRIES = int(os.getenv("BATCH_POD_MAX_RETRIES", "2"))
@@ -4979,7 +4976,7 @@ class Kensei2Sandbox(models.Model):
         # Schedule background work AFTER this transaction commits
         @self.env.cr.postcommit.add
         def _queue_sandbox_start():
-            _SANDBOX_POOL.submit(
+            _BATCH_POOL.submit(
                 _run_sandbox_start_background,
                 db_name,
                 sandbox_id,
