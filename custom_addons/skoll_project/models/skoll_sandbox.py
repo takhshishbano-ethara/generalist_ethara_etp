@@ -440,13 +440,16 @@ class SkollSandbox(models.Model):
         entries = []
         for fname in jsonl_files:
             jsonl_path = os.path.join(sessions_dir, fname)
+            source_key = os.path.splitext(fname)[0]
             with open(jsonl_path, "r") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     try:
-                        entries.append(json.loads(line))
+                        entry = json.loads(line)
+                        entry["_source_file"] = source_key
+                        entries.append(entry)
                     except json.JSONDecodeError:
                         continue
         return entries
@@ -511,7 +514,12 @@ class SkollSandbox(models.Model):
                     "--",
                     "sh",
                     "-c",
-                    "find /home/node/.openclaw -name '*.jsonl' -path '*/sessions/*' 2>/dev/null | xargs cat 2>/dev/null",
+                    "find /home/node/.openclaw -name '*.jsonl' -path '*/sessions/*' 2>/dev/null"
+                    " | sort"
+                    " | while read -r f; do"
+                    " echo \"###FILE:$(basename $f .jsonl)\";"
+                    " cat \"$f\";"
+                    " done",
                 ],
                 capture_output=True,
                 text=True,
@@ -527,12 +535,19 @@ class SkollSandbox(models.Model):
                 return []
 
             entries = []
+            current_source = ""
             for line in result.stdout.strip().splitlines():
                 line = line.strip()
                 if not line:
                     continue
+                if line.startswith("###FILE:"):
+                    current_source = line[8:]
+                    continue
                 try:
-                    entries.append(json.loads(line))
+                    entry = json.loads(line)
+                    if current_source:
+                        entry["_source_file"] = current_source
+                    entries.append(entry)
                 except json.JSONDecodeError:
                     continue
             return entries
@@ -646,6 +661,46 @@ class SkollSandbox(models.Model):
 
         return msg
 
+    def _process_jsonl_entries(self, entries):
+        messages = []
+        last_kept_id = None
+        seen_user_msg = False
+
+        for entry in entries:
+            entry_type = entry.get("type", "")
+            if entry_type != "message":
+                continue
+
+            msg = entry.get("message", {})
+            role = msg.get("role", "")
+            if not role:
+                continue
+
+            if self._is_heartbeat_message(msg):
+                continue
+
+            if role == "user":
+                seen_user_msg = True
+            elif role == "system" and not seen_user_msg:
+                continue
+
+            msg = self._sanitize_jsonl_message(msg)
+
+            entry_id = entry.get("id", "")
+            parent_id = last_kept_id if last_kept_id else entry.get("parentId", "")
+
+            delivery_msg = {
+                "type": "message",
+                "id": entry_id,
+                "parentId": parent_id or "",
+                "timestamp": entry.get("timestamp", ""),
+                "message": msg,
+            }
+            messages.append(delivery_msg)
+            last_kept_id = entry_id
+
+        return messages
+
     def _build_trajectory_from_jsonl(self, entries):
         self.ensure_one()
         task = self.skoll_id
@@ -667,43 +722,16 @@ class SkollSandbox(models.Model):
             },
         }
 
-        messages = []
-        last_kept_id = None
-        seen_user_msg = False
-
+        main_entries = []
+        sub_entries_by_source = {}
         for entry in entries:
-            entry_type = entry.get("type", "")
-            if entry_type != "message":
-                continue
+            source = entry.pop("_source_file", "")
+            if "subagent" in source.lower():
+                sub_entries_by_source.setdefault(source, []).append(entry)
+            else:
+                main_entries.append(entry)
 
-            msg = entry.get("message", {})
-            role = msg.get("role", "")
-            if not role:
-                continue
-
-            if self._is_heartbeat_message(msg):
-                continue
-
-            # Skip session startup messages (system init before first user message)
-            if role == "user":
-                seen_user_msg = True
-            elif role == "system" and not seen_user_msg:
-                continue
-
-            msg = self._sanitize_jsonl_message(msg)
-
-            entry_id = entry.get("id", "")
-            parent_id = last_kept_id if last_kept_id else entry.get("parentId", "")
-
-            delivery_msg = {
-                "type": "message",
-                "id": entry_id,
-                "parentId": parent_id or "",
-                "timestamp": entry.get("timestamp", ""),
-                "message": msg,
-            }
-            messages.append(delivery_msg)
-            last_kept_id = entry_id
+        messages = self._process_jsonl_entries(main_entries)
 
         all_turns = self.turn_ids.sorted("turn_number")
         if all_turns:
@@ -713,12 +741,20 @@ class SkollSandbox(models.Model):
 
         result = {"meta_info": meta_info, "messages": messages}
 
+        sub_agent_trajectories = {}
+        for source_key, sub_entries in sub_entries_by_source.items():
+            sub_messages = self._process_jsonl_entries(sub_entries)
+            if sub_messages:
+                sub_messages = [_wrap_trajectory_message(m) for m in sub_messages]
+                sub_agent_trajectories[source_key] = sub_messages
+
         sub_agent_entries = self._collect_sub_agent_messages(all_turns)
         if sub_agent_entries:
-            sub_agent_trajectories = {}
             for entry in sub_agent_entries:
                 sk = entry.get("sessionKey", "") or entry.get("message", {}).get("sessionKey", "")
                 sub_agent_trajectories.setdefault(sk, []).append(entry)
+
+        if sub_agent_trajectories:
             result["sub_agent_trajectories"] = sub_agent_trajectories
 
         return result
@@ -730,24 +766,34 @@ class SkollSandbox(models.Model):
         for entry in entries:
             if not isinstance(entry, dict):
                 continue
+            # Usage can live at entry-level or inside entry.message
             usage = entry.get("usage") or {}
             msg = entry.get("message")
             if isinstance(msg, dict):
                 usage = usage or msg.get("usage") or {}
             if not usage:
                 continue
-            total_in += int(
-                usage.get("input_tokens", 0)
-                or usage.get("inputTokens", 0)
-                or usage.get("prompt_tokens", 0)
+            if not isinstance(usage, dict):
+                continue
+            # OpenClaw normalizes to "input"/"output" (bare names).
+            # LiteLLM / Anthropic / OpenAI use "_tokens" suffixed variants.
+            # Check ALL known field names to cover every provider format.
+            raw_in = (
+                usage.get("input")              # OpenClaw normalized
+                or usage.get("input_tokens")     # Anthropic
+                or usage.get("inputTokens")      # camelCase variant
+                or usage.get("prompt_tokens")    # OpenAI / LiteLLM
                 or 0
             )
-            total_out += int(
-                usage.get("output_tokens", 0)
-                or usage.get("outputTokens", 0)
-                or usage.get("completion_tokens", 0)
+            raw_out = (
+                usage.get("output")              # OpenClaw normalized
+                or usage.get("output_tokens")    # Anthropic
+                or usage.get("outputTokens")     # camelCase variant
+                or usage.get("completion_tokens") # OpenAI / LiteLLM
                 or 0
             )
+            total_in += int(raw_in)
+            total_out += int(raw_out)
         return total_in, total_out
 
     def _query_litellm_spend(self, window_start=None, window_end=None):
@@ -892,6 +938,115 @@ class SkollSandbox(models.Model):
                 "LiteLLM spend query failed for sandbox %s: %s",
                 self.id,
                 e,
+            )
+            return 0, 0
+
+    def _query_litellm_spend_k8s(self):
+        self.ensure_one()
+        if self._deployment_mode() != "k8s":
+            return 0, 0
+
+        import hashlib
+
+        namespace = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("skoll.k8s_namespace", "skoll")
+            .strip()
+        ) or "skoll"
+
+        dotenv = _load_dotenv()
+        litellm_key = dotenv.get("LITELLM_MASTER_KEY", "").strip()
+        if not litellm_key:
+            litellm_key = (
+                "sk-skoll-%s" % self.docker_gateway_token[:16]
+                if self.docker_gateway_token
+                else ""
+            )
+        if not litellm_key:
+            return 0, 0
+
+        hashed_key = hashlib.sha256(litellm_key.encode("utf-8")).hexdigest()
+
+        try:
+            from kubernetes import client as k8s_client
+            from kubernetes import config as k8s_config
+            k8s_config.load_incluster_config()
+        except Exception:
+            return 0, 0
+
+        label_selector = (
+            "app.kubernetes.io/name=skoll-sandbox,task-id=%s" % self.id
+        )
+        try:
+            core_v1 = k8s_client.CoreV1Api()
+            pods = core_v1.list_namespaced_pod(
+                namespace=namespace, label_selector=label_selector,
+            )
+            pod_name = None
+            for pod in pods.items:
+                phase = (pod.status.phase or "").lower()
+                if phase not in ("failed", "unknown"):
+                    pod_name = pod.metadata.name
+                    break
+            if not pod_name:
+                _logger.warning(
+                    "[TOKEN-K8S] No pod found for sandbox %s", self.id,
+                )
+                return 0, 0
+        except Exception as e:
+            _logger.warning(
+                "[TOKEN-K8S] Pod lookup failed for sandbox %s: %s",
+                self.id, e,
+            )
+            return 0, 0
+
+        node_script = (
+            "const http=require('http');"
+            "const opts={hostname:'localhost',port:4000,"
+            "path:'/spend/logs?api_key=%s',"
+            "headers:{Authorization:'Bearer %s'}};"
+            "http.get(opts,r=>{let d='';r.on('data',c=>d+=c);"
+            "r.on('end',()=>{process.stdout.write(d);process.exit(0)})});"
+            "setTimeout(()=>process.exit(1),10000)"
+        ) % (hashed_key, litellm_key)
+
+        try:
+            result = subprocess.run(
+                [
+                    "kubectl", "exec", "-n", namespace, pod_name,
+                    "-c", "openclaw", "--",
+                    "node", "-e", node_script,
+                ],
+                capture_output=True, text=True, timeout=30, check=False,
+            )
+            if result.returncode != 0 or not result.stdout.strip():
+                _logger.warning(
+                    "[TOKEN-K8S] kubectl exec failed for sandbox %s: rc=%d stderr=%s",
+                    self.id, result.returncode, result.stderr[:300],
+                )
+                return 0, 0
+
+            data = json.loads(result.stdout)
+            logs = data if isinstance(data, list) else data.get("data", [])
+
+            total_in = 0
+            total_out = 0
+            for entry in logs:
+                if not isinstance(entry, dict):
+                    continue
+                total_in += int(entry.get("prompt_tokens", 0) or 0)
+                total_out += int(entry.get("completion_tokens", 0) or 0)
+
+            _logger.info(
+                "[TOKEN-K8S] Direct query returned %d logs (in=%d, out=%d) sandbox %s",
+                len(logs), total_in, total_out, self.id,
+            )
+            return total_in, total_out
+        except Exception as e:
+            _logger.warning(
+                "[TOKEN-K8S] Direct LiteLLM query failed for sandbox %s: %s",
+                self.id, e,
             )
             return 0, 0
 
@@ -1689,6 +1844,9 @@ class SkollSandbox(models.Model):
                         window_start=None, window_end=window_end
                     )
                     source = "litellm"
+                    if session_in == 0 and session_out == 0:
+                        session_in, session_out = self._query_litellm_spend_k8s()
+                        source = "litellm-k8s"
                     if session_in == 0 and session_out == 0 and jsonl_entries:
                         session_in, session_out = self._extract_tokens_from_jsonl(
                             jsonl_entries
@@ -1749,16 +1907,25 @@ class SkollSandbox(models.Model):
                     }
                     fields_pair = token_field_map.get(self.model_type)
                     if fields_pair:
+                        total_in = sum(
+                            int(e.get("tokens_in", 0) or 0)
+                            for e in existing_entries if isinstance(e, dict)
+                        )
+                        total_out = sum(
+                            int(e.get("tokens_out", 0) or 0)
+                            for e in existing_entries if isinstance(e, dict)
+                        )
                         self.skoll_id.write(
                             {
-                                fields_pair[0]: session_in,
-                                fields_pair[1]: session_out,
+                                fields_pair[0]: total_in,
+                                fields_pair[1]: total_out,
                             }
                         )
                         _logger.info(
-                            "Saved token usage (in=%d, out=%d) to %s/%s for task %s",
-                            session_in,
-                            session_out,
+                            "Recomputed token totals (in=%d, out=%d) from %d entries to %s/%s for task %s",
+                            total_in,
+                            total_out,
+                            len(existing_entries),
                             fields_pair[0],
                             fields_pair[1],
                             self.skoll_id.id,

@@ -905,10 +905,7 @@ export class SkollChatWidget extends Component {
             session._rawEvents = [];
             session.streaming = false;
             this._stopIncrementalSave();
-            if (session._activeChildKey) {
-                this._markSubAgentCompleted(session._activeChildKey);
-                session._activeChildKey = null;
-            }
+            this._markAllSubAgentsCompleted();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
@@ -1009,6 +1006,7 @@ export class SkollChatWidget extends Component {
             session._rawEvents = [];
             session.streaming = false;
             this._stopIncrementalSave();
+            this._markAllSubAgentsCompleted();
             if (widget) {
                 widget.state.streaming = false;
                 widget.state.activityText = "";
@@ -1996,6 +1994,8 @@ export class SkollChatWidget extends Component {
                 description: description || agent || childKey.split(":subagent:").pop() || "Sub-agent task",
                 status: "running",
             });
+
+            this._session._activeChildKey = childKey;
         } else if (reason === "update" || reason === "complete") {
             const childKey = sessionKey || sessionData.key || "";
             if (this._session._childSessions[childKey]) {
@@ -2058,6 +2058,21 @@ export class SkollChatWidget extends Component {
         }
         const childData = this._session._childSessions[sessionKey];
         if (childData) childData.status = "completed";
+    }
+
+    _markAllSubAgentsCompleted() {
+        const messages = this._session.messages;
+        for (const msg of messages) {
+            if (msg.type === "subagent_card" && msg.status === "running") {
+                msg.status = "completed";
+            }
+        }
+        for (const childData of Object.values(this._session._childSessions)) {
+            if (childData.status === "running") {
+                childData.status = "completed";
+            }
+        }
+        this._session._activeChildKey = null;
     }
 
     _checkForSubAgentSpawn(data, toolName) {

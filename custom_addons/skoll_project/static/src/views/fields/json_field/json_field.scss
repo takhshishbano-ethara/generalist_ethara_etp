@@ -345,4 +345,114 @@
 
         i { color: #f9e2af; margin-right: 4px; }
     }
+
+    .skoll-sa-traj-section {
+        margin-top: 8px;
+        border: 1px solid #313244;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .skoll-sa-traj-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #181825;
+        color: #cba6f7;
+        font-size: 0.82em;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        border-bottom: 1px solid #313244;
+
+        i { font-size: 1em; }
+    }
+
+    .skoll-sa-traj-count {
+        font-weight: 400;
+        color: #6c7086;
+        text-transform: none;
+        letter-spacing: normal;
+        margin-left: auto;
+    }
+
+    .skoll-sa-traj-entry {
+        border-top: 1px solid #313244;
+
+        &:first-child { border-top: none; }
+    }
+
+    .skoll-sa-traj-summary {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        background: #1e1e2e;
+        cursor: pointer;
+        user-select: none;
+        list-style: none;
+        transition: background 0.15s ease;
+
+        &::-webkit-details-marker { display: none; }
+        &::marker { display: none; content: ""; }
+        &:hover { background: #24243a; }
+
+        &::before {
+            content: "\f054";
+            font-family: FontAwesome;
+            font-size: 0.7em;
+            color: #6c7086;
+            transition: transform 0.15s ease;
+            width: 10px;
+            text-align: center;
+        }
+    }
+
+    details[open] > .skoll-sa-traj-summary::before {
+        transform: rotate(90deg);
+    }
+
+    .skoll-sa-traj-badge {
+        display: inline-block;
+        padding: 1px 8px;
+        border-radius: 3px;
+        font-size: 0.78em;
+        font-weight: 600;
+        text-transform: capitalize;
+        white-space: nowrap;
+    }
+
+    .skoll-sa-traj-badge-explore   { background: #dbeafe; color: #1e40af; }
+    .skoll-sa-traj-badge-librarian { background: #fef3c7; color: #92400e; }
+    .skoll-sa-traj-badge-oracle    { background: #ede9fe; color: #5b21b6; }
+    .skoll-sa-traj-badge-general   { background: #d1fae5; color: #065f46; }
+    .skoll-sa-traj-badge-build     { background: #fee2e2; color: #991b1b; }
+    .skoll-sa-traj-badge-plan      { background: #e0e7ff; color: #3730a3; }
+    .skoll-sa-traj-badge-unknown   { background: #f3f4f6; color: #374151; }
+
+    .skoll-sa-traj-key {
+        color: #a6adc8;
+        font-size: 0.82em;
+        font-family: "SFMono-Regular", "Consolas", "Liberation Mono", "Menlo", monospace;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 400px;
+    }
+
+    .skoll-sa-traj-msg-count {
+        color: #6c7086;
+        font-size: 0.78em;
+        margin-left: auto;
+        white-space: nowrap;
+    }
+
+    .skoll-sa-traj-body {
+        border-radius: 0;
+        border: none;
+        border-top: 1px solid #313244;
+        margin: 0;
+        max-height: 500px;
+    }
 }

@@ -51,12 +51,59 @@ function parseEntries(raw) {
     }
 }
 
+function _extractAgentType(sessionKey) {
+    const match = (sessionKey || "").match(/:subagent:(\w+)/);
+    if (match) return match[1];
+    const parts = (sessionKey || "").split(":");
+    return parts[parts.length - 1] || "unknown";
+}
+
 function renderTrajectoryHtml(trajectory) {
     if (typeof trajectory === "string") {
         return `<pre class="skoll-json-block"><code>${escapeHtml(trajectory)}</code></pre>`;
     }
-    const pretty = JSON.stringify(trajectory, null, 2);
-    return `<pre class="skoll-json-block"><code>${syntaxHighlightJsonToHtml(pretty)}</code></pre>`;
+
+    const subAgentTrajectories = trajectory.sub_agent_trajectories;
+    const hasSubAgents =
+        subAgentTrajectories &&
+        typeof subAgentTrajectories === "object" &&
+        Object.keys(subAgentTrajectories).length > 0;
+
+    let mainObj = trajectory;
+    if (hasSubAgents) {
+        const { sub_agent_trajectories: _ignored, ...rest } = trajectory;
+        mainObj = rest;
+    }
+    const mainPretty = JSON.stringify(mainObj, null, 2);
+    let html = `<pre class="skoll-json-block"><code>${syntaxHighlightJsonToHtml(mainPretty)}</code></pre>`;
+
+    if (!hasSubAgents) return html;
+
+    const sessionKeys = Object.keys(subAgentTrajectories);
+    html += `<div class="skoll-sa-traj-section">`;
+    html += `<div class="skoll-sa-traj-header">`;
+    html += `<i class="fa fa-sitemap"></i> Sub-Agent Trajectories `;
+    html += `<span class="skoll-sa-traj-count">${sessionKeys.length} session${sessionKeys.length !== 1 ? "s" : ""}</span>`;
+    html += `</div>`;
+
+    for (const sk of sessionKeys) {
+        const messages = subAgentTrajectories[sk];
+        const agent = _extractAgentType(sk);
+        const msgCount = Array.isArray(messages) ? messages.length : 0;
+        const sessionPretty = JSON.stringify(messages, null, 2);
+
+        html += `<details class="skoll-sa-traj-entry">`;
+        html += `<summary class="skoll-sa-traj-summary">`;
+        html += `<span class="skoll-sa-traj-badge skoll-sa-traj-badge-${agent}">${agent}</span>`;
+        html += `<span class="skoll-sa-traj-key" title="${escapeHtml(sk)}">${escapeHtml(sk)}</span>`;
+        html += `<span class="skoll-sa-traj-msg-count">${msgCount} msg${msgCount !== 1 ? "s" : ""}</span>`;
+        html += `</summary>`;
+        html += `<pre class="skoll-json-block skoll-sa-traj-body"><code>${syntaxHighlightJsonToHtml(sessionPretty)}</code></pre>`;
+        html += `</details>`;
+    }
+
+    html += `</div>`;
+    return html;
 }
 
 export class SkollJsonField extends Component {
