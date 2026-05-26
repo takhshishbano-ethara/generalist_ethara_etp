@@ -110,7 +110,22 @@ _shutdown = threading.Event()
 
 def _boot_odoo(db_name, conf_path=None):
     conf_path = conf_path or os.environ.get("ODOO_CONF", "/etc/odoo/odoo.conf")
-    sys.argv = ["odoo", "--no-http", f"--config={conf_path}", f"--database={db_name}"]
+    # Explicit --addons-path overrides whatever is in odoo.conf so this
+    # worker is portable across environments. src/odoo.conf has a stale
+    # macOS dev path (/Users/apple/...) that gets baked into the image
+    # via COPY src/; without this override, Odoo can't find vegeta in the
+    # container and the registry boots without it — every job_claim then
+    # crashes on env["vegeta.job"]. Override via ODOO_ADDONS_PATH for
+    # environments with different layout.
+    addons_path = os.environ.get(
+        "ODOO_ADDONS_PATH", "/opt/odoo/addons,/opt/odoo/custom_addons",
+    )
+    sys.argv = [
+        "odoo", "--no-http",
+        f"--config={conf_path}",
+        f"--database={db_name}",
+        f"--addons-path={addons_path}",
+    ]
 
     from odoo import init as _odoo_init  # noqa: F401 — triggers Odoo 19 lazy bootstrap
     import odoo
