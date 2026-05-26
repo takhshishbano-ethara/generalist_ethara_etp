@@ -82,11 +82,11 @@
                                 <field name="crowley_bedrock_model_id"/>
                             </setting>
                             <setting string="Video Review Provider"
-                                     help="OpenRouter (Kimi K2 text-only) is the default. Switch to Bedrock for multimodal Claude vision (heavier + needs ffmpeg).">
+                                     help="OpenRouter (Gemini multimodal) is the default — sends prompt + presigned video URL in one turn. Switch to Bedrock for Claude vision via 20 ffmpeg-extracted frames.">
                                 <field name="crowley_review_provider"/>
                             </setting>
                             <setting string="Review Model ID (OpenRouter)"
-                                     help="OpenRouter model slug when Review Provider is OpenRouter. Default: moonshotai/kimi-k2-0905 (Kimi K2.5).">
+                                     help="OpenRouter model slug when Review Provider is OpenRouter. Default: google/gemini-3.1-pro-preview (multimodal). Existing live value is preserved on upgrade.">
                                 <field name="crowley_openrouter_review_model_id"/>
                             </setting>
                             <setting string="Bedrock Max Retries"
@@ -100,6 +100,24 @@
                             <div class="text-muted o_text_neutral">
                                 <i class="fa fa-info-circle"/> Bedrock uses the AWS credentials configured in the section below. Once you add the AWS Access Key ID and Secret Access Key, prompt enrichment via Claude on Bedrock becomes available.
                             </div>
+                        </block>
+                        <block title="Video Review (Gemini)" name="crowley_review_block">
+                            <setting string="Review Max Attempts per Attempt"
+                                     help="Hard cap on review rounds. Each REJECT below this limit auto-queues the next round with the prior FATAL/MAJOR findings injected into the user turn.">
+                                <field name="crowley_review_max_attempts"/>
+                            </setting>
+                            <setting string="Review Max Parallel In-Flight"
+                                     help="Concurrency cap. The cron dispatcher counts rows in 'submitting' state and only releases capacity = max_parallel - in_flight per tick.">
+                                <field name="crowley_review_max_parallel"/>
+                            </setting>
+                            <setting string="Review Batch Size per Cron Tick"
+                                     help="Maximum queued reviews picked up per cron run. Effective dispatch is min(batch_size, capacity).">
+                                <field name="crowley_review_batch_size"/>
+                            </setting>
+                            <setting string="Review Video URL TTL (seconds)"
+                                     help="Lifetime of the presigned S3 URL sent to the reviewer. Must outlive the LLM round-trip. Bump if Gemini reports url-fetch / 4xx errors before the URL expires.">
+                                <field name="crowley_review_video_url_ttl_seconds"/>
+                            </setting>
                         </block>
                         <block title="AWS Credentials (optional)" name="crowley_aws_block">
                             <setting string="AWS Access Key ID"

@@ -20,17 +20,26 @@ _REVIEW_MD_PATH = os.path.join(_MODULE_ROOT, "review.md")
 
 DEFAULT_PROVIDER = "openrouter"
 DEFAULT_BEDROCK_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-DEFAULT_OPENROUTER_MODEL_ID = "moonshotai/kimi-k2-0905"
+DEFAULT_OPENROUTER_MODEL_ID = "google/gemini-3.1-pro-preview"
 DEFAULT_REGION = "ap-south-1"
-DEFAULT_MAX_TOKENS = 1500
+DEFAULT_BEDROCK_MAX_TOKENS = 1500
+DEFAULT_OPENROUTER_MAX_TOKENS = 64000
 DEFAULT_TEMPERATURE = 0.2
 DEFAULT_TOP_P = 0.9
+DEFAULT_REASONING_EFFORT = "high"
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_NUM_FRAMES = 20
 DEFAULT_VIDEO_DOWNLOAD_TIMEOUT = 120
+DEFAULT_REVIEW_VIDEO_TTL_SECONDS = 900
+DEFAULT_OPENROUTER_TIMEOUT = 3600
 
 MAX_BEDROCK_VISION_IMAGES = 20
 _MAX_VIDEO_BYTES = 200 * 1024 * 1024
+_MAX_PREVIOUS_FAILURES = 5
+_URL_FETCH_ERROR_HINTS = (
+    "fetch", "download", "media", "url", "unreachable", "timed out",
+    "not accessible", "invalid url", "could not retrieve",
+)
 
 _RETRYABLE_ERROR_NAMES = {
     "ThrottlingException",
@@ -233,7 +242,32 @@ def _build_user_turn_with_frames(
     )
 
 
-def _build_user_turn_text_only(
+def _format_previous_failures(previous_failures: list[dict] | None) -> str:
+    if not previous_failures:
+        return ""
+    lines = ["PREVIOUS_ATTEMPT_FAILURES:"]
+    for finding in previous_failures[:_MAX_PREVIOUS_FAILURES]:
+        rule = (finding.get("rule") or "UNKNOWN").strip()
+        severity = (finding.get("severity") or "").strip().upper()
+        evidence = (finding.get("evidence") or "").strip()
+        if len(evidence) > 240:
+            evidence = evidence[:237] + "..."
+        prefix = f"[{rule}]"
+        if severity:
+            prefix = f"[{rule} / {severity}]"
+        if evidence:
+            lines.append(f"- {prefix} {evidence}")
+        else:
+            lines.append(f"- {prefix}")
+    lines.append(
+        "Address each failure above. Re-evaluate the current video against "
+        "every rule the prior attempt failed; do not assume any of them "
+        "were fixed."
+    )
+    return "\n".join(lines)
+
+
+def _build_review_user_text(
     *,
     enriched_prompt: str,
     category: str,
@@ -241,47 +275,116 @@ def _build_user_turn_text_only(
     priority: str,
     duration_seconds: float,
     resolution: str,
-    video_url: str,
+    previous_failures: list[dict] | None = None,
 ) -> str:
-    return (
+    body = (
         f"ENRICHED_PROMPT:\n{enriched_prompt}\n\n"
         f"CATEGORY: {category}\n"
         f"STYLE: {style}\n"
         f"PRIORITY: {priority}\n"
         f"DURATION_SECONDS: {duration_seconds}\n"
-        f"RESOLUTION: {resolution}\n"
-        f"VIDEO_URL: {video_url}\n\n"
-        "REVIEW MODE: text-only. This pipeline uses a text-only LLM "
-        "(no video frames are attached). Evaluate contract integrity, "
-        "prompt quality, and producibility based on ENRICHED_PROMPT + metadata.\n\n"
-        "Apply these rule-handling instructions:\n"
-        "- GV-* (visual generative defects: hand morphology, identity drift, "
-        "flicker, lip-sync, motion smear, contact incoherence, etc.): mark N/A. "
-        "These require visual inspection.\n"
-        "- PF-* (prompt fidelity): judge whether the ENRICHED_PROMPT is "
-        "internally consistent, addresses each clause clearly, and contains "
-        "all required elements (dynamic verb, surface, lighting, exactly one "
-        "camera move, audio block with three sources, mandatory closing "
-        "sentence). If a clause is ambiguous or missing, that's a FAIL.\n"
-        "- TECH-* (resolution, fps, codec, audio sample rate, duration band): "
-        "judge from the closing-sentence contract and DURATION_SECONDS. "
-        "If the contract sentence matches spec (1920x1080 at 30 fps, "
-        "48 kHz stereo or mono), PASS. If DURATION_SECONDS is outside "
-        "8 to 25 seconds, FAIL TECH-DURATION-BAND.\n"
-        "- PC-* (prohibited content: brand, celebrity, minor, unsafe, PII): "
-        "judge from the prompt text only.\n"
-        "- META-INSUFFICIENT-FRAMES: not applicable (no frames sent in this mode).\n\n"
-        "Output the same prose + JSON contract defined in your system prompt. "
-        "Verdict ACCEPT/REVIEW/REJECT based on the contract review above."
+        f"RESOLUTION: {resolution}\n\n"
+        "VIDEO: attached below."
     )
+    failures_block = _format_previous_failures(previous_failures)
+    if failures_block:
+        body = f"{body}\n\n{failures_block}"
+    return body
+
+
+def _encode_video_data_url(video_bytes: bytes, mime: str = "video/mp4") -> str:
+    import base64
+    b64 = base64.b64encode(video_bytes).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+
+def _download_video_bytes(url: str, timeout: int = DEFAULT_VIDEO_DOWNLOAD_TIMEOUT) -> bytes:
+    with requests.get(url, timeout=timeout, stream=True) as resp:
+        resp.raise_for_status()
+        cl = resp.headers.get("Content-Length")
+        if cl is not None:
+            try:
+                if int(cl) > _MAX_VIDEO_BYTES:
+                    raise ReviewError(
+                        f"Video too large for base64 fallback: Content-Length={cl} "
+                        f"exceeds {_MAX_VIDEO_BYTES} bytes max."
+                    )
+            except ValueError:
+                pass
+        buf = bytearray()
+        for chunk in resp.iter_content(chunk_size=65536):
+            if not chunk:
+                continue
+            buf.extend(chunk)
+            if len(buf) > _MAX_VIDEO_BYTES:
+                raise ReviewError(
+                    f"Video exceeded {_MAX_VIDEO_BYTES} bytes during download."
+                )
+        return bytes(buf)
+
+
+def _build_multimodal_content(user_text: str, video_url: str) -> list[dict[str, Any]]:
+    return [
+        {"type": "text", "text": user_text},
+        {"type": "video_url", "video_url": {"url": video_url}},
+    ]
+
+
+def _looks_like_url_fetch_error(status_code: int, body_text: str) -> bool:
+    if status_code not in (400, 415, 422):
+        return False
+    lowered = (body_text or "").lower()
+    return any(hint in lowered for hint in _URL_FETCH_ERROR_HINTS)
+
+
+def _extract_reasoning_text(message: dict[str, Any]) -> str:
+    reasoning = message.get("reasoning")
+    if isinstance(reasoning, str) and reasoning.strip():
+        return reasoning
+    details = message.get("reasoning_details")
+    if isinstance(details, list):
+        parts: list[str] = []
+        for item in details:
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text") or item.get("reasoning") or ""
+            if isinstance(text, str) and text:
+                parts.append(text)
+        if parts:
+            return "\n".join(parts).strip()
+    return ""
+
+
+def _partial_review_result(prose_text: str, reason: str) -> dict[str, Any]:
+    _logger.warning(
+        "Crowley review: parse fallback to verdict=REVIEW (%s). "
+        "Raw response length=%d chars. Excerpt: %r",
+        reason, len(prose_text or ""), (prose_text or "")[:500],
+    )
+    safe = (prose_text or "").strip()
+    annotated = (
+        f"[PARSE_WARNING: {reason}. Manual review required.]\n\n{safe}"
+    )[:65536]
+    return {
+        "verdict": "REVIEW",
+        "prose": annotated,
+        "findings": [],
+        "fatal_count": 0,
+        "major_count": 0,
+        "minor_count": 0,
+        "unverifiable_count": 0,
+        "regenerate_recommended": False,
+        "rebuilder_hint": "",
+        "rendered_info": "{}",
+        "raw_json": "{}",
+    }
 
 
 def parse_review_output(text: str) -> dict[str, Any]:
     matches = list(_JSON_BLOCK_RE.finditer(text))
     if not matches:
-        raise ReviewParseError(
-            "No fenced ```json block found in reviewer output. "
-            "Review.md output contract requires both prose and JSON."
+        return _partial_review_result(
+            text, "No fenced JSON block in reviewer output",
         )
     parsed = None
     match = None
@@ -301,16 +404,17 @@ def parse_review_output(text: str) -> dict[str, Any]:
         match = m
         break
     if parsed is None:
-        raise ReviewParseError(
-            "No ```json block contained the required schema "
-            "(verdict + counts + findings). "
-            f"Last JSON decode error: {last_decode_error}"
+        return _partial_review_result(
+            text,
+            f"JSON block found but did not match schema. "
+            f"Last decode error: {last_decode_error}",
         )
     verdict = (parsed.get("verdict") or "").strip().upper()
     if verdict not in _VALID_VERDICTS:
-        raise ReviewParseError(
+        return _partial_review_result(
+            text,
             f"Reviewer returned invalid verdict {verdict!r}. "
-            f"Expected one of {_VALID_VERDICTS}."
+            f"Expected one of {_VALID_VERDICTS}",
         )
     prose = text[: match.start()].strip()
     counts = parsed.get("counts") or {}
@@ -450,6 +554,26 @@ def _review_via_bedrock(
     return parsed
 
 
+def _post_openrouter(
+    *,
+    api_key: str,
+    payload: dict[str, Any],
+    timeout: int,
+) -> requests.Response:
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": OPENROUTER_HTTP_REFERER,
+        "X-Title": OPENROUTER_APP_TITLE,
+    }
+    return requests.post(
+        OPENROUTER_API_URL,
+        json=payload,
+        headers=headers,
+        timeout=timeout,
+    )
+
+
 def _review_via_openrouter(
     *,
     openrouter_api_key: str,
@@ -465,6 +589,9 @@ def _review_via_openrouter(
     temperature: float,
     top_p: float,
     max_attempts: int,
+    previous_failures: list[dict] | None = None,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+    request_timeout: int = DEFAULT_OPENROUTER_TIMEOUT,
 ) -> dict[str, Any]:
     if not openrouter_api_key:
         raise ReviewAuthError(
@@ -472,46 +599,75 @@ def _review_via_openrouter(
             "Configure in Settings > Crowley > OpenRouter API Key."
         )
     system_prompt = load_review_system_prompt()
-    user_text = _build_user_turn_text_only(
+    user_text = _build_review_user_text(
         enriched_prompt=enriched_prompt,
         category=category,
         style=style,
         priority=priority,
         duration_seconds=duration_seconds,
         resolution=resolution,
-        video_url=video_url,
+        previous_failures=previous_failures,
     )
-    payload = {
-        "model": model_id,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
-        ],
-        "temperature": temperature,
-        "top_p": top_p,
-        "max_tokens": max_tokens,
-    }
-    headers = {
-        "Authorization": f"Bearer {openrouter_api_key}",
-        "Content-Type": "application/json",
-        "HTTP-Referer": OPENROUTER_HTTP_REFERER,
-        "X-Title": OPENROUTER_APP_TITLE,
-    }
+
+    def _payload(content_blocks: list[dict[str, Any]]) -> dict[str, Any]:
+        body: dict[str, Any] = {
+            "model": model_id,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": content_blocks},
+            ],
+            "temperature": temperature,
+            "top_p": top_p,
+            "max_tokens": max_tokens,
+        }
+        if reasoning_effort:
+            body["reasoning"] = {"effort": reasoning_effort}
+        return body
+
+    url_content = _build_multimodal_content(user_text, video_url)
+    use_base64 = False
     last_exc: BaseException | None = None
-    response_json = None
+    response_json: dict[str, Any] | None = None
+
     for attempt in range(1, max_attempts + 1):
-        try:
-            resp = requests.post(
-                OPENROUTER_API_URL,
-                json=payload,
-                headers=headers,
-                timeout=300,
+        if use_base64:
+            try:
+                video_bytes = _download_video_bytes(video_url)
+            except Exception as exc:
+                raise ReviewError(
+                    f"Base64 fallback failed to download video from "
+                    f"{video_url!r}: {exc.__class__.__name__}: {exc}"
+                ) from exc
+            data_url = _encode_video_data_url(video_bytes)
+            content_blocks = _build_multimodal_content(user_text, data_url)
+            _logger.info(
+                "OpenRouter review: using base64 inline fallback "
+                "(%.2f MB encoded) on attempt %d/%d",
+                len(data_url) / 1e6, attempt, max_attempts,
             )
-            if resp.status_code == 401 or resp.status_code == 403:
+        else:
+            content_blocks = url_content
+
+        try:
+            resp = _post_openrouter(
+                api_key=openrouter_api_key,
+                payload=_payload(content_blocks),
+                timeout=request_timeout,
+            )
+            if resp.status_code in (401, 403):
                 raise ReviewAuthError(
                     f"OpenRouter rejected credentials (HTTP {resp.status_code}): "
                     f"{resp.text[:200]}"
                 )
+            if not use_base64 and _looks_like_url_fetch_error(resp.status_code, resp.text):
+                _logger.warning(
+                    "OpenRouter review attempt %d/%d: model could not fetch "
+                    "video URL (HTTP %d); retrying with base64 inline fallback. "
+                    "Body: %s",
+                    attempt, max_attempts, resp.status_code, resp.text[:200],
+                )
+                use_base64 = True
+                continue
             if resp.status_code >= 500 or resp.status_code == 429:
                 if attempt >= max_attempts:
                     raise ReviewError(
@@ -530,6 +686,8 @@ def _review_via_openrouter(
             break
         except ReviewAuthError:
             raise
+        except ReviewError:
+            raise
         except Exception as exc:
             last_exc = exc
             if attempt >= max_attempts or not _is_retryable(exc):
@@ -540,16 +698,28 @@ def _review_via_openrouter(
                 attempt, max_attempts, delay, exc.__class__.__name__, exc,
             )
             time.sleep(delay)
+
     if response_json is None:
         raise ReviewError(
             f"OpenRouter review call exhausted after {max_attempts} attempts: {last_exc}"
         )
     try:
-        text = response_json["choices"][0]["message"]["content"]
+        message = response_json["choices"][0]["message"]
+        text = message.get("content") or ""
     except (KeyError, TypeError, IndexError) as e:
-        raise ReviewError(f"Unexpected OpenRouter response shape: {response_json!r}") from e
+        raise ReviewError(
+            f"Unexpected OpenRouter response shape: {response_json!r}"
+        ) from e
     if not text or not text.strip():
-        raise ReviewError("Reviewer returned empty text.")
+        finish = ""
+        try:
+            finish = response_json["choices"][0].get("finish_reason") or ""
+        except (KeyError, TypeError, IndexError):
+            pass
+        raise ReviewError(
+            f"Reviewer returned empty text (finish_reason={finish!r}). "
+            "Consider raising max_tokens if reasoning effort is high."
+        )
     parsed = parse_review_output(text)
     usage = response_json.get("usage") or {}
     parsed["input_tokens"] = int(usage.get("prompt_tokens") or 0)
@@ -557,6 +727,8 @@ def _review_via_openrouter(
     parsed["request_id"] = response_json.get("id") or ""
     parsed["num_frames"] = 0
     parsed["provider"] = "openrouter"
+    parsed["reasoning_text"] = _extract_reasoning_text(message) if isinstance(message, dict) else ""
+    parsed["video_delivery"] = "base64" if use_base64 else "url"
     return parsed
 
 
@@ -576,10 +748,12 @@ def review(
     duration_seconds: float,
     resolution: str,
     num_frames: int = DEFAULT_NUM_FRAMES,
-    max_tokens: int = DEFAULT_MAX_TOKENS,
+    max_tokens: int | None = None,
     temperature: float = DEFAULT_TEMPERATURE,
     top_p: float = DEFAULT_TOP_P,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    previous_failures: list[dict] | None = None,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
 ) -> dict[str, Any]:
     if not video_url:
         raise ReviewError("video_url is required.")
@@ -597,7 +771,8 @@ def review(
             category=category, style=style, priority=priority,
             duration_seconds=duration_seconds, resolution=resolution,
             num_frames=num_frames,
-            max_tokens=max_tokens, temperature=temperature, top_p=top_p,
+            max_tokens=max_tokens if max_tokens is not None else DEFAULT_BEDROCK_MAX_TOKENS,
+            temperature=temperature, top_p=top_p,
             max_attempts=max_attempts,
         )
     elif provider_norm == "openrouter":
@@ -608,8 +783,11 @@ def review(
             enriched_prompt=enriched_prompt,
             category=category, style=style, priority=priority,
             duration_seconds=duration_seconds, resolution=resolution,
-            max_tokens=max_tokens, temperature=temperature, top_p=top_p,
+            max_tokens=max_tokens if max_tokens is not None else DEFAULT_OPENROUTER_MAX_TOKENS,
+            temperature=temperature, top_p=top_p,
             max_attempts=max_attempts,
+            previous_failures=previous_failures,
+            reasoning_effort=reasoning_effort,
         )
     else:
         raise ReviewConfigError(

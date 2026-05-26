@@ -27,6 +27,13 @@ _ALLOWED_TRANSITIONS = {
     _STATE_ERROR:      set(),
 }
 
+_DEFAULT_REVIEW_MAX_ATTEMPTS = 3
+_DEFAULT_REVIEW_MAX_PARALLEL = 4
+_DEFAULT_REVIEW_BATCH_SIZE = 8
+_DEFAULT_REVIEW_VIDEO_TTL_SECONDS = 900
+_PREVIOUS_FAILURE_LIMIT = 5
+_PREVIOUS_FAILURE_SEVERITIES = ("FATAL", "MAJOR")
+
 
 def _mask_model_id(value):
     if not value:
@@ -92,10 +99,59 @@ class CrowleyVideoReview(models.Model):
             ("review", "REVIEW"),
             ("reject", "REJECT"),
         ],
-        string="Verdict", readonly=True, copy=False, index=True,
+        string="Model Verdict", readonly=True, copy=False, index=True,
+        help="Raw verdict from the LLM reviewer (Gemini / Bedrock). "
+             "Downstream code reads 'Effective Verdict' instead, which "
+             "respects human override.",
+    )
+    human_verdict = fields.Selection(
+        [
+            ("accept", "ACCEPT"),
+            ("review", "REVIEW"),
+            ("reject", "REJECT"),
+        ],
+        string="Human Verdict", readonly=True, copy=False, index=True,
+        help="Manager-set override. When non-empty, replaces 'Model Verdict' "
+             "in all downstream gates (review_status, sequence sheets).",
+    )
+    human_override_user_id = fields.Many2one(
+        "res.users", string="Override By", readonly=True, copy=False,
+        help="Manager who last set or cleared the human verdict.",
+    )
+    human_override_at = fields.Datetime(
+        string="Override At", readonly=True, copy=False,
+    )
+    human_override_reason = fields.Text(
+        string="Override Reason", readonly=True, copy=False,
+        help="Justification recorded when the human verdict was set or cleared. "
+             "Required for audit; never silently overwritten.",
+    )
+    effective_verdict = fields.Selection(
+        [
+            ("accept", "ACCEPT"),
+            ("review", "REVIEW"),
+            ("reject", "REJECT"),
+        ],
+        string="Effective Verdict",
+        compute="_compute_effective_verdict", store=True, index=True,
+        help="human_verdict when set, else verdict. This is the field "
+             "downstream code (review_status, sheets, auto-retry) reads.",
     )
     passed = fields.Boolean(
         string="Passed", compute="_compute_passed", store=True,
+    )
+
+    reasoning_text = fields.Text(
+        string="Reasoning", readonly=True, copy=False,
+        help="Reviewer's chain-of-thought captured from the LLM (when supported). "
+             "OpenRouter Gemini returns this via the 'reasoning' field; "
+             "empty for providers that do not surface reasoning.",
+    )
+    video_delivery = fields.Selection(
+        [("url", "Presigned URL"), ("base64", "Base64 inline")],
+        string="Video Delivery", readonly=True, copy=False,
+        help="How the video was sent to the reviewer. 'base64' indicates "
+             "the URL fetch failed and we fell back to inline upload.",
     )
 
     fatal_count = fields.Integer(readonly=True, copy=False)
@@ -166,10 +222,15 @@ class CrowleyVideoReview(models.Model):
         for rec in self:
             rec.model_id_display = _mask_model_id(rec.model_id)
 
-    @api.depends("verdict")
+    @api.depends("verdict", "human_verdict")
+    def _compute_effective_verdict(self):
+        for rec in self:
+            rec.effective_verdict = rec.human_verdict or rec.verdict or False
+
+    @api.depends("effective_verdict")
     def _compute_passed(self):
         for rec in self:
-            rec.passed = rec.verdict == "accept"
+            rec.passed = rec.effective_verdict == "accept"
 
     @api.depends("input_tokens", "output_tokens")
     def _compute_tokens_used(self):
@@ -230,8 +291,24 @@ class CrowleyVideoReview(models.Model):
 
     def _run_review(self):
         self.ensure_one()
-        if self.state != _STATE_QUEUED:
+        # Atomic claim — only one worker may transition queued -> submitting.
+        # Prevents psycopg2.SerializationFailure under REPEATABLE READ when
+        # both the postcommit from a Run Review click and the cron dispatcher
+        # pick the same row before either commits.
+        self.env.cr.execute(
+            """UPDATE crowley_video_review
+               SET state = 'submitting', submitted_at = %s
+               WHERE id = %s AND state = %s
+               RETURNING id""",
+            (fields.Datetime.now(), self.id, _STATE_QUEUED),
+        )
+        if not self.env.cr.fetchone():
+            _logger.info(
+                "Crowley video-review %s: already claimed by another worker; skipping",
+                self.id,
+            )
             return
+        self.invalidate_recordset()
         try:
             self._run_review_body()
         except Exception as e:
@@ -251,10 +328,12 @@ class CrowleyVideoReview(models.Model):
             )
             return
 
-        video_url = attempt.video_play_url or attempt.video_s3_url
+        video_url = self._build_review_video_url(attempt)
         if not video_url:
             self._fail("no_video_url", "Attempt has no playable video URL.")
             return
+
+        previous_failures = self._collect_previous_failures(attempt)
 
         icp = self.env["ir.config_parameter"].sudo()
         provider = (icp.get_param(
@@ -357,6 +436,7 @@ class CrowleyVideoReview(models.Model):
                 duration_seconds=duration_seconds,
                 resolution=resolution,
                 num_frames=num_frames,
+                previous_failures=previous_failures,
             )
         except review_client.ReviewAuthError as e:
             self._fail("aws_auth", str(e))
@@ -380,6 +460,10 @@ class CrowleyVideoReview(models.Model):
             self._fail("bad_verdict", f"Reviewer returned unknown verdict: {verdict_norm!r}")
             return
 
+        video_delivery = result.get("video_delivery")
+        if video_delivery not in ("url", "base64"):
+            video_delivery = False
+
         self.write({
             "state": _STATE_DONE,
             "verdict": verdict_norm,
@@ -396,6 +480,8 @@ class CrowleyVideoReview(models.Model):
             "output_tokens": result.get("output_tokens") or 0,
             "bedrock_request_id": result.get("request_id") or "",
             "num_frames": result.get("num_frames") or 0,
+            "reasoning_text": result.get("reasoning_text") or "",
+            "video_delivery": video_delivery,
             "completed_at": fields.Datetime.now(),
         })
 
@@ -416,6 +502,8 @@ class CrowleyVideoReview(models.Model):
             ),
         })
 
+        self._maybe_create_sheet_row(attempt, verdict_norm)
+
     def _fail(self, error_code, error_message):
         self.ensure_one()
         if self.state in _TERMINAL:
@@ -431,3 +519,265 @@ class CrowleyVideoReview(models.Model):
             job.message_post(body=_(
                 "Video review failed (%(code)s): %(msg)s"
             ) % {"code": error_code, "msg": (error_message or "")[:200]})
+
+    def _build_review_video_url(self, attempt):
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            ttl = int(icp.get_param(
+                "crowley.review_video_url_ttl_seconds",
+                str(_DEFAULT_REVIEW_VIDEO_TTL_SECONDS),
+            ) or _DEFAULT_REVIEW_VIDEO_TTL_SECONDS)
+        except (TypeError, ValueError):
+            ttl = _DEFAULT_REVIEW_VIDEO_TTL_SECONDS
+        try:
+            connector_id = int(icp.get_param("crowley.s3_connector_id") or 0)
+        except (TypeError, ValueError):
+            connector_id = 0
+        if attempt.video_s3_key and connector_id:
+            try:
+                return self.env["crowley.s3.storage"].presigned_get_url(
+                    connector_id,
+                    attempt.video_s3_key,
+                    expires_in=ttl,
+                    mimetype=attempt.mimetype or "video/mp4",
+                    disposition="inline",
+                    filename=(
+                        f"{attempt.display_name}.mp4" if attempt.display_name else None
+                    ),
+                )
+            except Exception:
+                _logger.exception(
+                    "Crowley video-review: failed to presign URL for attempt %s",
+                    attempt.id,
+                )
+        return attempt.video_play_url or attempt.video_s3_url or ""
+
+    def _collect_previous_failures(self, attempt, limit=_PREVIOUS_FAILURE_LIMIT):
+        rejected = attempt.review_ids.filtered(
+            lambda r: r.state == _STATE_DONE
+            and r.verdict == "reject"
+            and r.id != self.id
+        ).sorted("create_date", reverse=True)
+        if not rejected:
+            return []
+        prior = rejected[0]
+        if not prior.findings_json:
+            return []
+        try:
+            parsed = json.loads(prior.findings_json)
+        except (TypeError, ValueError):
+            return []
+        findings = parsed.get("findings") if isinstance(parsed, dict) else None
+        if not isinstance(findings, list):
+            return []
+        out = []
+        for f in findings:
+            if not isinstance(f, dict):
+                continue
+            if (f.get("status") or "").lower() != "fail":
+                continue
+            sev = (f.get("severity") or "").upper()
+            if sev not in _PREVIOUS_FAILURE_SEVERITIES:
+                continue
+            out.append({
+                "rule": str(f.get("rule") or ""),
+                "severity": sev,
+                "evidence": str(f.get("evidence") or ""),
+            })
+            if len(out) >= limit:
+                break
+        return out
+
+    def _maybe_create_sheet_row(self, attempt, verdict_norm):
+        if verdict_norm == "accept":
+            sheet_type = "passed"
+        elif verdict_norm == "reject":
+            sheet_type = "failed"
+        else:
+            return
+        try:
+            with self.env.cr.savepoint():
+                self.env["crowley.sequence.sheet.row"].create_from_review(
+                    self, sheet_type,
+                )
+        except Exception:
+            _logger.exception(
+                "Crowley: failed to create sequence-sheet row for review %s (type=%s)",
+                self.id, sheet_type,
+            )
+
+    def _reevaluate_sheet_row(self):
+        self.ensure_one()
+        eff = self.effective_verdict or False
+        Row = self.env["crowley.sequence.sheet.row"].sudo()
+        existing = Row.search([("review_id", "=", self.id)], limit=1)
+        desired_type = (
+            "passed" if eff == "accept"
+            else "failed" if eff == "reject"
+            else False
+        )
+        if existing and existing.sheet_type == desired_type:
+            return
+        if existing:
+            existing.unlink()
+        if desired_type:
+            try:
+                with self.env.cr.savepoint():
+                    Row.create_from_review(self, desired_type)
+            except Exception:
+                _logger.exception(
+                    "Crowley: failed to re-evaluate sheet row for review %s "
+                    "after human override (target type=%s)",
+                    self.id, desired_type,
+                )
+
+    def _maybe_spawn_retry(self, attempt, verdict_norm):
+        if verdict_norm != "reject":
+            return
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            max_attempts = int(icp.get_param(
+                "crowley.review_max_attempts",
+                str(_DEFAULT_REVIEW_MAX_ATTEMPTS),
+            ) or _DEFAULT_REVIEW_MAX_ATTEMPTS)
+        except (TypeError, ValueError):
+            max_attempts = _DEFAULT_REVIEW_MAX_ATTEMPTS
+        existing = self.env["crowley.video.review"].search_count(
+            [("attempt_id", "=", attempt.id)]
+        )
+        job = attempt.job_id
+        if existing >= max_attempts:
+            if job:
+                job.message_post(body=_(
+                    "Video review rejected — max attempts (%(n)d) reached, no auto-retry queued."
+                ) % {"n": max_attempts})
+            return
+        new_review = self.env["crowley.video.review"].create({
+            "attempt_id": attempt.id,
+        })
+        if job:
+            job.message_post(body=_(
+                "Auto-retry video review queued (attempt %(n)d of %(max)d)."
+            ) % {"n": existing + 1, "max": max_attempts})
+        new_review._defer("_run_review")
+
+    @api.model
+    def _cron_run_queued_reviews(self):
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            max_parallel = int(icp.get_param(
+                "crowley.review_max_parallel",
+                str(_DEFAULT_REVIEW_MAX_PARALLEL),
+            ) or _DEFAULT_REVIEW_MAX_PARALLEL)
+        except (TypeError, ValueError):
+            max_parallel = _DEFAULT_REVIEW_MAX_PARALLEL
+        try:
+            batch_size = int(icp.get_param(
+                "crowley.review_batch_size",
+                str(_DEFAULT_REVIEW_BATCH_SIZE),
+            ) or _DEFAULT_REVIEW_BATCH_SIZE)
+        except (TypeError, ValueError):
+            batch_size = _DEFAULT_REVIEW_BATCH_SIZE
+
+        in_flight = self.search_count([("state", "=", _STATE_SUBMITTING)])
+        capacity = max_parallel - in_flight
+        if capacity <= 0:
+            return
+        limit = min(capacity, batch_size)
+
+        self.env.cr.execute(
+            """
+            SELECT id FROM crowley_video_review
+            WHERE state = %s
+            ORDER BY create_date ASC, id ASC
+            LIMIT %s
+            FOR UPDATE SKIP LOCKED
+            """,
+            (_STATE_QUEUED, limit),
+        )
+        rows = self.env.cr.fetchall()
+        if not rows:
+            return
+        reviews = self.browse([r[0] for r in rows])
+        for rec in reviews:
+            rec._defer("_run_review")
+        _logger.info(
+            "Crowley video-review cron: dispatched %d review(s) (in-flight=%d, max=%d)",
+            len(reviews), in_flight, max_parallel,
+        )
+
+    def _apply_human_override(self, human_verdict, reason):
+        self.ensure_one()
+        if not self.env.user.has_group("crowley.group_crowley_manager"):
+            raise ValidationError(_(
+                "Only Crowley Managers can override a video review verdict."
+            ))
+        if self.state != _STATE_DONE:
+            raise ValidationError(_(
+                "Cannot override a review that has not completed (state=%(state)s)."
+            ) % {"state": self.state})
+        if human_verdict not in (False, "accept", "review", "reject"):
+            raise ValidationError(_(
+                "Invalid human verdict %(v)r; expected accept, review, reject, or empty."
+            ) % {"v": human_verdict})
+        clean_reason = (reason or "").strip()
+        if not clean_reason:
+            raise ValidationError(_(
+                "An override reason is required for the audit trail."
+            ))
+
+        prior = self.human_verdict or False
+        self.write({
+            "human_verdict": human_verdict or False,
+            "human_override_reason": clean_reason[:4000],
+            "human_override_user_id": self.env.user.id,
+            "human_override_at": fields.Datetime.now(),
+        })
+
+        job = self.attempt_id.job_id
+        if job:
+            if human_verdict:
+                msg = _(
+                    "Video review human verdict set: %(prior)s → %(new)s "
+                    "by %(user)s. Reason: %(reason)s"
+                ) % {
+                    "prior": (prior or "—").upper(),
+                    "new": human_verdict.upper(),
+                    "user": self.env.user.display_name,
+                    "reason": clean_reason[:500],
+                }
+            else:
+                msg = _(
+                    "Video review human override cleared (was %(prior)s) "
+                    "by %(user)s. Reason: %(reason)s"
+                ) % {
+                    "prior": (prior or "—").upper(),
+                    "user": self.env.user.display_name,
+                    "reason": clean_reason[:500],
+                }
+            job.message_post(body=msg)
+
+        self._reevaluate_sheet_row()
+
+    def _open_override_wizard(self, mode):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Override Video Review Verdict"),
+            "res_model": "crowley.review.override.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_review_id": self.id,
+                "default_mode": mode,
+            },
+        }
+
+    def action_override_accept(self):
+        return self._open_override_wizard("accept")
+
+    def action_override_reject(self):
+        return self._open_override_wizard("reject")
+
+    def action_override_clear(self):
+        return self._open_override_wizard("clear")

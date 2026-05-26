@@ -5,6 +5,7 @@ from . import (
     test_dataset_naming as test_dataset_naming,
     test_openrouter_client as test_openrouter_client,
     test_reconcile as test_reconcile,
+    test_review_client as test_review_client,
     test_s3_integrity as test_s3_integrity,
     test_state_machine as test_state_machine,
     test_webhook_verifier as test_webhook_verifier,

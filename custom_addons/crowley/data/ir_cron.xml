@@ -30,5 +30,15 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+
+        <record id="ir_cron_crowley_run_queued_reviews" model="ir.cron">
+            <field name="name">Crowley: Run Queued Video Reviews</field>
+            <field name="model_id" ref="model_crowley_video_review"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_run_queued_reviews()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
     </data>
 </odoo>

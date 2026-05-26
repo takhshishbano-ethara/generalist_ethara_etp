@@ -114,21 +114,52 @@ class ResConfigSettings(models.TransientModel):
         default=3,
     )
     crowley_review_provider = fields.Selection(
-        [("openrouter", "OpenRouter (text-only review)"),
-         ("bedrock", "AWS Bedrock (multimodal Claude vision)")],
+        [("openrouter", "OpenRouter (Gemini multimodal)"),
+         ("bedrock", "AWS Bedrock (Claude vision frames)")],
         string="Video Review Provider",
         config_parameter="crowley.review_provider",
         default="openrouter",
-        help="OpenRouter routes the review to Kimi K2 (text-only — judges "
-             "the prompt contract, NOT the actual video frames). "
-             "Bedrock uses Claude vision with 20 extracted frames.",
+        help="OpenRouter routes the review to Gemini 3.1 Pro multimodal "
+             "(text + video URL in the same turn — judges prompt fidelity "
+             "AND actual video frames). Bedrock uses Claude vision with "
+             "20 ffmpeg-extracted frames as a fallback.",
     )
     crowley_openrouter_review_model_id = fields.Char(
         string="Review Model ID (OpenRouter)",
         config_parameter="crowley.openrouter_review_model_id",
-        default="moonshotai/kimi-k2-0905",
-        help="OpenRouter model slug for the review. Default: Kimi K2 (latest). "
-             "K2 is text-only; visual GV-* rules are marked N/A.",
+        default="google/gemini-3.1-pro-preview",
+        help="OpenRouter model slug for the review. Default: Gemini 3.1 Pro "
+             "Preview (multimodal — accepts video URL inline). Existing live "
+             "value is preserved on upgrade; flip here when ready to switch.",
+    )
+    crowley_review_max_attempts = fields.Integer(
+        string="Review Max Attempts per Attempt",
+        config_parameter="crowley.review_max_attempts",
+        default=3,
+        help="How many review rounds an attempt can spend before auto-retry "
+             "stops. Mirrors enrichment_max_attempts. Each reject below this "
+             "limit auto-queues the next round with previous failures injected.",
+    )
+    crowley_review_max_parallel = fields.Integer(
+        string="Review Max Parallel In-Flight",
+        config_parameter="crowley.review_max_parallel",
+        default=4,
+        help="Cap on concurrent submitting reviews. The cron dispatcher checks "
+             "this count and only releases capacity = max_parallel - in_flight.",
+    )
+    crowley_review_batch_size = fields.Integer(
+        string="Review Batch Size per Cron Tick",
+        config_parameter="crowley.review_batch_size",
+        default=8,
+        help="Upper bound on how many queued reviews the cron dispatches "
+             "per tick; effective dispatch is min(batch_size, capacity).",
+    )
+    crowley_review_video_url_ttl_seconds = fields.Integer(
+        string="Review Video URL TTL (seconds)",
+        config_parameter="crowley.review_video_url_ttl_seconds",
+        default=900,
+        help="TTL of the presigned S3 URL sent to the reviewer. Must outlive "
+             "the LLM round-trip; bump if Gemini reports url-fetch errors.",
     )
     # ── Generation defaults ───────────────────────────────────────────────
     crowley_default_resolution = fields.Selection(
@@ -296,7 +327,14 @@ class ResConfigSettings(models.TransientModel):
         sid = self.crowley_s3_connector_id.id if self.crowley_s3_connector_id else ""
         icp.set_param(_S3_CONNECTOR_PARAM, str(sid) if sid else "")
 
-    @api.constrains("crowley_bedrock_max_retries", "crowley_enrichment_max_attempts")
+    @api.constrains(
+        "crowley_bedrock_max_retries",
+        "crowley_enrichment_max_attempts",
+        "crowley_review_max_attempts",
+        "crowley_review_max_parallel",
+        "crowley_review_batch_size",
+        "crowley_review_video_url_ttl_seconds",
+    )
     def _check_bedrock_limits(self):
         for rec in self:
             if not (1 <= rec.crowley_bedrock_max_retries <= 10):
@@ -306,4 +344,20 @@ class ResConfigSettings(models.TransientModel):
             if not (1 <= rec.crowley_enrichment_max_attempts <= 5):
                 raise ValidationError(_(
                     "Enrichment Max Attempts must be between 1 and 5."
+                ))
+            if not (1 <= rec.crowley_review_max_attempts <= 5):
+                raise ValidationError(_(
+                    "Review Max Attempts must be between 1 and 5."
+                ))
+            if not (1 <= rec.crowley_review_max_parallel <= 32):
+                raise ValidationError(_(
+                    "Review Max Parallel must be between 1 and 32."
+                ))
+            if not (1 <= rec.crowley_review_batch_size <= 64):
+                raise ValidationError(_(
+                    "Review Batch Size must be between 1 and 64."
+                ))
+            if not (60 <= rec.crowley_review_video_url_ttl_seconds <= 86400):
+                raise ValidationError(_(
+                    "Review Video URL TTL must be between 60 seconds and 24 hours (86400)."
                 ))
