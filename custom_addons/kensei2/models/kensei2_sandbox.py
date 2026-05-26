@@ -3635,7 +3635,7 @@ class Kensei2Sandbox(models.Model):
 
         meta_info = {
             "task_type": self._slugify_task_type(),
-            "task_description": task.seed_prompt or task.task_id or "",
+            "task_description": task.task_description or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
@@ -4556,7 +4556,7 @@ class Kensei2Sandbox(models.Model):
 
         meta_info = {
             "task_type": self._slugify_task_type(),
-            "task_description": task.seed_prompt or task.task_id or "",
+            "task_description": task.task_description or "",
             "task_completion_status": "success",
             "system_prompt": task.system_prompt or "",
             "platform": "macOS",
