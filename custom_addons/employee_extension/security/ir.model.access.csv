@@ -3,3 +3,6 @@ access_employee_allocation_request_user,employee.allocation.request.user,model_e
 access_employee_allocation_request_manager,employee.allocation.request.manager,model_employee_allocation_request,hr.group_hr_manager,1,1,1,1
 access_employee_allocation_request_admin,employee.allocation.request.admin,model_employee_allocation_request,base.group_system,1,1,1,1
 access_hr_employee_offboarding_reasons,hr.employee.offboarding.reasons,model_hr_employee_offboarding_reasons,base.group_system,1,1,1,1
+access_hr_employee_assignment_history_user,hr.employee.assignment.history.user,model_hr_employee_assignment_history,base.group_user,1,0,0,0
+access_hr_employee_assignment_history_manager,hr.employee.assignment.history.manager,model_hr_employee_assignment_history,hr.group_hr_manager,1,1,1,1
+access_hr_employee_assignment_history_admin,hr.employee.assignment.history.admin,model_hr_employee_assignment_history,base.group_system,1,1,1,1
