@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- SEQUENCE                                                     -->
+    <!-- ============================================================ -->
+    <record id="seq_gohan_website_sheet" model="ir.sequence">
+        <field name="name">Upload Data</field>
+        <field name="code">gohan.website.sheet</field>
+        <field name="prefix">UD/%(year)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False"/>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- UPLOAD WIZARD                                                -->
+    <!-- ============================================================ -->
+    <record id="gohan_website_sheet_upload_view" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.upload.wizard.form</field>
+        <field name="model">gohan.website.sheet.upload.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Upload Data">
+                <group>
+                    <div class="alert alert-info" role="alert">
+                        <p class="mb-1">Upload a CSV with the following columns:</p>
+                        <ul class="mb-1">
+                            <li><strong>category</strong> — case-insensitive match against existing categories by name or code. <em>New categories are auto-created if they don't exist yet.</em></li>
+                            <li><strong>url</strong> — the website URL.</li>
+                        </ul>
+                        <p class="mb-0">URLs are auto-assigned to whichever tasker picks the matching category first.</p>
+                    </div>
+                    <field name="name" placeholder="Optional — auto-generated if blank"/>
+                    <field name="csv_file" filename="csv_filename"/>
+                    <field name="csv_filename" invisible="1"/>
+                </group>
+                <footer>
+                    <button name="action_upload" type="object" string="Upload" class="oe_highlight"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_gohan_website_sheet_upload" model="ir.actions.act_window">
+        <field name="name">Upload Data</field>
+        <field name="res_model">gohan.website.sheet.upload.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- PICK WIZARD (tasker)                                         -->
+    <!-- ============================================================ -->
+    <record id="gohan_website_pick_wizard_view" model="ir.ui.view">
+        <field name="name">gohan.website.pick.wizard.form</field>
+        <field name="model">gohan.website.pick.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Pick a Website">
+                <group>
+                    <div class="alert alert-info" role="alert">
+                        <p class="mb-0">Pick a category — the next available website in that category will be assigned to you.</p>
+                    </div>
+                    <field name="category_id"/>
+                    <field name="available_count" readonly="1"
+                           string="Available for me in this category"/>
+                </group>
+                <footer>
+                    <button name="action_pick" type="object" string="Pick Website" class="oe_highlight"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_gohan_website_pick_wizard" model="ir.actions.act_window">
+        <field name="name">Pick a Website</field>
+        <field name="res_model">gohan.website.pick.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- SHEET LINE — LIST + FORM (embedded in sheet AND standalone)  -->
+    <!-- ============================================================ -->
+    <record id="gohan_website_sheet_line_view_tree" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.line.list</field>
+        <field name="model">gohan.website.sheet.line</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="status == 'unassigned'"
+                  decoration-success="status == 'done'"
+                  decoration-info="status == 'in_progress'"
+                  decoration-warning="status == 'on_hold'"
+                  decoration-danger="status == 'cancelled'">
+                <field name="sheet_id" optional="show"/>
+                <field name="category_id"/>
+                <field name="url" widget="url"/>
+                <field name="assigned_user_id" widget="many2one_avatar_user"/>
+                <field name="job_id" optional="show"/>
+                <field name="job_state" optional="show"/>
+                <field name="assigned_date" optional="hide"/>
+                <field name="status" widget="badge"
+                       decoration-info="status == 'in_progress'"
+                       decoration-success="status == 'done'"
+                       decoration-warning="status == 'on_hold'"
+                       decoration-danger="status == 'cancelled'"
+                       decoration-muted="status == 'unassigned'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="gohan_website_sheet_line_view_form" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.line.form</field>
+        <field name="model">gohan.website.sheet.line</field>
+        <field name="arch" type="xml">
+            <form>
+                <field name="is_admin" invisible="1"/>
+                <header>
+                    <button name="action_open_url" type="object"
+                            string="Open Website" class="oe_highlight"
+                            invisible="not url"/>
+                    <button name="action_mark_in_progress" type="object"
+                            string="Mark In Progress"
+                            invisible="status == 'in_progress'"/>
+                    <button name="action_mark_done" type="object"
+                            string="Mark Done" class="btn-success"
+                            invisible="status == 'done'"/>
+                    <button name="action_release" type="object"
+                            string="Release"
+                            groups="gohan.group_gohan_admin"
+                            invisible="status == 'unassigned'"
+                            confirm="Release this URL back to the pool? It will become claimable again."/>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="unassigned,in_progress,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="url" widget="url" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="sheet_id" readonly="1"/>
+                            <field name="category_id" readonly="not is_admin"/>
+                            <field name="sheet_state" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="assigned_user_id"
+                                   readonly="not is_admin"
+                                   options="{'no_create': True}"/>
+                            <field name="assigned_date" readonly="1"/>
+                            <field name="job_id" readonly="1"/>
+                            <field name="job_state" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Notes">
+                        <field name="notes" nolabel="1" placeholder="Progress notes, blockers, anything worth recording..."/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="gohan_website_sheet_line_view_search" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.line.search</field>
+        <field name="model">gohan.website.sheet.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="url"/>
+                <field name="category_id"/>
+                <field name="assigned_user_id"/>
+                <field name="sheet_id"/>
+                <field name="job_id"/>
+                <filter name="mine" string="My Websites"
+                        domain="[('assigned_user_id', '=', uid)]"/>
+                <separator/>
+                <filter name="unassigned" string="Unassigned"
+                        domain="[('status', '=', 'unassigned')]"/>
+                <filter name="in_progress" string="In Progress"
+                        domain="[('status', '=', 'in_progress')]"/>
+                <filter name="on_hold" string="On Hold"
+                        domain="[('status', '=', 'on_hold')]"/>
+                <filter name="done" string="Done"
+                        domain="[('status', '=', 'done')]"/>
+                <filter name="cancelled" string="Cancelled"
+                        domain="[('status', '=', 'cancelled')]"/>
+                <separator/>
+                <filter name="active_sheet" string="From Active Sheets"
+                        domain="[('sheet_id.state', '=', 'active')]"/>
+                <group>
+                    <filter name="group_status" string="Status" context="{'group_by':'status'}"/>
+                    <filter name="group_category" string="Category" context="{'group_by':'category_id'}"/>
+                    <filter name="group_assigned" string="Assigned Tasker" context="{'group_by':'assigned_user_id'}"/>
+                    <filter name="group_sheet" string="Sheet" context="{'group_by':'sheet_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- SHEET — LIST + FORM                                          -->
+    <!-- ============================================================ -->
+    <record id="gohan_website_sheet_view_tree" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.list</field>
+        <field name="model">gohan.website.sheet</field>
+        <field name="arch" type="xml">
+            <list decoration-muted="state == 'closed'">
+                <header>
+                    <button name="%(action_gohan_website_sheet_upload)d"
+                            type="action"
+                            string="Upload Sheet"
+                            class="btn-primary"
+                            display="always"/>
+                </header>
+                <field name="name"/>
+                <field name="uploaded_by" widget="many2one_avatar_user"/>
+                <field name="create_date" string="Uploaded On"/>
+                <field name="total_count"/>
+                <field name="unassigned_count"/>
+                <field name="in_progress_count"/>
+                <field name="done_count"/>
+                <field name="state" widget="badge"
+                       decoration-success="state == 'active'"
+                       decoration-muted="state == 'closed'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="gohan_website_sheet_view_form" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.form</field>
+        <field name="model">gohan.website.sheet</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_close" type="object"
+                            string="Close Sheet"
+                            invisible="state != 'active'"
+                            confirm="Close this sheet? Taskers will no longer see its URLs in the pick wizard."/>
+                    <button name="action_reopen" type="object"
+                            string="Reopen"
+                            invisible="state != 'closed'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="active,closed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="uploaded_by" readonly="1"/>
+                            <field name="create_date" readonly="1" string="Uploaded On"/>
+                            <field name="csv_file" filename="csv_filename" readonly="1"/>
+                            <field name="csv_filename" invisible="1"/>
+                        </group>
+                        <group>
+                            <field name="total_count"/>
+                            <field name="unassigned_count"/>
+                            <field name="in_progress_count"/>
+                            <field name="done_count"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Websites">
+                            <field name="line_ids">
+                                <list editable="bottom"
+                                      decoration-muted="status == 'unassigned'"
+                                      decoration-success="status == 'done'"
+                                      decoration-info="status == 'in_progress'"
+                                      decoration-warning="status == 'on_hold'"
+                                      decoration-danger="status == 'cancelled'">
+                                    <field name="category_id"/>
+                                    <field name="url" widget="url"/>
+                                    <field name="assigned_user_id"
+                                           widget="many2one_avatar_user"
+                                           options="{'no_create': True}"/>
+                                    <field name="job_id" readonly="1" optional="show"/>
+                                    <field name="job_state" readonly="1" optional="hide"/>
+                                    <field name="assigned_date" readonly="1" optional="hide"/>
+                                    <field name="status" widget="badge"
+                                           decoration-info="status == 'in_progress'"
+                                           decoration-success="status == 'done'"
+                                           decoration-warning="status == 'on_hold'"
+                                           decoration-danger="status == 'cancelled'"
+                                           decoration-muted="status == 'unassigned'"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="gohan_website_sheet_view_search" model="ir.ui.view">
+        <field name="name">gohan.website.sheet.search</field>
+        <field name="model">gohan.website.sheet</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="uploaded_by"/>
+                <filter name="active" string="Active"
+                        domain="[('state', '=', 'active')]"/>
+                <filter name="closed" string="Closed"
+                        domain="[('state', '=', 'closed')]"/>
+                <group>
+                    <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                    <filter name="group_uploader" string="Uploader" context="{'group_by':'uploaded_by'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- WINDOW ACTIONS                                               -->
+    <!-- ============================================================ -->
+
+    <!-- Admin: all sheets -->
+    <record id="action_gohan_website_sheet" model="ir.actions.act_window">
+        <field name="name">Upload Data</field>
+        <field name="res_model">gohan.website.sheet</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="gohan_website_sheet_view_search"/>
+        <field name="context">{'search_default_active': 1}</field>
+    </record>
+
+    <!-- Admin: all lines across sheets -->
+    <record id="action_gohan_website_sheet_line" model="ir.actions.act_window">
+        <field name="name">All Websites</field>
+        <field name="res_model">gohan.website.sheet.line</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="gohan_website_sheet_line_view_search"/>
+    </record>
+
+    <!-- Tasker: lines assigned to me -->
+    <record id="action_gohan_website_sheet_line_mine" model="ir.actions.act_window">
+        <field name="name">My Websites</field>
+        <field name="res_model">gohan.website.sheet.line</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="gohan_website_sheet_line_view_search"/>
+        <field name="domain">[('assigned_user_id', '=', uid)]</field>
+        <field name="context">{'search_default_mine': 1}</field>
+    </record>
+
+</odoo>

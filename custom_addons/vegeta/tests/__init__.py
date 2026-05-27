@@ -7,6 +7,7 @@ from . import test_vegeta_job_actions
 from . import test_vegeta_job_compute
 from . import test_prd_generation
 from . import test_controller_webhook
+from . import test_controller_cron
 from . import test_wizards
 from . import test_markdown_helpers
 from . import test_worker_scaler

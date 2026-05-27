@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_t2av_review_override_wizard_form" model="ir.ui.view">
+        <field name="name">t2av.review.override.wizard.form</field>
+        <field name="model">t2av.review.override.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Override Video Review Verdict">
+                <sheet>
+                    <group>
+                        <field name="review_id" readonly="1"/>
+                        <field name="mode" readonly="1"/>
+                    </group>
+                    <group string="Current State">
+                        <field name="current_model_verdict" widget="badge"
+                               decoration-success="current_model_verdict == 'accept'"
+                               decoration-warning="current_model_verdict == 'review'"
+                               decoration-danger="current_model_verdict == 'reject'"/>
+                        <field name="current_human_verdict" widget="badge"
+                               decoration-success="current_human_verdict == 'accept'"
+                               decoration-warning="current_human_verdict == 'review'"
+                               decoration-danger="current_human_verdict == 'reject'"/>
+                        <field name="current_effective_verdict" widget="badge"
+                               decoration-success="current_effective_verdict == 'accept'"
+                               decoration-warning="current_effective_verdict == 'review'"
+                               decoration-danger="current_effective_verdict == 'reject'"/>
+                    </group>
+                    <group string="Reason (required, audit-logged)">
+                        <field name="reason" nolabel="1"
+                               placeholder="Why are you overriding this verdict? This is recorded on the job's chatter and cannot be edited later."/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_apply" type="object"
+                            string="Apply Override" class="btn-primary"/>
+                    <button special="cancel" string="Cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

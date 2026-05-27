@@ -1599,11 +1599,11 @@ class Kensei2(models.Model):
         db_name = self.env.cr.dbname
         notify_partner_id = self.env.user.partner_id.id
 
-        from .kensei2_sandbox import _BATCH_POOL, _run_batch_deploy_background
+        from .kensei2_sandbox import _ORCHESTRATOR_POOL, _run_batch_deploy_background
 
         @self.env.cr.postcommit.add
         def _queue_batch():
-            _BATCH_POOL.submit(
+            _ORCHESTRATOR_POOL.submit(
                 _run_batch_deploy_background,
                 db_name,
                 task_id,
@@ -1655,11 +1655,11 @@ class Kensei2(models.Model):
         notify_partner_id = self.env.user.partner_id.id
         att_ids = list(attachment_ids) if attachment_ids else []
 
-        from .kensei2_sandbox import _BATCH_POOL, _run_batch_prompt_background
+        from .kensei2_sandbox import _ORCHESTRATOR_POOL, _run_batch_prompt_background
 
         @self.env.cr.postcommit.add
         def _queue_prompt():
-            _BATCH_POOL.submit(
+            _ORCHESTRATOR_POOL.submit(
                 _run_batch_prompt_background,
                 db_name,
                 task_id,
@@ -1709,11 +1709,11 @@ class Kensei2(models.Model):
         notify_partner_id = self.env.user.partner_id.id
         att_ids = list(attachment_ids) if attachment_ids else []
 
-        from .kensei2_sandbox import _BATCH_POOL, _run_selective_prompt_background
+        from .kensei2_sandbox import _ORCHESTRATOR_POOL, _run_selective_prompt_background
 
         @self.env.cr.postcommit.add
         def _queue_selective_prompt():
-            _BATCH_POOL.submit(
+            _ORCHESTRATOR_POOL.submit(
                 _run_selective_prompt_background,
                 db_name,
                 task_id,
@@ -1753,11 +1753,11 @@ class Kensei2(models.Model):
         db_name = self.env.cr.dbname
         notify_partner_id = self.env.user.partner_id.id
 
-        from .kensei2_sandbox import _BATCH_POOL, _run_batch_stop_background
+        from .kensei2_sandbox import _ORCHESTRATOR_POOL, _run_batch_stop_background
 
         @self.env.cr.postcommit.add
         def _queue_batch_stop():
-            _BATCH_POOL.submit(
+            _ORCHESTRATOR_POOL.submit(
                 _run_batch_stop_background,
                 db_name,
                 task_id,
@@ -3596,23 +3596,39 @@ class Kensei2(models.Model):
 
     @api.model
     def _reconcile_batch_status(self):
+        from .kensei2_sandbox import _BATCH_START_TIMEOUT
+
         # ── Phase 1: starting → ready ────────────────────────────────
         tasks = self.sudo().search([("batch_status", "=", "starting")])
         for task in tasks:
             sandboxes = task.sandbox_ids
             if not sandboxes:
                 continue
+
+            elapsed = 0
+            if task.batch_started_at:
+                elapsed = (
+                    fields.Datetime.now() - task.batch_started_at
+                ).total_seconds()
+
             still_starting = sandboxes.filtered(
                 lambda s: s.docker_status == "starting"
             )
             if still_starting:
                 continue
+
             running = sandboxes.filtered(lambda s: s.docker_status == "running")
             if running:
                 task.write({"batch_status": "ready"})
                 _logger.info(
                     "[BATCH-RECONCILE] task=%s → ready (%d running, %d total)",
                     task.id, len(running), len(sandboxes),
+                )
+            elif elapsed < _BATCH_START_TIMEOUT:
+                _logger.info(
+                    "[BATCH-RECONCILE] task=%s still deploying (elapsed=%ds, 0 running, "
+                    "%d total) — waiting for deploy threads",
+                    task.id, int(elapsed), len(sandboxes),
                 )
             else:
                 task.write({
@@ -3621,8 +3637,8 @@ class Kensei2(models.Model):
                     "batch_completed_at": fields.Datetime.now(),
                 })
                 _logger.warning(
-                    "[BATCH-RECONCILE] task=%s → error (0 running, %d total)",
-                    task.id, len(sandboxes),
+                    "[BATCH-RECONCILE] task=%s → error (0 running, %d total, elapsed=%ds)",
+                    task.id, len(sandboxes), int(elapsed),
                 )
 
         # ── Phase 2: running → stopping / done ───────────────────────

@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ===== Run kanban (used inline inside the task form) ===== -->
+    <record id="view_mm_tasker_run_kanban" model="ir.ui.view">
+        <field name="name">mm.tasker.run.kanban</field>
+        <field name="model">mm.tasker.run</field>
+        <field name="arch" type="xml">
+            <kanban string="Reference Runs" default_order="model_key, run_index">
+                <field name="id"/>
+                <field name="model_key"/>
+                <field name="model_label"/>
+                <field name="run_index"/>
+                <field name="state"/>
+                <field name="passed"/>
+                <field name="awarded"/>
+                <field name="max_total"/>
+                <field name="per_task_score"/>
+                <field name="duration_s"/>
+                <field name="error_message"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="o_kanban_card_header pb-2">
+                            <strong><field name="model_label"/></strong>
+                            <span class="badge text-bg-secondary ms-2">
+                                run <field name="run_index"/>
+                            </span>
+                        </div>
+                        <div class="o_kanban_card_content">
+                            <div>
+                                <span class="badge" t-attf-class="badge text-bg-{{
+                                    record.state.raw_value === 'scored' ? (record.passed.raw_value ? 'success' : 'warning') :
+                                    record.state.raw_value === 'error' ? 'danger' :
+                                    record.state.raw_value === 'running' || record.state.raw_value === 'judging' ? 'info' :
+                                    'secondary'}}">
+                                    <field name="state"/>
+                                </span>
+                                <span t-if="record.state.raw_value === 'scored'" class="ms-2">
+                                    <t t-if="record.passed.raw_value">✅ pass</t>
+                                    <t t-else="">❌ fail</t>
+                                </span>
+                            </div>
+                            <div class="mt-2" t-if="record.state.raw_value === 'scored'">
+                                <div>Score: <strong><field name="per_task_score"/></strong></div>
+                                <div class="text-muted small">
+                                    <field name="awarded"/> / <field name="max_total"/> pts
+                                    · <field name="duration_s"/>s
+                                </div>
+                            </div>
+                            <div class="mt-2 text-danger small" t-if="record.state.raw_value === 'error'">
+                                <field name="error_message"/>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- ===== Run list ===== -->
+    <record id="view_mm_tasker_run_list" model="ir.ui.view">
+        <field name="name">mm.tasker.run.list</field>
+        <field name="model">mm.tasker.run</field>
+        <field name="arch" type="xml">
+            <list string="Reference Runs"
+                  decoration-success="state=='scored' and passed"
+                  decoration-warning="state=='scored' and not passed"
+                  decoration-danger="state=='error'"
+                  decoration-muted="state=='queued'"
+                  decoration-info="state in ('running','judging')"
+                  default_order="model_key, run_index">
+                <field name="model_label"/>
+                <field name="run_index" string="Run #"/>
+                <field name="state" widget="badge"
+                       decoration-success="state=='scored'"
+                       decoration-info="state in ('running','judging')"
+                       decoration-danger="state=='error'"
+                       decoration-muted="state=='queued'"/>
+                <field name="awarded"/>
+                <field name="max_total"/>
+                <field name="per_task_score" widget="percentage"/>
+                <field name="passed" widget="boolean_toggle"/>
+                <field name="duration_s"/>
+                <field name="tokens_in" optional="hide"/>
+                <field name="tokens_out" optional="hide"/>
+                <button name="action_rerun" type="object" string="Re-run" icon="fa-refresh"
+                        groups="mm_tasker.group_mm_manager"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ===== Run form (drill-in) ===== -->
+    <record id="view_mm_tasker_run_form" model="ir.ui.view">
+        <field name="name">mm.tasker.run.form</field>
+        <field name="model">mm.tasker.run</field>
+        <field name="arch" type="xml">
+            <form string="Reference Run">
+                <header>
+                    <button name="action_rerun" type="object"
+                            string="Re-run"
+                            class="btn-primary"
+                            icon="fa-refresh"
+                            invisible="state == 'running' or state == 'judging'"
+                            groups="mm_tasker.group_mm_manager"/>
+                    <button name="action_regrade" type="object"
+                            string="Re-grade Rubrics"
+                            class="btn-secondary"
+                            icon="fa-calculator"
+                            invisible="state != 'scored'"
+                            confirm="Re-grade this run via goku /regrade against the current rubrics? The agent is NOT re-run — goku re-scores probe / shell / response-text rubrics against the persisted workspace and response. LLM judge verdicts (response_criteria / response_not_criteria) are kept as-is — click Run Judge in the task header to refresh those."
+                            groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="queued,running,judging,scored,error"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="PASS" bg_color="text-bg-success"
+                            invisible="state != 'scored' or not passed"/>
+                    <widget name="web_ribbon" title="FAIL" bg_color="text-bg-warning"
+                            invisible="state != 'scored' or passed"/>
+                    <widget name="web_ribbon" title="ERROR" bg_color="text-bg-danger"
+                            invisible="state != 'error'"/>
+
+                    <div class="oe_title">
+                        <h1>
+                            <field name="model_label" readonly="1" class="oe_inline"/>
+                            <span class="badge text-bg-secondary ms-2">
+                                run <field name="run_index" readonly="1" class="oe_inline"/>
+                            </span>
+                        </h1>
+                        <h3 class="text-muted">
+                            <field name="task_id" readonly="1"/>
+                        </h3>
+                    </div>
+
+                    <group>
+                        <group string="Score" invisible="state != 'scored'">
+                            <field name="awarded"/>
+                            <field name="max_total"/>
+                            <field name="raw_score"/>
+                            <field name="per_task_score"/>
+                            <field name="passed"/>
+                        </group>
+                        <group string="Run Info">
+                            <field name="started_at"/>
+                            <field name="finished_at"/>
+                            <field name="duration_s"/>
+                            <field name="tokens_in"/>
+                            <field name="tokens_out"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Response" name="response">
+                            <field name="response_text" nolabel="1" readonly="1"
+                                   widget="text" placeholder="(pending run)"/>
+                        </page>
+                        <page string="Output Files" name="output_files">
+                            <field name="output_file_ids" nolabel="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="file" filename="name"/>
+                                    <field name="size_bytes"/>
+                                    <field name="sha256" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Per-rubric Scores" name="scores">
+                            <field name="score_ids" nolabel="1" readonly="1">
+                                <list decoration-success="passed and rubric_points &gt; 0"
+                                      decoration-danger="triggered"
+                                      decoration-warning="not passed and rubric_points &gt; 0">
+                                    <field name="rubric_number" string="#"/>
+                                    <field name="rubric_type"/>
+                                    <field name="rubric_category"/>
+                                    <field name="rubric_importance"/>
+                                    <field name="rubric_points"/>
+                                    <field name="passed" widget="boolean_toggle"/>
+                                    <field name="triggered" widget="boolean_toggle" optional="show"/>
+                                    <field name="awarded_points"/>
+                                    <field name="judged_by"/>
+                                    <field name="judge_rationale"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Error" name="error" invisible="not error_message">
+                            <field name="error_message" nolabel="1" readonly="1" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+</odoo>

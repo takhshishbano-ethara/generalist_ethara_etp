@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="param_active_models" model="ir.config_parameter">
+            <field name="key">mm_tasker.active_models</field>
+            <field name="value">claude_opus_4_7,gpt_5_5,gemini_3_1</field>
+        </record>
+
+        <record id="param_model_labels" model="ir.config_parameter">
+            <field name="key">mm_tasker.model_labels</field>
+            <field name="value">claude_opus_4_7:Claude Opus 4.7,gpt_5_5:GPT 5.5,gemini_3_1:Gemini 3.1</field>
+        </record>
+
+        <record id="param_backend_url" model="ir.config_parameter">
+            <field name="key">mm_tasker.backend_url</field>
+            <field name="value"></field>
+        </record>
+
+        <record id="param_backend_token" model="ir.config_parameter">
+            <field name="key">mm_tasker.backend_token</field>
+            <field name="value"></field>
+        </record>
+
+        <record id="param_backend_timeout" model="ir.config_parameter">
+            <field name="key">mm_tasker.backend_timeout</field>
+            <field name="value">120</field>
+        </record>
+
+        <record id="param_test_mode" model="ir.config_parameter">
+            <field name="key">mm_tasker.test_mode</field>
+            <field name="value">true</field>
+        </record>
+
+        <record id="param_judge_model_key" model="ir.config_parameter">
+            <field name="key">mm_tasker.judge_model_key</field>
+            <field name="value">claude_opus_4_7</field>
+        </record>
+
+        <record id="param_judge_backend_url" model="ir.config_parameter">
+            <field name="key">mm_tasker.judge_backend_url</field>
+            <field name="value"></field>
+        </record>
+
+        <record id="param_judge_cost_per_1m_in" model="ir.config_parameter">
+            <field name="key">mm_tasker.judge_cost_per_1m_in</field>
+            <field name="value">15.0</field>
+        </record>
+
+        <record id="param_judge_cost_per_1m_out" model="ir.config_parameter">
+            <field name="key">mm_tasker.judge_cost_per_1m_out</field>
+            <field name="value">75.0</field>
+        </record>
+
+        <!-- Subprocess timeout (seconds) for each per-section QC script
+             (scripts/qc_prompt.py, qc_media.py, qc_rubrics.py). -->
+        <record id="param_qc_timeout" model="ir.config_parameter">
+            <field name="key">mm_tasker.qc_timeout</field>
+            <field name="value">30</field>
+        </record>
+
+    </data>
+</odoo>

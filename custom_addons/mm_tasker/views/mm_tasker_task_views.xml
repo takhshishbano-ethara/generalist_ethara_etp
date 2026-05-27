@@ -1,0 +1,718 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_mm_tasker_task_list" model="ir.ui.view">
+        <field name="name">mm.tasker.task.list</field>
+        <field name="model">mm.tasker.task</field>
+        <field name="arch" type="xml">
+            <list string="MM Tasks"
+                  decoration-muted="state=='draft'"
+                  decoration-warning="state=='ready_for_eval'"
+                  decoration-info="state in ('dispatched','evaluated')"
+                  decoration-success="state=='qc_passed'"
+                  decoration-danger="state=='qc_failed'"
+                  default_order="task_date desc">
+                <field name="name"/>
+                <field name="tasker_id" widget="many2one_avatar_user"/>
+                <field name="task_date" widget="date"/>
+                <field name="media_count" string="Media"/>
+                <field name="rubric_count" string="Rubrics"/>
+                <field name="state" widget="badge"
+                       decoration-muted="state=='draft'"
+                       decoration-warning="state=='ready_for_eval'"
+                       decoration-info="state in ('dispatched','evaluated')"
+                       decoration-success="state=='qc_passed'"
+                       decoration-danger="state=='qc_failed'"/>
+                <field name="qc_verdict" groups="mm_tasker.group_mm_qc" optional="show"/>
+                <field name="qc_user_id" groups="mm_tasker.group_mm_qc" widget="many2one_avatar_user" optional="hide"/>
+                <field name="qc_date" groups="mm_tasker.group_mm_qc" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_mm_tasker_task_form" model="ir.ui.view">
+        <field name="name">mm.tasker.task.form</field>
+        <field name="model">mm.tasker.task</field>
+        <field name="arch" type="xml">
+            <form string="MM Task">
+                <header>
+                    <button name="action_run_judge" type="object"
+                            string="Run Judge"
+                            icon="fa-gavel"
+                            class="btn-primary"
+                            invisible="state not in ('dispatched','evaluated')"
+                            confirm="Run the LLM judge over response_criteria rubrics? Existing judge scores will be cleared and re-created."
+                            groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                    <button name="action_back_to_draft" type="object"
+                            string="Back to Draft"
+                            class="btn-secondary"
+                            invisible="state not in ('ready_for_eval','dispatched','evaluated')"
+                            confirm="Unlock this task back to Draft? Any existing model runs will be deleted."
+                            groups="mm_tasker.group_mm_manager"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,ready_for_eval,dispatched,evaluated,qc_passed,qc_failed"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon"
+                            title="QC Passed"
+                            bg_color="text-bg-success"
+                            invisible="state != 'qc_passed'"/>
+                    <widget name="web_ribbon"
+                            title="QC Failed"
+                            bg_color="text-bg-danger"
+                            invisible="state != 'qc_failed'"/>
+
+                    <div class="alert alert-info d-flex align-items-center" role="status"
+                         invisible="state != 'draft'">
+                        <i class="fa fa-list-ol me-2"/>
+                        <div>
+                            <b>Workflow:</b> <b>Prompts</b> → Submit &amp; Verify, then <b>Media</b> → Submit &amp; Verify, then <b>Rubrics</b> → Submit &amp; Verify.
+                            Each Submit runs its own QC script — locking a section is the reward for passing.
+                            When all three pass, the <b>Verdict</b> tab unlocks <b>Run Models</b>.
+                        </div>
+                    </div>
+
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" icon="fa-photo" disabled="disabled">
+                            <field name="media_count" widget="statinfo" string="Media"/>
+                        </button>
+                        <button class="oe_stat_button" icon="fa-list-ol" disabled="disabled">
+                            <field name="rubric_count" widget="statinfo" string="Rubrics"/>
+                        </button>
+                        <button class="oe_stat_button" icon="fa-rocket" disabled="disabled">
+                            <field name="runs_passed" widget="statinfo" string="Runs Passed"/>
+                        </button>
+                    </div>
+
+                    <div class="oe_title">
+                        <label for="name" class="o_form_label"/>
+                        <h1>
+                            <field name="name" readonly="1" nolabel="1"/>
+                        </h1>
+                    </div>
+
+                    <group>
+                        <group string="Ownership">
+                            <field name="tasker_id" readonly="1" widget="many2one_avatar_user"/>
+                            <field name="task_date" readonly="1"/>
+                        </group>
+                        <group string="Status" groups="mm_tasker.group_mm_qc">
+                            <field name="qc_verdict" readonly="1" invisible="not qc_verdict"/>
+                            <field name="qc_user_id" readonly="1" invisible="not qc_user_id" widget="many2one_avatar_user"/>
+                            <field name="qc_date" readonly="1" invisible="not qc_date"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Prompts" name="prompts">
+                            <div class="alert alert-info" role="status"
+                                 invisible="state != 'draft' or prompts_submitted">
+                                <i class="fa fa-magic"/>
+                                <b>Final Prompt is auto-composed</b> as <code>Default Prompt</code> + blank line + <code>Human Prompt</code>.
+                                Edit it directly if you want a different consolidation — your manual edit will persist until you change Default or Human again.
+                            </div>
+                            <div class="alert alert-success d-flex align-items-center" role="status"
+                                 invisible="not prompts_submitted">
+                                <i class="fa fa-lock me-2"/>
+                                <div>
+                                    <b>Prompts submitted &amp; QC passed.</b>
+                                    <span invisible="not prompt_qc_message"> · <field name="prompt_qc_message" readonly="1" class="oe_inline"/></span>
+                                    Click <b>Edit again</b> to make changes.
+                                </div>
+                            </div>
+                            <div class="alert alert-danger" role="status"
+                                 invisible="prompt_qc_verdict != 'fail'">
+                                <i class="fa fa-times-circle me-2"/>
+                                <b>Prompt QC failed</b> · <field name="prompt_qc_at" readonly="1" class="oe_inline"/>
+                                <div class="mt-2"><field name="prompt_qc_message" readonly="1" nolabel="1"/></div>
+                                <div class="mt-2 small">Fix the issues above and click <b>Submit &amp; Verify</b> again.</div>
+                            </div>
+                            <field name="prompt_qc_verdict" invisible="1"/>
+                            <field name="prompt_qc_at" invisible="1"/>
+                            <separator string="Default Prompt"/>
+                            <field name="default_prompt"
+                                   nolabel="1"
+                                   readonly="state != 'draft' or prompts_submitted"
+                                   placeholder="Original / seeded prompt that the tasker received."/>
+                            <separator string="Human Prompt"/>
+                            <field name="human_prompt"
+                                   nolabel="1"
+                                   readonly="state != 'draft' or prompts_submitted"
+                                   placeholder="Annotator rewrite — what the human would have asked."/>
+                            <separator string="Final Prompt (auto · required)"/>
+                            <field name="final_prompt"
+                                   nolabel="1"
+                                   readonly="state != 'draft' or prompts_submitted"
+                                   placeholder="Auto-filled from Default + Human. You can still edit before submitting."/>
+                            <field name="prompts_submitted" invisible="1"/>
+                            <div class="mt-3 text-end" invisible="state != 'draft'">
+                                <button name="action_submit_prompts" type="object"
+                                        string="Submit &amp; Verify"
+                                        icon="fa-check"
+                                        class="btn-primary"
+                                        invisible="prompts_submitted"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                                <button name="action_unlock_prompts" type="object"
+                                        string="Edit again"
+                                        icon="fa-pencil"
+                                        class="btn-secondary"
+                                        invisible="not prompts_submitted"
+                                        confirm="Unlocking Prompts will also clear the Media and Rubrics QC verdicts, since they depend on the prompt. Continue?"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                            </div>
+                        </page>
+
+                        <page string="Media" name="media">
+                            <div class="alert alert-danger" role="status"
+                                 invisible="media_count != 0 or state != 'draft' or media_submitted">
+                                <i class="fa fa-exclamation-circle"/>
+                                <b>At least one media file is required.</b>
+                                Attach the images, PDFs, or videos the agent will see — kind is auto-detected from the filename.
+                            </div>
+                            <div class="alert alert-info" role="status"
+                                 invisible="media_count == 0 or state != 'draft' or media_submitted">
+                                <i class="fa fa-info-circle"/>
+                                <b><field name="media_count" readonly="1" class="oe_inline"/></b> media file(s) attached.
+                            </div>
+                            <div class="alert alert-warning" role="status"
+                                 invisible="prompts_submitted or state != 'draft'">
+                                <i class="fa fa-lock me-2"/>
+                                <b>Submit the Prompts tab first.</b> Media QC cross-checks the prompt against the attached files.
+                            </div>
+                            <div class="alert alert-success d-flex align-items-center" role="status"
+                                 invisible="not media_submitted">
+                                <i class="fa fa-lock me-2"/>
+                                <div>
+                                    <b>Media submitted &amp; QC passed</b> · <field name="media_count" readonly="1" class="oe_inline"/> file(s).
+                                    <span invisible="not media_qc_message"> · <field name="media_qc_message" readonly="1" class="oe_inline"/></span>
+                                    Click <b>Edit again</b> to attach or remove.
+                                </div>
+                            </div>
+                            <div class="alert alert-danger" role="status"
+                                 invisible="media_qc_verdict != 'fail'">
+                                <i class="fa fa-times-circle me-2"/>
+                                <b>Media QC failed</b> · <field name="media_qc_at" readonly="1" class="oe_inline"/>
+                                <div class="mt-2"><field name="media_qc_message" readonly="1" nolabel="1"/></div>
+                                <div class="mt-2 small">Fix the issues (typically: attach the file the prompt mentions, or remove the stray reference) and click <b>Submit &amp; Verify</b> again.</div>
+                            </div>
+                            <field name="media_submitted" invisible="1"/>
+                            <field name="media_qc_verdict" invisible="1"/>
+                            <field name="media_qc_at" invisible="1"/>
+                            <group>
+                                <group string="Counts">
+                                    <field name="media_count" readonly="1"/>
+                                    <field name="image_count" readonly="1"/>
+                                    <field name="pdf_count" readonly="1"/>
+                                    <field name="video_count" readonly="1"/>
+                                </group>
+                            </group>
+                            <separator string="Attached Media"/>
+                            <field name="media_ids"
+                                   nolabel="1"
+                                   readonly="state != 'draft' or media_submitted"
+                                   mode="kanban,list"
+                                   context="{'default_task_id': id}">
+                                <kanban string="Media">
+                                    <field name="id"/>
+                                    <field name="name"/>
+                                    <field name="kind"/>
+                                    <field name="filename"/>
+                                    <field name="image_preview"/>
+                                    <field name="file"/>
+                                    <field name="file_size"/>
+                                    <templates>
+                                        <t t-name="card">
+                                            <div class="o_kanban_image text-center" style="height:140px;display:flex;align-items:center;justify-content:center;background:#f7f7f7;border-radius:4px;overflow:hidden;">
+                                                <t t-if="record.kind.raw_value === 'image'">
+                                                    <img t-att-src="kanban_image('mm.tasker.media','image_preview',record.id.raw_value)" alt="image" style="max-width:100%;max-height:140px;object-fit:contain;"/>
+                                                </t>
+                                                <t t-elif="record.kind.raw_value === 'pdf'">
+                                                    <i class="fa fa-file-pdf-o fa-4x text-danger"/>
+                                                </t>
+                                                <t t-elif="record.kind.raw_value === 'video'">
+                                                    <i class="fa fa-file-video-o fa-4x text-primary"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <i class="fa fa-file-o fa-4x text-muted"/>
+                                                </t>
+                                            </div>
+                                            <div class="oe_kanban_details mt-2">
+                                                <strong><field name="name"/></strong>
+                                                <div class="text-muted small">
+                                                    <field name="kind"/>
+                                                    <span t-if="record.file_size.raw_value"> · <field name="file_size"/> B</span>
+                                                </div>
+                                            </div>
+                                        </t>
+                                    </templates>
+                                </kanban>
+                                <list string="Media" editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="file" filename="filename"/>
+                                    <field name="filename" column_invisible="1"/>
+                                    <field name="kind"/>
+                                    <field name="mime_type" optional="hide"/>
+                                    <field name="file_size" optional="hide"/>
+                                    <field name="notes" optional="hide"/>
+                                </list>
+                                <form string="Media Item">
+                                    <sheet>
+                                        <group>
+                                            <group>
+                                                <field name="name"/>
+                                                <field name="file" filename="filename"/>
+                                                <field name="filename" invisible="1"/>
+                                            </group>
+                                            <group>
+                                                <field name="kind"/>
+                                                <field name="mime_type" readonly="1"/>
+                                                <field name="file_size" readonly="1"/>
+                                            </group>
+                                        </group>
+                                        <separator string="Preview" invisible="kind != 'image'"/>
+                                        <field name="image_preview" widget="image" nolabel="1"
+                                               invisible="kind != 'image'"
+                                               options="{'size': [600, 600]}"/>
+                                        <separator string="Notes"/>
+                                        <field name="notes" nolabel="1"
+                                               placeholder="Source, license, what the agent should notice, etc."/>
+                                    </sheet>
+                                </form>
+                            </field>
+                            <div class="mt-3 text-end" invisible="state != 'draft'">
+                                <button name="action_submit_media" type="object"
+                                        string="Submit &amp; Verify"
+                                        icon="fa-check"
+                                        class="btn-primary"
+                                        invisible="media_submitted or not prompts_submitted"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                                <button name="action_unlock_media" type="object"
+                                        string="Edit again"
+                                        icon="fa-pencil"
+                                        class="btn-secondary"
+                                        invisible="not media_submitted"
+                                        confirm="Unlocking Media will also clear the Rubrics QC verdict. Continue?"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                            </div>
+                        </page>
+
+                        <page string="Rubrics" name="rubrics">
+                            <div class="alert alert-danger" role="status"
+                                 invisible="rubric_count != 0 or state != 'draft' or rubrics_submitted">
+                                <i class="fa fa-exclamation-circle"/>
+                                <b>A rubrics.jsonl file is required.</b>
+                                Upload one JSON object per line — see the annotation guideline for field shape. Rows will appear below once uploaded.
+                            </div>
+                            <div class="alert alert-info" role="status"
+                                 invisible="rubric_count == 0 or state != 'draft' or rubrics_submitted">
+                                <i class="fa fa-info-circle"/>
+                                <b><field name="rubric_count" readonly="1" class="oe_inline"/></b> rubric item(s) parsed.
+                            </div>
+                            <div class="alert alert-warning" role="status"
+                                 invisible="media_submitted or state != 'draft'">
+                                <i class="fa fa-lock me-2"/>
+                                <b>Submit the Media tab first.</b> Rubric QC cross-checks the rubrics against the prompt and attached media.
+                            </div>
+                            <div class="alert alert-success d-flex align-items-center" role="status"
+                                 invisible="not rubrics_submitted">
+                                <i class="fa fa-lock me-2"/>
+                                <div>
+                                    <b>Rubrics submitted &amp; QC passed</b> · <field name="rubric_count" readonly="1" class="oe_inline"/> item(s).
+                                    <span invisible="not rubrics_qc_message"> · <field name="rubrics_qc_message" readonly="1" class="oe_inline"/></span>
+                                    Click <b>Edit again</b> to re-upload.
+                                </div>
+                            </div>
+                            <div class="alert alert-danger" role="status"
+                                 invisible="rubrics_qc_verdict != 'fail'">
+                                <i class="fa fa-times-circle me-2"/>
+                                <b>Rubrics QC failed</b> · <field name="rubrics_qc_at" readonly="1" class="oe_inline"/>
+                                <div class="mt-2"><field name="rubrics_qc_message" readonly="1" nolabel="1"/></div>
+                                <div class="mt-2 small">Fix the issues (often: rubric references a file not attached, or a criterion has no overlap with the prompt) and click <b>Submit &amp; Verify</b> again.</div>
+                            </div>
+                            <field name="rubrics_submitted" invisible="1"/>
+                            <field name="rubrics_qc_verdict" invisible="1"/>
+                            <field name="rubrics_qc_at" invisible="1"/>
+                            <div class="alert alert-info" role="status"
+                                 invisible="state not in ('dispatched','evaluated')">
+                                <i class="fa fa-recycle me-2"/>
+                                <b>Post-dispatch edit.</b> Re-uploading the .jsonl updates rubric rows in place (matched by <code>number</code>) so existing scores are preserved.
+                                Open a model in <b>Model Output</b> and click <b>Re-grade (local)</b> or <b>Re-grade + Judge</b> to apply the new rubrics to that run.
+                                QC remains as-is — this is a manual edit past the gate.
+                            </div>
+                            <group>
+                                <group string="Upload">
+                                    <field name="rubrics_file"
+                                           filename="rubrics_filename"
+                                           readonly="(state == 'draft' and rubrics_submitted) or state in ('ready_for_eval','qc_passed','qc_failed')"/>
+                                    <field name="rubrics_filename" invisible="1"/>
+                                </group>
+                                <group string="Summary">
+                                    <field name="rubric_count" readonly="1"/>
+                                </group>
+                            </group>
+                            <separator string="Parsed Rubrics"/>
+                            <field name="rubric_ids" readonly="1" nolabel="1">
+                                <list string="Parsed Rubrics"
+                                      decoration-success="points &gt; 0"
+                                      decoration-danger="points &lt; 0"
+                                      decoration-bf="importance == 'mandatory'">
+                                    <field name="number" string="#"/>
+                                    <field name="rubric_type"/>
+                                    <field name="category"/>
+                                    <field name="points"/>
+                                    <field name="importance"/>
+                                    <field name="criterion"/>
+                                </list>
+                                <form string="Rubric Item">
+                                    <sheet>
+                                        <group>
+                                            <group>
+                                                <field name="number"/>
+                                                <field name="rubric_type"/>
+                                                <field name="category"/>
+                                            </group>
+                                            <group>
+                                                <field name="points"/>
+                                                <field name="importance"/>
+                                            </group>
+                                        </group>
+                                        <separator string="Criterion"/>
+                                        <field name="criterion" nolabel="1"/>
+                                        <separator string="Raw JSON"/>
+                                        <field name="raw_json" widget="text" nolabel="1"/>
+                                    </sheet>
+                                </form>
+                            </field>
+                            <div class="mt-3 text-end" invisible="state in ('ready_for_eval','qc_passed','qc_failed')">
+                                <button name="action_submit_rubrics" type="object"
+                                        string="Submit &amp; Verify"
+                                        icon="fa-check"
+                                        class="btn-primary"
+                                        invisible="state == 'draft' and (rubrics_submitted or not media_submitted)"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                                <button name="action_unlock_rubrics" type="object"
+                                        string="Edit again"
+                                        icon="fa-pencil"
+                                        class="btn-secondary"
+                                        invisible="state != 'draft' or not rubrics_submitted"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                            </div>
+                        </page>
+
+                        <page string="Verdict" name="verdict">
+                            <field name="verdict_ready" invisible="1"/>
+                            <field name="prompt_qc_verdict" invisible="1"/>
+                            <field name="media_qc_verdict" invisible="1"/>
+                            <field name="rubrics_qc_verdict" invisible="1"/>
+
+                            <div class="alert alert-info" role="status"
+                                 invisible="state != 'draft'">
+                                <i class="fa fa-clipboard-check me-2"/>
+                                <b>Readiness dashboard.</b> Each Submit on the 3 tabs runs a per-section QC script.
+                                <b>Run Models</b> unlocks only when all three verdicts are <b>Pass</b>.
+                            </div>
+                            <div class="alert alert-secondary" role="status"
+                                 invisible="state == 'draft'">
+                                <i class="fa fa-rocket me-2"/>
+                                Models already dispatched — see <b>Model Output</b> and <b>LLM Judge</b>. You can re-dispatch below.
+                            </div>
+
+                            <separator string="Per-Section QC Verdicts"/>
+
+                            <group>
+                                <group string="Prompt">
+                                    <field name="prompt_qc_verdict" readonly="1" widget="badge"
+                                           decoration-success="prompt_qc_verdict == 'pass'"
+                                           decoration-danger="prompt_qc_verdict == 'fail'"
+                                           decoration-muted="prompt_qc_verdict == 'not_run'"/>
+                                    <field name="prompt_qc_at" readonly="1" invisible="not prompt_qc_at"/>
+                                    <field name="prompt_qc_message" readonly="1" invisible="not prompt_qc_message"/>
+                                </group>
+                                <group string="Media">
+                                    <field name="media_qc_verdict" readonly="1" widget="badge"
+                                           decoration-success="media_qc_verdict == 'pass'"
+                                           decoration-danger="media_qc_verdict == 'fail'"
+                                           decoration-muted="media_qc_verdict == 'not_run'"/>
+                                    <field name="media_qc_at" readonly="1" invisible="not media_qc_at"/>
+                                    <field name="media_qc_message" readonly="1" invisible="not media_qc_message"/>
+                                </group>
+                                <group string="Rubrics">
+                                    <field name="rubrics_qc_verdict" readonly="1" widget="badge"
+                                           decoration-success="rubrics_qc_verdict == 'pass'"
+                                           decoration-danger="rubrics_qc_verdict == 'fail'"
+                                           decoration-muted="rubrics_qc_verdict == 'not_run'"/>
+                                    <field name="rubrics_qc_at" readonly="1" invisible="not rubrics_qc_at"/>
+                                    <field name="rubrics_qc_message" readonly="1" invisible="not rubrics_qc_message"/>
+                                </group>
+                                <group string="Detected Inputs">
+                                    <field name="final_prompt" readonly="1" invisible="not final_prompt"
+                                           string="Final Prompt"/>
+                                    <field name="media_count" readonly="1" string="Media files"/>
+                                    <field name="rubric_count" readonly="1" string="Rubric items"/>
+                                </group>
+                            </group>
+
+                            <separator string="Dispatch"/>
+
+                            <div class="alert alert-success text-center" role="status"
+                                 invisible="not verdict_ready">
+                                <h3 class="mb-1"><i class="fa fa-check-circle me-2"/>Ready to dispatch</h3>
+                                <div>All three section QCs passed. You can dispatch the reference models.</div>
+                            </div>
+                            <div class="alert alert-warning text-center" role="status"
+                                 invisible="verdict_ready or state != 'draft'">
+                                <h3 class="mb-1"><i class="fa fa-exclamation-triangle me-2"/>Not ready</h3>
+                                <div>Each of Prompts, Media, and Rubrics must be submitted and pass its QC.</div>
+                            </div>
+
+                            <div class="text-center mt-3"
+                                 invisible="state in ('qc_passed','qc_failed')">
+                                <button name="action_run_models" type="object"
+                                        string="Run Models"
+                                        icon="fa-play"
+                                        class="btn-primary btn-lg"
+                                        invisible="state == 'draft' and not verdict_ready"
+                                        groups="mm_tasker.group_mm_tasker,mm_tasker.group_mm_manager"/>
+                            </div>
+                        </page>
+
+                        <page string="Model Output" name="model_output">
+                            <div class="alert alert-secondary" role="status" invisible="state != 'draft'">
+                                <i class="fa fa-lock me-2"/>
+                                Submit all three sections, then dispatch from the <b>Verdict</b> tab to populate this view.
+                            </div>
+                            <div class="alert alert-info" role="status" invisible="state != 'ready_for_eval'">
+                                <i class="fa fa-rocket me-2"/>
+                                Form is locked. Click <b>Run Models</b> on the <b>Verdict</b> tab to dispatch the active reference models.
+                            </div>
+                            <div class="alert alert-warning" role="status"
+                                 invisible="state != 'dispatched' or runs_in_flight == 0">
+                                <i class="fa fa-spinner fa-pulse me-2"/>
+                                <b><field name="runs_in_flight" readonly="1" class="oe_inline"/></b> run(s) in flight — reload to see the latest scores.
+                            </div>
+                            <div class="alert alert-success" role="status"
+                                 invisible="state not in ('dispatched','qc_passed','qc_failed') or run_count == 0 or runs_in_flight != 0">
+                                <i class="fa fa-check-circle me-2"/>
+                                All runs complete — <b><field name="runs_passed" readonly="1" class="oe_inline"/> of <field name="run_count" readonly="1" class="oe_inline"/></b> passed.
+                            </div>
+                            <group>
+                                <group string="Active Models">
+                                    <field name="active_models_display" readonly="1" nolabel="1"/>
+                                </group>
+                                <group string="Backend">
+                                    <field name="backend_status_display" readonly="1" nolabel="1"/>
+                                </group>
+                            </group>
+                            <separator string="Runs"/>
+                            <field name="run_ids" nolabel="1" readonly="1"
+                                   mode="kanban,list"
+                                   context="{'default_task_id': id}">
+                                <kanban default_order="model_key, run_index">
+                                    <field name="id"/>
+                                    <field name="model_key"/>
+                                    <field name="model_label"/>
+                                    <field name="run_index"/>
+                                    <field name="state"/>
+                                    <field name="passed"/>
+                                    <field name="awarded"/>
+                                    <field name="max_total"/>
+                                    <field name="per_task_score"/>
+                                    <field name="duration_s"/>
+                                    <field name="error_message"/>
+                                    <templates>
+                                        <t t-name="card">
+                                            <div class="o_kanban_card_header pb-2">
+                                                <strong><field name="model_label"/></strong>
+                                                <span class="badge text-bg-secondary ms-2">
+                                                    run <field name="run_index"/>
+                                                </span>
+                                            </div>
+                                            <div class="o_kanban_card_content">
+                                                <div>
+                                                    <span class="badge" t-attf-class="badge text-bg-{{
+                                                        record.state.raw_value === 'scored' ? (record.passed.raw_value ? 'success' : 'warning') :
+                                                        record.state.raw_value === 'error' ? 'danger' :
+                                                        record.state.raw_value === 'running' || record.state.raw_value === 'judging' ? 'info' :
+                                                        'secondary'}}">
+                                                        <field name="state"/>
+                                                    </span>
+                                                </div>
+                                                <div class="mt-2" t-if="record.state.raw_value === 'scored'">
+                                                    <div>Score: <strong><field name="per_task_score"/></strong></div>
+                                                    <div class="text-muted small">
+                                                        <field name="awarded"/> / <field name="max_total"/> pts
+                                                        · <field name="duration_s"/>s
+                                                    </div>
+                                                </div>
+                                                <div class="mt-2 text-danger small" t-if="record.state.raw_value === 'error'">
+                                                    <field name="error_message"/>
+                                                </div>
+                                            </div>
+                                        </t>
+                                    </templates>
+                                </kanban>
+                                <list decoration-success="state=='scored' and passed"
+                                      decoration-warning="state=='scored' and not passed"
+                                      decoration-danger="state=='error'"
+                                      decoration-info="state in ('running','judging')"
+                                      default_order="model_key, run_index">
+                                    <field name="model_label"/>
+                                    <field name="run_index" string="Run #"/>
+                                    <field name="state" widget="badge"/>
+                                    <field name="awarded"/>
+                                    <field name="max_total"/>
+                                    <field name="per_task_score"/>
+                                    <field name="passed"/>
+                                    <field name="duration_s"/>
+                                    <field name="tokens_in" optional="hide"/>
+                                    <field name="tokens_out" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="LLM Judge" name="llm_judge">
+                            <div class="alert alert-secondary" role="status"
+                                 invisible="state in ('dispatched','evaluated','qc_passed','qc_failed')">
+                                <i class="fa fa-lock me-2"/>
+                                The LLM judge runs over the captured model responses. Dispatch the models first.
+                            </div>
+                            <div class="alert alert-info" role="status" invisible="state != 'dispatched'">
+                                <i class="fa fa-gavel me-2"/>
+                                Click <b>Run Judge</b> in the header to grade the <code>response_criteria</code> rubrics with the configured judge model.
+                            </div>
+                            <div class="alert alert-success" role="status"
+                                 invisible="state not in ('evaluated','qc_passed','qc_failed')">
+                                <i class="fa fa-check-circle me-2"/>
+                                Judge completed. Total cost so far:
+                                <b><field name="judge_cost_usd" readonly="1" class="oe_inline"/></b> USD
+                                (<field name="judge_tokens_in" readonly="1" class="oe_inline"/> in /
+                                <field name="judge_tokens_out" readonly="1" class="oe_inline"/> out tokens).
+                                You can re-run to refresh — existing judge verdicts will be replaced.
+                            </div>
+                            <group>
+                                <group string="Judge Configuration">
+                                    <field name="judge_model_display" readonly="1" nolabel="1"/>
+                                    <field name="judge_backend_display" readonly="1" nolabel="1"/>
+                                </group>
+                                <group string="Totals">
+                                    <field name="judge_tokens_in" readonly="1"/>
+                                    <field name="judge_tokens_out" readonly="1"/>
+                                    <field name="judge_cost_usd" readonly="1"/>
+                                </group>
+                            </group>
+                            <separator string="Per-Model Summary"/>
+                            <field name="run_ids" nolabel="1" readonly="1">
+                                <list default_order="model_key, run_index">
+                                    <field name="model_label"/>
+                                    <field name="run_index" string="Run #"/>
+                                    <field name="llm_judge_passed_count" string="Passed"/>
+                                    <field name="llm_judge_count" string="Total"/>
+                                    <field name="per_task_score" widget="percentage"/>
+                                    <field name="passed" widget="boolean_toggle"/>
+                                </list>
+                            </field>
+                            <separator string="Per-Rubric Details"/>
+                            <field name="llm_judge_score_ids" nolabel="1" readonly="1">
+                                <list decoration-success="passed"
+                                      decoration-danger="triggered"
+                                      decoration-warning="not passed and not triggered">
+                                    <field name="run_id"/>
+                                    <field name="rubric_number" string="#"/>
+                                    <field name="rubric_type"/>
+                                    <field name="rubric_importance"/>
+                                    <field name="rubric_points"/>
+                                    <field name="passed" widget="boolean_toggle"/>
+                                    <field name="triggered" widget="boolean_toggle" optional="show"/>
+                                    <field name="awarded_points"/>
+                                    <field name="judge_confidence" widget="percentage"/>
+                                    <field name="judge_rationale"/>
+                                    <field name="judge_tokens_in" optional="hide"/>
+                                    <field name="judge_tokens_out" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="QC" name="qc" groups="mm_tasker.group_mm_qc">
+                            <div class="alert alert-warning" role="status"
+                                 invisible="state in ('qc_passed','qc_failed')">
+                                <i class="fa fa-clipboard-check"/>
+                                Pick a verdict below. If <b>Fail</b>, a reason is required.
+                                Saving the verdict stamps your name and the current time automatically.
+                            </div>
+                            <group>
+                                <group string="Verdict">
+                                    <field name="qc_verdict"
+                                           widget="radio"
+                                           options="{'horizontal': true}"
+                                           readonly="state in ('draft','ready_for_eval')"/>
+                                </group>
+                                <group string="Audit">
+                                    <field name="qc_user_id" readonly="1" widget="many2one_avatar_user"/>
+                                    <field name="qc_date" readonly="1"/>
+                                </group>
+                            </group>
+                            <separator string="Fail Reason" invisible="qc_verdict != 'fail'"/>
+                            <field name="qc_fail_reason"
+                                   nolabel="1"
+                                   invisible="qc_verdict != 'fail'"
+                                   required="qc_verdict == 'fail'"
+                                   readonly="state in ('draft','ready_for_eval')"
+                                   placeholder="Explain what's wrong so the tasker (or a manager) can act on it."/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_mm_tasker_task_search" model="ir.ui.view">
+        <field name="name">mm.tasker.task.search</field>
+        <field name="model">mm.tasker.task</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="tasker_id"/>
+                <filter string="Draft" name="filter_draft" domain="[('state','=','draft')]"/>
+                <filter string="Ready for Eval" name="filter_ready_for_eval" domain="[('state','=','ready_for_eval')]"/>
+                <filter string="Dispatched" name="filter_dispatched" domain="[('state','=','dispatched')]"/>
+                <filter string="Evaluated" name="filter_evaluated" domain="[('state','=','evaluated')]"/>
+                <filter string="QC Passed" name="filter_passed" domain="[('state','=','qc_passed')]"/>
+                <filter string="QC Failed" name="filter_failed" domain="[('state','=','qc_failed')]"/>
+                <group name="group_by">
+                    <filter string="Tasker" name="group_tasker" context="{'group_by': 'tasker_id'}"/>
+                    <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_mm_tasker_my_tasks" model="ir.actions.act_window">
+        <field name="name">My Tasks</field>
+        <field name="res_model">mm.tasker.task</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_mm_tasker_task_search"/>
+        <field name="domain">[('tasker_id', '=', uid)]</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create your first task</p>
+            <p>Fill prompts, upload rubrics.jsonl, mark Ready for Eval, then Run Models.</p>
+        </field>
+    </record>
+
+    <record id="action_mm_tasker_qc_queue" model="ir.actions.act_window">
+        <field name="name">QC Queue</field>
+        <field name="res_model">mm.tasker.task</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_mm_tasker_task_search"/>
+        <field name="context">{'search_default_filter_dispatched': 1}</field>
+    </record>
+
+    <record id="action_mm_tasker_all_tasks" model="ir.actions.act_window">
+        <field name="name">All Tasks</field>
+        <field name="res_model">mm.tasker.task</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_mm_tasker_task_search"/>
+    </record>
+
+</odoo>

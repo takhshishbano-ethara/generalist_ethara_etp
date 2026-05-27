@@ -5,6 +5,8 @@ import json
 import logging
 import os
 
+from markupsafe import Markup
+
 from odoo import http, fields
 from odoo.http import request, Response
 
@@ -136,6 +138,17 @@ class VegetaController(http.Controller):
                     "[vegeta][job=%s] extraction STARTED — aws_queue_latency=%.0fs",
                     record.name, _age,
                 )
+                try:
+                    body = (
+                        f"<b>Lambda is now running</b> &mdash; queue latency {int(_age)}s"
+                        if _age >= 0 else "<b>Lambda is now running</b>"
+                    )
+                    record.message_post(body=Markup(body), subtype_xmlid="mail.mt_note")
+                except Exception:
+                    _logger.warning(
+                        "[vegeta][job=%s] chatter post (lambda started) failed (non-fatal)",
+                        record.id, exc_info=True,
+                    )
             return Response(
                 json.dumps({"status": "ack"}),
                 status=200,
@@ -305,6 +318,22 @@ class VegetaController(http.Controller):
                 record.name, _age, is_partial, len(prd_prompt or ""),
                 len(screenshot_keys or []), len(asset_keys or []),
             )
+
+            try:
+                pages_n = len(site_discovery.get("pages") or []) if site_discovery else 0
+                body = (
+                    f"<b>Extraction complete</b> &mdash; "
+                    f"pages={pages_n}, screenshots={len(screenshot_keys or [])}, "
+                    f"assets={len(asset_keys or [])}"
+                )
+                if is_partial or warnings:
+                    body += f" <span style='color:#ffc107;'>(partial: {len(warnings)} warning(s))</span>"
+                record.message_post(body=Markup(body), subtype_xmlid="mail.mt_note")
+            except Exception:
+                _logger.warning(
+                    "[vegeta][job=%s] chatter post (extraction complete) failed (non-fatal)",
+                    record.id, exc_info=True,
+                )
 
             # Notify browser of state change
             try:

@@ -1,6 +1,6 @@
 {
     "name": "Vegeta",
-    "version": "19.0.2.5.0",
+    "version": "19.0.2.6.0",
     "category": "Tools",
     "summary": "Vegeta — Automated PRD Generation Pipeline (worker-pool, max-pack)",
     "description": (
@@ -29,6 +29,7 @@
     ),
     "author": "Ethara",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],
+    "post_load": "post_load",
     "data": [
         "security/vegeta_security.xml",
         "security/ir.model.access.csv",

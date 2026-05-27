@@ -1,0 +1,203 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="module_category_mm_tasker" model="ir.module.category">
+            <field name="name">MM Tasker</field>
+            <field name="description">Multimodal agentic eval — tasker authoring + QC</field>
+            <field name="sequence">27</field>
+        </record>
+
+        <record id="res_groups_privilege_mm_tasker" model="res.groups.privilege">
+            <field name="name">MM Tasker</field>
+            <field name="sequence">27</field>
+            <field name="category_id" ref="module_category_mm_tasker"/>
+        </record>
+
+    </data>
+
+    <data noupdate="1">
+
+        <record id="group_mm_tasker" model="res.groups">
+            <field name="name">Tasker</field>
+            <field name="privilege_id" ref="res_groups_privilege_mm_tasker"/>
+            <field name="sequence">10</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Creates and submits tasks. Sees only own tasks. QC verdict hidden.</field>
+        </record>
+
+        <record id="group_mm_qc" model="res.groups">
+            <field name="name">QC</field>
+            <field name="privilege_id" ref="res_groups_privilege_mm_tasker"/>
+            <field name="sequence">20</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Reviews submitted tasks and records pass/fail with reason on fail.</field>
+        </record>
+
+        <record id="group_mm_manager" model="res.groups">
+            <field name="name">Manager</field>
+            <field name="privilege_id" ref="res_groups_privilege_mm_tasker"/>
+            <field name="sequence">30</field>
+            <field name="implied_ids" eval="[(4, ref('group_mm_tasker')), (4, ref('group_mm_qc'))]"/>
+            <field name="comment">Full access: can create, edit, delete any task, override QC, and manage settings.</field>
+        </record>
+
+        <record id="mm_task_tasker_rule" model="ir.rule">
+            <field name="name">MM Tasker: Tasker sees own tasks</field>
+            <field name="model_id" ref="model_mm_tasker_task"/>
+            <field name="domain_force">[('tasker_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_tasker'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="mm_task_qc_rule" model="ir.rule">
+            <field name="name">MM Tasker: QC sees all tasks</field>
+            <field name="model_id" ref="model_mm_tasker_task"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_qc'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="mm_rubric_tasker_rule" model="ir.rule">
+            <field name="name">MM Tasker: Tasker sees rubrics of own tasks</field>
+            <field name="model_id" ref="model_mm_tasker_rubric"/>
+            <field name="domain_force">[('task_id.tasker_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_tasker'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="mm_rubric_qc_rule" model="ir.rule">
+            <field name="name">MM Tasker: QC sees all rubrics</field>
+            <field name="model_id" ref="model_mm_tasker_rubric"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_qc'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="mm_task_manager_rule" model="ir.rule">
+            <field name="name">MM Tasker: Manager sees and edits all tasks</field>
+            <field name="model_id" ref="model_mm_tasker_task"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_manager'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="mm_rubric_manager_rule" model="ir.rule">
+            <field name="name">MM Tasker: Manager sees and edits all rubrics</field>
+            <field name="model_id" ref="model_mm_tasker_rubric"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_manager'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="mm_media_tasker_rule" model="ir.rule">
+            <field name="name">MM Tasker: Tasker sees media of own tasks</field>
+            <field name="model_id" ref="model_mm_tasker_media"/>
+            <field name="domain_force">[('task_id.tasker_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_tasker'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="mm_media_qc_rule" model="ir.rule">
+            <field name="name">MM Tasker: QC sees all media</field>
+            <field name="model_id" ref="model_mm_tasker_media"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_qc'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="mm_media_manager_rule" model="ir.rule">
+            <field name="name">MM Tasker: Manager sees and edits all media</field>
+            <field name="model_id" ref="model_mm_tasker_media"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_manager'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <!-- ============ Reference Model Runs ============ -->
+        <record id="mm_run_tasker_rule" model="ir.rule">
+            <field name="name">MM Tasker: Tasker sees runs of own tasks</field>
+            <field name="model_id" ref="model_mm_tasker_run"/>
+            <field name="domain_force">[('task_id.tasker_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_tasker'))]"/>
+        </record>
+        <record id="mm_run_qc_rule" model="ir.rule">
+            <field name="name">MM Tasker: QC sees all runs</field>
+            <field name="model_id" ref="model_mm_tasker_run"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_qc'))]"/>
+        </record>
+        <record id="mm_run_manager_rule" model="ir.rule">
+            <field name="name">MM Tasker: Manager full access on runs</field>
+            <field name="model_id" ref="model_mm_tasker_run"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_manager'))]"/>
+        </record>
+
+        <record id="mm_run_output_tasker_rule" model="ir.rule">
+            <field name="name">MM Tasker: Tasker sees outputs of own task runs</field>
+            <field name="model_id" ref="model_mm_tasker_run_output"/>
+            <field name="domain_force">[('run_id.task_id.tasker_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_tasker'))]"/>
+        </record>
+        <record id="mm_run_output_qc_rule" model="ir.rule">
+            <field name="name">MM Tasker: QC sees all run outputs</field>
+            <field name="model_id" ref="model_mm_tasker_run_output"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_qc'))]"/>
+        </record>
+        <record id="mm_run_output_manager_rule" model="ir.rule">
+            <field name="name">MM Tasker: Manager full access on run outputs</field>
+            <field name="model_id" ref="model_mm_tasker_run_output"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_manager'))]"/>
+        </record>
+
+        <record id="mm_run_score_tasker_rule" model="ir.rule">
+            <field name="name">MM Tasker: Tasker sees scores of own task runs</field>
+            <field name="model_id" ref="model_mm_tasker_run_score"/>
+            <field name="domain_force">[('run_id.task_id.tasker_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_tasker'))]"/>
+        </record>
+        <record id="mm_run_score_qc_rule" model="ir.rule">
+            <field name="name">MM Tasker: QC sees all run scores</field>
+            <field name="model_id" ref="model_mm_tasker_run_score"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_qc'))]"/>
+        </record>
+        <record id="mm_run_score_manager_rule" model="ir.rule">
+            <field name="name">MM Tasker: Manager full access on run scores</field>
+            <field name="model_id" ref="model_mm_tasker_run_score"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('group_mm_manager'))]"/>
+        </record>
+
+    </data>
+</odoo>

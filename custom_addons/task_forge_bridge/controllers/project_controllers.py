@@ -7,6 +7,20 @@ import datetime
 import json
 
 
+CTO_ROLE_REFS = ['api_auth_gateway.role_cto_technical']
+TPM_ROLE_REFS = ['api_auth_gateway.role_tpm_technical']
+PL_ROLE_REFS = [
+    'api_auth_gateway.role_pl_technical',
+    'api_auth_gateway.role_pl_stem',
+    'api_auth_gateway.role_pl_non_stem',
+]
+QR_ROLE_REFS = [
+    'api_auth_gateway.role_qc_technical',
+    'api_auth_gateway.role_qc_stem',
+    'api_auth_gateway.role_qc_non_stem',
+]
+
+
 class TaskForgeProjectController(http.Controller):
 
     @http.route('/api/v2/taskforge/projects', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -868,6 +882,156 @@ class TaskForgeProjectController(http.Controller):
                 message="Project hierarchy",
                 status=200,
                 data={'data': result, 'unassigned_employee': unassigned_employee}
+            )
+        except Exception as e:
+            return return_Response(message=str(e), status=400)
+
+    @http.route('/api/v2/taskforge/projects/release_member', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    @validate_request({
+        'project_id': {'type': 'int', 'required': True},
+        'employee_id': {'type': 'int', 'required': True},
+    })
+    def release_member(self, jdata=None, **kwargs):
+        try:
+            user = request.env.user
+            user_role_id = user.user_role.id if user.user_role else 0
+            cto_ids = [request.env.ref(r).id for r in CTO_ROLE_REFS]
+            tpm_ids = [request.env.ref(r).id for r in TPM_ROLE_REFS]
+            pl_ids = [request.env.ref(r).id for r in PL_ROLE_REFS]
+            qr_ids = [request.env.ref(r).id for r in QR_ROLE_REFS]
+            actor_is_cto = user_role_id in cto_ids
+            actor_is_tpm = user_role_id in tpm_ids
+            actor_is_pl = user_role_id in pl_ids
+            actor_is_qr = user_role_id in qr_ids
+
+            if not (actor_is_cto or actor_is_tpm or actor_is_pl or actor_is_qr):
+                return return_Response(
+                    message="Permission denied: only CTO, TPM, PL or QR can release a project member",
+                    status=403,
+                )
+
+            Project = request.env['project.project'].sudo()
+            Employee = request.env['hr.employee'].sudo()
+
+            project = Project.browse(int(jdata['project_id']))
+            if not project.exists():
+                return return_Response(message="Project not found", status=404)
+
+            employee = Employee.browse(int(jdata['employee_id']))
+            if not employee.exists():
+                return return_Response(message="Employee not found", status=404)
+            employee_id = employee.id
+
+            explicit_role = (jdata.get('role') or '').strip().lower() or None
+            if explicit_role and explicit_role not in ('tasker', 'qr', 'pl'):
+                return return_Response(message="role must be one of: tasker, qr, pl", status=400)
+
+            is_tasker = employee_id in project.project_tasker.ids
+            is_qr = employee_id in project.project_qc_reviewer.ids
+            is_pl = employee_id in project.project_lead.ids
+
+            if not (is_tasker or is_qr or is_pl):
+                return return_Response(message="Employee is not a member of this project", status=404)
+
+            if explicit_role:
+                holds = {'tasker': is_tasker, 'qr': is_qr, 'pl': is_pl}
+                if not holds[explicit_role]:
+                    return return_Response(
+                        message=f"Employee is not a {explicit_role.upper()} on this project",
+                        status=400,
+                    )
+                role = explicit_role
+            else:
+                roles_held = [r for r, ok in (('tasker', is_tasker), ('qr', is_qr), ('pl', is_pl)) if ok]
+                if len(roles_held) > 1:
+                    return return_Response(
+                        message=f"Employee holds multiple roles on this project: {roles_held}. Pass 'role' explicitly.",
+                        status=400,
+                    )
+                role = roles_held[0]
+
+            if not (actor_is_cto or actor_is_tpm):
+                if actor_is_pl:
+                    if role == 'pl':
+                        return return_Response(
+                            message="Permission denied: PL cannot release another PL",
+                            status=403,
+                        )
+                elif actor_is_qr:
+                    if role != 'tasker':
+                        return return_Response(
+                            message="Permission denied: QR can only release a Tasker",
+                            status=403,
+                        )
+                else:
+                    return return_Response(message="Permission denied", status=403)
+
+            reassigned = []
+
+            if role == 'tasker':
+                project.sudo().write({'project_tasker': [(3, employee_id)]})
+            elif role == 'qr':
+                remaining_qr_ids = [eid for eid in project.project_qc_reviewer.ids if eid != employee_id]
+                if not remaining_qr_ids:
+                    return return_Response(
+                        message="No other QR on this project. Assign another QR before releasing this one.",
+                        status=400,
+                    )
+                affected = project.project_tasker.filtered(lambda t: t.task_forge_qr_id.id == employee_id)
+                for i, tasker in enumerate(affected):
+                    new_qr_id = remaining_qr_ids[i % len(remaining_qr_ids)]
+                    tasker.sudo().write({'task_forge_qr_id': new_qr_id})
+                    reassigned.append({
+                        'tasker_id': tasker.id,
+                        'tasker_name': tasker.name or '',
+                        'new_qr_id': new_qr_id,
+                    })
+                project.sudo().write({'project_qc_reviewer': [(3, employee_id)]})
+            else:
+                remaining_pl_ids = [eid for eid in project.project_lead.ids if eid != employee_id]
+                if not remaining_pl_ids:
+                    return return_Response(
+                        message="No other PL on this project. Assign another PL before releasing this one.",
+                        status=400,
+                    )
+                affected_taskers = project.project_tasker.filtered(lambda t: t.task_forge_pl_id.id == employee_id)
+                affected_qrs = project.project_qc_reviewer.filtered(lambda q: q.task_forge_pl_id.id == employee_id)
+                affected = [('tasker', emp) for emp in affected_taskers] + [('qr', emp) for emp in affected_qrs]
+                for i, (member_role, emp) in enumerate(affected):
+                    new_pl_id = remaining_pl_ids[i % len(remaining_pl_ids)]
+                    emp.sudo().write({'task_forge_pl_id': new_pl_id})
+                    reassigned.append({
+                        'employee_id': emp.id,
+                        'employee_name': emp.name or '',
+                        'member_role': member_role,
+                        'new_pl_id': new_pl_id,
+                    })
+                project.sudo().write({'project_lead': [(3, employee_id)]})
+
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Member Released',
+                    'message': f'{employee.name} released from "{project.name}" ({role.upper()})',
+                    'user_id': request.env.user.id,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
+
+            return return_Response(
+                message=f"Member released as {role.upper()}",
+                status=200,
+                data={'data': {
+                    'project_id': project.id,
+                    'employee_id': employee.id,
+                    'employee_name': employee.name or '',
+                    'role': role,
+                    'reassigned_taskers': reassigned,
+                }}
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)

@@ -1513,7 +1513,37 @@ class GohanJob(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        for vals in vals_list:
+        # Track pool lines that were claimed during this create so we can
+        # link line.job_id back to the new job AFTER super().create returns
+        # ids. Indexed by position in vals_list. claim_for_user already marks
+        # the line as in_progress + assigned_user_id under an advisory lock,
+        # so the URL cannot be handed out to a second concurrent creator.
+        pool_claims = {}
+        is_admin = self.env.user.has_group("gohan.group_gohan_admin")
+
+        for i, vals in enumerate(vals_list):
+            # Pool-claim path: tasker submits the create form with only
+            # category_id (no URL) -> grab the next unassigned URL from the
+            # admin's uploaded sheet for that category. Admins are exempt:
+            # they manage tasks by URL directly, the pool is for taskers.
+            if (
+                not is_admin
+                and vals.get("category_id")
+                and not vals.get("url")
+            ):
+                line = self.env["gohan.website.sheet.line"].claim_for_user(
+                    vals["category_id"], user=self.env.user
+                )
+                if not line:
+                    raise UserError(
+                        "No unassigned website is available in this "
+                        "category. Pick another category, or ask the admin "
+                        "to upload more URLs."
+                    )
+                vals["url"] = line.url
+                vals.setdefault("user_id", self.env.user.id)
+                pool_claims[i] = line.id
+
             if vals.get("name", "New") == "New":
                 vals["name"] = (
                     self.env["ir.sequence"].next_by_code("gohan.job") or "New"
@@ -1524,7 +1554,19 @@ class GohanJob(models.Model):
             # If no user, must be not_assigned
             if not vals.get("user_id") and vals.get("state") in ("draft", "done"):
                 vals["state"] = "not_assigned"
-        return super().create(vals_list)
+
+        records = super().create(vals_list)
+
+        # Link each claimed pool line back to the newly-created job so admin
+        # can navigate "pool URL -> pipeline job" from the Upload Data view.
+        if pool_claims:
+            Line = self.env["gohan.website.sheet.line"].sudo()
+            for i, rec in enumerate(records):
+                line_id = pool_claims.get(i)
+                if line_id:
+                    Line.browse(line_id).write({"job_id": rec.id})
+
+        return records
 
     def write(self, vals):
         # Snapshot prior state per record so we can detect actual transitions

@@ -7,3 +7,5 @@ access_vegeta_rerun_wizard_user,vegeta.rerun.wizard.user,model_vegeta_rerun_wiza
 access_vegeta_import_wizard_admin,vegeta.import.wizard.admin,model_vegeta_import_wizard,group_vegeta_admin,1,1,1,0
 access_vegeta_start_task_wizard_user,vegeta.start.task.wizard.user,model_vegeta_start_task_wizard,group_vegeta_user,1,1,1,0
 access_vegeta_bulk_assign_wizard_admin,vegeta.bulk.assign.wizard.admin,model_vegeta_bulk_assign_wizard,group_vegeta_admin,1,1,1,0
+access_vegeta_job_log_user,vegeta.job.log.user,model_vegeta_job_log,group_vegeta_user,1,0,0,0
+access_vegeta_job_log_admin,vegeta.job.log.admin,model_vegeta_job_log,group_vegeta_admin,1,1,1,1

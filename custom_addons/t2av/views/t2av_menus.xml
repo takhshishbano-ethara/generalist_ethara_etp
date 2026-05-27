@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <menuitem id="menu_t2av_root"
+                  name="T2AV"
+                  web_icon="t2av,static/description/icon.png"
+                  sequence="90"
+                  groups="t2av.group_t2av_user"/>
+
+        <menuitem id="menu_t2av_generations"
+                  name="Generations"
+                  parent="menu_t2av_root"
+                  action="action_t2av_generation"
+                  sequence="10"/>
+
+        <menuitem id="menu_t2av_sheets"
+                  name="Sequence Sheets"
+                  parent="menu_t2av_root"
+                  sequence="20"
+                  groups="t2av.group_t2av_user"/>
+
+        <menuitem id="menu_t2av_sheet_rows"
+                  name="All Rows"
+                  parent="menu_t2av_sheets"
+                  action="action_t2av_sequence_sheet_row"
+                  sequence="10"/>
+
+        <menuitem id="menu_t2av_sheet_export"
+                  name="Export to XLSX"
+                  parent="menu_t2av_sheets"
+                  action="action_t2av_sequence_sheet_export"
+                  sequence="20"
+                  groups="t2av.group_t2av_manager"/>
+
+        <menuitem id="menu_t2av_config"
+                  name="Configuration"
+                  parent="menu_t2av_root"
+                  sequence="90"
+                  groups="t2av.group_t2av_manager"/>
+
+        <menuitem id="menu_t2av_import"
+                  name="Import Generations"
+                  parent="menu_t2av_config"
+                  action="action_t2av_import_wizard"
+                  sequence="5"/>
+
+        <menuitem id="menu_t2av_settings"
+                  name="Settings"
+                  parent="menu_t2av_config"
+                  action="action_t2av_config_settings"
+                  sequence="10"/>
+    </data>
+</odoo>

@@ -5,7 +5,20 @@ import { ListController } from "@web/views/list/list_controller";
 
 class GohanListController extends ListController {
     async onStartTask() {
-        await this.actionService.doAction("gohan.action_gohan_start_task_wizard");
+        // Open the standard gohan.job creation form. The tasker fills the
+        // Website Category field; on save, the create() override on
+        // gohan.job auto-claims an unassigned URL from the admin's
+        // uploaded pool for that category and fills it in.
+        // (The top-menu "New Task" goes through the pop-up wizard instead
+        // — same end-result, different entry UX.)
+        await this.actionService.doAction({
+            type: "ir.actions.act_window",
+            name: "New Task",
+            res_model: "gohan.job",
+            view_mode: "form",
+            views: [[false, "form"]],
+            target: "current",
+        });
     }
 }
 

@@ -540,6 +540,92 @@ def _cache_set(key, payload):
     _CACHE[key] = (datetime.now(), payload)
 
 
+def _build_aht_overview_aligned(env, scope, filters):
+    Job = env["gohan.job"].sudo()
+    domain = (
+        scope
+        + _create_date_domain(filters["start"], filters["end"])
+        + [("duration_seconds", ">", 0)]
+    )
+    groups = Job._read_group(domain, [], ["__count", "duration_seconds:avg"])
+    measured, avg_seconds = groups[0] if groups else (0, 0.0)
+    measured = measured or 0
+    avg_seconds = avg_seconds or 0.0
+    avg_minutes = round(avg_seconds / 60.0, 2)
+    target = round(filters.get("target_aht", 0) or 0, 2)
+    if not measured:
+        indicator = "no_data"
+    elif avg_minutes <= target:
+        indicator = "on_target"
+    else:
+        indicator = "above_target"
+    return {
+        "average_handling_time_minutes": avg_minutes,
+        "target_aht_minutes": target,
+        "difference_minutes": round(avg_minutes - target, 2),
+        "performance_indicator": indicator,
+        "tasks_measured": measured,
+    }
+
+
+def _build_url_overview_aligned(env, scope, filters):
+    Job = env["gohan.job"].sudo()
+    base = scope + _create_date_domain(filters["start"], filters["end"])
+    return {
+        "tasks_with_url": Job.search_count(base),
+        "rejected_at_validation": Job.search_count(base + [("state", "=", "failed")]),
+    }
+
+
+def _build_team_overview_aligned(env, projects):
+    pl_employees = projects.mapped("project_lead")
+    qr_employees = projects.mapped("project_qc_reviewer")
+    tasker_employees = projects.mapped("project_tasker")
+    aire_employees = projects.mapped("project_aire")
+    swe_employees = projects.mapped("project_swe")
+    tpm_employees = pl_employees.mapped("task_forge_tpm_id")
+    members = (
+        pl_employees
+        | qr_employees
+        | tasker_employees
+        | aire_employees
+        | swe_employees
+        | tpm_employees
+    )
+    return {
+        "total_team_size": len(members),
+        "role_counts": {
+            "tpm": len(tpm_employees),
+            "pl": len(pl_employees),
+            "qr": len(qr_employees),
+            "tasker": len(tasker_employees),
+            "aire": len(aire_employees),
+            "swe": len(swe_employees),
+        },
+    }
+
+
+def _build_status_chart_aligned(env, scope, filters):
+    Job = env["gohan.job"].sudo()
+    domain = scope + _create_date_domain(filters["start"], filters["end"])
+    groups = Job._read_group(domain, ["state"], ["__count"])
+    counts = {}
+    for key, count in groups:
+        if key:
+            counts[key] = count or 0
+    total = sum(counts.values())
+    chart = [
+        {
+            "status_key": key,
+            "status_name": label,
+            "count": counts.get(key, 0),
+            "percentage": _pct(counts.get(key, 0), total),
+        }
+        for key, label in Job._fields["state"].selection
+    ]
+    return {"total_task_count": total, "status_chart": chart}
+
+
 class GohanAnalyticsDashboardController(http.Controller):
 
     @http.route(
@@ -571,31 +657,27 @@ class GohanAnalyticsDashboardController(http.Controller):
             return return_Response(message="OK", status=200, data=cached)
 
         tag, scope, projects = _scope(env)
+        total_task = _build_total_task(env, scope, filters)
+        qc_leaderboard = _build_qc_leaderboard(env, projects, filters)
         data = {
             "dashboard": {
-                # "filters": {
-                #     "start_date": (
-                #         filters["start"].isoformat() if filters["start"] else None
-                #     ),
-                #     "end_date": (
-                #         filters["end"].isoformat() if filters["end"] else None
-                #     ),
-                #     "month": params.get("month") or None,
-                #     "data_scope": tag,
-                # },
-                "total_task_analytics": _build_total_task(env, scope, filters),
+                "task_overview": total_task,
+                "aht_overview": _build_aht_overview_aligned(env, scope, filters),
+                "url_overview": _build_url_overview_aligned(env, scope, filters),
+                "team_overview": _build_team_overview_aligned(env, projects),
+                "status_chart": _build_status_chart_aligned(env, scope, filters),
+                "completion_heatmap": _build_heatmap(env, scope, filters),
+                "qc_leaderboard": qc_leaderboard,
+                "completion_timeline": _build_timeline(env, scope, filters),
+                "total_task_analytics": total_task,
                 "average_score_analytics": _build_avg_score(env, scope, filters),
                 "average_duration_analytics": _build_avg_duration(
                     env, scope, filters
                 ),
                 "failed_task_analytics": _build_failed_task(env, scope, filters),
                 "team_member_analytics": _build_team_members(env, projects),
-                "completion_heatmap": _build_heatmap(env, scope, filters),
                 "qc_verdict_distribution": _build_qc_verdict(env, scope, filters),
-                "qc_team_leaderboard": _build_qc_leaderboard(
-                    env, projects, filters
-                ),
-                "completion_timeline": _build_timeline(env, scope, filters),
+                "qc_team_leaderboard": qc_leaderboard,
             },
         }
         _cache_set(cache_key, data)

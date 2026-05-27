@@ -153,11 +153,16 @@
     </record>
 
     <!-- Tasker List View -->
+    <!-- create="0" hides the standard "New" button so the ONLY way for a
+         tasker to create a task is the "New Task" button (gohan_list
+         js_class) which routes through the pool-pick wizard. Without this,
+         taskers could open a blank gohan.job form and type a URL manually,
+         bypassing the admin's uploaded sheet entirely. -->
     <record id="gohan_job_tasker_view_tree" model="ir.ui.view">
         <field name="name">gohan.job.tasker.list</field>
         <field name="model">gohan.job</field>
         <field name="arch" type="xml">
-            <list js_class="gohan_list" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'" decoration-success="state == 'done'" decoration-bf="state == 'submitted'">
+            <list js_class="gohan_list" create="0" decoration-danger="state == 'failed'" decoration-muted="state == 'discarded'" decoration-success="state == 'done'" decoration-bf="state == 'submitted'">
                 <field name="name"/>
                 <field name="url" widget="url"/>
                 <field name="site_name"/>
@@ -337,8 +342,10 @@
 
                     <group>
                         <group>
-                            <!-- URL: tasker always readonly; admin always editable -->
-                            <field name="url" widget="url" readonly="not is_admin and id"/>
+                            <!-- URL: tasker always readonly (even on new forms — pool-claim
+                                 fills it on save via gohan.job.create()). Admin always editable. -->
+                            <field name="url" widget="url" readonly="not is_admin"
+                                   placeholder="Auto-assigned from the uploaded pool once you pick a category and save."/>
                             <field name="site_name" readonly="1"/>
                             <!-- Category: editable for both admin and tasker at all times -->
                             <field name="category_id"/>

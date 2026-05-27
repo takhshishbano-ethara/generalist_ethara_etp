@@ -46,11 +46,25 @@ _TERMINAL = {_STATE_DONE, _STATE_FAILED, _STATE_CANCELLED}
 MAX_ATTEMPTS = 3
 
 CATEGORY_SELECTION = [
+    ("animals_wildlife",       "Animals Wildlife"),
+    ("animated_styles",        "Animated Styles"),
+    ("animated_text",          "Animated Text"),
     ("av_sync_sound_effects",  "AV Sync Sound Effects"),
-    ("multi_speaker_dialogue", "Multi-Speaker Dialogue"),
-    ("human_activities",       "Human Activities"),
-    ("high_motion_action",     "High Motion Action"),
+    ("camera_motion",          "Camera Motion"),
     ("educational_videos",     "Educational Videos"),
+    ("fantasy_surreal",        "Fantasy Surreal"),
+    ("fine_grained_motion",    "Fine Grained Motion"),
+    ("high_motion_action",     "High Motion Action"),
+    ("human_activities",       "Human Activities"),
+    ("multi_speaker_dialogue", "Multi-Speaker Dialogue"),
+    ("music_performance",      "Music Performance"),
+    ("narrative_cinematic",    "Narrative Cinematic"),
+    ("natural_patterns",       "Natural Patterns"),
+    ("nature_weather",         "Nature Weather"),
+    ("person_emoting",         "Person Emoting"),
+    ("speech_styles",          "Speech Styles"),
+    ("urban_scenes",           "Urban Scenes"),
+    ("vehicles_machines",      "Vehicles Machines"),
 ]
 
 
@@ -622,7 +636,11 @@ class CrowleyGeneration(models.Model):
                 "Create a new generation."
             ) % {"max": MAX_ATTEMPTS, "name": self.display_name})
         next_n = (max(self.attempt_ids.mapped("attempt_number") or [0])) + 1
-        attempt_prompt = (self.golden_prompt or "").strip() or self.prompt
+        attempt_prompt = (
+            (self.golden_prompt or "").strip()
+            or (self.enriched_prompt or "").strip()
+            or self.prompt
+        )
         attempt = self.env["crowley.attempt"].create({
             "job_id": self.id,
             "attempt_number": next_n,
@@ -874,14 +892,16 @@ class CrowleyGeneration(models.Model):
             ))
 
         eligible = self.filtered(
-            lambda r: r.is_golden and (
+            lambda r: (r.enriched_prompt or "").strip() and (
                 not r.attempt_ids
                 or all(a.state == "failed" for a in r.attempt_ids)
             )
         )
-        skipped_no_golden = self.filtered(lambda r: not r.is_golden)
+        skipped_no_enriched = self.filtered(
+            lambda r: not (r.enriched_prompt or "").strip()
+        )
         skipped_has_attempts = self.filtered(
-            lambda r: r.is_golden and r.attempt_ids
+            lambda r: (r.enriched_prompt or "").strip() and r.attempt_ids
             and not all(a.state == "failed" for a in r.attempt_ids)
         )
 
@@ -892,7 +912,7 @@ class CrowleyGeneration(models.Model):
                 rec._validate_can_submit()
                 attempt = rec._spawn_attempt()
                 rec.message_post(body=_(
-                    "Batch generation queued from Golden Prompt (attempt %d)."
+                    "Batch generation queued (attempt %d)."
                 ) % attempt.attempt_number)
                 attempt._defer("_run_submit")
                 queued += 1
@@ -904,8 +924,8 @@ class CrowleyGeneration(models.Model):
 
         lines = [
             _("Selected: %d row(s).") % len(self),
-            _("Queued (Golden + no prior attempts): %d") % queued,
-            _("Skipped (no Golden Prompt): %d") % len(skipped_no_golden),
+            _("Queued: %d") % queued,
+            _("Skipped (no Enriched Prompt): %d") % len(skipped_no_enriched),
             _("Skipped (already has attempts): %d") % len(skipped_has_attempts),
         ]
         if errors:
@@ -925,7 +945,7 @@ class CrowleyGeneration(models.Model):
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": _("Batch Generate (Golden Only)"),
+                "title": _("Batch Generate (Bulk)"),
                 "message": "\n".join(lines),
                 "type": notif_type,
                 "sticky": True,
