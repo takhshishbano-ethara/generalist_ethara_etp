@@ -62,7 +62,7 @@
                 <filter string="QR" name="role_qr" domain="[('role_type', '=', 'qr')]"/>
                 <filter string="PL" name="role_pl" domain="[('role_type', '=', 'pl')]"/>
                 <filter string="TPM" name="role_tpm" domain="[('role_type', '=', 'tpm')]"/>
-                <group expand="0" string="Group By">
+                <group>
                     <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>
                     <filter string="Role" name="group_role" context="{'group_by': 'role_type'}"/>
                     <filter string="Assignee" name="group_assignee" context="{'group_by': 'assignee_id'}"/>

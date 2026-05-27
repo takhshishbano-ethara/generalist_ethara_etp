@@ -10,6 +10,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 
 from .analytics_dashboard import (
     COMPLETED_STATES,
+    _build_team_overview_aligned,
     _create_date_domain,
     _pct,
     _resolve_dashboard_filters,
@@ -318,26 +319,39 @@ class GohanDashboardOverviewController(http.Controller):
             [("state", "in", statuses)] if statuses else []
         )
 
+        total_task = _build_total_task(env, task_domain, filters)
+        url_analytics = _build_url_analytics(env, task_domain, filters)
+        quality_analytics = _build_quality_analytics(env, task_domain, filters)
+        team_analytics = _build_team_analytics(env, projects, role_filter)
+        task_progress = _build_task_progress(env, task_domain, filters)
+        submission_trend = _build_submission_trend(env, base_domain, filters)
+        kpi = {
+            "total_task_count": url_analytics.get("total_task_count", 0),
+            "total_task_done": total_task.get("total_completed_task_count", 0),
+            "this_week_added": total_task.get("this_week_added_task_count", 0),
+            "total_url_tasks": url_analytics.get("total_urls_added_count", 0),
+            "avg_quality_score_percentage": quality_analytics.get(
+                "average_quality_score_percentage", 0
+            ),
+            "team_overview": _build_team_overview_aligned(env, projects),
+        }
+        submission_trend_aligned = {
+            "period": "daily",
+            "total_in_period": submission_trend.get("total_submitted", 0),
+            "trend": submission_trend.get("trend", []),
+            "window": submission_trend.get("window", {}),
+        }
         data = {
-            "dashboard": {
-                "total_task_analytics": _build_total_task(
-                    env, task_domain, filters
-                ),
-                "url_analytics": _build_url_analytics(
-                    env, task_domain, filters
-                ),
-                "quality_analytics": _build_quality_analytics(
-                    env, task_domain, filters
-                ),
-                "team_analytics": _build_team_analytics(
-                    env, projects, role_filter
-                ),
-                "task_progress_graph": _build_task_progress(
-                    env, task_domain, filters
-                ),
-                "submission_trend_analytics": _build_submission_trend(
-                    env, base_domain, filters
-                ),
+            "overview_dashboard": {
+                "kpi": kpi,
+                "status_chart": task_progress,
+                "submission_trend": submission_trend_aligned,
+                "total_task_analytics": total_task,
+                "url_analytics": url_analytics,
+                "quality_analytics": quality_analytics,
+                "team_analytics": team_analytics,
+                "task_progress_graph": task_progress,
+                "submission_trend_analytics": submission_trend,
             },
         }
         _overview_cache_set(cache_key, data)
