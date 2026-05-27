@@ -12,7 +12,7 @@
                         <button name="action_enrich" string="Enrich Prompt" type="object"
                                 class="btn-primary"
                                 groups="t2av.group_t2av_manager"
-                                invisible="state not in ('draft','not_assigned') or last_enrichment_state in ('queued','submitting','validating')"
+                                invisible="state != 'draft' or last_enrichment_state in ('queued','submitting','validating')"
                                 confirm="Send the prompt to AWS Bedrock for enrichment? The enriched + validated text will appear below once complete."/>
                         <button name="action_revalidate" string="Run QC" type="object"
                                 class="btn-secondary"
@@ -29,7 +29,7 @@
                         <!-- First-run only -->
                         <button name="action_generate" string="Generate" type="object"
                                 class="oe_highlight"
-                                invisible="attempts_used > 0 or state not in ('draft','not_assigned')"
+                                invisible="attempts_used > 0 or state != 'draft'"
                                 confirm="This will submit the prompt to OpenRouter Seedance 2.0 and incur usage costs. Continue?"/>
 
                         <!-- Retry flow buttons -->
@@ -78,7 +78,7 @@
 
                         <!-- Live status spinner (only during non-terminal states) -->
                         <field name="state" widget="t2av_live_status" nolabel="1"
-                               invisible="state in ('not_assigned','draft','done','failed','cancelled') or ui_retry_pending"/>
+                               invisible="state in ('draft','done','failed','cancelled') or ui_retry_pending"/>
 
                         <!-- Banners -->
                         <div class="alert alert-info" role="alert" invisible="not ui_retry_pending">
@@ -122,7 +122,7 @@
                                 <field name="category_locked" invisible="1"/>
                                 <field name="prompt"
                                        placeholder="Describe the video you want to generate..."
-                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
+                                       readonly="state != 'draft' and not ui_retry_pending"
                                        required="1"/>
                                 <field name="enriched_prompt" readonly="1"
                                        invisible="not enriched_prompt"
@@ -142,11 +142,11 @@
                                     <strong> Not Golden:</strong> validator has warnings or hasn't been re-run. Click <em>Run QC</em>.
                                 </div>
                                 <field name="duration"
-                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                       readonly="state != 'draft' and not ui_retry_pending"/>
                                 <field name="resolution"
-                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                       readonly="state != 'draft' and not ui_retry_pending"/>
                                 <field name="aspect_ratio"
-                                       readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                       readonly="state != 'draft' and not ui_retry_pending"/>
                             </group>
                             <group string="Metadata">
                                 <field name="user_id" readonly="not context.get('t2av_is_manager')"/>
@@ -400,12 +400,12 @@
                                 <group>
                                     <field name="negative_prompt"
                                            placeholder="Things to avoid in the video (optional)"
-                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                           readonly="state != 'draft' and not ui_retry_pending"/>
                                     <field name="seed"
-                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"
+                                           readonly="state != 'draft' and not ui_retry_pending"
                                            help="Leave 0 for random seed."/>
                                     <field name="generate_audio"
-                                           readonly="state not in ('draft','not_assigned') and not ui_retry_pending"/>
+                                           readonly="state != 'draft' and not ui_retry_pending"/>
                                     <field name="model_name" readonly="1"/>
                                 </group>
                             </page>
@@ -437,7 +437,7 @@
             <field name="model">t2av.generation</field>
             <field name="arch" type="xml">
                 <list string="Video Generations"
-                      decoration-muted="(not category and state == 'done') or state == 'not_assigned'"
+                      decoration-muted="not category and state == 'done'"
                       decoration-success="state == 'done' and category"
                       decoration-danger="state in ('failed','cancelled')"
                       decoration-info="state in ('queued','submitting','processing','downloading')">
@@ -457,7 +457,7 @@
                            decoration-success="state == 'done'"
                            decoration-danger="state in ('failed','cancelled')"
                            decoration-info="state in ('queued','submitting','processing','downloading')"
-                           decoration-muted="state in ('draft','not_assigned')"/>
+                           decoration-muted="state == 'draft'"/>
                 </list>
             </field>
         </record>
@@ -476,7 +476,6 @@
 
                     <filter name="filter_my" string="My Generations" domain="[('user_id', '=', uid)]"/>
                     <separator/>
-                    <filter name="filter_not_assigned" string="Not Assigned" domain="[('state', '=', 'not_assigned')]"/>
                     <filter name="filter_draft" string="Draft" domain="[('state', '=', 'draft')]"/>
                     <filter name="filter_processing" string="Processing"
                             domain="[('state', 'in', ('queued','submitting','processing','downloading'))]"/>

@@ -46,4 +46,130 @@
         <field name="implementation">no_gap</field>
     </record>
 
+    <record id="seq_t2av_animals_wildlife_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Animals Wildlife</field>
+        <field name="code">t2av.attempt.animals_wildlife_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_animated_styles_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Animated Styles</field>
+        <field name="code">t2av.attempt.animated_styles_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_animated_text_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Animated Text</field>
+        <field name="code">t2av.attempt.animated_text_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_camera_motion_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Camera Motion</field>
+        <field name="code">t2av.attempt.camera_motion_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_fantasy_surreal_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Fantasy Surreal</field>
+        <field name="code">t2av.attempt.fantasy_surreal_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_fine_grained_motion_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Fine-Grained Motion</field>
+        <field name="code">t2av.attempt.fine_grained_motion_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_music_performance_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Music Performance</field>
+        <field name="code">t2av.attempt.music_performance_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_narrative_cinematic_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Narrative Cinematic</field>
+        <field name="code">t2av.attempt.narrative_cinematic_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_natural_patterns_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Natural Patterns</field>
+        <field name="code">t2av.attempt.natural_patterns_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_nature_weather_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Nature Weather</field>
+        <field name="code">t2av.attempt.nature_weather_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_person_emoting_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Person Emoting</field>
+        <field name="code">t2av.attempt.person_emoting_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_speech_styles_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Speech Styles</field>
+        <field name="code">t2av.attempt.speech_styles_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_urban_scenes_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Urban Scenes</field>
+        <field name="code">t2av.attempt.urban_scenes_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_t2av_vehicles_machines_fail" model="ir.sequence">
+        <field name="name">T2AV Failure: Vehicles Machines</field>
+        <field name="code">t2av.attempt.vehicles_machines_fail</field>
+        <field name="padding">7</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
 </odoo>

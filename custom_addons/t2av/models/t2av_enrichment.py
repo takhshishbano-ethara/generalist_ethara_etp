@@ -8,7 +8,14 @@ from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
 
 from . import credential_manager
-from ..services import enrichment_client, validator as validator_svc
+from ..services import (
+    auto_repair,
+    enrichment_client,
+    template_fallback,
+    validator as validator_svc,
+)
+
+_TEMPERATURE_SCHEDULE = (0.8, 0.4, 0.15)
 
 _logger = logging.getLogger(__name__)
 
@@ -281,6 +288,10 @@ class T2AVEnrichment(models.Model):
                 except (json.JSONDecodeError, TypeError):
                     previous_failures = []
 
+        attempt_temperature = _TEMPERATURE_SCHEDULE[
+            min(max(self.attempt_number - 1, 0), len(_TEMPERATURE_SCHEDULE) - 1)
+        ]
+
         try:
             result = enrichment_client.enrich(
                 access_key=access_key,
@@ -291,6 +302,7 @@ class T2AVEnrichment(models.Model):
                 metadata=metadata,
                 previous_failures=previous_failures,
                 max_attempts=max_attempts,
+                temperature=attempt_temperature,
             )
         except enrichment_client.EnrichmentAuthError as e:
             self._fail("aws_auth", str(e))
@@ -356,6 +368,38 @@ class T2AVEnrichment(models.Model):
         warnings_json = validator_svc.serialize_findings(report.warnings)
         fatals_json = validator_svc.serialize_findings(report.fatal)
 
+        repair_source = "llm"
+        if bucket in ("fatal", "warned"):
+            try:
+                repaired_text, repair_applied = auto_repair.repair_all(
+                    enriched_text,
+                    category=job.category or "",
+                    style=getattr(job, "style", None) or _STYLE_DEFAULT,
+                )
+                if repair_applied and repaired_text != enriched_text:
+                    repaired_report = validator_svc.validate(
+                        repaired_text,
+                        style=getattr(job, "style", None) or _STYLE_DEFAULT,
+                        category=job.category,
+                    )
+                    repaired_bucket = validator_svc.categorize(repaired_report)
+                    if repaired_bucket == "clean":
+                        enriched_text = repaired_text
+                        report = repaired_report
+                        bucket = repaired_bucket
+                        warnings_json = validator_svc.serialize_findings(report.warnings)
+                        fatals_json = validator_svc.serialize_findings(report.fatal)
+                        repair_source = "auto_repair"
+                        fixes = "; ".join(repair_applied[:5])
+                        job.message_post(body=_(
+                            "Tier 1 auto-repair saved enrichment #%(n)d: %(fixes)s"
+                        ) % {"n": self.attempt_number, "fixes": fixes})
+            except Exception:
+                _logger.exception(
+                    "T2AV: auto_repair crashed on job %s; falling through unchanged",
+                    job.id,
+                )
+
         new_state = {
             "clean": _STATE_CLEAN,
             "warned": _STATE_WARNED,
@@ -364,6 +408,7 @@ class T2AVEnrichment(models.Model):
 
         self.write({
             "state": new_state,
+            "enriched_text": enriched_text,
             "word_count": report.word_count,
             "validator_passed": report.passed,
             "validator_warnings": warnings_json or "",
@@ -375,10 +420,16 @@ class T2AVEnrichment(models.Model):
             job.write({
                 "enriched_prompt": enriched_text,
                 "golden_prompt": enriched_text,
+                "golden_source": repair_source,
             })
+            label = (
+                _("CLEAN")
+                if repair_source == "llm"
+                else _("CLEAN (auto-repaired)")
+            )
             job.message_post(body=_(
-                "Enrichment #%(n)d CLEAN — Golden Prompt set (%(words)d words)."
-            ) % {"n": self.attempt_number, "words": report.word_count})
+                "Enrichment #%(n)d %(label)s — Golden Prompt set (%(words)d words)."
+            ) % {"n": self.attempt_number, "label": label, "words": report.word_count})
         elif new_state == _STATE_WARNED:
             job.write({"enriched_prompt": enriched_text, "golden_prompt": False})
             warn_rules = ", ".join(f.rule for f in report.warnings[:5])
@@ -422,6 +473,39 @@ class T2AVEnrichment(models.Model):
                 job.message_post(body=_(
                     "Max %d enrichment attempts reached; no further auto-retry."
                 ) % max_enrichment_attempts)
+                try:
+                    fallback_text = template_fallback.build(
+                        metadata=metadata,
+                        style=getattr(job, "style", None) or _STYLE_DEFAULT,
+                    )
+                    fallback_report = validator_svc.validate(
+                        fallback_text,
+                        style=getattr(job, "style", None) or _STYLE_DEFAULT,
+                        category=job.category,
+                    )
+                    if validator_svc.categorize(fallback_report) != "fatal":
+                        job.write({
+                            "enriched_prompt": fallback_text,
+                            "golden_prompt": fallback_text,
+                            "golden_source": "template_fallback",
+                        })
+                        job.message_post(body=_(
+                            "Tier 3 template fallback engaged: Golden Prompt "
+                            "set via deterministic per-category template "
+                            "(%(words)d words)."
+                        ) % {"words": fallback_report.word_count})
+                    else:
+                        _logger.error(
+                            "T2AV: template_fallback produced FATAL output for "
+                            "job %s, category=%s, style=%s. Golden Prompt NOT set.",
+                            job.id, job.category, getattr(job, "style", None),
+                        )
+                except Exception:
+                    _logger.exception(
+                        "T2AV: template_fallback crashed on job %s; "
+                        "Golden Prompt NOT set.",
+                        job.id,
+                    )
 
     def _build_metadata(self, job):
         return {

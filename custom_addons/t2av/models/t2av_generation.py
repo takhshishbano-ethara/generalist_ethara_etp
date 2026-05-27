@@ -30,7 +30,6 @@ _logger = logging.getLogger(__name__)
 # The state machine itself lives on ``t2av.attempt``; the job's ``state``
 # is a stored compute that mirrors the active attempt.
 # ---------------------------------------------------------------------------
-_STATE_NOT_ASSIGNED = "not_assigned"
 _STATE_DRAFT = "draft"
 _STATE_QUEUED = "queued"
 _STATE_SUBMITTING = "submitting"
@@ -185,6 +184,17 @@ class T2AVGeneration(models.Model):
     is_golden = fields.Boolean(
         string="Is Golden", compute="_compute_is_golden", store=True,
     )
+    golden_source = fields.Selection(
+        [
+            ("llm", "LLM"),
+            ("auto_repair", "Auto-Repair (Tier 1)"),
+            ("template_fallback", "Template Fallback (Tier 3)"),
+            ("manual", "Manual"),
+        ],
+        string="Golden Source", readonly=True, copy=False,
+        help="Which layer of the enrichment pipeline produced the current "
+             "Golden Prompt. Used for observability.",
+    )
 
     # ------------------------------------------------------------------
     # Dataset category (v1.2) — required at submit time, locks after the
@@ -279,7 +289,6 @@ class T2AVGeneration(models.Model):
     # ------------------------------------------------------------------
     state = fields.Selection(
         [
-            ("not_assigned", "Not Assigned"),
             ("draft", "Draft"),
             ("queued", "Queued"),
             ("submitting", "Submitting"),
@@ -523,8 +532,6 @@ class T2AVGeneration(models.Model):
         for rec in self:
             if rec.active_attempt_id:
                 rec.state = rec.active_attempt_id.state
-            elif rec.source == "import":
-                rec.state = _STATE_NOT_ASSIGNED
             else:
                 rec.state = _STATE_DRAFT
 
@@ -1003,50 +1010,125 @@ class T2AVGeneration(models.Model):
             },
         }
 
+    def _update_latest_enrichment_validator_state(self, report, validator_svc):
+        self.ensure_one()
+        latest = self.enrichment_ids.sorted("attempt_number", reverse=True)[:1]
+        if not latest:
+            return
+        latest.sudo().write({
+            "validator_passed": report.passed,
+            "validator_warnings": validator_svc.serialize_findings(report.warnings) or "",
+            "validator_fatals": validator_svc.serialize_findings(report.fatal) or "",
+            "word_count": report.word_count,
+        })
+
+    def _apply_qc_repair_silent(self):
+        self.ensure_one()
+        from ..services import auto_repair, validator as validator_svc
+
+        original_text = self.enriched_prompt or ""
+        style = self.style or "precise"
+        category = self.category or ""
+
+        repaired_text = original_text
+        repair_applied = []
+        try:
+            repaired_text, repair_applied = auto_repair.repair_all(
+                original_text, category=category, style=style,
+            )
+        except Exception:
+            _logger.exception(
+                "T2AV: auto_repair crashed during Run QC on job %s", self.id,
+            )
+            repaired_text = original_text
+            repair_applied = []
+
+        repair_changed = bool(repair_applied) and repaired_text != original_text
+
+        if repair_changed:
+            repaired_report = validator_svc.validate(
+                repaired_text, style=style, category=category,
+            )
+            if validator_svc.categorize(repaired_report) == "clean":
+                self.write({
+                    "enriched_prompt": repaired_text,
+                    "golden_prompt": repaired_text,
+                    "golden_source": "auto_repair",
+                })
+                self._update_latest_enrichment_validator_state(
+                    repaired_report, validator_svc,
+                )
+                return {
+                    "bucket": "clean",
+                    "promoted": True,
+                    "fixes": list(repair_applied),
+                    "word_count": repaired_report.word_count,
+                    "warning_rules": [],
+                    "fatal_rules": [],
+                }
+
+        report = validator_svc.validate(
+            original_text, style=style, category=category,
+        )
+        bucket = validator_svc.categorize(report)
+        self._update_latest_enrichment_validator_state(report, validator_svc)
+
+        if bucket == "clean":
+            self.write({
+                "golden_prompt": original_text,
+                "golden_source": "llm",
+            })
+        else:
+            self.write({"golden_prompt": False})
+
+        return {
+            "bucket": bucket,
+            "promoted": False,
+            "fixes": list(repair_applied) if repair_changed else [],
+            "word_count": report.word_count,
+            "warning_rules": [f.rule for f in report.warnings[:5]],
+            "fatal_rules": [f.rule for f in report.fatal[:5]],
+        }
+
     def action_revalidate(self):
         self.ensure_one()
         if not (self.enriched_prompt or "").strip():
             raise UserError(_(
                 "No enriched prompt to validate. Run Enrich Prompt first."
             ))
-        from ..services import validator as validator_svc
-        report = validator_svc.validate(
-            self.enriched_prompt,
-            style=self.style or "precise",
-            category=self.category,
-        )
-        bucket = validator_svc.categorize(report)
-
-        latest = self.enrichment_ids.sorted("attempt_number", reverse=True)[:1]
-        if latest:
-            latest.sudo().write({
-                "validator_passed": report.passed,
-                "validator_warnings": validator_svc.serialize_findings(report.warnings) or "",
-                "validator_fatals": validator_svc.serialize_findings(report.fatal) or "",
-                "word_count": report.word_count,
-            })
+        result = self._apply_qc_repair_silent()
+        bucket = result["bucket"]
 
         if bucket == "clean":
-            self.write({"golden_prompt": self.enriched_prompt})
-            msg = _("QC PASS — Golden Prompt set. %d words, 0 warnings.") % report.word_count
+            if result["promoted"]:
+                fixes = "; ".join(result["fixes"][:5])
+                msg = _(
+                    "QC PASS (auto-repaired) — Golden Prompt set. "
+                    "%(words)d words. Fixes: %(fixes)s"
+                ) % {"words": result["word_count"], "fixes": fixes}
+            else:
+                msg = _(
+                    "QC PASS — Golden Prompt set. %d words, 0 warnings."
+                ) % result["word_count"]
             ntype = "success"
             sticky = False
         elif bucket == "warned":
-            self.write({"golden_prompt": False})
-            rules = ", ".join(f.rule for f in report.warnings[:5])
+            rules = ", ".join(result["warning_rules"])
             msg = _(
-                "QC WARNED — not Golden. %(count)d warning(s): %(rules)s"
-            ) % {"count": len(report.warnings), "rules": rules}
+                "QC WARNED — not Golden. %(count)d warning(s): %(rules)s "
+                "(auto-repair could not reach CLEAN)."
+            ) % {"count": len(result["warning_rules"]), "rules": rules}
             ntype = "warning"
             sticky = True
         else:
-            self.write({"golden_prompt": False})
-            rules = ", ".join(f.rule for f in report.fatal[:5])
+            rules = ", ".join(result["fatal_rules"])
             msg = _(
-                "QC FAILED — not Golden. %(count)d fatal(s): %(rules)s"
-            ) % {"count": len(report.fatal), "rules": rules}
+                "QC FAILED — not Golden. %(count)d fatal(s): %(rules)s "
+                "(auto-repair could not reach CLEAN)."
+            ) % {"count": len(result["fatal_rules"]), "rules": rules}
             ntype = "danger"
             sticky = True
+
         self.message_post(body=msg)
         return {
             "type": "ir.actions.client",
@@ -1056,6 +1138,99 @@ class T2AVGeneration(models.Model):
                 "message": msg,
                 "type": ntype,
                 "sticky": sticky,
+            },
+        }
+
+    def action_batch_revalidate(self):
+        _logger.info(
+            "T2AV: batch-revalidate invoked on %d record(s) by user %s",
+            len(self), self.env.user.login,
+        )
+        BATCH_CAP = 200
+        if len(self) > BATCH_CAP:
+            raise UserError(_(
+                "Batch too large: %(n)d row(s) selected, max %(cap)d per click."
+            ) % {"n": len(self), "cap": BATCH_CAP})
+
+        eligible = self.filtered(
+            lambda r: (r.enriched_prompt or "").strip()
+            and not r.is_golden
+            and r.last_enrichment_state not in ("queued", "submitting", "validating")
+        )
+        skipped_no_enriched = self.filtered(
+            lambda r: not (r.enriched_prompt or "").strip()
+        )
+        skipped_already_golden = self.filtered(lambda r: r.is_golden)
+        skipped_in_flight = self.filtered(
+            lambda r: r.last_enrichment_state in ("queued", "submitting", "validating")
+        )
+
+        promoted = 0
+        already_clean = 0
+        kept_warned = 0
+        kept_fatal = 0
+        errors = []
+
+        for rec in eligible:
+            try:
+                result = rec._apply_qc_repair_silent()
+                if result["bucket"] == "clean":
+                    if result["promoted"]:
+                        promoted += 1
+                        rec.message_post(body=_(
+                            "Bulk QC: auto-repaired and promoted to Golden "
+                            "(%(words)d words). Fixes: %(fixes)s"
+                        ) % {
+                            "words": result["word_count"],
+                            "fixes": "; ".join(result["fixes"][:5]),
+                        })
+                    else:
+                        already_clean += 1
+                        rec.message_post(body=_(
+                            "Bulk QC: already CLEAN, Golden Prompt set "
+                            "(%d words)."
+                        ) % result["word_count"])
+                elif result["bucket"] == "warned":
+                    kept_warned += 1
+                else:
+                    kept_fatal += 1
+            except Exception as exc:
+                errors.append(f"{rec.display_name}: {exc}")
+                _logger.exception(
+                    "T2AV batch-revalidate failed for job %s", rec.id,
+                )
+
+        lines = [
+            _("Selected: %d row(s).") % len(self),
+            _("Promoted to Golden (auto-repaired): %d") % promoted,
+            _("Already CLEAN — Golden set: %d") % already_clean,
+            _("Stayed WARNED — Golden NOT set: %d") % kept_warned,
+            _("Stayed FATAL — Golden NOT set: %d") % kept_fatal,
+            _("Skipped (no Enriched Prompt): %d") % len(skipped_no_enriched),
+            _("Skipped (already Golden): %d") % len(skipped_already_golden),
+            _("Skipped (enrichment in flight): %d") % len(skipped_in_flight),
+        ]
+        if errors:
+            lines.append(_("Errors: %d") % len(errors))
+            lines.extend(errors[:10])
+            if len(errors) > 10:
+                lines.append(_("... and %d more error(s).") % (len(errors) - 10))
+
+        if errors:
+            ntype = "danger"
+        elif (promoted + already_clean) > 0:
+            ntype = "success"
+        else:
+            ntype = "warning"
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Bulk Run QC"),
+                "message": "\n".join(lines),
+                "type": ntype,
+                "sticky": True,
             },
         }
 
