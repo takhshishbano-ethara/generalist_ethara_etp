@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_mm_tasker_root"
+              name="MM Tasker"
+              sequence="27"
+              web_icon="mm_tasker,static/description/icon.png"/>
+
+    <menuitem id="menu_mm_tasker_my_tasks"
+              name="My Tasks"
+              parent="menu_mm_tasker_root"
+              action="action_mm_tasker_my_tasks"
+              groups="mm_tasker.group_mm_tasker"
+              sequence="10"/>
+
+    <menuitem id="menu_mm_tasker_qc_queue"
+              name="QC Queue"
+              parent="menu_mm_tasker_root"
+              action="action_mm_tasker_qc_queue"
+              groups="mm_tasker.group_mm_qc"
+              sequence="20"/>
+
+    <menuitem id="menu_mm_tasker_all_tasks"
+              name="All Tasks"
+              parent="menu_mm_tasker_root"
+              action="action_mm_tasker_all_tasks"
+              groups="mm_tasker.group_mm_qc"
+              sequence="30"/>
+
+</odoo>
