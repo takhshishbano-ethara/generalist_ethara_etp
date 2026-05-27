@@ -643,11 +643,13 @@ class T2AVGeneration(models.Model):
                 "Create a new generation."
             ) % {"max": MAX_ATTEMPTS, "name": self.display_name})
         next_n = (max(self.attempt_ids.mapped("attempt_number") or [0])) + 1
-        attempt_prompt = (
-            (self.golden_prompt or "").strip()
-            or (self.enriched_prompt or "").strip()
-            or self.prompt
-        )
+        attempt_prompt = (self.golden_prompt or "").strip()
+        if not attempt_prompt:
+            raise UserError(_(
+                "Cannot generate video for %(name)s: no Golden Prompt. "
+                "Run Enrich (and Run QC if needed) until the validator "
+                "passes clean, then try again."
+            ) % {"name": self.display_name})
         attempt = self.env["t2av.attempt"].create({
             "job_id": self.id,
             "attempt_number": next_n,
@@ -712,13 +714,15 @@ class T2AVGeneration(models.Model):
                 "Batch too large: %(n)d row(s) selected, max %(cap)d per click."
             ) % {"n": len(self), "cap": BATCH_CAP})
 
-        access_key = credential_manager.get_aws_access_key(self.env)
-        secret_key = credential_manager.get_aws_secret_key(self.env)
-        if not access_key or not secret_key:
-            raise UserError(_(
-                "AWS Access Key / Secret Key not configured. "
-                "Set them in Settings > T2AV."
-            ))
+        if not credential_manager.get_bedrock_api_key(self.env):
+            access_key = credential_manager.get_aws_access_key(self.env)
+            secret_key = credential_manager.get_aws_secret_key(self.env)
+            if not access_key or not secret_key:
+                raise UserError(_(
+                    "Bedrock auth missing: set either (a) Bedrock API Key "
+                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
+                    "in Settings > T2AV."
+                ))
 
         eligible = self.filtered(
             lambda r: (r.prompt or "").strip()
@@ -899,16 +903,14 @@ class T2AVGeneration(models.Model):
             ))
 
         eligible = self.filtered(
-            lambda r: (r.enriched_prompt or "").strip() and (
+            lambda r: r.is_golden and (
                 not r.attempt_ids
                 or all(a.state == "failed" for a in r.attempt_ids)
             )
         )
-        skipped_no_enriched = self.filtered(
-            lambda r: not (r.enriched_prompt or "").strip()
-        )
+        skipped_not_golden = self.filtered(lambda r: not r.is_golden)
         skipped_has_attempts = self.filtered(
-            lambda r: (r.enriched_prompt or "").strip() and r.attempt_ids
+            lambda r: r.is_golden and r.attempt_ids
             and not all(a.state == "failed" for a in r.attempt_ids)
         )
 
@@ -932,7 +934,7 @@ class T2AVGeneration(models.Model):
         lines = [
             _("Selected: %d row(s).") % len(self),
             _("Queued: %d") % queued,
-            _("Skipped (no Enriched Prompt): %d") % len(skipped_no_enriched),
+            _("Skipped (no Golden Prompt): %d") % len(skipped_not_golden),
             _("Skipped (already has attempts): %d") % len(skipped_has_attempts),
         ]
         if errors:
@@ -1260,13 +1262,15 @@ class T2AVGeneration(models.Model):
                 "Maximum %(max)d enrichment attempts already reached. "
                 "Edit prompt or metadata to invalidate the chain and start fresh."
             ) % {"max": max_attempts})
-        access_key = credential_manager.get_aws_access_key(self.env)
-        secret_key = credential_manager.get_aws_secret_key(self.env)
-        if not access_key or not secret_key:
-            raise UserError(_(
-                "AWS Access Key / Secret Key not configured. "
-                "Set them in Settings > T2AV."
-            ))
+        if not credential_manager.get_bedrock_api_key(self.env):
+            access_key = credential_manager.get_aws_access_key(self.env)
+            secret_key = credential_manager.get_aws_secret_key(self.env)
+            if not access_key or not secret_key:
+                raise UserError(_(
+                    "Bedrock auth missing: set either (a) Bedrock API Key "
+                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
+                    "in Settings > T2AV."
+                ))
         next_n = (max(self.enrichment_ids.mapped("attempt_number") or [0])) + 1
         retry = self.env["t2av.enrichment"].create({
             "job_id": self.id,
@@ -1313,13 +1317,15 @@ class T2AVGeneration(models.Model):
                 "Edit the prompt or metadata to start a fresh row."
             ) % (max_attempts, self.display_name))
 
-        access_key = credential_manager.get_aws_access_key(self.env)
-        secret_key = credential_manager.get_aws_secret_key(self.env)
-        # if not access_key or not secret_key:
-        #     raise UserError(_(
-        #         "AWS Access Key / Secret Key not configured. "
-        #         "Set them in Settings > T2AV > AWS Credentials."
-        #     ))
+        if not credential_manager.get_bedrock_api_key(self.env):
+            access_key = credential_manager.get_aws_access_key(self.env)
+            secret_key = credential_manager.get_aws_secret_key(self.env)
+            if not access_key or not secret_key:
+                raise UserError(_(
+                    "Bedrock auth missing: set either (a) Bedrock API Key "
+                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
+                    "in Settings > T2AV."
+                ))
 
         next_n = (max(self.enrichment_ids.mapped("attempt_number") or [0])) + 1
         enrichment = self.env["t2av.enrichment"].create({
@@ -1442,6 +1448,12 @@ class T2AVGeneration(models.Model):
             ))
         if not (self.prompt or "").strip():
             raise UserError(_("Prompt is required."))
+        if not self.is_golden:
+            raise UserError(_(
+                "Golden Prompt is required before generating. "
+                "Run Enrich, then Run QC if needed, so the validator "
+                "passes clean."
+            ))
         api_key = credential_manager.get_openrouter_api_key(self.env)
         if not api_key:
             raise UserError(_(

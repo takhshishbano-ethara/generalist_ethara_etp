@@ -155,7 +155,12 @@ class TestDatasetNaming(TransactionCase):
         job.invalidate_recordset()
         self.assertTrue(job.category_locked)
         # User starts a retry and edits the prompt
-        job.write({"ui_retry_pending": True, "prompt": "different prompt"})
+        job.write({
+            "ui_retry_pending": True,
+            "prompt": "different prompt",
+            "enriched_prompt": "different prompt enriched",
+            "golden_prompt": "different prompt enriched",
+        })
         # Stub the heavy bits so we don't hit OpenRouter / S3
         with patch.object(type(job.env["t2av.attempt"]), "_defer", return_value=None), \
              patch.object(type(job), "_validate_can_submit", return_value=None):

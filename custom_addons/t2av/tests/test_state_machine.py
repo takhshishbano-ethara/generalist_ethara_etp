@@ -199,7 +199,12 @@ class TestStateMachine(TransactionCase):
             seed=job.seed, generate_audio=job.generate_audio,
         )
         job.invalidate_recordset()
-        job.write({"ui_retry_pending": True, "prompt": "different prompt"})
+        job.write({
+            "ui_retry_pending": True,
+            "prompt": "different prompt",
+            "enriched_prompt": "different prompt enriched",
+            "golden_prompt": "different prompt enriched",
+        })
         # Stub out _defer so we don't actually call OpenRouter
         with patch.object(type(job.env["t2av.attempt"]), "_defer", return_value=None):
             # Also stub _validate_can_submit (which needs API key + S3 connector configured)
@@ -208,7 +213,7 @@ class TestStateMachine(TransactionCase):
         self.assertEqual(job.attempts_used, 2)
         a2 = job.attempt_ids.sorted("attempt_number", reverse=True)[:1]
         self.assertEqual(a2.attempt_number, 2)
-        self.assertEqual(a2.prompt, "different prompt")
+        self.assertEqual(a2.prompt, "different prompt enriched")
         self.assertFalse(job.ui_retry_pending)
 
     # ------------------------------------------------------------------
