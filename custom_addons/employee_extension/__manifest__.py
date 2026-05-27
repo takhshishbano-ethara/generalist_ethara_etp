@@ -22,7 +22,6 @@ This module extends the hr.employee functionality with:
         "project",
         "api_auth_gateway",
         "mail",
-        "task_forge_bridge",
     ],
     "data": [
         "security/ir.model.access.csv",

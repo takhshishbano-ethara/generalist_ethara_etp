@@ -28,14 +28,20 @@ class HrEmployee(models.Model):
         for record in self:
             record.is_offboarded = record.offboarding_state == 'offboarded'
 
+    def _tracked_role_fields(self):
+        return {role: fname for role, fname in ROLE_FIELD_MAP.items() if fname in self._fields}
+
     @api.model_create_multi
     def create(self, vals_list):
         employees = super().create(vals_list)
+        role_fields = self._tracked_role_fields()
+        if not role_fields:
+            return employees
         History = self.env['hr.employee.assignment.history'].sudo()
         now = fields.Datetime.now()
         rows = []
         for emp in employees:
-            for role, fname in ROLE_FIELD_MAP.items():
+            for role, fname in role_fields.items():
                 assignee = emp[fname]
                 if assignee:
                     rows.append({
@@ -50,7 +56,8 @@ class HrEmployee(models.Model):
         return employees
 
     def write(self, vals):
-        tracked = {role: fname for role, fname in ROLE_FIELD_MAP.items() if fname in vals}
+        role_fields = self._tracked_role_fields()
+        tracked = {role: fname for role, fname in role_fields.items() if fname in vals}
         if not tracked:
             return super().write(vals)
 
