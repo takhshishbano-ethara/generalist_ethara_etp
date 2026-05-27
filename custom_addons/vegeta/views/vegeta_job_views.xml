@@ -303,13 +303,11 @@
 
                     <group>
                         <group>
-                            <!-- URL: tasker always readonly; admin always editable -->
-                            <field name="url" widget="url" readonly="not is_admin"/>
+                            <field name="url" widget="url" readonly="id and not is_admin"/>
                             <field name="site_name" readonly="1"/>
-                            <!-- Category: editable for both admin and tasker at all times -->
                             <field name="category_id"/>
                             <field name="user_id"
-                                   readonly="not is_admin or state not in ('not_assigned', 'draft')"
+                                   readonly="id and (not is_admin or state not in ('not_assigned', 'draft'))"
                                    options="{'no_create': True}"/>
                             <field name="company_id" groups="base.group_multi_company" readonly="1"/>
                         </group>
@@ -444,6 +442,31 @@
                             <field name="lambda_callback_html" widget="html" readonly="1" nolabel="1" sanitize="False" invisible="not lambda_callback_json"/>
                             <separator string="LLM Trace — every PRD attempt + QC" invisible="not llm_trace_json"/>
                             <field name="llm_trace_html" widget="html" readonly="1" nolabel="1" sanitize="False" invisible="not llm_trace_json"/>
+                        </page>
+
+                        <page string="Logs" name="logs">
+                            <div class="oe_button_box mb-2">
+                                <button name="action_refresh_lambda_logs"
+                                        type="object"
+                                        string="Refresh Lambda Logs"
+                                        class="btn-secondary"
+                                        groups="vegeta.group_vegeta_admin"
+                                        invisible="not lambda_request_id"/>
+                                <field name="lambda_request_id" readonly="1" class="ms-3"/>
+                            </div>
+                            <field name="log_ids" nolabel="1" readonly="1">
+                                <list decoration-danger="level == 'ERROR' or level == 'CRITICAL'"
+                                      decoration-warning="level == 'WARNING'"
+                                      decoration-muted="level == 'DEBUG'"
+                                      default_order="timestamp asc, id asc"
+                                      create="false" edit="false" delete="false">
+                                    <field name="timestamp"/>
+                                    <field name="source"/>
+                                    <field name="level"/>
+                                    <field name="pod" optional="hide"/>
+                                    <field name="message"/>
+                                </list>
+                            </field>
                         </page>
 
                     </notebook>

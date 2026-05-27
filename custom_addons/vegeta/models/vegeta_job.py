@@ -9,8 +9,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 from pathlib import Path
 
-from odoo import api, fields, models, SUPERUSER_ID
-from odoo.exceptions import UserError
+from markupsafe import Markup
+
+from odoo import _, api, fields, models, SUPERUSER_ID
+from odoo.exceptions import AccessError, UserError
 from odoo.modules.registry import Registry
 from odoo.tools import config as odoo_config
 
@@ -352,6 +354,35 @@ class VegetaJob(models.Model):
     # been attempted on them yet.
     started_processing_at = fields.Datetime(string="Worker Picked Up At")
 
+    # Sub-step within state surfaced via stage_progress_html; labels in _PHASE_LABELS.
+    current_phase = fields.Char(
+        string="Current Phase",
+        default="",
+        readonly=True,
+        copy=False,
+    )
+
+    lambda_request_id = fields.Char(
+        string="Lambda Request Id",
+        readonly=True,
+        copy=False,
+        index=True,
+        help="AWS Lambda RequestId from the most recent invoke. Used by the log-fetch cron to filter CloudWatch events for this job.",
+    )
+    last_lambda_log_ts = fields.Datetime(
+        string="Last Lambda Log Fetched",
+        readonly=True,
+        copy=False,
+        help="Watermark for CloudWatch log polling; only events after this timestamp are pulled on the next tick.",
+    )
+
+    log_ids = fields.One2many(
+        "vegeta.job.log",
+        "job_id",
+        string="Execution Logs",
+        readonly=True,
+    )
+
     # Name of the Kubernetes Job running this task's PRD generation. Empty
     # until the dispatch cron picks the job up; set to the K8s Job name for a
     # cluster run, or to _INPROCESS_JOB_NAME for the local in-process fallback.
@@ -485,7 +516,18 @@ class VegetaJob(models.Model):
         "scoring": 30,       # ~30s
     }
 
-    @api.depends("state", "started_at", "last_heartbeat", "completed_at", "duration_seconds")
+    _PHASE_LABELS = {
+        "extracting.invoking": "Invoking Lambda",
+        "extracting.running": "Lambda running",
+        "generating.starting": "Starting generation",
+        "generating.downloading_screenshots": "Downloading screenshots",
+        "generating.calling_bedrock": "Calling Bedrock",
+        "generating.scoring": "Scoring PRD",
+        "generating.uploading": "Uploading artifacts",
+        "scoring.qc_review": "Running QC review",
+    }
+
+    @api.depends("state", "started_at", "last_heartbeat", "completed_at", "duration_seconds", "current_phase")
     def _compute_stage_progress(self):
         now = fields.Datetime.now()
         for rec in self:
@@ -530,7 +572,15 @@ class VegetaJob(models.Model):
                 m, s = divmod(int(secs), 60)
                 return f"{m}m {s:02d}s" if m else f"{s}s"
 
+            phase_label = self._PHASE_LABELS.get(rec.current_phase or "", "")
+            phase_html = (
+                f'<div style="font-size:13px;color:#0d6efd;padding:2px 0;font-weight:500;">'
+                f'&#9881; {phase_label}'
+                f'</div>'
+            ) if phase_label else ""
+
             rec.stage_progress_html = (
+                f'{phase_html}'
                 f'<div style="font-size:13px;color:#495057;padding:4px 0;">'
                 f'Stage: <b>{_fmt(stage_elapsed)}</b>'
                 f' &middot; Total: <b>{_fmt(overall_elapsed)}</b>'
@@ -1288,7 +1338,19 @@ class VegetaJob(models.Model):
             "completed_at": False,
             "duration_seconds": False,
             "last_heartbeat": fields.Datetime.now(),
+            "current_phase": "extracting.invoking",
         })
+        try:
+            from markupsafe import escape
+            self.message_post(
+                body=Markup(f"<b>Pipeline started</b> by {escape(self.env.user.name)} &mdash; URL: {escape(self.url or '')}"),
+                subtype_xmlid="mail.mt_note",
+            )
+        except Exception:
+            _logger.warning(
+                "[vegeta][job=%s] chatter post failed at action_run (non-fatal)",
+                self.name, exc_info=True,
+            )
         # Stage boundary: job has left draft; the extraction Lambda is
         # dispatched on postcommit. Absence of this line means action_run
         # raised before the state write committed.
@@ -1312,9 +1374,21 @@ class VegetaJob(models.Model):
             "cancel_requested": True,
             "error_message": False,
             "job_name": False,
+            "current_phase": "",
         })
         _logger.info("[vegeta][job=%s] cancelled by %s", self.name, self.env.user.name)
         self._notify_state_change("draft")
+        try:
+            from markupsafe import escape
+            self.message_post(
+                body=Markup(f"<b>Pipeline cancelled</b> by {escape(self.env.user.name)}"),
+                subtype_xmlid="mail.mt_note",
+            )
+        except Exception:
+            _logger.warning(
+                "[vegeta][job=%s] chatter post failed at action_cancel (non-fatal)",
+                self.name, exc_info=True,
+            )
 
     def action_run_batch_concurrent(self):
         """Server action: fire all selected jobs in parallel via async Lambda invoke.
@@ -1448,6 +1522,7 @@ class VegetaJob(models.Model):
         from ..services.extraction_service import trigger_extraction
 
         ok_ids: list[int] = []
+        ok_request_ids: dict[int, str] = {}
         failed: dict[int, str] = {}
         max_workers = min(config["batch_concurrency"], len(record_ids)) or 1
 
@@ -1484,6 +1559,9 @@ class VegetaJob(models.Model):
                     continue
                 if result.get("success"):
                     ok_ids.append(record_id)
+                    rid = result.get("request_id") or ""
+                    if rid:
+                        ok_request_ids[record_id] = rid
                 else:
                     failed[record_id] = result.get("error", "Unknown error")[:500]
 
@@ -1491,6 +1569,24 @@ class VegetaJob(models.Model):
             "[vegeta] Batch fan-out done: %d invoked OK, %d failed",
             len(ok_ids), len(failed),
         )
+
+        if ok_request_ids:
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    for rid, request_id in ok_request_ids.items():
+                        rec = env[self._name].browse(rid)
+                        if rec.exists():
+                            rec.write({
+                                "lambda_request_id": request_id,
+                                "current_phase": "extracting.running",
+                            })
+                    cr.commit()
+            except Exception:
+                _logger.exception(
+                    "[vegeta] failed to persist %d lambda request_ids after batch fan-out",
+                    len(ok_request_ids),
+                )
 
         if failed:
             try:
@@ -2254,8 +2350,20 @@ class VegetaJob(models.Model):
             "error_message": str(error_msg)[:500],
             "completed_at": fields.Datetime.now(),
             "job_name": False,
+            "current_phase": "",
         })
         self._notify_state_change("failed")
+        try:
+            from markupsafe import escape
+            self.message_post(
+                body=Markup(f"<b>Failed:</b> {escape(str(error_msg)[:300])}"),
+                subtype_xmlid="mail.mt_note",
+            )
+        except Exception:
+            _logger.warning(
+                "[vegeta][job=%s] chatter post failed in _mark_failed (non-fatal)",
+                self.name, exc_info=True,
+            )
 
     def _is_cancelled(self, db_name, record_id):
         """Check if a task has been cancelled (safe for background threads)."""
@@ -2346,7 +2454,13 @@ class VegetaJob(models.Model):
                     "state": "failed",
                     "error_message": error_msg[:500],
                     "completed_at": fields.Datetime.now(),
+                    "current_phase": "",
                 })
+                from markupsafe import escape
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f"<b>Lambda invoke rejected:</b> {escape(str(error_msg)[:300])}",
+                )
             else:
                 # Async invoke accepted: the job now waits in `extracting`
                 # for the webhook callback. If neither the callback nor the
@@ -2354,6 +2468,17 @@ class VegetaJob(models.Model):
                 _logger.info(
                     "[vegeta][job=%s] extraction Lambda invoke ACCEPTED — "
                     "awaiting webhook callback", record_id,
+                )
+                request_id = result.get("request_id") or ""
+                self._write_with_cursor(db_name, record_id, {
+                    "current_phase": "extracting.running",
+                    "lambda_request_id": request_id,
+                })
+                from markupsafe import escape
+                rid_suffix = f" &mdash; RequestId {escape(request_id)}" if request_id else ""
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f"<b>Lambda invoked</b> (async) &mdash; function={escape(str(config['function_name'] or ''))}, region={escape(str(config['region']))}{rid_suffix}",
                 )
 
         except Exception as exc:
@@ -2366,7 +2491,13 @@ class VegetaJob(models.Model):
                     "state": "failed",
                     "error_message": str(exc)[:500],
                     "completed_at": fields.Datetime.now(),
+                    "current_phase": "",
                 })
+                from markupsafe import escape
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f"<b>Extraction background error:</b> {escape(str(exc)[:300])}",
+                )
             except Exception:
                 _logger.error(
                     "[vegeta][job=%s] failed to mark job as failed after "
@@ -2544,10 +2675,21 @@ class VegetaJob(models.Model):
                 phase1_vals = {
                     "state": "generating",
                     "last_heartbeat": fields.Datetime.now(),
+                    "current_phase": "generating.starting",
                 }
                 if not record.started_processing_at:
                     phase1_vals["started_processing_at"] = fields.Datetime.now()
                 record.write(phase1_vals)
+                try:
+                    record.message_post(
+                        body=Markup(f"<b>Worker picked up</b> &mdash; pod {os.environ.get('HOSTNAME', 'unknown')}"),
+                        subtype_xmlid="mail.mt_note",
+                    )
+                except Exception:
+                    _logger.warning(
+                        "[vegeta][job=%s] chatter post failed at worker pickup (non-fatal)",
+                        record_id, exc_info=True,
+                    )
                 cr.commit()
 
             # started_processing_at is now stamped — past this point the
@@ -2572,6 +2714,9 @@ class VegetaJob(models.Model):
                 "[vegeta][job=%s] PHASE 2 (+%.1fs): downloading screenshots "
                 "from S3 for vision", record_id, _elapsed(),
             )
+            self._write_with_cursor(db_name, record_id, {
+                "current_phase": "generating.downloading_screenshots",
+            })
             # Download screenshots from S3 for vision (shared by PRD gen + QC)
             # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
             screenshot_blocks = []
@@ -2656,6 +2801,9 @@ class VegetaJob(models.Model):
                 "generation (%d screenshot(s) attached)",
                 record_id, _elapsed(), len(screenshot_blocks),
             )
+            self._write_with_cursor(db_name, record_id, {
+                "current_phase": "generating.calling_bedrock",
+            })
             _bedrock_t0 = time.monotonic()
             prd_text = generate_prd(
                 inference_arn=config["inference_arn"],
@@ -2665,16 +2813,24 @@ class VegetaJob(models.Model):
                 access_key_id=config["bedrock_access_key"],
                 secret_access_key=config["bedrock_secret_key"],
             )
+            _bedrock_dt = time.monotonic() - _bedrock_t0
             _logger.info(
                 "[vegeta][job=%s] PHASE 2 (+%.1fs): Bedrock PRD returned in "
                 "%.1fs — %d chars / ~%d words",
-                record_id, _elapsed(), time.monotonic() - _bedrock_t0,
+                record_id, _elapsed(), _bedrock_dt,
                 len(prd_text or ""), len((prd_text or "").split()),
+            )
+            self._post_message_with_cursor(
+                db_name, record_id,
+                f"<b>Bedrock PRD generated</b> in {_bedrock_dt:.1f}s &mdash; {len(prd_text or '')} chars / ~{len((prd_text or '').split())} words",
             )
 
             if _bail_if_cancelled("scoring"):
                 return
 
+            self._write_with_cursor(db_name, record_id, {
+                "current_phase": "generating.scoring",
+            })
             score_report = score_prd(
                 prd_text=prd_text,
                 category=job_data["category_name"],
@@ -2684,6 +2840,11 @@ class VegetaJob(models.Model):
                 "[vegeta][job=%s] PHASE 2 (+%.1fs): scored %s/100 grade=%s",
                 record_id, _elapsed(), total_score,
                 score_report.get("grade"),
+            )
+            from markupsafe import escape
+            self._post_message_with_cursor(
+                db_name, record_id,
+                f"<b>Scoring complete</b> &mdash; {total_score}/100, grade {escape(str(score_report.get('grade') or '?'))}",
             )
 
             best_prd_text = prd_text
@@ -2736,6 +2897,7 @@ class VegetaJob(models.Model):
             # could trip the watchdog while doing real work.
             self._write_with_cursor(db_name, record_id, {
                 "state": "scoring",
+                "current_phase": "scoring.qc_review",
                 "last_heartbeat": fields.Datetime.now(),
             })
 
@@ -2771,6 +2933,15 @@ class VegetaJob(models.Model):
                     "[vegeta][job=%s] PHASE 3 (+%.1fs): QC done in %.1fs — "
                     "verdict=%s", record_id, _elapsed(),
                     time.monotonic() - _qc_t0, qc_verdict,
+                )
+                _verdict_color = {
+                    "shippable": "#28a745",
+                    "needs_fixes": "#ffc107",
+                    "not_shippable": "#dc3545",
+                }.get(qc_verdict, "#6c757d")
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f'<b>QC verdict:</b> <span style="color:{_verdict_color};font-weight:600;">{qc_verdict}</span>',
                 )
             except Exception as qc_exc:
                 _logger.warning(
@@ -2812,6 +2983,7 @@ class VegetaJob(models.Model):
 
                 final_vals = {
                     "state": "done",
+                    "current_phase": "",
                     "prd_text": best_prd_text,
                     "prd_text_html": _markdown_to_html(best_prd_text),
                     "score": best_score,
@@ -2879,6 +3051,7 @@ class VegetaJob(models.Model):
             try:
                 fail_vals = {
                     "state": "failed",
+                    "current_phase": "",
                     "error_message": str(exc)[:500],
                     "completed_at": fields.Datetime.now(),
                     "job_name": False,
@@ -2888,6 +3061,11 @@ class VegetaJob(models.Model):
                 if _trace:
                     fail_vals["llm_trace_json"] = _trace
                 self._write_with_cursor(db_name, record_id, fail_vals)
+                from markupsafe import escape
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f"<b>PRD pipeline failed:</b> {escape(str(exc)[:300])}",
+                )
             except Exception:
                 _logger.error("[vegeta][job=%s] failed to mark as failed", record_id)
 
@@ -2932,12 +3110,17 @@ class VegetaJob(models.Model):
                     )
                 if vals:
                     record.write(vals)
-                    if "state" in vals:
+                    if "state" in vals or "current_phase" in vals:
                         try:
+                            payload = {"id": record_id}
+                            if "state" in vals:
+                                payload["state"] = vals["state"]
+                            if "current_phase" in vals:
+                                payload["current_phase"] = vals["current_phase"]
                             env["bus.bus"]._sendone(
                                 "vegeta_job_updates",
                                 "vegeta/job_state",
-                                {"id": record_id, "state": vals["state"]},
+                                payload,
                             )
                         except Exception:
                             pass
@@ -2949,6 +3132,20 @@ class VegetaJob(models.Model):
                     "write of %s dropped", record_id, sorted(vals.keys()),
                 )
             cr.commit()
+
+    def _post_message_with_cursor(self, db_name, record_id, body):
+        try:
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                record = env[self._name].browse(record_id)
+                if record.exists():
+                    record.message_post(body=Markup(body), subtype_xmlid="mail.mt_note")
+                cr.commit()
+        except Exception:
+            _logger.warning(
+                "[vegeta][job=%s] chatter post failed (non-fatal)",
+                record_id, exc_info=True,
+            )
 
     def _build_feedback(self, score_report):
         from ..services.scoring_service import SECTION_MAX_POINTS
@@ -3513,7 +3710,7 @@ class VegetaJob(models.Model):
                 "vegeta.worker_deployment_name", "vegeta-prd-worker",
             ),
             "namespace": ICP.get_param("vegeta.k8s_namespace", "vegeta"),
-            "min_replicas": int(ICP.get_param("vegeta.worker_min_replicas", "1")),
+            "min_replicas": int(ICP.get_param("vegeta.worker_min_replicas", "0")),
             "max_replicas": int(ICP.get_param("vegeta.worker_max_replicas", "10")),
             "per_pod_concurrency": int(
                 ICP.get_param("vegeta.worker_target_concurrency", "100"),
@@ -3689,6 +3886,109 @@ class VegetaJob(models.Model):
             self.env.cr.execute(
                 "SELECT pg_advisory_unlock(%s)", (_PRD_RECONCILE_LOCK_ID,),
             )
+
+    def _fetch_lambda_logs_one(self, job, logs_client, log_group):
+        request_id = (job.lambda_request_id or "").strip()
+        if not request_id:
+            return
+        # CloudWatch filter_log_events without startTime scans a narrow recent window
+        # and returns 0 events for older RequestIds. Always pass startTime; align the
+        # default to when Lambda actually ran so matching events land on page 1 within
+        # the 5x200 pagination cap.
+        if job.last_lambda_log_ts:
+            start_ms = int(job.last_lambda_log_ts.timestamp() * 1000) + 1
+        elif job.started_at:
+            start_ms = int(job.started_at.timestamp() * 1000) - 60_000
+        else:
+            import time as _time
+            start_ms = int(_time.time() * 1000) - 7 * 86400 * 1000
+        events = []
+        next_token = None
+        page_limit = 5
+        for _ in range(page_limit):
+            kwargs = {
+                "logGroupName": log_group,
+                "filterPattern": f'"{request_id}"',
+                "limit": 200,
+                "startTime": start_ms,
+            }
+            if next_token:
+                kwargs["nextToken"] = next_token
+            try:
+                resp = logs_client.filter_log_events(**kwargs)
+            except logs_client.exceptions.ResourceNotFoundException:
+                return
+            except Exception:
+                _logger.exception(
+                    "[vegeta][job=%s] filter_log_events failed", job.id,
+                )
+                return
+            events.extend(resp.get("events", []))
+            next_token = resp.get("nextToken")
+            if not next_token:
+                break
+        if not events:
+            return
+        Log = self.env["vegeta.job.log"].sudo()
+        latest_ms = 0
+        rows = []
+        from datetime import datetime as _dt
+        for ev in events:
+            ts_ms = ev.get("timestamp") or 0
+            if ts_ms > latest_ms:
+                latest_ms = ts_ms
+            ts = _dt.utcfromtimestamp(ts_ms / 1000.0) if ts_ms else _dt.utcnow()
+            msg = (ev.get("message") or "").rstrip("\n")
+            level = "INFO"
+            if "ERROR" in msg or "Traceback" in msg:
+                level = "ERROR"
+            elif "WARN" in msg or "WARNING" in msg:
+                level = "WARNING"
+            rows.append({
+                "job_id": job.id,
+                "timestamp": ts,
+                "source": "lambda",
+                "level": level,
+                "message": msg[:16384],
+            })
+        if rows:
+            Log.create(rows)
+        if latest_ms:
+            new_watermark = _dt.utcfromtimestamp(latest_ms / 1000.0)
+            job.sudo().write({"last_lambda_log_ts": new_watermark})
+
+    def action_refresh_lambda_logs(self):
+        self.ensure_one()
+        if not self.env.user.has_group("vegeta.group_vegeta_admin"):
+            raise AccessError(_("Only Vegeta administrators can fetch Lambda CloudWatch logs."))
+        if not self.lambda_request_id:
+            return False
+        ICP = self.env["ir.config_parameter"].sudo()
+        function_name = (ICP.get_param("vegeta.lambda_function_name") or "").strip()
+        region = (ICP.get_param("vegeta.lambda_region") or "us-east-1").strip()
+        access_key_id = (ICP.get_param("vegeta.extraction_access_key_id") or "").strip()
+        secret_access_key = (ICP.get_param("vegeta.extraction_secret_access_key") or "").strip()
+        if not function_name:
+            return False
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except ImportError:
+            return False
+        client_kwargs = {
+            "service_name": "logs",
+            "region_name": region,
+            "config": BotoConfig(read_timeout=30, connect_timeout=10, retries={"max_attempts": 2}),
+        }
+        if access_key_id and secret_access_key:
+            client_kwargs["aws_access_key_id"] = access_key_id
+            client_kwargs["aws_secret_access_key"] = secret_access_key
+        logs_client = boto3.client(**client_kwargs)
+        self._fetch_lambda_logs_one(self, logs_client, f"/aws/lambda/{function_name}")
+        return {
+            "type": "ir.actions.client",
+            "tag": "soft_reload",
+        }
 
     @api.model
     def _increment_heartbeat_failure(self, db_name, record_id):

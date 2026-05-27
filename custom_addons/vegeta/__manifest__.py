@@ -29,6 +29,7 @@
     ),
     "author": "Ethara",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],
+    "post_load": "post_load",
     "data": [
         "security/vegeta_security.xml",
         "security/ir.model.access.csv",
