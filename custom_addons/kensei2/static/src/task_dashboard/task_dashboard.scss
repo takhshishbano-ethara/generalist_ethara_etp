@@ -1111,8 +1111,36 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    margin-left: auto;
     flex-shrink: 0;
+}
+
+.o_kensei2_retry_btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-left: auto;
+    border: 1px solid var(--kensei2-border);
+    border-radius: var(--kensei2-radius-sm);
+    background: var(--kensei2-surface);
+    color: var(--kensei2-text-secondary);
+    font-size: 0.6875rem;
+    cursor: pointer;
+    transition: all var(--kensei2-transition);
+    flex-shrink: 0;
+
+    &:hover:not(:disabled) {
+        background: var(--kensei2-surface-raised);
+        color: var(--kensei2-text);
+        transform: translateY(-1px);
+        box-shadow: var(--kensei2-shadow-xs);
+    }
+
+    &:disabled {
+        cursor: wait;
+        opacity: 0.6;
+    }
 }
 
 .o_kensei2_score_btn {

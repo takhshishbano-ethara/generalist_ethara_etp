@@ -6912,17 +6912,21 @@ class Kensei2Sandbox(models.Model):
             return match.group(1).strip()
         return text
 
-    def _execute_tests_in_sandbox(self, test_code):
-        """Write test file and run pytest inside the sandbox container."""
+    def _execute_tests_in_sandbox(self, test_code, test_filter=None):
+        """Write test file and run pytest inside the sandbox container.
+
+        test_filter, if provided, is passed to pytest as ``-k <filter>`` so
+        only matching test functions run. Used for per-function retry.
+        """
         self.ensure_one()
         mode = self._deployment_mode()
 
         if mode == "k8s":
-            return self._execute_tests_k8s(test_code)
+            return self._execute_tests_k8s(test_code, test_filter=test_filter)
         else:
-            return self._execute_tests_local(test_code)
+            return self._execute_tests_local(test_code, test_filter=test_filter)
 
-    def _execute_tests_local(self, test_code):
+    def _execute_tests_local(self, test_code, test_filter=None):
         """Execute tests inside the local Docker sandbox."""
         import base64
 
@@ -6964,9 +6968,10 @@ class Kensei2Sandbox(models.Model):
             install_cmd, capture_output=True, text=True, timeout=60, cwd=workdir
         )
 
-        run_cmd = _compose_exec("openclaw", [
-            "python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long",
-        ])
+        pytest_args = ["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long"]
+        if test_filter:
+            pytest_args += ["-k", test_filter]
+        run_cmd = _compose_exec("openclaw", pytest_args)
 
         result = subprocess.run(
             run_cmd, capture_output=True, text=True, timeout=120, cwd=workdir
@@ -6977,7 +6982,7 @@ class Kensei2Sandbox(models.Model):
             output += "\n--- STDERR ---\n" + result.stderr
         return output[:50000]
 
-    def _execute_tests_k8s(self, test_code):
+    def _execute_tests_k8s(self, test_code, test_filter=None):
         """Execute tests inside the K8s sandbox pod."""
         try:
             from kubernetes import client as k8s_client
@@ -7040,10 +7045,13 @@ class Kensei2Sandbox(models.Model):
             pass
 
         try:
+            pytest_cmd = ["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long"]
+            if test_filter:
+                pytest_cmd += ["-k", test_filter]
             stdout = k8s_stream(
                 core_v1.connect_get_namespaced_pod_exec,
                 pod_name, namespace, container="openclaw",
-                command=["python3", "-m", "pytest", "/tmp/test_state.py", "-v", "--tb=long"],
+                command=pytest_cmd,
                 stderr=True, stdin=False, stdout=True, tty=False,
                 _preload_content=True,
             )

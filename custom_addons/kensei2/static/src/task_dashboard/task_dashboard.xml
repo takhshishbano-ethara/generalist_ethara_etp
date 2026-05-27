@@ -413,6 +413,13 @@
                                                                                     <t t-else=""><i class="fa fa-minus"/></t>
                                                                                 </span>
                                                                                 <span class="o_kensei2_test_func_name"><t t-out="fn"/></span>
+                                                                                <button class="o_kensei2_retry_btn"
+                                                                                        t-att-disabled="this.isRetryingFunction(result.id, fn)"
+                                                                                        t-att-title="this.isRetryingFunction(result.id, fn) ? 'Retrying...' : 'Re-run only this test (uses pytest -k). Requires sandbox to still be running.'"
+                                                                                        t-on-click.stop="() => this.onRetryTestFunction(result.id, fn)">
+                                                                                    <t t-if="this.isRetryingFunction(result.id, fn)"><i class="fa fa-spinner fa-spin"/></t>
+                                                                                    <t t-else=""><i class="fa fa-refresh"/></t>
+                                                                                </button>
                                                                                 <div class="o_kensei2_test_score">
                                                                                     <t t-foreach="[-30,-20,-10,0,10,20,30]" t-as="sv" t-key="sv">
                                                                                         <button t-attf-class="o_kensei2_score_btn #{this.getFunctionScore(result, fn) === sv ? 'active' : ''} #{sv > 0 ? 'positive' : sv &lt; 0 ? 'negative' : 'neutral'}"

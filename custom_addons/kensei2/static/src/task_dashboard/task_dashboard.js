@@ -87,6 +87,7 @@ export class TaskDashboard extends Component {
             harborExporting: false,
             showSelectivePrompt: false,
             selectivePromptInFlight: false,
+            retryingFunctions: {},
         });
 
         this._onBatchStatusChanged = (ev) => {
@@ -962,6 +963,7 @@ export class TaskDashboard extends Component {
                     "tests_total", "tests_passed", "tests_failed", "tests_errored",
                     "duration_generation_ms", "duration_execution_ms", "create_date",
                     "trajectory_index", "test_code", "test_output", "score", "test_scores",
+                    "test_function_outputs",
                 ],
                 { order: "trajectory_index asc, create_date desc", limit: 100 },
             );
@@ -1112,6 +1114,47 @@ export class TaskDashboard extends Component {
         }
     }
 
+    _getFunctionOverrideOutput(result, funcName) {
+        try {
+            const overrides = JSON.parse(result.test_function_outputs || "{}");
+            return overrides[funcName] || null;
+        } catch (_e) {
+            return null;
+        }
+    }
+
+    isRetryingFunction(resultId, funcName) {
+        return Boolean(this.state.retryingFunctions[`${resultId}::${funcName}`]);
+    }
+
+    async onRetryTestFunction(resultId, funcName) {
+        const key = `${resultId}::${funcName}`;
+        if (this.state.retryingFunctions[key]) return;
+        this.state.retryingFunctions[key] = true;
+        try {
+            const res = await this.orm.call(
+                "kensei2.test.result",
+                "action_rerun_test_function",
+                [[resultId], funcName],
+            );
+            const allResults = Object.values(this.state.testResults).flat();
+            const result = allResults.find(r => r.id === resultId);
+            if (result && res && res.test_function_outputs) {
+                result.test_function_outputs = res.test_function_outputs;
+            }
+            const statusLabel = result ? this.getFunctionStatus(result, funcName) : null;
+            this.notification.add(
+                `Re-ran ${funcName}${statusLabel ? ` — ${statusLabel}` : ""}`,
+                { type: statusLabel === "passed" ? "success" : "warning" },
+            );
+        } catch (e) {
+            const msg = (e && e.data && e.data.message) || e.message || "Retry failed";
+            this.notification.add(`Retry failed: ${msg}`, { type: "danger" });
+        } finally {
+            delete this.state.retryingFunctions[key];
+        }
+    }
+
     getTestFunctions(result) {
         if (!result.test_code) return [];
         const regex = /(?:def|async def)\s+(test_\w+)\s*\(/gm;
@@ -1124,8 +1167,9 @@ export class TaskDashboard extends Component {
     }
 
     getFunctionStatus(result, funcName) {
-        if (!result.test_output) return "unknown";
-        const output = result.test_output;
+        const override = this._getFunctionOverrideOutput(result, funcName);
+        const output = override || result.test_output;
+        if (!output) return "unknown";
         if (output.includes(funcName + " PASSED") || output.match(new RegExp(funcName + "\\s+PASSED"))) return "passed";
         if (output.includes(funcName + " FAILED") || output.match(new RegExp(funcName + "\\s+FAILED"))) return "failed";
         if (output.includes(funcName + " ERROR") || output.match(new RegExp(funcName + "\\s+ERROR"))) return "error";
@@ -1133,6 +1177,8 @@ export class TaskDashboard extends Component {
     }
 
     getFunctionOutput(result, funcName) {
+        const override = this._getFunctionOverrideOutput(result, funcName);
+        if (override) return override.trim();
         if (!result.test_output) return "";
         const output = result.test_output;
         const patterns = [
