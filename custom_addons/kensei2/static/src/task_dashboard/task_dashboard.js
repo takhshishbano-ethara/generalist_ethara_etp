@@ -876,6 +876,9 @@ export class TaskDashboard extends Component {
     }
 
     async _saveRubrics() {
+        if (!this.taskId) {
+            return;
+        }
         const value = JSON.stringify(this.state.rubrics);
         await this.orm.write("kensei2.kensei2", [this.taskId], { rubrics: value });
         await this.props.record.load();
@@ -939,17 +942,29 @@ export class TaskDashboard extends Component {
         const file = input.files && input.files[0];
         if (!file) return;
         this.state.rubricError = "";
+        let text;
+        let imported;
         try {
-            const text = await file.text();
-            const imported = this._importRubricsFromJson(text);
+            text = await file.text();
+            imported = this._importRubricsFromJson(text);
+        } catch (e) {
+            this.state.rubricError = "Invalid JSON: " + (e && e.message ? e.message : "could not parse file");
+            input.value = "";
+            return;
+        }
+        try {
             if (!imported.length) {
                 this.state.rubricError = "No rubrics found in file.";
                 return;
             }
             this.state.rubrics.push(...imported);
+            if (!this.taskId) {
+                this.state.rubricError = "Rubrics loaded locally. Save the task to persist them.";
+                return;
+            }
             await this._saveRubrics();
         } catch (e) {
-            this.state.rubricError = "Invalid JSON: " + (e && e.message ? e.message : "could not parse file");
+            this.state.rubricError = "Could not save rubrics: " + (e && e.message ? e.message : "unknown error");
         } finally {
             input.value = "";
         }

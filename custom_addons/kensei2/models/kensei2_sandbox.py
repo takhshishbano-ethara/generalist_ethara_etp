@@ -317,6 +317,19 @@ DOMAIN_TAGS = {
     "google-classroom-api": ("productivity", "education"),
     "myfitnesspal-api":     ("health", "lifestyle"),
     "ring-api":             ("iot", "lifestyle"),
+    # NOTE: New mock services under `environment/` are picked up automatically
+    # by the docker-compose generator (which scans for service.toml). They are
+    # NOT listed here yet because each entry below requires a matching
+    # connector skill bundle at `environment/skills/<name>-connector/` — the
+    # name is emitted directly into the generated task.toml as a required or
+    # distractor skill and resolved downstream by kensei-harness.
+    #
+    # API envs ready to register once their `<name>-connector` skill exists:
+    #   notion-api, zillow-api, instacart-api, slack-api, obsidian-api,
+    #   whatsapp-api, google-calendar-api, gmail-api, google-drive-api,
+    #   github-api, eventbrite-api.
+    # Flat-file envs (no docker service, no connector):
+    #   shopify, fintrack.
 }
 
 ALL_API_NAMES = sorted(DOMAIN_TAGS.keys())
@@ -332,6 +345,8 @@ _API_PROMPT_KEYWORDS = {
     "google-classroom-api": ("classroom", "course", "assignment", "student", "teacher", "grading"),
     "myfitnesspal-api":     ("myfitnesspal", "fitness", "calorie", "exercise", "workout", "nutrition", "diet", "meal", "run ", "running"),
     "ring-api":             ("ring", "doorbell", "camera", "security", "motion"),
+    # Keywords for the new envs are intentionally omitted in lockstep with
+    # DOMAIN_TAGS above — see the note there for the rationale.
 }
 
 DISTRACTOR_COUNT = 4
