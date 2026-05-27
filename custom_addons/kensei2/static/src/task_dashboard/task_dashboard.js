@@ -1034,6 +1034,7 @@ export class TaskDashboard extends Component {
                     "trajectory_index", "test_code", "test_output", "score", "test_scores",
                     "test_function_outputs",
                     "final_reward", "rubric_weights_percentage",
+                    "test_weights_percentage", "rubric_only_weights_percentage",
                     "average_rubric_weights_percentage",
                 ],
                 { order: "trajectory_index asc, create_date desc", limit: 100 },
@@ -1323,17 +1324,21 @@ export class TaskDashboard extends Component {
             const results = this.state.testResults[m.type] || [];
             if (results.length === 0) {
                 return {
-                    type: m.type, label: m.label, color: m.color,
-                    runs: 0, current: null, percentage: null, average: null,
+                    type: m.type, label: m.label, color: m.color, runs: 0,
+                    current: null, percentage: null, average: null,
+                    testPercentage: null, rubricPercentage: null,
+                    testAverage: null, rubricAverage: null,
                 };
             }
             const latest = [...results].sort(
                 (a, b) => (b.trajectory_index || 0) - (a.trajectory_index || 0)
             )[0];
+            const meanField = (key) =>
+                results.reduce((s, r) => s + (r[key] || 0), 0) / results.length;
             const avgFromBackend = latest?.average_rubric_weights_percentage;
             const avg = (typeof avgFromBackend === "number" && avgFromBackend > 0)
                 ? avgFromBackend
-                : (results.reduce((s, r) => s + (r.rubric_weights_percentage || 0), 0) / results.length);
+                : meanField("rubric_weights_percentage");
             return {
                 type: m.type,
                 label: m.label,
@@ -1341,7 +1346,11 @@ export class TaskDashboard extends Component {
                 runs: results.length,
                 current: latest?.final_reward ?? null,
                 percentage: latest?.rubric_weights_percentage ?? null,
+                testPercentage: latest?.test_weights_percentage ?? null,
+                rubricPercentage: latest?.rubric_only_weights_percentage ?? null,
                 average: avg,
+                testAverage: meanField("test_weights_percentage"),
+                rubricAverage: meanField("rubric_only_weights_percentage"),
             };
         });
     }
@@ -1349,10 +1358,19 @@ export class TaskDashboard extends Component {
     get consolidatedRewardMetrics() {
         const all = Object.values(this.state.testResults).flat();
         if (all.length === 0) {
-            return { runs: 0, combinedAverage: null, bestModel: null, bestAverage: null };
+            return {
+                runs: 0, models: 0,
+                grandTotal: null, testTotal: null, rubricTotal: null,
+                bestModel: null, bestAverage: null,
+            };
         }
-        const combinedAverage =
-            all.reduce((s, r) => s + (r.rubric_weights_percentage || 0), 0) / all.length;
+        const mean = (key) =>
+            all.reduce((s, r) => s + (r[key] || 0), 0) / all.length;
+        // Cross-model totals (mean across every run of every model).
+        // Conceptually: 2 categories (tests, rubrics) × N models pooled.
+        const grandTotal = mean("rubric_weights_percentage");
+        const testTotal = mean("test_weights_percentage");
+        const rubricTotal = mean("rubric_only_weights_percentage");
         const perModel = this.rewardMetricsByModel.filter((rm) => rm.runs > 0);
         let bestModel = null, bestAverage = null;
         for (const rm of perModel) {
@@ -1361,7 +1379,12 @@ export class TaskDashboard extends Component {
                 bestModel = rm.label;
             }
         }
-        return { runs: all.length, combinedAverage, bestModel, bestAverage };
+        return {
+            runs: all.length,
+            models: perModel.length,
+            grandTotal, testTotal, rubricTotal,
+            bestModel, bestAverage,
+        };
     }
 
     onToggleTestDetail(resultId) {

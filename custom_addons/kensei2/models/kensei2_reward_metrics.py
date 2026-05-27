@@ -44,21 +44,38 @@ class Kensei2TestResultRewardMetrics(models.Model):
         compute="_compute_reward_metrics",
         store=True,
         digits=(6, 4),
-        help="max(0, (Σ passed_positive − Σ |triggered_negative|) / Σ all_positive)",
+        help="Combined reward across tests AND rubrics: "
+             "max(0, (Σ passed_positive − Σ |triggered_negative|) / Σ all_positive)",
     )
     rubric_weights_percentage = fields.Float(
+        string="Combined Weights %",
+        compute="_compute_reward_metrics",
+        store=True,
+        digits=(6, 2),
+        help="final_reward × 100 (combined across tests + rubrics)",
+    )
+    test_weights_percentage = fields.Float(
+        string="Test Weights %",
+        compute="_compute_reward_metrics",
+        store=True,
+        digits=(6, 2),
+        help="Reward from test functions only (test_scores) × 100. "
+             "Same formula as final_reward but considers only test items.",
+    )
+    rubric_only_weights_percentage = fields.Float(
         string="Rubric Weights %",
         compute="_compute_reward_metrics",
         store=True,
         digits=(6, 2),
-        help="final_reward × 100",
+        help="Reward from rubrics only (kensei2_id.rubrics) × 100. "
+             "Same formula as final_reward but considers only rubric items.",
     )
     average_rubric_weights_percentage = fields.Float(
-        string="Avg Rubric Weights % (model)",
+        string="Avg Combined Weights % (model)",
         compute="_compute_average_rubric_weights",
         store=False,
         digits=(6, 2),
-        help="Mean rubric_weights_percentage across all runs of this trajectory's model for the parent task.",
+        help="Mean of rubric_weights_percentage (combined) across all runs of this trajectory's model for the parent task.",
     )
 
     @api.depends(
@@ -73,14 +90,16 @@ class Kensei2TestResultRewardMetrics(models.Model):
     def _compute_reward_metrics(self):
         for rec in self:
             try:
-                fr = rec._calculate_final_reward()
+                test_r, rubric_r, final_r = rec._calculate_rewards()
             except Exception as e:
                 _logger.warning(
-                    "final_reward compute failed (result=%s): %s", rec.id, e
+                    "reward metrics compute failed (result=%s): %s", rec.id, e
                 )
-                fr = 0.0
-            rec.final_reward = fr
-            rec.rubric_weights_percentage = fr * 100.0
+                test_r, rubric_r, final_r = 0.0, 0.0, 0.0
+            rec.final_reward = final_r
+            rec.rubric_weights_percentage = final_r * 100.0
+            rec.test_weights_percentage = test_r * 100.0
+            rec.rubric_only_weights_percentage = rubric_r * 100.0
 
     @api.depends("kensei2_id", "sandbox_id.model_type", "rubric_weights_percentage")
     def _compute_average_rubric_weights(self):
@@ -100,23 +119,33 @@ class Kensei2TestResultRewardMetrics(models.Model):
                 cache[key] = sum(vals) / len(vals) if vals else 0.0
             rec.average_rubric_weights_percentage = cache[key]
 
-    def _calculate_final_reward(self):
-        """Return final_reward in [0, 1] for this single test result."""
+    def _calculate_rewards(self):
+        """Return (test_only_reward, rubric_only_reward, combined_reward), each in [0, 1].
+
+        Each reward applies the same formula
+            max(0, (Σ passed_positive − Σ |triggered_negative|) / Σ all_positive)
+        but scoped differently:
+          * test_only_reward — uses only items from test_scores
+          * rubric_only_reward — uses only items from kensei2_id.rubrics
+          * combined_reward — uses both pooled together (same as old final_reward)
+        """
         self.ensure_one()
-        sum_passed_pos = 0.0
-        sum_triggered_neg = 0.0
-        sum_all_pos = 0.0
+        tp, tn, ta = self._accumulate_test_weights(0.0, 0.0, 0.0)
+        rp, rn, ra = self._accumulate_rubric_weights(0.0, 0.0, 0.0)
 
-        sum_passed_pos, sum_triggered_neg, sum_all_pos = self._accumulate_test_weights(
-            sum_passed_pos, sum_triggered_neg, sum_all_pos
-        )
-        sum_passed_pos, sum_triggered_neg, sum_all_pos = self._accumulate_rubric_weights(
-            sum_passed_pos, sum_triggered_neg, sum_all_pos
-        )
+        test_reward = max(0.0, (tp - tn) / ta) if ta > 0 else 0.0
+        rubric_reward = max(0.0, (rp - rn) / ra) if ra > 0 else 0.0
 
-        if sum_all_pos <= 0:
-            return 0.0
-        return max(0.0, (sum_passed_pos - sum_triggered_neg) / sum_all_pos)
+        cp = tp + rp
+        cn = tn + rn
+        ca = ta + ra
+        combined_reward = max(0.0, (cp - cn) / ca) if ca > 0 else 0.0
+
+        return test_reward, rubric_reward, combined_reward
+
+    def _calculate_final_reward(self):
+        """Back-compat shim: returns just the combined reward."""
+        return self._calculate_rewards()[2]
 
     def _accumulate_test_weights(self, sum_passed_pos, sum_triggered_neg, sum_all_pos):
         try:

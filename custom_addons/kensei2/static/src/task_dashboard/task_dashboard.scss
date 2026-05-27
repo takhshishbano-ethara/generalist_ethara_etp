@@ -2049,9 +2049,35 @@
     font-weight: 700;
 }
 
+.o_kensei2_reward_grand_hero {
+    display: flex;
+    align-items: baseline;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--kensei2-surface);
+    border-radius: var(--kensei2-radius-sm);
+    border: 1px solid var(--kensei2-border-subtle);
+}
+
+.o_kensei2_reward_grand_value {
+    font-size: 1.625rem;
+    font-weight: 800;
+    color: var(--kensei2-success);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+}
+
+.o_kensei2_reward_grand_caption {
+    font-size: 0.6875rem;
+    color: var(--kensei2-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+}
+
 .o_kensei2_reward_consolidated_stats {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
     gap: 0.5rem;
 }
 
@@ -2146,6 +2172,20 @@
     &.o_kensei2_reward_field_value_avg {
         color: var(--kensei2-info, var(--kensei2-text));
     }
+
+    &.o_kensei2_reward_field_value_test {
+        color: #6366f1;
+    }
+
+    &.o_kensei2_reward_field_value_rubric {
+        color: #a855f7;
+    }
+}
+
+.o_kensei2_reward_field_sub {
+    font-size: 0.625rem;
+    color: var(--kensei2-text-tertiary);
+    font-variant-numeric: tabular-nums;
 }
 
 .o_kensei2_trajectory_tabs {
