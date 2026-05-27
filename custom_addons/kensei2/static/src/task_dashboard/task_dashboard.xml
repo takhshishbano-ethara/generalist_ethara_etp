@@ -275,6 +275,88 @@
                 </t>
 
                 <div class="o_kensei2_trajectory_section_wrapper">
+                    <div class="o_kensei2_reward_card">
+                        <div class="o_kensei2_reward_card_header">
+                            <span class="o_kensei2_reward_card_title">
+                                <i class="fa fa-trophy me-2"/>Rubric Weight Reward
+                            </span>
+                            <span class="o_kensei2_reward_card_hint" title="final_reward = max(0, (Σ passed positive weights − Σ |triggered negative weights|) / Σ all positive weights). Combines test_scores and rubric weights for this run.">
+                                <i class="fa fa-info-circle"/>
+                            </span>
+                        </div>
+                        <t t-if="this.consolidatedRewardMetrics.runs > 0">
+                            <div class="o_kensei2_reward_consolidated">
+                                <div class="o_kensei2_reward_consolidated_label">
+                                    <i class="fa fa-layer-group me-1"/>Consolidated (all models)
+                                </div>
+                                <div class="o_kensei2_reward_consolidated_stats">
+                                    <div class="o_kensei2_reward_consolidated_stat">
+                                        <span class="o_kensei2_reward_field_label">Combined Avg</span>
+                                        <span class="o_kensei2_reward_field_value o_kensei2_reward_field_value_pct">
+                                            <t t-out="this.consolidatedRewardMetrics.combinedAverage !== null ? this.consolidatedRewardMetrics.combinedAverage.toFixed(2) + '%' : '—'"/>
+                                        </span>
+                                    </div>
+                                    <div class="o_kensei2_reward_consolidated_stat">
+                                        <span class="o_kensei2_reward_field_label">Total Runs</span>
+                                        <span class="o_kensei2_reward_field_value">
+                                            <t t-out="this.consolidatedRewardMetrics.runs"/>
+                                        </span>
+                                    </div>
+                                    <div class="o_kensei2_reward_consolidated_stat">
+                                        <span class="o_kensei2_reward_field_label">Best Model</span>
+                                        <span class="o_kensei2_reward_field_value">
+                                            <t t-if="this.consolidatedRewardMetrics.bestModel">
+                                                <t t-out="this.consolidatedRewardMetrics.bestModel"/>
+                                                <span class="o_kensei2_reward_best_pct">
+                                                    (<t t-out="this.consolidatedRewardMetrics.bestAverage.toFixed(2)"/>%)
+                                                </span>
+                                            </t>
+                                            <t t-else="">—</t>
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                        <div class="o_kensei2_reward_card_models">
+                            <t t-foreach="this.rewardMetricsByModel" t-as="rm" t-key="rm.type">
+                                <div class="o_kensei2_reward_model">
+                                    <div class="o_kensei2_reward_model_header">
+                                        <span class="o_kensei2_model_dot" t-attf-style="background: #{rm.color}"/>
+                                        <span class="o_kensei2_reward_model_label" t-out="rm.label"/>
+                                        <span class="o_kensei2_reward_model_runs">
+                                            <t t-out="rm.runs"/> run<t t-if="rm.runs !== 1">s</t>
+                                        </span>
+                                    </div>
+                                    <t t-if="rm.runs === 0">
+                                        <div class="o_kensei2_reward_empty text-muted">No runs yet</div>
+                                    </t>
+                                    <t t-else="">
+                                        <div class="o_kensei2_reward_fields">
+                                            <div class="o_kensei2_reward_field">
+                                                <span class="o_kensei2_reward_field_label">Final Reward</span>
+                                                <span class="o_kensei2_reward_field_value">
+                                                    <t t-out="rm.current !== null ? rm.current.toFixed(4) : '—'"/>
+                                                </span>
+                                            </div>
+                                            <div class="o_kensei2_reward_field">
+                                                <span class="o_kensei2_reward_field_label">Rubric Weights %</span>
+                                                <span class="o_kensei2_reward_field_value o_kensei2_reward_field_value_pct">
+                                                    <t t-out="rm.percentage !== null ? rm.percentage.toFixed(2) + '%' : '—'"/>
+                                                </span>
+                                            </div>
+                                            <div class="o_kensei2_reward_field">
+                                                <span class="o_kensei2_reward_field_label">Average %</span>
+                                                <span class="o_kensei2_reward_field_value o_kensei2_reward_field_value_avg">
+                                                    <t t-out="rm.average !== null ? rm.average.toFixed(2) + '%' : '—'"/>
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+
                     <div class="o_kensei2_trajectory_tabs">
                         <t t-foreach="batchModels" t-as="model" t-key="model.type">
                             <button t-attf-class="o_kensei2_trajectory_tab #{state.activeTrajectoryTab === model.type ? 'active' : ''}"
@@ -413,13 +495,6 @@
                                                                                     <t t-else=""><i class="fa fa-minus"/></t>
                                                                                 </span>
                                                                                 <span class="o_kensei2_test_func_name"><t t-out="fn"/></span>
-                                                                                <button class="o_kensei2_retry_btn"
-                                                                                        t-att-disabled="this.isRetryingFunction(result.id, fn)"
-                                                                                        t-att-title="this.isRetryingFunction(result.id, fn) ? 'Retrying...' : 'Re-run only this test (uses pytest -k). Requires sandbox to still be running.'"
-                                                                                        t-on-click.stop="() => this.onRetryTestFunction(result.id, fn)">
-                                                                                    <t t-if="this.isRetryingFunction(result.id, fn)"><i class="fa fa-spinner fa-spin"/></t>
-                                                                                    <t t-else=""><i class="fa fa-refresh"/></t>
-                                                                                </button>
                                                                                 <div class="o_kensei2_test_score">
                                                                                     <t t-foreach="[-30,-20,-10,0,10,20,30]" t-as="sv" t-key="sv">
                                                                                         <button t-attf-class="o_kensei2_score_btn #{this.getFunctionScore(result, fn) === sv ? 'active' : ''} #{sv > 0 ? 'positive' : sv &lt; 0 ? 'negative' : 'neutral'}"

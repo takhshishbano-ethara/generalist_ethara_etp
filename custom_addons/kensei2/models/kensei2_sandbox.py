@@ -3316,6 +3316,25 @@ class Kensei2Sandbox(models.Model):
         default="not_started",
     )
 
+    # Lifecycle flag for intent-based test generation + execution.
+    # action_stop_sandbox waits for "complete" before teardown so that
+    # background _generate_intent_tests threads (which create the pending
+    # test.result records) can finish before _run_pending_tests is called.
+    # This eliminates the original race where stop ran before generation
+    # finished and left records orphaned at status='pending' or status='generating'.
+    tests_completion_status = fields.Selection(
+        [
+            ("not_started", "Not Started"),
+            ("generating", "Generating"),
+            ("pending_execution", "Pending Execution"),
+            ("executing", "Executing"),
+            ("complete", "Complete"),
+        ],
+        default="not_started",
+        readonly=True,
+        copy=False,
+    )
+
     # Auto-hint loop state
     auto_hint_status = fields.Selection(
         [
@@ -5179,6 +5198,24 @@ class Kensei2Sandbox(models.Model):
             len(self.api_request_ids), self.id,
         )
 
+        # Block teardown until background intent test generation has reached a
+        # terminal state. Without this, _run_pending_tests below can fire while
+        # _generate_intent_tests is still mid-LLM-call, leaving test.result
+        # records orphaned at status='pending'/'generating' with no output —
+        # the exact race the per-function retry button used to paper over.
+        try:
+            test_gen_timeout = int(
+                self.env["ir.config_parameter"].sudo().get_param(
+                    "kensei2.tests_completion_wait_timeout", "600"
+                )
+            )
+        except (ValueError, TypeError):
+            test_gen_timeout = 600
+        try:
+            self._wait_for_tests_completion(timeout=test_gen_timeout)
+        except Exception as e:
+            _logger.warning("Wait-for-tests-completion failed (sandbox=%s): %s", self.id, e)
+
         try:
             self._run_pending_tests()
         except Exception as e:
@@ -6661,11 +6698,15 @@ class Kensei2Sandbox(models.Model):
         enabled = ICP.get_param("kensei2.test_gen_enabled", "True")
         if enabled.lower() in ("false", "0", "no"):
             _logger.info("Test generation disabled (sandbox=%s)", self.id)
+            self._set_tests_completion_status("complete")
             return
 
         if not prompt or not prompt.strip():
             _logger.info("No prompt provided, skipping test generation (sandbox=%s)", self.id)
+            self._set_tests_completion_status("complete")
             return
+
+        self._set_tests_completion_status("generating")
 
         TestResult = self.env["kensei2.test.result"].sudo()
         traj_field_map = {
@@ -6703,6 +6744,7 @@ class Kensei2Sandbox(models.Model):
                     "status": "error",
                     "test_output": "No Bedrock inference ARN configured.",
                 })
+                self._set_tests_completion_status("complete")
                 return
 
             region = ICP.get_param("kensei2.bedrock_region", "ap-south-1")
@@ -6719,6 +6761,7 @@ class Kensei2Sandbox(models.Model):
                     "status": "error",
                     "test_output": "No AWS bearer token available.",
                 })
+                self._set_tests_completion_status("complete")
                 return
 
             gen_start = time.time()
@@ -6735,6 +6778,7 @@ class Kensei2Sandbox(models.Model):
                     "generation_tokens_out": usage.get("output_tokens", 0),
                     "duration_generation_ms": gen_duration_ms,
                 })
+                self._set_tests_completion_status("complete")
                 return
 
             # Mark as 'pending' — code is ready, waiting for sandbox stop to execute
@@ -6753,6 +6797,7 @@ class Kensei2Sandbox(models.Model):
                 usage.get("input_tokens", 0),
                 usage.get("output_tokens", 0),
             )
+            self._set_tests_completion_status("pending_execution")
 
         except Exception as e:
             _logger.exception("Intent test generation failed (sandbox=%s): %s", self.id, e)
@@ -6760,6 +6805,7 @@ class Kensei2Sandbox(models.Model):
                 "status": "error",
                 "test_output": "Exception during test generation: %s" % str(e)[:2000],
             })
+            self._set_tests_completion_status("complete")
 
     def _run_pending_tests(self):
         """Execute pending test.result records before container teardown."""
@@ -6770,6 +6816,7 @@ class Kensei2Sandbox(models.Model):
                 "Skipping pending test execution — sandbox not running (sandbox=%s, status=%s)",
                 self.id, self.docker_status,
             )
+            self._set_tests_completion_status("complete")
             return
 
         pending_results = self.env["kensei2.test.result"].sudo().search([
@@ -6779,7 +6826,10 @@ class Kensei2Sandbox(models.Model):
 
         if not pending_results:
             _logger.info("No pending tests to run (sandbox=%s)", self.id)
+            self._set_tests_completion_status("complete")
             return
+
+        self._set_tests_completion_status("executing")
 
         for result_record in pending_results:
             test_code = result_record.test_code
@@ -6825,6 +6875,91 @@ class Kensei2Sandbox(models.Model):
                     "status": "error",
                     "test_output": "Exception during test execution: %s" % str(e)[:2000],
                 })
+
+        self._set_tests_completion_status("complete")
+
+    def _set_tests_completion_status(self, status):
+        """Write tests_completion_status with retry-on-serialization-conflict.
+
+        Background generation threads and the main stop transaction can race
+        on this column; psycopg2 raises OperationalError with pgcode 40001
+        ("could not serialize access due to concurrent update") when that
+        happens. We retry a few times with backoff and a savepoint so the
+        outer transaction isn't poisoned.
+        """
+        from psycopg2 import OperationalError, errorcodes
+        self.ensure_one()
+        attempts = 5
+        for i in range(attempts):
+            try:
+                with self.env.cr.savepoint():
+                    self.sudo().write({"tests_completion_status": status})
+                return
+            except OperationalError as e:
+                if getattr(e, "pgcode", None) == errorcodes.SERIALIZATION_FAILURE and i < attempts - 1:
+                    time.sleep(0.2 * (i + 1))
+                    continue
+                _logger.warning(
+                    "Failed to set tests_completion_status=%s (sandbox=%s): %s",
+                    status, self.id, e,
+                )
+                return
+
+    def _wait_for_tests_completion(self, timeout=600):
+        """Block until tests_completion_status == 'complete' or timeout.
+
+        Called from action_stop_sandbox before teardown to give background
+        _generate_intent_tests threads time to finish, then to let
+        _run_pending_tests finish executing. Without this wait, stop can
+        run while generation is still in flight and leave test.result
+        records orphaned at status='pending' or status='generating'.
+
+        On timeout, force-marks any straggler test.result records as
+        'error' so they don't stay stuck forever, then returns False.
+        """
+        self.ensure_one()
+        deadline = time.time() + timeout
+        poll_interval = 2.0
+        terminal = ("complete", "not_started")
+        while time.time() < deadline:
+            try:
+                self.env.cr.commit()
+            except Exception:
+                pass
+            self.invalidate_recordset(["tests_completion_status"])
+            status = self.tests_completion_status
+            if status in terminal:
+                _logger.info(
+                    "Tests completion reached '%s' for sandbox=%s",
+                    status, self.id,
+                )
+                return True
+            _logger.info(
+                "Waiting for tests to complete (sandbox=%s, status=%s)",
+                self.id, status,
+            )
+            time.sleep(poll_interval)
+            poll_interval = min(poll_interval * 1.5, 10.0)
+
+        _logger.warning(
+            "Timed out (>%ds) waiting for tests to complete (sandbox=%s, last_status=%s); "
+            "forcing stragglers to 'error' and proceeding with stop",
+            timeout, self.id, self.tests_completion_status,
+        )
+        stragglers = self.env["kensei2.test.result"].sudo().search([
+            ("sandbox_id", "=", self.id),
+            ("status", "in", ("generating", "pending", "running")),
+        ])
+        if stragglers:
+            stragglers.write({
+                "status": "error",
+                "test_output": (
+                    "Forced to error: sandbox stop timed out (>%ds) waiting "
+                    "for test generation/execution to complete." % timeout
+                ),
+            })
+        self._set_tests_completion_status("complete")
+        return False
 
     def _load_intent_test_system_prompt(self):
         """Load the intent-based test generation system prompt."""

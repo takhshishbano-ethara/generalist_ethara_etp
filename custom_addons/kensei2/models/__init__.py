@@ -7,4 +7,5 @@ from . import (
     kensei2_sandbox,
     kensei2_sandbox_k8s,
     kensei2_test_result,
+    kensei2_reward_metrics,
 )

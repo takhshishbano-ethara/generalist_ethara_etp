@@ -87,7 +87,6 @@ export class TaskDashboard extends Component {
             harborExporting: false,
             showSelectivePrompt: false,
             selectivePromptInFlight: false,
-            retryingFunctions: {},
             rubricEvalStatus: "idle",
             rubricEvalError: "",
             rubricEvalCompleted: 0,
@@ -982,6 +981,8 @@ export class TaskDashboard extends Component {
                     "duration_generation_ms", "duration_execution_ms", "create_date",
                     "trajectory_index", "test_code", "test_output", "score", "test_scores",
                     "test_function_outputs",
+                    "final_reward", "rubric_weights_percentage",
+                    "average_rubric_weights_percentage",
                 ],
                 { order: "trajectory_index asc, create_date desc", limit: 100 },
             );
@@ -1265,6 +1266,52 @@ export class TaskDashboard extends Component {
         return { total: totalTests, passed, failed, errored, running };
     }
 
+    get rewardMetricsByModel() {
+        return this.batchModels.map((m) => {
+            const results = this.state.testResults[m.type] || [];
+            if (results.length === 0) {
+                return {
+                    type: m.type, label: m.label, color: m.color,
+                    runs: 0, current: null, percentage: null, average: null,
+                };
+            }
+            const latest = [...results].sort(
+                (a, b) => (b.trajectory_index || 0) - (a.trajectory_index || 0)
+            )[0];
+            const avgFromBackend = latest?.average_rubric_weights_percentage;
+            const avg = (typeof avgFromBackend === "number" && avgFromBackend > 0)
+                ? avgFromBackend
+                : (results.reduce((s, r) => s + (r.rubric_weights_percentage || 0), 0) / results.length);
+            return {
+                type: m.type,
+                label: m.label,
+                color: m.color,
+                runs: results.length,
+                current: latest?.final_reward ?? null,
+                percentage: latest?.rubric_weights_percentage ?? null,
+                average: avg,
+            };
+        });
+    }
+
+    get consolidatedRewardMetrics() {
+        const all = Object.values(this.state.testResults).flat();
+        if (all.length === 0) {
+            return { runs: 0, combinedAverage: null, bestModel: null, bestAverage: null };
+        }
+        const combinedAverage =
+            all.reduce((s, r) => s + (r.rubric_weights_percentage || 0), 0) / all.length;
+        const perModel = this.rewardMetricsByModel.filter((rm) => rm.runs > 0);
+        let bestModel = null, bestAverage = null;
+        for (const rm of perModel) {
+            if (bestAverage === null || (rm.average ?? -1) > bestAverage) {
+                bestAverage = rm.average;
+                bestModel = rm.label;
+            }
+        }
+        return { runs: all.length, combinedAverage, bestModel, bestAverage };
+    }
+
     onToggleTestDetail(resultId) {
         this.state.expandedTestIds = {
             ...this.state.expandedTestIds,
@@ -1317,43 +1364,15 @@ export class TaskDashboard extends Component {
     }
 
     _getFunctionOverrideOutput(result, funcName) {
+        // Reads optional per-function override output left over from the
+        // (now-removed) retry feature. Older test.result rows may still have
+        // entries in test_function_outputs; we keep honoring them so historical
+        // data doesn't suddenly read differently.
         try {
             const overrides = JSON.parse(result.test_function_outputs || "{}");
             return overrides[funcName] || null;
         } catch (_e) {
             return null;
-        }
-    }
-
-    isRetryingFunction(resultId, funcName) {
-        return Boolean(this.state.retryingFunctions[`${resultId}::${funcName}`]);
-    }
-
-    async onRetryTestFunction(resultId, funcName) {
-        const key = `${resultId}::${funcName}`;
-        if (this.state.retryingFunctions[key]) return;
-        this.state.retryingFunctions[key] = true;
-        try {
-            const res = await this.orm.call(
-                "kensei2.test.result",
-                "action_rerun_test_function",
-                [[resultId], funcName],
-            );
-            const allResults = Object.values(this.state.testResults).flat();
-            const result = allResults.find(r => r.id === resultId);
-            if (result && res && res.test_function_outputs) {
-                result.test_function_outputs = res.test_function_outputs;
-            }
-            const statusLabel = result ? this.getFunctionStatus(result, funcName) : null;
-            this.notification.add(
-                `Re-ran ${funcName}${statusLabel ? ` — ${statusLabel}` : ""}`,
-                { type: statusLabel === "passed" ? "success" : "warning" },
-            );
-        } catch (e) {
-            const msg = (e && e.data && e.data.message) || e.message || "Retry failed";
-            this.notification.add(`Retry failed: ${msg}`, { type: "danger" });
-        } finally {
-            delete this.state.retryingFunctions[key];
         }
     }
 
