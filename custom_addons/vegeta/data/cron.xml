@@ -14,7 +14,7 @@
         <field name="code">model._cron_watchdog_stuck_jobs()</field>
         <field name="interval_number">5</field>
         <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
+        <field name="active" eval="False"/>
     </record>
 
     <record id="ir_cron_vegeta_prd_dispatch" model="ir.cron">
@@ -24,7 +24,7 @@
         <field name="code">model._cron_dispatch_prd_jobs()</field>
         <field name="interval_number">1</field>
         <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
+        <field name="active" eval="False"/>
     </record>
 
     <record id="ir_cron_vegeta_prd_reconcile" model="ir.cron">
@@ -34,6 +34,6 @@
         <field name="code">model._cron_reconcile_prd_jobs()</field>
         <field name="interval_number">1</field>
         <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
+        <field name="active" eval="False"/>
     </record>
 </odoo>
