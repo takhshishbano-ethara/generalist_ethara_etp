@@ -521,6 +521,36 @@
     border: 1px solid var(--kensei2-border-subtle);
 }
 
+.o_kensei2_rubrics_upload_btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--kensei2-text);
+    background: var(--kensei2-surface-raised);
+    padding: 0.25rem 0.625rem;
+    border-radius: var(--kensei2-radius-pill);
+    border: 1px solid var(--kensei2-border-subtle);
+    cursor: pointer;
+    margin-bottom: 0;
+
+    &:hover {
+        background: var(--kensei2-surface);
+        border-color: var(--kensei2-border);
+    }
+}
+
+.o_kensei2_rubrics_error {
+    margin-bottom: 0.75rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    color: #b91c1c;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: var(--kensei2-radius-md, 0.375rem);
+}
+
 .o_kensei2_rubric_card {
     border: 1px solid var(--kensei2-border-subtle);
     border-radius: var(--kensei2-radius-lg);

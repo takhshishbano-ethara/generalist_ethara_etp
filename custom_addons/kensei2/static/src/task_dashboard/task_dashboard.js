@@ -934,6 +934,58 @@ export class TaskDashboard extends Component {
         await this._saveRubrics();
     }
 
+    async onUploadRubricsFile(ev) {
+        const input = ev.target;
+        const file = input.files && input.files[0];
+        if (!file) return;
+        this.state.rubricError = "";
+        try {
+            const text = await file.text();
+            const imported = this._importRubricsFromJson(text);
+            if (!imported.length) {
+                this.state.rubricError = "No rubrics found in file.";
+                return;
+            }
+            this.state.rubrics.push(...imported);
+            await this._saveRubrics();
+        } catch (e) {
+            this.state.rubricError = "Invalid JSON: " + (e && e.message ? e.message : "could not parse file");
+        } finally {
+            input.value = "";
+        }
+    }
+
+    _importRubricsFromJson(text) {
+        const parsed = JSON.parse(text);
+        let list = [];
+        if (Array.isArray(parsed)) {
+            list = parsed;
+        } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.rubrics)) {
+            list = parsed.rubrics;
+        } else {
+            throw new Error("expected an array of rubrics or an object with a 'rubrics' array");
+        }
+        return list.map((r) => {
+            const label = r.label || r.criterion || "";
+            const score = typeof r.score === "number" ? r.score : 1;
+            const is_positive = typeof r.is_positive === "boolean" ? r.is_positive : score > 0;
+            const importance = r.importance || "important";
+            let evaluation_target = r.evaluation_target || "state change";
+            if (evaluation_target === "state_change") evaluation_target = "state change";
+            return {
+                label,
+                claude: Array(12).fill(null),
+                gpt: Array(12).fill(null),
+                justification: { claude: "", gpt: "" },
+                score,
+                is_positive,
+                type: r.type || "task completion",
+                evaluation_target,
+                importance,
+            };
+        }).filter((r) => r.label);
+    }
+
     async onToggleRubricResult(rubricIndex, model, slotIndex) {
         const rubric = this.state.rubrics[rubricIndex];
         if (!rubric) return;
