@@ -1111,36 +1111,8 @@
     display: flex;
     align-items: center;
     gap: 2px;
-    flex-shrink: 0;
-}
-
-.o_kensei2_retry_btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
     margin-left: auto;
-    border: 1px solid var(--kensei2-border);
-    border-radius: var(--kensei2-radius-sm);
-    background: var(--kensei2-surface);
-    color: var(--kensei2-text-secondary);
-    font-size: 0.6875rem;
-    cursor: pointer;
-    transition: all var(--kensei2-transition);
     flex-shrink: 0;
-
-    &:hover:not(:disabled) {
-        background: var(--kensei2-surface-raised);
-        color: var(--kensei2-text);
-        transform: translateY(-1px);
-        box-shadow: var(--kensei2-shadow-xs);
-    }
-
-    &:disabled {
-        cursor: wait;
-        opacity: 0.6;
-    }
 }
 
 .o_kensei2_score_btn {
@@ -1996,6 +1968,154 @@
 
 .o_kensei2_trajectory_section_wrapper {
     background: var(--kensei2-surface);
+}
+
+.o_kensei2_reward_card {
+    margin: 0.75rem 1.25rem 0;
+    padding: 0.75rem 1rem;
+    background: var(--kensei2-surface-raised);
+    border: 1px solid var(--kensei2-border-subtle);
+    border-radius: var(--kensei2-radius-md);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.o_kensei2_reward_card_header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.o_kensei2_reward_card_title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--kensei2-text);
+}
+
+.o_kensei2_reward_card_hint {
+    color: var(--kensei2-text-tertiary);
+    cursor: help;
+    font-size: 0.75rem;
+}
+
+.o_kensei2_reward_consolidated {
+    padding: 0.5rem 0.75rem;
+    background: linear-gradient(135deg,
+        rgba(99, 102, 241, 0.08),
+        rgba(168, 85, 247, 0.08));
+    border: 1px solid var(--kensei2-border-subtle);
+    border-radius: var(--kensei2-radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.o_kensei2_reward_consolidated_label {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--kensei2-text-secondary);
+    font-weight: 700;
+}
+
+.o_kensei2_reward_consolidated_stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+}
+
+.o_kensei2_reward_consolidated_stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.375rem 0.5rem;
+    background: var(--kensei2-surface);
+    border-radius: var(--kensei2-radius-sm);
+}
+
+.o_kensei2_reward_best_pct {
+    font-weight: 500;
+    font-size: 0.75rem;
+    color: var(--kensei2-text-tertiary);
+    margin-left: 0.25rem;
+}
+
+.o_kensei2_reward_card_models {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0.5rem;
+}
+
+.o_kensei2_reward_model {
+    padding: 0.5rem 0.75rem;
+    background: var(--kensei2-surface);
+    border: 1px solid var(--kensei2-border-subtle);
+    border-radius: var(--kensei2-radius-sm);
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.o_kensei2_reward_model_header {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.75rem;
+}
+
+.o_kensei2_reward_model_label {
+    font-weight: 600;
+    color: var(--kensei2-text);
+}
+
+.o_kensei2_reward_model_runs {
+    margin-left: auto;
+    color: var(--kensei2-text-tertiary);
+    font-size: 0.6875rem;
+}
+
+.o_kensei2_reward_empty {
+    font-size: 0.75rem;
+    font-style: italic;
+}
+
+.o_kensei2_reward_fields {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.375rem;
+}
+
+.o_kensei2_reward_field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0.375rem 0.5rem;
+    background: var(--kensei2-surface-sunken);
+    border-radius: var(--kensei2-radius-sm);
+}
+
+.o_kensei2_reward_field_label {
+    font-size: 0.625rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--kensei2-text-tertiary);
+    font-weight: 600;
+}
+
+.o_kensei2_reward_field_value {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--kensei2-text);
+    font-variant-numeric: tabular-nums;
+
+    &.o_kensei2_reward_field_value_pct {
+        color: var(--kensei2-success);
+    }
+
+    &.o_kensei2_reward_field_value_avg {
+        color: var(--kensei2-info, var(--kensei2-text));
+    }
 }
 
 .o_kensei2_trajectory_tabs {

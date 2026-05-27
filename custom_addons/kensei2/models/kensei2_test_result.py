@@ -1,6 +1,4 @@
-import json
 import logging
-import re
 import time
 
 from odoo import fields, models
@@ -134,74 +132,3 @@ class Kensei2TestResult(models.Model):
                 raise UserError("Re-execution failed: %s" % str(e)[:500])
 
         return True
-
-    def action_rerun_test_function(self, func_name):
-        """Re-execute a single test function within this trajectory.
-
-        Targets the race where one test in a trajectory fails due to mock-API
-        timing while the rest are valid — rerunning only the affected function
-        avoids invalidating sibling results. Output is stored in
-        test_function_outputs[func_name]; the aggregate test_output stays put
-        so untouched functions keep their original execution context.
-        """
-        self.ensure_one()
-        if not func_name or not re.match(r"^test_\w+$", func_name):
-            raise UserError("Invalid test function name: %r" % func_name)
-
-        sandbox = self.sandbox_id
-        if not sandbox:
-            raise UserError("No sandbox linked to this test result.")
-        if not self.test_code or not self.test_code.strip():
-            raise UserError(
-                "No test code to execute. Generation may have failed — "
-                "check Generation Prompt and regenerate via the sandbox."
-            )
-        if sandbox.docker_status not in ("running", "stopping"):
-            raise UserError(
-                "Cannot re-execute: sandbox status is '%s'. The container "
-                "and mock-API state are gone. Restart the sandbox and "
-                "re-run the task to regenerate tests against fresh state."
-                % sandbox.docker_status
-            )
-        if func_name not in self.test_code:
-            raise UserError(
-                "Function %s not found in this trajectory's test code." % func_name
-            )
-
-        try:
-            test_output = sandbox._execute_tests_in_sandbox(
-                self.test_code, test_filter=func_name
-            )
-            total, passed, failed, errored = sandbox._parse_pytest_output(
-                test_output
-            )
-
-            try:
-                func_outputs = json.loads(self.test_function_outputs or "{}")
-            except (ValueError, TypeError):
-                func_outputs = {}
-            func_outputs[func_name] = test_output
-            self.test_function_outputs = json.dumps(func_outputs)
-
-            _logger.info(
-                "Per-function re-run complete (result=%s, sandbox=%s, fn=%s): "
-                "%d total, %d passed, %d failed, %d errors",
-                self.id, sandbox.id, func_name, total, passed, failed, errored,
-            )
-
-            return {
-                "func_name": func_name,
-                "test_output": test_output,
-                "test_function_outputs": self.test_function_outputs,
-                "total": total, "passed": passed,
-                "failed": failed, "errored": errored,
-            }
-
-        except Exception as e:
-            _logger.exception(
-                "Per-function re-run failed (result=%s, sandbox=%s, fn=%s): %s",
-                self.id, sandbox.id, func_name, e,
-            )
-            raise UserError(
-                "Re-execution of %s failed: %s" % (func_name, str(e)[:500])
-            )
