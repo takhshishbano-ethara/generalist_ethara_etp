@@ -715,18 +715,24 @@ class TalosSandbox(models.Model):
                 usage = usage or msg.get("usage") or {}
             if not usage:
                 continue
-            total_in += int(
-                usage.get("input_tokens", 0)
-                or usage.get("inputTokens", 0)
-                or usage.get("prompt_tokens", 0)
+            if not isinstance(usage, dict):
+                continue
+            raw_in = (
+                usage.get("input")
+                or usage.get("input_tokens")
+                or usage.get("inputTokens")
+                or usage.get("prompt_tokens")
                 or 0
             )
-            total_out += int(
-                usage.get("output_tokens", 0)
-                or usage.get("outputTokens", 0)
-                or usage.get("completion_tokens", 0)
+            raw_out = (
+                usage.get("output")
+                or usage.get("output_tokens")
+                or usage.get("outputTokens")
+                or usage.get("completion_tokens")
                 or 0
             )
+            total_in += int(raw_in)
+            total_out += int(raw_out)
         return total_in, total_out
 
     def _query_litellm_spend(self, window_start=None, window_end=None):

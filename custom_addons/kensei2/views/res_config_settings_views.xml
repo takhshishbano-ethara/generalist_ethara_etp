@@ -143,6 +143,33 @@
                                 widget="boolean_toggle"
                             />
                         </setting>
+                        <setting
+                            string="Disable Rubric Pass/Fail Evaluation"
+                            help="Skip the LLM-powered auto-fill of rubric pass/fail across trajectory runs."
+                        >
+                            <field
+                                name="kensei2_disable_rubric_evaluation"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                        <setting
+                            string="Disable Rubric/Test Overlap Check"
+                            help="Skip the LLM-powered rubric vs test-code overlap audit."
+                        >
+                            <field
+                                name="kensei2_disable_rubric_overlap_check"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
+                        <setting
+                            string="Disable Golden Trajectory Streaming"
+                            help="Skip the live-streaming golden trajectory generation endpoint."
+                        >
+                            <field
+                                name="kensei2_disable_golden_streaming"
+                                widget="boolean_toggle"
+                            />
+                        </setting>
                     </block>
                     <block title="Test Generation">
                         <setting

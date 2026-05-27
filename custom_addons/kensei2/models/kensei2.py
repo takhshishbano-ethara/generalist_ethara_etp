@@ -42,6 +42,8 @@ _TESTWEIGHT_LOCK = threading.Lock()
 _golden_prompt_cache = None
 _taskdesc_prompt_cache = None
 _testweight_prompt_cache = None
+_rubric_eval_prompt_cache = None
+_rubric_overlap_prompt_cache = None
 
 
 def _get_golden_prompt():
@@ -90,6 +92,38 @@ def _get_test_weight_prompt():
     else:
         _testweight_prompt_cache = ""
     return _testweight_prompt_cache
+
+
+def _get_rubric_eval_prompt():
+    global _rubric_eval_prompt_cache
+    if _rubric_eval_prompt_cache is not None:
+        return _rubric_eval_prompt_cache
+    mod_path = get_module_path("kensei2")
+    if not mod_path:
+        return ""
+    path = os.path.join(mod_path, "rubric_evaluation_system_prompt.md")
+    if os.path.isfile(path):
+        with open(path, "r") as f:
+            _rubric_eval_prompt_cache = f.read().strip()
+    else:
+        _rubric_eval_prompt_cache = ""
+    return _rubric_eval_prompt_cache
+
+
+def _get_rubric_overlap_prompt():
+    global _rubric_overlap_prompt_cache
+    if _rubric_overlap_prompt_cache is not None:
+        return _rubric_overlap_prompt_cache
+    mod_path = get_module_path("kensei2")
+    if not mod_path:
+        return ""
+    path = os.path.join(mod_path, "rubric_test_overlap_prompt.md")
+    if os.path.isfile(path):
+        with open(path, "r") as f:
+            _rubric_overlap_prompt_cache = f.read().strip()
+    else:
+        _rubric_overlap_prompt_cache = ""
+    return _rubric_overlap_prompt_cache
 
 
 def _harbor_upload_single(bkt, rgn, pfx, files, ak, sk):
@@ -648,6 +682,47 @@ def _run_test_weight_generation_background(db_name, task_id, notify_partner_id):
 
 
 import re as _re
+
+
+def _parse_trajectory_entries(raw):
+    """Parse a trajectory text field into a flat list of entries.
+
+    Mirrors the convention used in controllers/costing.py: the top-level may be
+    a single object or a list. Returns [] on parse failure / empty input.
+    """
+    if not raw or not raw.strip():
+        return []
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return []
+    if isinstance(parsed, list):
+        return parsed
+    if isinstance(parsed, dict):
+        return [parsed]
+    return []
+
+
+def _extract_messages_from_entry(entry):
+    if not isinstance(entry, dict):
+        return entry
+    traj = entry.get("trajectory")
+    if isinstance(traj, dict) and isinstance(traj.get("messages"), list):
+        return traj["messages"]
+    if isinstance(entry.get("messages"), list):
+        return entry["messages"]
+    return entry
+
+
+def _serialise_messages_for_llm(messages, max_chars=200000):
+    try:
+        text = json.dumps(messages, ensure_ascii=False, indent=2)
+    except Exception:
+        text = str(messages)
+    if len(text) > max_chars:
+        text = text[:max_chars] + "\n... [TRUNCATED]"
+    return text
+
 
 
 def _is_degenerate_output(text):
@@ -1317,6 +1392,43 @@ class Kensei2(models.Model):
         default="idle",
     )
     test_weights_error = fields.Text(string="Test Weights Error")
+
+    rubric_eval_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Rubric Eval Status",
+        default="idle",
+    )
+    rubric_eval_error = fields.Text(string="Rubric Eval Error")
+    rubric_eval_input_tokens = fields.Integer(
+        string="Rubric Eval Input Tokens", default=0
+    )
+    rubric_eval_output_tokens = fields.Integer(
+        string="Rubric Eval Output Tokens", default=0
+    )
+
+    rubric_test_overlap_report = fields.Text(string="Rubric/Test Overlap Report")
+    rubric_test_overlap_status = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("generating", "Generating"),
+            ("done", "Done"),
+            ("error", "Error"),
+        ],
+        string="Rubric/Test Overlap Status",
+        default="idle",
+    )
+    rubric_test_overlap_error = fields.Text(string="Rubric/Test Overlap Error")
+    rubric_test_overlap_input_tokens = fields.Integer(
+        string="Rubric/Test Overlap Input Tokens", default=0
+    )
+    rubric_test_overlap_output_tokens = fields.Integer(
+        string="Rubric/Test Overlap Output Tokens", default=0
+    )
 
     # Token usage totals (aggregated from JSONL on stop, survives turn deletion)
     claude_input_tokens = fields.Integer(string="Claude Input Tokens", default=0)

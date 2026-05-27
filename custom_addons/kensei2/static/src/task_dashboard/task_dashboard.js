@@ -88,7 +88,21 @@ export class TaskDashboard extends Component {
             showSelectivePrompt: false,
             selectivePromptInFlight: false,
             retryingFunctions: {},
+            rubricEvalStatus: "idle",
+            rubricEvalError: "",
+            rubricEvalCompleted: 0,
+            rubricEvalTotal: 0,
+            rubricOverlapStatus: "idle",
+            rubricOverlapError: "",
+            rubricOverlapReport: "",
+            showRubricOverlapReport: true,
+            goldenStreamStatus: "idle",
+            goldenStreamError: "",
+            goldenStreamText: "",
         });
+        this._rubricEvalAbort = null;
+        this._rubricOverlapAbort = null;
+        this._goldenStreamAbort = null;
 
         this._onBatchStatusChanged = (ev) => {
             this._handleBatchStatusChanged(ev.detail);
@@ -116,6 +130,7 @@ export class TaskDashboard extends Component {
             this._checkGogAuthStatus();
             this._loadRubrics();
             this._loadTestWeightsStatus();
+            this._loadStreamingStatuses();
             await this._loadSandboxes();
             this._loadTestResults();
             if (this.batchStatus === "starting" || this.batchStatus === "ready" || this.batchStatus === "running" || this.batchStatus === "stopping") {
@@ -125,6 +140,9 @@ export class TaskDashboard extends Component {
         onWillUnmount(() => {
             this._stopPolling();
             if (this._testWeightsPollTimer) clearInterval(this._testWeightsPollTimer);
+            if (this._rubricEvalAbort) this._rubricEvalAbort.abort();
+            if (this._rubricOverlapAbort) this._rubricOverlapAbort.abort();
+            if (this._goldenStreamAbort) this._goldenStreamAbort.abort();
             this.env.bus.removeEventListener(
                 "KENSEI2:BATCH_STATUS_CHANGED",
                 this._onBatchStatusChanged,
@@ -1030,6 +1048,190 @@ export class TaskDashboard extends Component {
                 }
             }
         }, 5000);
+    }
+
+    async _loadStreamingStatuses() {
+        if (!this.taskId) return;
+        try {
+            const [data] = await this.orm.read(
+                "kensei2.kensei2",
+                [this.taskId],
+                [
+                    "rubric_eval_status", "rubric_eval_error",
+                    "rubric_test_overlap_status", "rubric_test_overlap_error", "rubric_test_overlap_report",
+                    "golden_status", "golden_error",
+                ],
+            );
+            this.state.rubricEvalStatus = data.rubric_eval_status || "idle";
+            this.state.rubricEvalError = data.rubric_eval_error || "";
+            this.state.rubricOverlapStatus = data.rubric_test_overlap_status || "idle";
+            this.state.rubricOverlapError = data.rubric_test_overlap_error || "";
+            this.state.rubricOverlapReport = data.rubric_test_overlap_report || "";
+            this.state.goldenStreamStatus = data.golden_status === "generating" ? "idle" : (data.golden_status || "idle");
+            this.state.goldenStreamError = data.golden_error || "";
+        } catch (e) {
+            console.warn("[kensei2-dashboard] Failed to load streaming statuses:", e);
+        }
+    }
+
+    async _consumeSSE(url, body, onEvent) {
+        const ctrl = new AbortController();
+        let resp;
+        try {
+            resp = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Accept": "text/event-stream" },
+                body: JSON.stringify(body),
+                credentials: "same-origin",
+                signal: ctrl.signal,
+            });
+        } catch (e) {
+            onEvent({ type: "error", message: (e && e.message) || String(e) });
+            return ctrl;
+        }
+        if (!resp.ok || !resp.body) {
+            onEvent({ type: "error", message: `HTTP ${resp.status}` });
+            return ctrl;
+        }
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        try {
+            // eslint-disable-next-line no-constant-condition
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let idx;
+                while ((idx = buffer.indexOf("\n\n")) >= 0) {
+                    const raw = buffer.slice(0, idx);
+                    buffer = buffer.slice(idx + 2);
+                    const line = raw.startsWith("data: ") ? raw.slice(6) : raw;
+                    if (!line) continue;
+                    try {
+                        onEvent(JSON.parse(line));
+                    } catch (_e) {
+                        // ignore malformed SSE line
+                    }
+                }
+            }
+        } catch (e) {
+            if (e.name !== "AbortError") {
+                onEvent({ type: "error", message: (e && e.message) || String(e) });
+            }
+        }
+        return ctrl;
+    }
+
+    async onStreamGoldenTrajectory() {
+        if (!this.taskId) return;
+        if (this.state.goldenStreamStatus === "generating") return;
+        this.state.goldenStreamStatus = "generating";
+        this.state.goldenStreamError = "";
+        this.state.goldenStreamText = "";
+        this.notification.add("Streaming golden trajectory...", { type: "info" });
+        this._goldenStreamAbort = await this._consumeSSE(
+            "/kensei2/golden/stream",
+            { record_id: this.taskId },
+            (payload) => {
+                if (payload.type === "delta" && payload.text) {
+                    this.state.goldenStreamText += payload.text;
+                } else if (payload.type === "error") {
+                    this.state.goldenStreamStatus = "error";
+                    this.state.goldenStreamError = payload.message || "Unknown error";
+                    this.notification.add("Golden streaming failed: " + (payload.message || "error"), { type: "danger" });
+                } else if (payload.type === "complete") {
+                    this.state.goldenStreamStatus = payload.status === "error" ? "error" : "done";
+                    if (payload.status !== "error") {
+                        this.notification.add("Golden trajectory generated.", { type: "success" });
+                        this.props.record.load();
+                    }
+                }
+            },
+        );
+    }
+
+    async onStreamRubricOverlap() {
+        if (!this.taskId) return;
+        if (this.state.rubricOverlapStatus === "generating") return;
+        this.state.rubricOverlapStatus = "generating";
+        this.state.rubricOverlapError = "";
+        this.state.rubricOverlapReport = "";
+        this.state.showRubricOverlapReport = true;
+        this.notification.add("Streaming overlap audit...", { type: "info" });
+        this._rubricOverlapAbort = await this._consumeSSE(
+            "/kensei2/rubric_overlap/stream",
+            { record_id: this.taskId },
+            (payload) => {
+                if (payload.type === "delta" && payload.text) {
+                    this.state.rubricOverlapReport += payload.text;
+                } else if (payload.type === "error") {
+                    this.state.rubricOverlapStatus = "error";
+                    this.state.rubricOverlapError = payload.message || "Unknown error";
+                    this.notification.add("Overlap audit failed: " + (payload.message || "error"), { type: "danger" });
+                } else if (payload.type === "complete") {
+                    this.state.rubricOverlapStatus = payload.status === "error" ? "error" : "done";
+                    if (payload.status !== "error") {
+                        this.notification.add("Overlap audit complete.", { type: "success" });
+                    }
+                }
+            },
+        );
+    }
+
+    async onStreamRubricEval() {
+        if (!this.taskId) return;
+        if (this.state.rubricEvalStatus === "generating") return;
+        if (!this.state.rubrics.length) {
+            this.notification.add("No rubrics to evaluate. Add at least one rubric first.", { type: "warning" });
+            return;
+        }
+        this.state.rubricEvalStatus = "generating";
+        this.state.rubricEvalError = "";
+        this.state.rubricEvalCompleted = 0;
+        this.state.rubricEvalTotal = 0;
+        this.notification.add("Evaluating rubrics across trajectories...", { type: "info" });
+        this._rubricEvalAbort = await this._consumeSSE(
+            "/kensei2/rubric_eval/stream",
+            { record_id: this.taskId },
+            (payload) => {
+                if (payload.type === "start") {
+                    this.state.rubricEvalTotal = payload.total_jobs || 0;
+                } else if (payload.type === "job_complete" || payload.type === "job_error") {
+                    this.state.rubricEvalCompleted = payload.completed || this.state.rubricEvalCompleted + 1;
+                    this.state.rubricEvalTotal = payload.total || this.state.rubricEvalTotal;
+                    // Live-merge verdicts into local rubric state so the user sees progress.
+                    const verdicts = payload.verdicts || [];
+                    const modelKey = payload.model;
+                    const runIdx = payload.run;
+                    if (typeof runIdx === "number" && modelKey) {
+                        for (let r = 0; r < this.state.rubrics.length && r < verdicts.length; r++) {
+                            const rub = this.state.rubrics[r];
+                            if (!rub[modelKey] || !Array.isArray(rub[modelKey])) {
+                                rub[modelKey] = new Array(12).fill(null);
+                            }
+                            while (rub[modelKey].length < 12) rub[modelKey].push(null);
+                            rub[modelKey][runIdx] = verdicts[r];
+                        }
+                    }
+                } else if (payload.type === "error") {
+                    this.state.rubricEvalStatus = "error";
+                    this.state.rubricEvalError = payload.message || "Unknown error";
+                    this.notification.add("Rubric eval failed: " + (payload.message || "error"), { type: "danger" });
+                } else if (payload.type === "complete") {
+                    this.state.rubricEvalStatus = payload.status === "error" ? "error" : "done";
+                    if (payload.status !== "error") {
+                        this.notification.add("Rubric evaluation complete.", { type: "success" });
+                        // Reload the record so the persisted rubrics overwrite the locally-mutated state.
+                        this.props.record.load().then(() => this._loadRubrics());
+                    }
+                }
+            },
+        );
+    }
+
+    onToggleOverlapReport() {
+        this.state.showRubricOverlapReport = !this.state.showRubricOverlapReport;
     }
 
     get activeTestResults() {

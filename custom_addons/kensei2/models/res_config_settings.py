@@ -83,6 +83,24 @@ class Kensei2ConfigSettings(models.TransientModel):
         default=False,
         help="Skip automated hint evaluation and generation. Useful for testing and debugging.",
     )
+    kensei2_disable_rubric_evaluation = fields.Boolean(
+        string="Disable Rubric Pass/Fail Evaluation",
+        config_parameter="kensei2.disable_rubric_evaluation",
+        default=False,
+        help="Skip the LLM-powered auto-fill of rubric pass/fail across trajectory runs.",
+    )
+    kensei2_disable_rubric_overlap_check = fields.Boolean(
+        string="Disable Rubric/Test Overlap Check",
+        config_parameter="kensei2.disable_rubric_overlap_check",
+        default=False,
+        help="Skip the LLM-powered rubric vs test-code overlap audit.",
+    )
+    kensei2_disable_golden_streaming = fields.Boolean(
+        string="Disable Golden Trajectory Streaming",
+        config_parameter="kensei2.disable_golden_streaming",
+        default=False,
+        help="Skip the live-streaming golden trajectory generation endpoint.",
+    )
     kensei2_s3_bucket = fields.Char(
         string="S3 Bucket",
         config_parameter="kensei2.s3_bucket",

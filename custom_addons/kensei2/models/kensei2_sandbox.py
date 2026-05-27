@@ -5992,7 +5992,7 @@ class Kensei2Sandbox(models.Model):
                 "enabled": False,
             },
             "tools": {
-                "deny": ["browser"],
+                "deny": ["browser", "duckduckgo"],
                 "web": {
                     "search": {"enabled": False},
                     "fetch": {"enabled": False},

@@ -247,7 +247,7 @@ def _build_openclaw_config(gateway_token, env, model_type="claude", sandbox_id=N
             "enabled": False,
         },
         "tools": {
-            "deny": ["browser"],
+            "deny": ["browser", "duckduckgo"],
             "web": {
                 "search": {"enabled": False},
                 "fetch": {"enabled": False},
