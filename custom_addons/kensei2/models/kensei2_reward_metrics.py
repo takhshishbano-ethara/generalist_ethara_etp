@@ -84,6 +84,7 @@ class Kensei2TestResultRewardMetrics(models.Model):
         "test_function_outputs",
         "test_code",
         "kensei2_id.rubrics",
+        "kensei2_id.test_weights",
         "sandbox_id.model_type",
         "trajectory_index",
     )
@@ -148,11 +149,8 @@ class Kensei2TestResultRewardMetrics(models.Model):
         return self._calculate_rewards()[2]
 
     def _accumulate_test_weights(self, sum_passed_pos, sum_triggered_neg, sum_all_pos):
-        try:
-            scores = json.loads(self.test_scores or "{}")
-        except (ValueError, TypeError):
-            scores = {}
-        if not isinstance(scores, dict) or not scores:
+        scores = self._load_effective_test_scores()
+        if not scores:
             return sum_passed_pos, sum_triggered_neg, sum_all_pos
 
         try:
@@ -160,15 +158,30 @@ class Kensei2TestResultRewardMetrics(models.Model):
         except (ValueError, TypeError):
             func_outputs = {}
 
-        functions = _TEST_FUNC_RE.findall(self.test_code or "")
+        code = self.test_code or ""
         agg_output = self.test_output or ""
 
-        for fn in functions:
-            weight = scores.get(fn)
+        # Iterate over the SCORED functions (not over functions found in
+        # test_code) — Claude and GPT trajectories may have different
+        # per-trajectory test_code yet share a single task-level scoring map.
+        # For each scored function we accept it if it appears in this
+        # trajectory's code OR its pytest output; otherwise it didn't run
+        # here and is skipped.
+        for fn_name, weight in scores.items():
             if not isinstance(weight, (int, float)) or weight == 0:
                 continue
-            fn_output = func_outputs.get(fn) or agg_output
-            passed = bool(re.search(re.escape(fn) + r"\s+PASSED", fn_output))
+            in_code = bool(re.search(
+                r"(?:def|async def)\s+" + re.escape(fn_name) + r"\s*\(", code
+            ))
+            fn_output = func_outputs.get(fn_name) or agg_output
+            ran_here = bool(re.search(
+                re.escape(fn_name) + r"\s+(PASSED|FAILED|ERROR)", fn_output
+            ))
+            if not (in_code or ran_here):
+                continue
+            passed = bool(re.search(
+                re.escape(fn_name) + r"\s+PASSED", fn_output
+            ))
             abs_w = abs(weight)
             if weight > 0:
                 sum_all_pos += abs_w
@@ -178,6 +191,46 @@ class Kensei2TestResultRewardMetrics(models.Model):
                 if passed:
                     sum_triggered_neg += abs_w
         return sum_passed_pos, sum_triggered_neg, sum_all_pos
+
+    def _load_effective_test_scores(self):
+        """Return the score map for this trajectory.
+
+        Falls back to the parent task's test_weights if this record's own
+        test_scores is empty — covers the case where the test.result record
+        was created AFTER kensei2.kensei2.action_generate_test_weights ran
+        (the apply loop in that method only updates records that exist at
+        the time, so later-created records inherit nothing).
+        """
+        try:
+            scores = json.loads(self.test_scores or "{}")
+        except (ValueError, TypeError):
+            scores = {}
+        if isinstance(scores, dict) and scores:
+            return scores
+
+        if not self.kensei2_id or not self.kensei2_id.test_weights:
+            return {}
+        try:
+            parsed = json.loads(self.kensei2_id.test_weights)
+        except (ValueError, TypeError):
+            return {}
+        if not isinstance(parsed, list):
+            return {}
+        fallback = {}
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("test_name")
+            weight = item.get("weight")
+            if not name or not isinstance(weight, (int, float)):
+                continue
+            if weight >= 100:
+                fallback[name] = 30
+            elif weight <= -30:
+                fallback[name] = -30
+            else:
+                fallback[name] = max(-30, min(30, weight))
+        return fallback
 
     def _accumulate_rubric_weights(self, sum_passed_pos, sum_triggered_neg, sum_all_pos):
         if not self.kensei2_id or not self.kensei2_id.rubrics:
