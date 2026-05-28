@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_wildclaw_persona_tree" model="ir.ui.view">
+        <field name="name">wildclaw.persona.tree</field>
+        <field name="model">wildclaw.persona</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_wildclaw_persona_form" model="ir.ui.view">
+        <field name="name">wildclaw.persona.form</field>
+        <field name="model">wildclaw.persona</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="active"/>
+                    </group>
+                    <notebook>
+                        <page string="SOUL.md"><field name="soul_md"/></page>
+                        <page string="MEMORY.md"><field name="memory_md"/></page>
+                        <page string="AGENTS.md"><field name="agents_md"/></page>
+                        <page string="LiteLLM YAML"><field name="litellm_config_yaml"/></page>
+                        <page string="docker-compose YAML"><field name="docker_compose_yaml"/></page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_wildclaw_persona" model="ir.actions.act_window">
+        <field name="name">WildClaw Personas</field>
+        <field name="res_model">wildclaw.persona</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_wildclaw_domain_tree" model="ir.ui.view">
+        <field name="name">wildclaw.domain.tree</field>
+        <field name="model">wildclaw.domain</field>
+        <field name="arch" type="xml">
+            <list><field name="name"/><field name="parent_id"/></list>
+        </field>
+    </record>
+    <record id="action_wildclaw_domain" model="ir.actions.act_window">
+        <field name="name">WildClaw Domains</field>
+        <field name="res_model">wildclaw.domain</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_wildclaw_media_attachment_tree" model="ir.ui.view">
+        <field name="name">wildclaw.media.attachment.tree</field>
+        <field name="model">wildclaw.media.attachment</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="media_kind"/>
+                <field name="mime_type"/>
+                <field name="byte_size"/>
+                <field name="source_kind"/>
+                <field name="s3_url"/>
+            </list>
+        </field>
+    </record>
+    <record id="view_wildclaw_media_attachment_form" model="ir.ui.view">
+        <field name="name">wildclaw.media.attachment.form</field>
+        <field name="model">wildclaw.media.attachment</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="mime_type"/>
+                            <field name="media_kind"/>
+                            <field name="byte_size"/>
+                            <field name="source_kind"/>
+                            <field name="source_url"/>
+                        </group>
+                        <group>
+                            <field name="s3_url"/>
+                            <field name="s3_key"/>
+                            <field name="sha256_hex"/>
+                            <field name="uploaded_by_id"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Image" invisible="media_kind != 'image'">
+                            <group>
+                                <field name="image_width"/>
+                                <field name="image_height"/>
+                                <field name="sam3_mask_count"/>
+                                <field name="sam3_masks_s3_key"/>
+                            </group>
+                        </page>
+                        <page string="Video" invisible="media_kind != 'video'">
+                            <group>
+                                <field name="video_duration_s"/>
+                                <field name="video_fps"/>
+                                <field name="frame_extract_count"/>
+                            </group>
+                        </page>
+                        <page string="Audio" invisible="media_kind != 'audio'">
+                            <group>
+                                <field name="audio_duration_s"/>
+                                <field name="audio_sample_rate"/>
+                                <field name="audio_channels"/>
+                            </group>
+                            <field name="audio_transcript"/>
+                        </page>
+                        <page string="PDF" invisible="media_kind != 'pdf'">
+                            <field name="pdf_page_count"/>
+                            <field name="pdf_text"/>
+                        </page>
+                        <page string="Notes">
+                            <field name="notes"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+    <record id="action_wildclaw_media_attachment" model="ir.actions.act_window">
+        <field name="name">WildClaw Media Attachments</field>
+        <field name="res_model">wildclaw.media.attachment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_wildclaw_root" name="WildClaw" sequence="50"/>
+    <menuitem id="menu_wildclaw_personas" name="Personas"
+              parent="menu_wildclaw_root"
+              action="action_wildclaw_persona" sequence="10"/>
+    <menuitem id="menu_wildclaw_domains" name="Domains"
+              parent="menu_wildclaw_root"
+              action="action_wildclaw_domain" sequence="20"/>
+    <menuitem id="menu_wildclaw_media" name="Media Attachments"
+              parent="menu_wildclaw_root"
+              action="action_wildclaw_media_attachment" sequence="30"/>
+</odoo>

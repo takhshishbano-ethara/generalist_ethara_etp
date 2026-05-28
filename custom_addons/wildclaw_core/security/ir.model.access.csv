@@ -1,0 +1,14 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_wildclaw_persona_tasker,wildclaw.persona.tasker,model_wildclaw_persona,group_wildclaw_tasker,1,0,0,0
+access_wildclaw_persona_ql,wildclaw.persona.ql,model_wildclaw_persona,group_wildclaw_ql,1,1,1,1
+access_wildclaw_persona_pl,wildclaw.persona.pl,model_wildclaw_persona,group_wildclaw_pl,1,1,1,1
+access_wildclaw_domain_tasker,wildclaw.domain.tasker,model_wildclaw_domain,group_wildclaw_tasker,1,0,0,0
+access_wildclaw_domain_ql,wildclaw.domain.ql,model_wildclaw_domain,group_wildclaw_ql,1,1,1,1
+access_wildclaw_domain_pl,wildclaw.domain.pl,model_wildclaw_domain,group_wildclaw_pl,1,1,1,1
+access_wildclaw_api_request_tasker,wildclaw.api.request.tasker,model_wildclaw_api_request,group_wildclaw_tasker,1,0,0,0
+access_wildclaw_api_request_pl,wildclaw.api.request.pl,model_wildclaw_api_request,group_wildclaw_pl,1,1,1,1
+access_wildclaw_test_result_tasker,wildclaw.test.result.tasker,model_wildclaw_test_result,group_wildclaw_tasker,1,0,0,0
+access_wildclaw_test_result_ql,wildclaw.test.result.ql,model_wildclaw_test_result,group_wildclaw_ql,1,0,0,0
+access_wildclaw_test_result_pl,wildclaw.test.result.pl,model_wildclaw_test_result,group_wildclaw_pl,1,1,1,1
+access_wildclaw_media_attachment_tasker,wildclaw.media.attachment.tasker,model_wildclaw_media_attachment,group_wildclaw_tasker,1,1,1,1
+access_wildclaw_media_attachment_pl,wildclaw.media.attachment.pl,model_wildclaw_media_attachment,group_wildclaw_pl,1,1,1,1

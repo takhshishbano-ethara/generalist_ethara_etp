@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+
+    <record id="view_wildclaw_res_config_settings_form" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.wildclaw_core</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form" />
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="WildClaw" string="WildClaw" name="wildclaw_core">
+                    <block title="Bedrock LLM Configuration">
+                        <setting
+                            string="Inference Profile ARN"
+                            help="Full ARN of the AWS Bedrock application inference profile for server-side LLM calls (QC, hints, golden generation)."
+                        >
+                            <field name="wildclaw_bedrock_inference_arn" />
+                        </setting>
+                        <setting
+                            string="Bedrock Region"
+                            help="AWS region for the Bedrock endpoint."
+                        >
+                            <field name="wildclaw_bedrock_region" />
+                        </setting>
+                        <setting
+                            string="AWS Bearer Token (Bedrock)"
+                            help="AWS bearer token for Bedrock API access. Falls back to .env if empty."
+                        >
+                            <field name="wildclaw_aws_bearer_token" password="True" />
+                        </setting>
+                    </block>
+
+                    <block title="Sandbox Deployment">
+                        <setting
+                            string="Deployment Mode"
+                            help="Local mode uses Docker Compose. K8s mode creates Kubernetes resources."
+                        >
+                            <field name="wildclaw_deployment_mode" widget="radio" />
+                        </setting>
+                        <setting
+                            string="Use Vendored WildClawBench Runner"
+                            help="When enabled, sandbox execution routes through the vendored WildClawBench programmatic API."
+                        >
+                            <field name="wildclaw_wildclawbench_enabled" widget="boolean_toggle" />
+                        </setting>
+                    </block>
+
+                    <block
+                        title="Local Mode (Docker Compose)"
+                        invisible="wildclaw_deployment_mode != 'local'"
+                    >
+                        <setting
+                            string="Docker Status"
+                            help="Whether Docker daemon is accessible from this server."
+                        >
+                            <field name="wildclaw_docker_available" widget="boolean_toggle" readonly="True" />
+                        </setting>
+                        <setting
+                            string="Sandbox Directory"
+                            help="Path for sandbox workspaces, downloaded media, output trajectories."
+                        >
+                            <field name="wildclaw_sandbox_dir" />
+                        </setting>
+                    </block>
+
+                    <block
+                        title="Kubernetes Mode"
+                        invisible="wildclaw_deployment_mode != 'k8s'"
+                    >
+                        <setting
+                            string="K8s Namespace"
+                            help="Kubernetes namespace for sandbox pods."
+                        >
+                            <field name="wildclaw_k8s_namespace" />
+                        </setting>
+                        <setting
+                            string="WS Router Host"
+                            help="Public hostname for the WebSocket router Ingress."
+                        >
+                            <field name="wildclaw_ws_router_host" />
+                        </setting>
+                        <setting
+                            string="OpenClaw Image"
+                            help="Container image for the OpenClaw gateway."
+                        >
+                            <field name="wildclaw_openclaw_image" />
+                        </setting>
+                        <setting
+                            string="LiteLLM Image"
+                            help="Container image for the LiteLLM proxy."
+                        >
+                            <field name="wildclaw_litellm_image" />
+                        </setting>
+                        <setting
+                            string="ECR Registry"
+                            help="AWS ECR registry prefix for mock API images."
+                        >
+                            <field name="wildclaw_ecr_registry" />
+                        </setting>
+                        <setting
+                            string="Mock Image Name Prefix"
+                            help="Image-name prefix for mock API containers."
+                        >
+                            <field name="wildclaw_mock_image_prefix" />
+                        </setting>
+                        <setting
+                            string="Mock Image Tag"
+                            help="Docker image tag for mock API containers."
+                        >
+                            <field name="wildclaw_mock_image_tag" />
+                        </setting>
+                    </block>
+
+                    <block title="Batch Execution">
+                        <setting
+                            string="Pods Per Model"
+                            help="Number of sandbox pods per model type. E.g. 2 = 2 Claude + 2 GPT = 4 total."
+                        >
+                            <field name="wildclaw_batch_size" />
+                        </setting>
+                    </block>
+
+                    <block title="QC + Validation (Debug)">
+                        <setting
+                            string="Disable Prompt QC"
+                            help="Skip LLM-powered prompt quality checks. Testing/debug only."
+                        >
+                            <field name="wildclaw_disable_prompt_qc" widget="boolean_toggle" />
+                        </setting>
+                        <setting
+                            string="Disable Trajectory QC"
+                            help="Skip trajectory validation and LLM-powered trajectory QC. Testing/debug only."
+                        >
+                            <field name="wildclaw_disable_trajectory_qc" widget="boolean_toggle" />
+                        </setting>
+                        <setting
+                            string="Disable Auto-Hint"
+                            help="Skip automated hint evaluation. Testing/debug only."
+                        >
+                            <field name="wildclaw_disable_auto_hint" widget="boolean_toggle" />
+                        </setting>
+                    </block>
+
+                    <block title="S3 Storage">
+                        <setting
+                            string="S3 Bucket"
+                            help="AWS S3 bucket name for storing trajectories and media attachments."
+                        >
+                            <field name="wildclaw_s3_bucket" />
+                        </setting>
+                        <setting
+                            string="S3 Key Prefix"
+                            help="Prefix for S3 object keys (e.g. 'WildClaw')."
+                        >
+                            <field name="wildclaw_s3_prefix" />
+                        </setting>
+                        <setting
+                            string="S3 Region"
+                            help="AWS region for the S3 bucket."
+                        >
+                            <field name="wildclaw_s3_region" />
+                        </setting>
+                    </block>
+
+                    <block title="Multimedia">
+                        <setting
+                            string="Video Frame Extract Count"
+                            help="Number of frames to extract per video for multimodal analysis."
+                        >
+                            <field name="wildclaw_media_video_frame_count" />
+                        </setting>
+                        <setting
+                            string="Max Upload Size (MB)"
+                            help="Maximum allowed size per uploaded file."
+                        >
+                            <field name="wildclaw_media_max_upload_mb" />
+                        </setting>
+                    </block>
+
+                    <block title="Audio Transcription">
+                        <setting
+                            string="Audio Transcription Provider"
+                            help="Choose a transcription backend, or leave disabled."
+                        >
+                            <field name="wildclaw_audio_transcription_provider" />
+                        </setting>
+                        <setting
+                            string="OpenAI API Key"
+                            help="Used when provider is OpenAI Whisper."
+                            invisible="wildclaw_audio_transcription_provider != 'openai_whisper'"
+                        >
+                            <field name="wildclaw_openai_api_key" password="True" />
+                        </setting>
+                    </block>
+
+                    <block title="Data Prep (yt-dlp, ModelScope, HF Hub, SAM3)">
+                        <setting
+                            string="Data Prep Directory"
+                            help="Filesystem dir for downloaded videos, SAM3 weights, archive extracts."
+                        >
+                            <field name="wildclaw_prep_dir" />
+                        </setting>
+                        <setting
+                            string="SAM3 Weights Path"
+                            help="Filesystem path to sam3.pt. Auto-downloaded via HuggingFace Hub if not present."
+                        >
+                            <field name="wildclaw_sam3_weights_path" />
+                        </setting>
+                        <setting
+                            string="HuggingFace Hub Token"
+                            help="Personal access token for huggingface.co downloads."
+                        >
+                            <field name="wildclaw_hf_token" password="True" />
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

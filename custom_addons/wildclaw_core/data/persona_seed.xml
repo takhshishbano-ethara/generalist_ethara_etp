@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="persona_default" model="wildclaw.persona">
+            <field name="name">default</field>
+            <field name="soul_md">You are a helpful, careful assistant operating in a sandboxed environment.</field>
+        </record>
+    </data>
+</odoo>
