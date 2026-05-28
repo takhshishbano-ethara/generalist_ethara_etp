@@ -97,6 +97,7 @@ def _project_payload(project):
         "state": project.state,
         "s3_source_url": project.s3_source_url,
         "s3_source_key": project.s3_source_key,
+        "youtube_url": project.youtube_url,
         "source_metadata": project.source_metadata or {},
         "duration_seconds": project.duration_seconds,
         "resolution": project.resolution,

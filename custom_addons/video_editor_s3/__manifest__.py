@@ -50,6 +50,8 @@ intentionally independent so each can evolve on its own schedule.
         "web.assets_backend": [
             "video_editor_s3/static/src/scss/editor.scss",
             "video_editor_s3/static/src/js/services/**/*.js",
+            "video_editor_s3/static/src/js/fields/**/*.js",
+            "video_editor_s3/static/src/js/fields/**/*.xml",
             "video_editor_s3/static/src/js/video_editor/**/*.js",
             "video_editor_s3/static/src/js/video_editor/**/*.xml",
         ],

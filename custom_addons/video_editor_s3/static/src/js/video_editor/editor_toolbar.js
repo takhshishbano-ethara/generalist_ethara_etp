@@ -59,4 +59,23 @@ export class EditorToolbar extends Component {
     onReset(field) {
         this.props.onResetSlot(field);
     }
+
+    formatTime(seconds) {
+        const total = Math.max(0, Math.floor(seconds || 0));
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
+
+    get trimStart() {
+        return (this.props.config.trim && this.props.config.trim.start) || 0;
+    }
+
+    get trimEnd() {
+        return (this.props.config.trim && this.props.config.trim.end) || 0;
+    }
+
+    get trimDuration() {
+        return Math.max(0, this.trimEnd - this.trimStart);
+    }
 }

@@ -75,10 +75,10 @@
                     <group>
                         <group name="primary">
                             <field name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."/>
-                            <field name="s3_source_url" placeholder="s3://bucket/path/to/video.mp4 or https URL"/>
+                            <field name="s3_source_url" widget="video_url_preview" options="{'stream_kind': 'source'}" placeholder="s3://bucket/path/to/video.mp4 or https URL"/>
                         </group>
                         <group name="primary_right">
-                            <field name="output_s3_url" readonly="1" widget="url"/>
+                            <field name="output_s3_url" widget="video_url_preview" readonly="1"/>
                             <field name="assigned_to" widget="many2one_avatar_user"/>
                         </group>
                     </group>

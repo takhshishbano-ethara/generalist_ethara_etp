@@ -46,7 +46,7 @@
             </div>
 
             <div class="o_video_editor_s3__body d-flex" style="height: calc(100vh - 120px);">
-                <aside class="o_video_editor_s3__sidebar border-end p-2" style="width:280px; overflow-y:auto;">
+                <aside class="o_video_editor_s3__sidebar border-end p-2">
                     <div class="btn-group btn-group-sm mb-3 w-100" role="group">
                         <button class="btn" t-att-class="state.mode === 'trim' ? 'btn-primary' : 'btn-outline-secondary'" t-on-click="() => this.onChangeMode('trim')">Trim</button>
                         <button class="btn" t-att-class="state.mode === 'crop' ? 'btn-primary' : 'btn-outline-secondary'" t-on-click="() => this.onChangeMode('crop')">Crop</button>
@@ -126,13 +126,17 @@
                 <div class="card mb-2">
                     <div class="card-body p-2">
                         <h6 class="card-title">Trim</h6>
-                        <div class="d-flex gap-1 small">
-                            <label class="text-muted">Start</label>
-                            <span><t t-esc="(props.config.trim.start || 0).toFixed(2)"/>s</span>
+                        <div class="d-flex justify-content-between small">
+                            <label class="text-muted mb-0">Start</label>
+                            <span><t t-esc="formatTime(trimStart)"/> <span class="text-muted">(min:sec)</span></span>
                         </div>
-                        <div class="d-flex gap-1 small">
-                            <label class="text-muted">End</label>
-                            <span><t t-esc="(props.config.trim.end || 0).toFixed(2)"/>s</span>
+                        <div class="d-flex justify-content-between small">
+                            <label class="text-muted mb-0">End</label>
+                            <span><t t-esc="formatTime(trimEnd)"/> <span class="text-muted">(min:sec)</span></span>
+                        </div>
+                        <div class="d-flex justify-content-between small border-top mt-1 pt-1">
+                            <label class="text-muted mb-0">Duration</label>
+                            <span><strong><t t-esc="formatTime(trimDuration)"/></strong> <span class="text-muted">(min:sec)</span></span>
                         </div>
                         <button class="btn btn-outline-secondary btn-sm mt-2 w-100" t-on-click="() => this.onReset('trim')">Reset trim</button>
                     </div>
