@@ -5,3 +5,4 @@ from . import test_media_storage
 from . import test_youtube_downloader
 from . import test_youtube_ingest
 from . import test_llm_qc
+from . import test_qc_seed_resolver

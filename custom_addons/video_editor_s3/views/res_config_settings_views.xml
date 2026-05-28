@@ -53,8 +53,9 @@
                         </setting>
                     </block>
                     <block title="Prompt QC Seed" name="video_editor_s3_qc_seed">
-                        <setting id="video_editor_s3_qc_seed_prompt" string="QC Seed Prompt" help="Seed prompt that instructs the LLM how to evaluate project prompts. Leave empty to use the bundled default.">
-                            <field name="video_editor_s3_qc_seed_prompt" widget="text" placeholder="Leave empty to use the bundled default seed prompt."/>
+                        <setting id="video_editor_s3_qc_seed_file_setting" string="QC Seed Prompt File" help="Upload a .md or .txt file (UTF-8, max 100 KB) to override the bundled default QC seed prompt. Clear the file to revert to the bundled default.">
+                            <field name="video_editor_s3_qc_seed_file" filename="video_editor_s3_qc_seed_filename"/>
+                            <field name="video_editor_s3_qc_seed_filename" invisible="1"/>
                         </setting>
                     </block>
                     <block title="YouTube Ingest" name="video_editor_s3_youtube">

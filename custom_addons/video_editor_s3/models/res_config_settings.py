@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
+import base64
+import binascii
+
 from odoo import _, fields, models
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 from ..services import s3_storage
+
+_QC_SEED_FILE_PARAM = "video_editor_s3.qc_seed_file"
+_QC_SEED_FILENAME_PARAM = "video_editor_s3.qc_seed_filename"
+_QC_SEED_FILE_MAX_BYTES = 100 * 1024
+_QC_SEED_ALLOWED_EXTS = (".md", ".txt")
 
 
 class ResConfigSettings(models.TransientModel):
@@ -75,10 +83,16 @@ class ResConfigSettings(models.TransientModel):
         string="Bedrock Secret Key",
         config_parameter="video_editor_s3.bedrock_secret_key",
     )
-    video_editor_s3_qc_seed_prompt = fields.Char(
-        string="QC Seed Prompt",
-        config_parameter="video_editor_s3.qc_seed_prompt",
-        help="Seed prompt that defines how prompt QC is performed. Leave empty to use the bundled default.",
+    video_editor_s3_qc_seed_file = fields.Binary(
+        string="QC Seed Prompt File",
+        help=(
+            "Upload a .md or .txt file (UTF-8, max 100 KB) containing the QC "
+            "seed prompt. Clear the file to fall back to the bundled default."
+        ),
+    )
+    video_editor_s3_qc_seed_filename = fields.Char(
+        string="QC Seed Prompt Filename",
+        config_parameter="video_editor_s3.qc_seed_filename",
     )
     video_editor_s3_yt_cookies_browser = fields.Char(
         string="YouTube Cookies From Browser",
@@ -111,6 +125,50 @@ class ResConfigSettings(models.TransientModel):
             "Use when the Odoo host's IP is flagged by YouTube."
         ),
     )
+
+    def get_values(self):
+        res = super().get_values()
+        ICP = self.env["ir.config_parameter"].sudo()
+        b64 = ICP.get_param(_QC_SEED_FILE_PARAM) or ""
+        res["video_editor_s3_qc_seed_file"] = b64.encode("ascii") if b64 else False
+        return res
+
+    def set_values(self):
+        self._validate_qc_seed_file()
+        ICP = self.env["ir.config_parameter"].sudo()
+        raw = self.video_editor_s3_qc_seed_file
+        if raw:
+            b64 = raw.decode("ascii") if isinstance(raw, bytes) else raw
+            ICP.set_param(_QC_SEED_FILE_PARAM, b64)
+        else:
+            ICP.set_param(_QC_SEED_FILE_PARAM, "")
+        return super().set_values()
+
+    def _validate_qc_seed_file(self):
+        raw_b64 = self.video_editor_s3_qc_seed_file
+        if not raw_b64:
+            return
+        try:
+            content = base64.b64decode(raw_b64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValidationError(_(
+                "QC seed prompt file is corrupted (base64 decode failed): %s"
+            ) % exc) from exc
+        if len(content) > _QC_SEED_FILE_MAX_BYTES:
+            raise ValidationError(_(
+                "QC seed prompt file is too large (max %d KB, got %d KB)."
+            ) % (_QC_SEED_FILE_MAX_BYTES // 1024, len(content) // 1024 + 1))
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValidationError(_(
+                "QC seed prompt file must be valid UTF-8 text: %s"
+            ) % exc) from exc
+        fn = (self.video_editor_s3_qc_seed_filename or "").lower()
+        if fn and not fn.endswith(_QC_SEED_ALLOWED_EXTS):
+            raise ValidationError(_(
+                "QC seed prompt file must be .md or .txt (got %s)."
+            ) % fn)
 
     def action_test_s3_connection(self):
         self.ensure_one()

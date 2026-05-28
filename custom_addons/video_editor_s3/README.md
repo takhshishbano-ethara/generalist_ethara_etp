@@ -105,7 +105,7 @@ Settings → General Settings → "Video Editor S3" section (manager group only)
 | Bedrock Model ID | `video_editor_s3.bedrock_model_id` | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 | Bedrock Access Key | `video_editor_s3.bedrock_access_key` | — |
 | Bedrock Secret Key | `video_editor_s3.bedrock_secret_key` | — |
-| QC Seed Prompt | `video_editor_s3.qc_seed_prompt` | bundled default (`data/qc_seed_prompt.md`) |
+| QC Seed Prompt File | `video_editor_s3.qc_seed_file` (+ filename in `video_editor_s3.qc_seed_filename`) | bundled default (`data/qc_seed_prompt.md`) |
 | YouTube Cookies From Browser | `video_editor_s3.yt_cookies_browser` | autodetected — first installed of chrome/firefox/edge/brave/chromium/vivaldi/opera |
 | YouTube Cookies File Path | `video_editor_s3.yt_cookies_path` | — |
 | YouTube Proxy URL | `video_editor_s3.yt_proxy_url` | — |
@@ -258,8 +258,14 @@ the result back to the project. The General Information notebook page shows the 
 score, expert level, pass/fail badge, reason, issues, and the evaluated prompt snapshot —
 the form auto-refreshes once the job completes.
 
-The seed prompt (which tells the LLM how to score) is configurable via the
-`video_editor_s3.qc_seed_prompt` setting. Leaving it blank uses the bundled default at
+The seed prompt (which tells the LLM how to score) is configurable under
+**Settings → Video Editor S3 → Prompt QC Seed → QC Seed Prompt File** — upload a
+`.md` or `.txt` file (UTF-8, max 100 KB). The uploaded content is stored under the
+`video_editor_s3.qc_seed_file` system parameter (base64) with the original filename
+in `video_editor_s3.qc_seed_filename`.
+
+Resolution priority at QC time: **uploaded file → bundled default**. Leaving the
+upload empty uses the bundled default at
 `data/qc_seed_prompt.md`, which scores 0–100 on Clarity / Specificity / Coherence /
 Feasibility / Safety, classifies expert level as novice / intermediate / advanced /
 expert, and only passes when the score is ≥ 60, the expert level is at least

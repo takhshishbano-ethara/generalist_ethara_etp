@@ -311,10 +311,23 @@ class S3SettingsResolver(models.AbstractModel):
 
     @api.model
     def get_qc_seed_prompt(self) -> str:
+        import base64
         from . import llm_qc
         ICP = self.env["ir.config_parameter"].sudo()
-        raw = ICP.get_param("video_editor_s3.qc_seed_prompt") or ""
-        return raw.strip() or llm_qc.load_default_seed_prompt()
+
+        b64 = (ICP.get_param("video_editor_s3.qc_seed_file") or "").strip()
+        if b64:
+            try:
+                text = base64.b64decode(b64).decode("utf-8").strip()
+                if text:
+                    return text
+            except (ValueError, UnicodeDecodeError) as exc:
+                _logger.warning(
+                    "Stored QC seed file is invalid (%s) — falling back to bundled default.",
+                    exc,
+                )
+
+        return llm_qc.load_default_seed_prompt()
 
     @api.model
     def get_youtube_ingest_config(self) -> dict:

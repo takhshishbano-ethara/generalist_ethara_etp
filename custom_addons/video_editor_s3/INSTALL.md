@@ -166,9 +166,10 @@ the prompt is created or edited.
    - Paste the **Access Key** and **Secret Key** (both `password='True'`-masked).
    - Override **Region** or **Model ID** if needed.
 
-4. (Optional) Customise the **QC Seed Prompt** under **Prompt QC Seed**. The seed
-   text instructs the LLM how to evaluate prompts. Leave blank to use the bundled
-   default at `data/qc_seed_prompt.md` (Clarity / Specificity / Coherence /
+4. (Optional) Customise the **QC Seed Prompt** under **Prompt QC Seed** by uploading
+   a `.md` or `.txt` file (UTF-8, max 100 KB) under **QC Seed Prompt File**. The seed
+   text instructs the LLM how to evaluate prompts. Leave the upload empty to use the
+   bundled default at `data/qc_seed_prompt.md` (Clarity / Specificity / Coherence /
    Feasibility / Safety, pass requires score ≥ 60 + expert_level ≥ intermediate
    + no policy violations).
 

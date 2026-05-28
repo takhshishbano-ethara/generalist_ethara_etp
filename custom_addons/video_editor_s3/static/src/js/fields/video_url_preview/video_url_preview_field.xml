@@ -23,11 +23,14 @@
                        t-on-change="(ev) => this.props.record.update({ [this.props.name]: ev.target.value })"/>
             </t>
             <button type="button"
-                    class="btn btn-sm btn-outline-primary"
+                    class="o_video_url_preview_btn"
                     title="Preview video"
                     t-att-disabled="!canPreview"
                     t-on-click.stop.prevent="onPreview">
-                <i class="fa fa-play me-1"/>Preview
+                <span class="o_video_url_preview_btn__icon">
+                    <i class="fa fa-play"/>
+                </span>
+                <span class="o_video_url_preview_btn__label">Preview</span>
             </button>
         </div>
     </t>
