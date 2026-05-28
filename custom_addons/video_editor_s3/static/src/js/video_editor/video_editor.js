@@ -10,6 +10,7 @@ import {
     useState,
 } from "@odoo/owl";
 import { registry } from "@web/core/registry";
+import { router } from "@web/core/browser/router";
 import { useService } from "@web/core/utils/hooks";
 import { _t } from "@web/core/l10n/translation";
 import { EditorToolbar } from "./editor_toolbar";
@@ -220,6 +221,12 @@ export class VideoEditor extends Component {
     _applyProject(project) {
         if (!project) return;
         this.state.project = project;
+        if (project.id && this.state.projectId !== project.id) {
+            this.state.projectId = project.id;
+        }
+        if (project.id) {
+            router.pushState({ project_id: project.id });
+        }
         if (project.editing_config && Object.keys(project.editing_config).length) {
             this.state.config = { ...defaultConfig(project.duration_seconds || 0), ...project.editing_config };
         } else if (!this.state.config.trim.end && project.duration_seconds) {

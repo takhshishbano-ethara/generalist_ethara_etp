@@ -383,7 +383,7 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             "video_id=%s normalized=%s" % (video_id, normalized))
     job_executor._check_cancelled(cancel_event)
 
-    target_key = "%s/%s.mp4" % (youtube_prefix, video_id)
+    target_key = "%s/%s.mkv" % (youtube_prefix, video_id)
 
     if s3_storage.head_object_exists(cfg, target_key):
         _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_hit",
@@ -418,23 +418,28 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
     _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_miss",
             "S3 key not present, downloading: %s" % target_key)
 
-    try:
-        metadata = youtube_downloader.extract_metadata(
-            normalized,
-            cookies_path=yt_cookies_path,
-            proxy_url=yt_proxy,
-            cookies_from_browser=yt_cookies_browser,
-        )
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_metadata",
-                "title=%s channel=%s duration=%s" % (
-                    (metadata.get("title") or "")[:200],
-                    (metadata.get("channel") or "")[:100],
-                    metadata.get("duration_seconds"),
-                ))
-    except Exception as exc:
-        _log_yt(db, uid, job_id, project_id, "warning", "youtube_metadata",
-                "Metadata fetch failed (will retry during download): %s" % str(exc)[:500])
-        metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0}
+    probe_info, chosen_format = youtube_downloader.probe_and_select(
+        normalized,
+        cookies_path=yt_cookies_path,
+        proxy_url=yt_proxy,
+        cookies_from_browser=yt_cookies_browser,
+    )
+    metadata = {
+        "video_id": probe_info.get("id") or video_id,
+        "title": probe_info.get("title") or "",
+        "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
+        "thumbnail": probe_info.get("thumbnail") or "",
+        "duration_seconds": float(probe_info.get("duration") or 0.0),
+    }
+    _log_yt(db, uid, job_id, project_id, "info", "youtube_metadata",
+            "title=%s channel=%s duration=%s chosen=%sp%s/%s" % (
+                (metadata.get("title") or "")[:200],
+                (metadata.get("channel") or "")[:100],
+                metadata.get("duration_seconds"),
+                chosen_format.get("height"),
+                chosen_format.get("fps"),
+                chosen_format.get("format_id"),
+            ))
 
     job_executor._check_cancelled(cancel_event)
     tempdir = tempfile.mkdtemp(prefix="video_editor_s3_yt_")
@@ -453,9 +458,11 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
 
     try:
         try:
-            abs_path, info = youtube_downloader.download_to_tempdir(
+            abs_path, info, _chosen = youtube_downloader.download_to_tempdir(
                 normalized,
                 tempdir,
+                info=probe_info,
+                chosen_format=chosen_format,
                 max_size_bytes=max_size_bytes,
                 progress_cb=progress_cb,
                 cancel_event=cancel_event,
@@ -486,6 +493,14 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "YouTube download produced a file with no video stream "
                 "(probe=%s). Aborting before S3 upload."
             ) % probe)
+        if int(probe.get("height") or 0) < 2160:
+            _log_yt(db, uid, job_id, project_id, "error", "youtube_quality_assert",
+                    "Downloaded file height=%s below 2160 floor; refusing upload."
+                    % probe.get("height"))
+            raise UserError(_(
+                "Downloaded video is %(h)spx tall but the minimum requirement "
+                "is 2160p50/60. Aborting before S3 upload."
+            ) % {"h": probe.get("height")})
 
         if not metadata.get("title"):
             metadata = {
