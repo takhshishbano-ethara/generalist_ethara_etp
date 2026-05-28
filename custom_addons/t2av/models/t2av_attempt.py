@@ -667,7 +667,10 @@ class T2AVAttempt(models.Model):
         self.message_post(body=_("OpenRouter completed; downloading video (cost $%.4f).") % cost)
         self._push_bus()
 
-        # Defer the download so this poll cursor commits the state transition first.
+        # In RabbitMQ pipeline mode the caller invokes _run_download inline
+        # within the same transaction; otherwise defer to postcommit.
+        if self.env.context.get("t2av_inline_pipeline"):
+            return
         self._defer("_run_download")
 
     # ------------------------------------------------------------------

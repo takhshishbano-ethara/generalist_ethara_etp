@@ -65,7 +65,7 @@ class T2AVVideoReview(models.Model):
 
     model_id = fields.Char(
         string="Model ID", readonly=True, copy=False,
-        groups="base.group_no_one",
+        groups="base.group_no_one,t2av.group_t2av_consumer",
     )
     model_id_display = fields.Char(
         string="Model", compute="_compute_model_id_display",

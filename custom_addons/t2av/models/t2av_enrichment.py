@@ -72,7 +72,6 @@ class T2AVEnrichment(models.Model):
 
     model_id = fields.Char(
         string="Model ID", readonly=True, copy=False,
-        groups="base.group_no_one",
     )
     model_id_display = fields.Char(
         string="Model", compute="_compute_model_id_display",
@@ -463,7 +462,8 @@ class T2AVEnrichment(models.Model):
                         "Auto-regenerating with failure feedback "
                         "(attempt #%(n)d / max %(max)d)."
                     ) % {"n": next_n, "max": max_enrichment_attempts})
-                    retry._defer("_run_enrich")
+                    if not self.env.context.get("t2av_inline_pipeline"):
+                        retry._defer("_run_enrich")
                 except Exception:
                     _logger.exception(
                         "T2AV: auto-retry failed after FATAL on job %s",

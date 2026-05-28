@@ -21,7 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fontconfig libfreetype6 fonts-liberation \
     xfonts-75dpi xfonts-base \
     poppler-utils \
-    fmpeg \
+    ffmpeg \
     tesseract-ocr tesseract-ocr-eng \
     libreoffice \
     nodejs npm \
