@@ -2889,6 +2889,7 @@ class SkollSandbox(models.Model):
             "    environment:\n"
             "      - GOG_KEYRING_PASSWORD=${GOG_KEYRING_PASSWORD:-}\n"
             "      - GOG_ACCOUNT=${GOG_ACCOUNT:-}\n"
+            "      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY:-}\n"
             "  nginx:\n"
             "    image: nginx:alpine\n"
             "    depends_on:\n"

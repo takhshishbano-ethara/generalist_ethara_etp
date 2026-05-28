@@ -11,6 +11,7 @@ services:
     environment:
       - PERSONA=${PERSONA:-marcus}
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-skoll-sandbox}
+      - MOONSHOT_API_KEY=${MOONSHOT_API_KEY}
       - PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
     volumes:
       - ./personas:/sandbox/personas:ro

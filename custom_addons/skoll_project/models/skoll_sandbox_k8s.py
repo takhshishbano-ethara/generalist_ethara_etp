@@ -239,6 +239,14 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             },
         ],
     }
+    config_dict["tools"] = {
+        "web": {
+            "search": {
+                "provider": "kimi",
+            }
+        }
+    }
+
     config_dict["agents"] = {
         "defaults": {
             "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
@@ -866,6 +874,15 @@ class SkollSandboxK8s(models.AbstractModel):
                             name=gog_secret_name,
                             key="_GOG_ACCOUNT",
                             optional=True,
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="MOONSHOT_API_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="MOONSHOT_API_KEY",
                         ),
                     ),
                 ),
