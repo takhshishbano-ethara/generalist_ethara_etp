@@ -106,6 +106,9 @@ Settings → General Settings → "Video Editor S3" section (manager group only)
 | Bedrock Access Key | `video_editor_s3.bedrock_access_key` | — |
 | Bedrock Secret Key | `video_editor_s3.bedrock_secret_key` | — |
 | QC Seed Prompt | `video_editor_s3.qc_seed_prompt` | bundled default (`data/qc_seed_prompt.md`) |
+| YouTube Cookies From Browser | `video_editor_s3.yt_cookies_browser` | autodetected — first installed of chrome/firefox/edge/brave/chromium/vivaldi/opera |
+| YouTube Cookies File Path | `video_editor_s3.yt_cookies_path` | — |
+| YouTube Proxy URL | `video_editor_s3.yt_proxy_url` | — |
 
 Endpoint override (for MinIO / Cloudflare R2 / LocalStack):
 set env var `VIDEO_EDITOR_S3_ENDPOINT=https://...` on the Odoo process.
@@ -189,6 +192,63 @@ enforces it via its built-in `max_filesize` option.
 The `yt-dlp` Python package must be installed on the Odoo host. `ffmpeg` is also
 required (already declared) because `yt-dlp` invokes it to mux adaptive video+audio
 streams.
+
+### Bot-challenge / "Sign in to confirm you're not a bot"
+
+YouTube increasingly blocks downloads from datacenter or unfamiliar IPs with an
+interstitial that yt-dlp surfaces as `Sign in to confirm you're not a bot`. The module
+ships with two layers of mitigation:
+
+- **Always-on**: realistic `User-Agent`, `geo_bypass`, retries, and the `ejs:github`
+  remote-components solver (needed by yt-dlp ≥ 2026.03 to run YouTube's n-sig JS
+  challenge — without it only storyboard images are returned).
+- **Cookies-from-browser autodetect**: when the `YouTube Cookies From Browser` setting
+  is empty, the downloader probes the Odoo OS user's home directory for an installed
+  browser (chrome → firefox → edge → brave → chromium → vivaldi → opera) and re-uses
+  its cookies. Safari is intentionally skipped because the macOS sandbox blocks
+  non-Apple processes from reading its cookie store. The pick is logged at INFO:
+  `yt-dlp cookies-from-browser=chrome (autodetected)`.
+- **Cookie cache**: Chromium-family browsers store their cookies encrypted with the OS
+  keychain (Chrome Safe Storage), and on macOS the Keychain ACL is not reliably
+  persistent for the Python interpreter — "Always Allow" does not stick, so every job
+  would otherwise prompt for the keychain password. The downloader extracts the cookies
+  once and caches them as a Netscape-format file under
+  `<data_dir>/video_editor_s3/yt_cookies_cache.txt` (mode `0o600`, default TTL 24 h).
+  Subsequent jobs read the cached file directly without touching the keychain. The
+  cache is auto-invalidated whenever a bot-challenge is detected, so the next job
+  re-extracts fresh cookies. Delete the file manually to force an immediate refresh.
+  Cache events are logged at INFO: `yt-dlp cookies-from-browser=chrome (autodetected,
+  cache hit|refreshed)`.
+
+If the bot-challenge still fires, follow yt-dlp's recommended flow ([Extractors wiki
+→ Exporting YouTube cookies](https://github.com/yt-dlp/yt-dlp/wiki/Extractors)):
+
+1. Open a **new private / incognito window** in your browser.
+2. Sign in to YouTube in that window.
+3. Visit `https://www.youtube.com/robots.txt` in the same incognito tab.
+4. Export `youtube.com` cookies via the **Get cookies.txt LOCALLY** (Chrome) or
+   **cookies.txt** (Firefox) extension to a Netscape-format file.
+5. **Close** the incognito window — this freezes the session so YouTube does not
+   rotate the cookies behind your back.
+6. Upload the file to the Odoo host (e.g. `/var/lib/odoo/yt_cookies.txt`), make it
+   readable by the Odoo OS user (`chmod 644`), and set
+   **Settings → Crowley Sourcing → YouTube Ingest → Cookies File Path** to the
+   absolute path.
+
+This incognito + cookies.txt flow is the **recommended fix for production**. The
+autodetect path is a convenience for local development: live-session cookies in a
+signed-in browser tab can be rotated by YouTube at any time, which silently breaks
+downloads until you re-export.
+
+If your Odoo host's IP is itself blocked, additionally set
+**Settings → YouTube Ingest → YouTube Proxy URL** to a residential HTTP / HTTPS / SOCKS5
+proxy (e.g. `http://user:pass@host:8080` or `socks5://host:1080`). The proxy applies
+only to YouTube traffic, not to S3.
+
+You can also pin a specific browser (or browser profile) with **Cookies From Browser**
+— supported values: `chrome`, `firefox`, `edge`, `brave`, `chromium`, `vivaldi`,
+`opera`, `safari`, `whale`. Append `:PROFILE_NAME` for a non-default profile, e.g.
+`chrome:Profile 1`.
 
 ## Prompt QC
 

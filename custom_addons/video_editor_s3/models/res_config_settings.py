@@ -80,6 +80,37 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="video_editor_s3.qc_seed_prompt",
         help="Seed prompt that defines how prompt QC is performed. Leave empty to use the bundled default.",
     )
+    video_editor_s3_yt_cookies_browser = fields.Char(
+        string="YouTube Cookies From Browser",
+        config_parameter="video_editor_s3.yt_cookies_browser",
+        help=(
+            "Browser to auto-import YouTube cookies from "
+            "(chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). "
+            "Optionally append :PROFILE — e.g. 'chrome:Profile 1'. "
+            "The browser must be installed on the Odoo host and signed in to YouTube. "
+            "Recommended for local dev; for server deployments use the Cookies File Path instead."
+        ),
+    )
+    video_editor_s3_yt_cookies_path = fields.Char(
+        string="YouTube Cookies File Path",
+        config_parameter="video_editor_s3.yt_cookies_path",
+        help=(
+            "Absolute path to a Netscape-format cookies.txt exported from a logged-in "
+            "YouTube session (use the 'Get cookies.txt LOCALLY' Chrome/Edge extension "
+            "or 'cookies.txt' Firefox extension). Suitable for server deployments. "
+            "Leave empty to skip; if both this and Cookies From Browser are set, "
+            "both are passed to yt-dlp."
+        ),
+    )
+    video_editor_s3_yt_proxy_url = fields.Char(
+        string="YouTube Proxy URL",
+        config_parameter="video_editor_s3.yt_proxy_url",
+        help=(
+            "Optional HTTP / HTTPS / SOCKS5 proxy used only for YouTube downloads, "
+            "e.g. http://user:pass@host:8080 or socks5://host:1080. "
+            "Use when the Odoo host's IP is flagged by YouTube."
+        ),
+    )
 
     def action_test_s3_connection(self):
         self.ensure_one()

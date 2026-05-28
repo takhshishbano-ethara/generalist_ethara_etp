@@ -368,6 +368,10 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             raise UserError(_("S3 settings are missing — configure bucket and credentials."))
         youtube_prefix = env["video.editor.s3.settings"].get_youtube_prefix()
         max_size_bytes = env["video.editor.s3.settings"].get_max_source_size_bytes()
+        yt_ingest_cfg = env["video.editor.s3.settings"].get_youtube_ingest_config()
+        yt_cookies_browser = yt_ingest_cfg.get("cookies_browser") or ""
+        yt_cookies_path = yt_ingest_cfg.get("cookies_path") or ""
+        yt_proxy = yt_ingest_cfg.get("proxy_url") or ""
 
     _bump_heartbeat(db, job_id, "validating YouTube URL")
     video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)
@@ -386,7 +390,12 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "S3 key already exists: %s" % target_key)
         _bump_heartbeat(db, job_id, "reusing existing S3 object")
         try:
-            metadata = youtube_downloader.extract_metadata(normalized)
+            metadata = youtube_downloader.extract_metadata(
+                normalized,
+                cookies_path=yt_cookies_path,
+                proxy_url=yt_proxy,
+                cookies_from_browser=yt_cookies_browser,
+            )
         except Exception as exc:
             _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
             metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0}
@@ -410,7 +419,12 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             "S3 key not present, downloading: %s" % target_key)
 
     try:
-        metadata = youtube_downloader.extract_metadata(normalized)
+        metadata = youtube_downloader.extract_metadata(
+            normalized,
+            cookies_path=yt_cookies_path,
+            proxy_url=yt_proxy,
+            cookies_from_browser=yt_cookies_browser,
+        )
         _log_yt(db, uid, job_id, project_id, "info", "youtube_metadata",
                 "title=%s channel=%s duration=%s" % (
                     (metadata.get("title") or "")[:200],
@@ -446,6 +460,9 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 progress_cb=progress_cb,
                 cancel_event=cancel_event,
                 cancel_exception=JobCancelled,
+                cookies_path=yt_cookies_path,
+                proxy_url=yt_proxy,
+                cookies_from_browser=yt_cookies_browser,
             )
         except JobCancelled:
             _log_yt(db, uid, job_id, project_id, "warning", "youtube_ingest_cancelled",

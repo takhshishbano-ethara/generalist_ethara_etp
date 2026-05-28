@@ -315,3 +315,12 @@ class S3SettingsResolver(models.AbstractModel):
         ICP = self.env["ir.config_parameter"].sudo()
         raw = ICP.get_param("video_editor_s3.qc_seed_prompt") or ""
         return raw.strip() or llm_qc.load_default_seed_prompt()
+
+    @api.model
+    def get_youtube_ingest_config(self) -> dict:
+        ICP = self.env["ir.config_parameter"].sudo()
+        return {
+            "cookies_browser": (ICP.get_param("video_editor_s3.yt_cookies_browser") or "").strip(),
+            "cookies_path": (ICP.get_param("video_editor_s3.yt_cookies_path") or "").strip(),
+            "proxy_url": (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip(),
+        }
