@@ -12,10 +12,10 @@ from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
-_MAX_WORKER_THREADS = int(os.environ.get("VIDEO_EDITOR_S3_MAX_WORKERS", "2") or 2)
-_MAX_CONCURRENT_JOBS = int(os.environ.get("VIDEO_EDITOR_S3_MAX_CONCURRENT", "2") or 2)
+_MAX_WORKER_THREADS = int(os.environ.get("VIDEO_EDITOR_S3_MAX_WORKERS", "100") or 100)
+_MAX_CONCURRENT_JOBS = int(os.environ.get("VIDEO_EDITOR_S3_MAX_CONCURRENT", "100") or 100)
 _HEARTBEAT_INTERVAL_SECONDS = 10
-_HEARTBEAT_STALE_SECONDS = 120
+_HEARTBEAT_STALE_SECONDS = 36000
 _MAX_LOG_SIZE = 2_000_000
 
 _executor = ThreadPoolExecutor(

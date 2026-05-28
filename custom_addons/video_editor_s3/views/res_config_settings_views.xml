@@ -30,6 +30,17 @@
                             <button name="action_test_s3_connection" string="Test S3 Connection" type="object" class="btn-primary"/>
                         </setting>
                     </block>
+                    <block title="YouTube Ingest" name="video_editor_s3_youtube">
+                        <setting id="video_editor_s3_youtube_cookies_file" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Recommended for server deployments.">
+                            <field name="video_editor_s3_youtube_cookies_file" placeholder="/opt/odoo/youtube_cookies.txt"/>
+                        </setting>
+                        <setting id="video_editor_s3_youtube_cookies_from_browser" string="Cookies From Browser" help="Browser name to read cookies from (chrome, firefox, edge, brave, opera, safari, vivaldi). Ignored if 'Cookies File Path' is set.">
+                            <field name="video_editor_s3_youtube_cookies_from_browser" placeholder="chrome"/>
+                        </setting>
+                        <setting id="video_editor_s3_youtube_proxy" string="Proxy URL" help="Optional yt-dlp proxy. Use a residential proxy if your server IP is blocked.">
+                            <field name="video_editor_s3_youtube_proxy" placeholder="http://user:pass@host:port"/>
+                        </setting>
+                    </block>
                     <block title="Processing Limits" name="video_editor_s3_limits">
                         <setting id="video_editor_s3_max_source_size_mb" string="Max Source Size (MB)" help="Reject S3 source downloads larger than this size.">
                             <field name="video_editor_s3_max_source_size_mb"/>
