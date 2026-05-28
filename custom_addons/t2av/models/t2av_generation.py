@@ -17,13 +17,25 @@ and form-view convenience.
 """
 
 import logging
+import os
+import threading
+import time
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from . import credential_manager
 
 _logger = logging.getLogger(__name__)
+
+
+class _PermanentPipelineError(Exception):
+    pass
+
+
+_BEDROCK_SEMAPHORE = threading.Semaphore(
+    int(os.getenv("T2AV_BEDROCK_CONCURRENCY", "8"))
+)
 
 # ---------------------------------------------------------------------------
 # State machine constants — kept at module level for migration / test imports.
@@ -421,6 +433,27 @@ class T2AVGeneration(models.Model):
         compute="_compute_retry_count",
         store=True,
     )
+
+    pipeline_status = fields.Selection(
+        [
+            ("not_published", "Not Published"),
+            ("queued", "Queued"),
+            ("running", "Running"),
+            ("done", "Done"),
+            ("failed", "Failed"),
+        ],
+        string="Pipeline Status",
+        default="not_published",
+        tracking=True,
+        index=True,
+        copy=False,
+    )
+    pipeline_published_at = fields.Datetime(readonly=True, copy=False)
+    pipeline_started_at = fields.Datetime(readonly=True, copy=False)
+    pipeline_finished_at = fields.Datetime(readonly=True, copy=False)
+    pipeline_error_text = fields.Text(readonly=True, copy=False)
+    pipeline_retry_count = fields.Integer(default=0, readonly=True, copy=False)
+    pipeline_last_heartbeat_at = fields.Datetime(readonly=True, copy=False)
 
     # Job-level SQL constraints — most v1 constraints (openrouter_job_id
     # uniqueness, poll_attempts non-negative) moved onto the attempt.
@@ -1551,3 +1584,334 @@ class T2AVGeneration(models.Model):
                 "sticky": False,
             },
         }
+
+    def action_batch_publish_pipeline(self):
+        records = self.browse(self.env.context.get("active_ids") or self.ids)
+        if not records:
+            raise UserError(_("No records selected."))
+        eligible = self.env["t2av.generation"]
+        errors = []
+        for rec in records:
+            if not rec.prompt:
+                errors.append(_("%s: prompt is required.") % rec.display_name)
+                continue
+            if not rec.category:
+                errors.append(_("%s: category is required.") % rec.display_name)
+                continue
+            if rec.state != _STATE_DRAFT:
+                errors.append(_(
+                    "%(name)s: state is %(state)s; only draft records publishable."
+                ) % {"name": rec.display_name, "state": rec.state})
+                continue
+            status = rec.pipeline_status or "not_published"
+            if status not in ("not_published", "failed"):
+                errors.append(_(
+                    "%(name)s: pipeline_status is %(status)s; cannot republish."
+                ) % {"name": rec.display_name, "status": status})
+                continue
+            eligible |= rec
+        if errors:
+            preview = "\n".join(errors[:10])
+            extra = (_("\n... and %d more error(s).") % (len(errors) - 10)
+                     if len(errors) > 10 else "")
+            raise UserError(_(
+                "%(count)d record(s) failed validation; aborting publish.\n\n%(preview)s%(extra)s"
+            ) % {"count": len(errors), "preview": preview, "extra": extra})
+        if not eligible:
+            raise UserError(_("No eligible records to publish."))
+        eligible.write({
+            "pipeline_status": "queued",
+            "pipeline_published_at": fields.Datetime.now(),
+            "pipeline_error_text": False,
+        })
+        # Commit BEFORE publishing so the consumer sees pipeline_status='queued'
+        # under PostgreSQL MVCC; otherwise the consumer's SELECT FOR UPDATE
+        # could read the pre-update state.
+        self.env.cr.commit()
+        from ..services import rabbitmq_service
+        published = rabbitmq_service.batch_publish_pipeline_tasks(
+            eligible.ids, user_id=self.env.user.id, source="list_view_publish",
+        )
+        for rec in eligible:
+            rec.message_post(body=_("Published to RabbitMQ pipeline."))
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("T2AV"),
+                "message": _(
+                    "Queued %(n)d record(s). Consumer will process them at ~15 in parallel."
+                ) % {"n": published},
+                "type": "success",
+                "sticky": False,
+            },
+        }
+
+    def action_retry_pipeline(self):
+        self.ensure_one()
+        status = self.pipeline_status or "not_published"
+        if status not in ("failed", "not_published"):
+            raise UserError(_(
+                "Cannot retry: pipeline_status is %s."
+            ) % status)
+        if self.state != _STATE_DRAFT:
+            raise UserError(_(
+                "Cannot retry: state is %s; reset to draft first."
+            ) % self.state)
+        self.write({
+            "pipeline_status": "queued",
+            "pipeline_published_at": fields.Datetime.now(),
+            "pipeline_error_text": False,
+            "pipeline_retry_count": self.pipeline_retry_count + 1,
+        })
+        self.env.cr.commit()
+        from ..services import rabbitmq_service
+        rabbitmq_service.publish_pipeline_task(
+            self.id, user_id=self.env.user.id, source="manual_retry",
+        )
+        self.message_post(body=_("Republished to RabbitMQ pipeline."))
+        return self._display_queued_notification()
+
+    @api.model
+    def run_pipeline_sync(self, record_id):
+        """Raises UserError prefixed 'Permanent failure' for non-retryable errors
+        (consumer's _is_permanent_failure matches); raises any other Exception
+        for transient errors (consumer republishes with exponential backoff)."""
+        if not self.env.user.has_group("t2av.group_t2av_consumer"):
+            raise AccessError(_(
+                "User %s lacks group_t2av_consumer; cannot invoke pipeline."
+            ) % self.env.user.login)
+        record = self.browse(int(record_id)).exists()
+        if not record:
+            raise UserError(
+                "Permanent failure: record does not exist (id=%s)." % record_id
+            )
+        self.env.cr.execute(
+            "SELECT pipeline_status FROM t2av_generation WHERE id=%s FOR UPDATE",
+            (record.id,),
+        )
+        row = self.env.cr.fetchone()
+        if not row:
+            raise UserError(
+                "Permanent failure: record %s vanished after FOR UPDATE." % record_id
+            )
+        (current_status,) = row
+        if current_status not in ("queued", "failed"):
+            _logger.info(
+                "T2AV pipeline skip rid=%s (status=%s; idempotent no-op)",
+                record.id, current_status,
+            )
+            return True
+        now = fields.Datetime.now()
+        record.write({
+            "pipeline_status": "running",
+            "pipeline_started_at": now,
+            "pipeline_last_heartbeat_at": now,
+            "pipeline_error_text": False,
+        })
+        self.env.cr.commit()
+        record = record.with_context(t2av_inline_pipeline=True)
+        try:
+            if not record.prompt:
+                raise _PermanentPipelineError("prompt is missing")
+            if not record.category:
+                raise _PermanentPipelineError("category is missing")
+            with _BEDROCK_SEMAPHORE:
+                self._pipeline_run_enrichment(record)
+            if not record.golden_prompt:
+                raise _PermanentPipelineError(
+                    "enrichment did not produce a golden_prompt"
+                )
+            attempt = record._spawn_attempt()
+            attempt = attempt.with_context(t2av_inline_pipeline=True)
+            attempt._run_submit()
+            if attempt.state == _STATE_FAILED:
+                raise _PermanentPipelineError(
+                    "submit failed: %s" % (
+                        attempt.error_message or attempt.error_code or ""
+                    )
+                )
+            self._pipeline_poll_until_terminal(attempt)
+            attempt.invalidate_recordset()
+            if attempt.state == _STATE_FAILED:
+                raise _PermanentPipelineError(
+                    "attempt failed: %s" % (
+                        attempt.error_message or attempt.error_code or ""
+                    )
+                )
+            if attempt.state == _STATE_CANCELLED:
+                raise _PermanentPipelineError("attempt cancelled")
+            if attempt.state != _STATE_DONE:
+                raise Exception(
+                    "attempt ended in unexpected state %s" % attempt.state
+                )
+            record.write({
+                "pipeline_status": "done",
+                "pipeline_finished_at": fields.Datetime.now(),
+            })
+            record.message_post(body=_("Pipeline complete; video ready."))
+            return True
+        except _PermanentPipelineError as exc:
+            record.write({
+                "pipeline_status": "failed",
+                "pipeline_finished_at": fields.Datetime.now(),
+                "pipeline_error_text": str(exc),
+            })
+            record.message_post(body=_(
+                "Pipeline permanently failed: %s"
+            ) % exc)
+            # Commit so 'failed' survives the RPC dispatcher's rollback-on-exception;
+            # otherwise the record stays in 'running' and the next retry hits the
+            # idempotent no-op guard (current_status not in queued/failed).
+            self.env.cr.commit()
+            raise UserError("Permanent failure: %s" % exc)
+        except Exception as exc:
+            record.write({
+                "pipeline_status": "failed",
+                "pipeline_finished_at": fields.Datetime.now(),
+                "pipeline_error_text": "transient: %s" % exc,
+            })
+            record.message_post(body=_(
+                "Pipeline transient failure (will retry): %s"
+            ) % exc)
+            self.env.cr.commit()
+            raise
+
+    def _pipeline_heartbeat(self, record):
+        record.write({"pipeline_last_heartbeat_at": fields.Datetime.now()})
+        self.env.cr.commit()
+
+    def _pipeline_run_enrichment(self, record):
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            max_attempts = int(icp.get_param("t2av.enrichment_max_attempts", "3"))
+        except (TypeError, ValueError):
+            max_attempts = 3
+        Enrichment = self.env["t2av.enrichment"]
+        if not record.enrichment_ids:
+            Enrichment.create({
+                "job_id": record.id,
+                "attempt_number": 1,
+                "state": "queued",
+            })
+        for _i in range(max_attempts + 1):
+            record.invalidate_recordset()
+            if record.golden_prompt:
+                return
+            next_q = record.enrichment_ids.filtered(
+                lambda e: e.state == "queued"
+            )[:1]
+            if not next_q:
+                break
+            self._pipeline_heartbeat(record)
+            next_q.with_context(t2av_inline_pipeline=True)._run_enrich()
+        record.invalidate_recordset()
+        if not record.golden_prompt:
+            raise _PermanentPipelineError(
+                "enrichment exhausted after %d attempts" % max_attempts
+            )
+
+    def _pipeline_poll_until_terminal(self, attempt):
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            wall_clock_cap = int(
+                icp.get_param("t2av.pipeline.max_wall_clock_seconds", "1800")
+            )
+        except (TypeError, ValueError):
+            wall_clock_cap = 1800
+        try:
+            poll_initial = int(
+                icp.get_param("t2av.pipeline.poll_initial_seconds", "15")
+            )
+        except (TypeError, ValueError):
+            poll_initial = 15
+        try:
+            poll_max = int(
+                icp.get_param("t2av.pipeline.poll_max_seconds", "60")
+            )
+        except (TypeError, ValueError):
+            poll_max = 60
+        # Wait for the cron _cron_poll_openrouter (every 60s) to transition
+        # the attempt to a fully terminal state. Consumer thread does NOT
+        # poll OpenRouter itself - having two pollers causes the cron's
+        # postcommit _run_download to fire in a separate cursor while the
+        # consumer races ahead, leaving pipeline_status stuck at 'running'.
+        # Single source of truth = cron.
+        deadline = time.monotonic() + wall_clock_cap
+        delay = poll_initial
+        while True:
+            attempt.invalidate_recordset()
+            if attempt.state in (
+                _STATE_DONE, _STATE_FAILED, _STATE_CANCELLED,
+            ):
+                return
+            if time.monotonic() >= deadline:
+                raise _PermanentPipelineError(
+                    "polling exceeded wall-clock cap of %ds" % wall_clock_cap
+                )
+            time.sleep(delay)
+            self._pipeline_heartbeat(attempt.job_id)
+            delay = min(delay * 2, poll_max)
+
+    @api.model
+    def _cron_watchdog_pipeline(self):
+        from datetime import datetime, timedelta
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            threshold = int(
+                icp.get_param("t2av.pipeline.watchdog_stale_seconds", "900")
+            )
+        except (TypeError, ValueError):
+            threshold = 900
+        cutoff = datetime.utcnow() - timedelta(seconds=threshold)
+        # Liveness check uses pipeline_last_heartbeat_at (refreshed by the consumer
+        # on each enrichment/poll iteration). Records with NULL heartbeat (legacy
+        # rows from before 19.0.1.18.1) fall back to pipeline_started_at so they
+        # remain catchable.
+        stale = self.search([
+            ("pipeline_status", "=", "running"),
+            "|",
+            ("pipeline_last_heartbeat_at", "<", cutoff),
+            "&",
+            ("pipeline_last_heartbeat_at", "=", False),
+            ("pipeline_started_at", "<", cutoff),
+        ], limit=100)
+        for rec in stale:
+            # Self-healing: if the underlying attempt already reached a
+            # terminal state, the worker thread lost its DB write mid-finalize
+            # (cron postcommit landed elsewhere). Sync pipeline_status to
+            # attempt reality instead of lying with 'failed'.
+            attempt = rec.active_attempt_id
+            if attempt and attempt.state == _STATE_DONE:
+                rec.write({
+                    "pipeline_status": "done",
+                    "pipeline_finished_at": fields.Datetime.now(),
+                })
+                rec.message_post(body=_(
+                    "Pipeline watchdog reconciled: attempt is done; "
+                    "synced pipeline_status to 'done'."
+                ))
+                continue
+            if attempt and attempt.state in (_STATE_FAILED, _STATE_CANCELLED):
+                rec.write({
+                    "pipeline_status": "failed",
+                    "pipeline_finished_at": fields.Datetime.now(),
+                    "pipeline_error_text": "attempt %s: %s" % (
+                        attempt.state,
+                        attempt.error_message or attempt.error_code or "",
+                    ),
+                })
+                rec.message_post(body=_(
+                    "Pipeline watchdog reconciled: attempt %s; "
+                    "synced pipeline_status to 'failed'."
+                ) % attempt.state)
+                continue
+            rec.write({
+                "pipeline_status": "failed",
+                "pipeline_finished_at": fields.Datetime.now(),
+                "pipeline_error_text": "watchdog: no heartbeat for >%ds" % threshold,
+            })
+            rec.message_post(body=_(
+                "Pipeline watchdog reset record from running to failed "
+                "(no heartbeat for > %ds)."
+            ) % threshold)

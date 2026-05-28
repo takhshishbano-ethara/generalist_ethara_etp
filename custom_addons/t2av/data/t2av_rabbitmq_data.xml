@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="config_t2av_rabbitmq_queue_name" model="ir.config_parameter">
+            <field name="key">t2av.rabbitmq.queue_name</field>
+            <field name="value">t2av_pipeline</field>
+        </record>
+
+        <record id="config_t2av_rabbitmq_max_retries" model="ir.config_parameter">
+            <field name="key">t2av.rabbitmq.max_retries</field>
+            <field name="value">5</field>
+        </record>
+
+        <record id="config_t2av_pipeline_max_wall_clock_seconds" model="ir.config_parameter">
+            <field name="key">t2av.pipeline.max_wall_clock_seconds</field>
+            <field name="value">1800</field>
+        </record>
+
+        <record id="config_t2av_pipeline_poll_initial_seconds" model="ir.config_parameter">
+            <field name="key">t2av.pipeline.poll_initial_seconds</field>
+            <field name="value">15</field>
+        </record>
+
+        <record id="config_t2av_pipeline_poll_max_seconds" model="ir.config_parameter">
+            <field name="key">t2av.pipeline.poll_max_seconds</field>
+            <field name="value">60</field>
+        </record>
+
+        <record id="config_t2av_pipeline_watchdog_stale_seconds" model="ir.config_parameter">
+            <field name="key">t2av.pipeline.watchdog_stale_seconds</field>
+            <field name="value">900</field>
+        </record>
+
+        <record id="config_t2av_pipeline_bedrock_concurrency" model="ir.config_parameter">
+            <field name="key">t2av.pipeline.bedrock_concurrency</field>
+            <field name="value">8</field>
+        </record>
+    </data>
+</odoo>

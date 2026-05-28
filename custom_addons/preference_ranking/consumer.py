@@ -67,7 +67,7 @@ XMLRPC_TIMEOUT = int(os.getenv('XMLRPC_TIMEOUT', '1800'))
 KIMI_MAX_CONCURRENT = int(os.getenv('KIMI_MAX_CONCURRENT', '20'))
 OPENAI_MAX_CONCURRENT = int(os.getenv('OPENAI_MAX_CONCURRENT', '10'))
 GEMINI_MAX_CONCURRENT = int(os.getenv('GEMINI_MAX_CONCURRENT', '10'))
-GENAI_MAX_CONCURRENT = int(os.getenv('GENAI_MAX_CONCURRENT', '10'))
+GENAI_MAX_CONCURRENT = int(os.getenv('GENAI_MAX_CONCURRENT', '10')) 
 
 # ── Monitoring ────────────────────────────────────────────────────────────────
 _stats_lock = threading.Lock()

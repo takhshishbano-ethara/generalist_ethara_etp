@@ -1,10 +1,13 @@
 from . import (
     test_attempt_lifecycle as test_attempt_lifecycle,
     test_auto_repair as test_auto_repair,
+    test_consumer_helpers as test_consumer_helpers,
     test_cost_compute as test_cost_compute,
     test_credential_manager as test_credential_manager,
     test_dataset_naming as test_dataset_naming,
     test_openrouter_client as test_openrouter_client,
+    test_pipeline_sync as test_pipeline_sync,
+    test_rabbitmq_service as test_rabbitmq_service,
     test_reconcile as test_reconcile,
     test_review_client as test_review_client,
     test_s3_integrity as test_s3_integrity,

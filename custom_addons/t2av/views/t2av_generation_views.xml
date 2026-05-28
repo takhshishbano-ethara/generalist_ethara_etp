@@ -17,8 +17,8 @@
                         <button name="action_revalidate" string="Run QC" type="object"
                                 class="btn-secondary"
                                 groups="t2av.group_t2av_manager"
-                                invisible="not enriched_prompt"
-                                help="Re-run the T2AV validator on the enriched prompt without calling Bedrock. Use after editing the validator or when you want to re-check existing rows."/>
+                                invisible="not enriched_prompt or (state not in ('draft','failed') and not ui_retry_pending)"
+                                help="Re-run the T2AV validator on the enriched prompt without calling Bedrock. Available pre-generation (draft) or post-failure (failed) so you can re-validate before retrying. Hidden once the video is generated to prevent clobbering golden_prompt."/>
                         <button name="action_regenerate_with_failure" string="Regenerate with Failure Reason" type="object"
                                 class="btn-warning"
                                 groups="t2av.group_t2av_manager"
@@ -62,6 +62,9 @@
                                 groups="t2av.group_t2av_manager"
                                 invisible="state != 'done' or ui_retry_pending"
                                 confirm="Send this video to the multimodal reviewer? An AWS Bedrock call will incur usage cost."/>
+                        <button name="action_retry_pipeline" string="Retry Pipeline" type="object"
+                                class="btn-warning"
+                                invisible="pipeline_status not in ('failed', 'not_published')"/>
 
                         <field name="state" widget="statusbar"
                                statusbar_visible="draft,queued,processing,done"/>
@@ -441,6 +444,12 @@
                       decoration-success="state == 'done' and category"
                       decoration-danger="state in ('failed','cancelled')"
                       decoration-info="state in ('queued','submitting','processing','downloading')">
+                    <header>
+                        <button name="action_batch_publish_pipeline" string="Publish to RabbitMQ" type="object"
+                                class="btn-primary"
+                                confirm="Publish selected records to the RabbitMQ pipeline? Consumer will process at ~15 in parallel."
+                                display="always"/>
+                    </header>
                     <field name="name"/>
                     <field name="prompt" optional="show"/>
                     <field name="user_id" optional="show" groups="t2av.group_t2av_manager"/>
@@ -458,6 +467,11 @@
                            decoration-danger="state in ('failed','cancelled')"
                            decoration-info="state in ('queued','submitting','processing','downloading')"
                            decoration-muted="state == 'draft'"/>
+                    <field name="pipeline_status" widget="badge" optional="show"
+                           decoration-info="pipeline_status == 'queued'"
+                           decoration-warning="pipeline_status == 'running'"
+                           decoration-success="pipeline_status == 'done'"
+                           decoration-danger="pipeline_status == 'failed'"/>
                 </list>
             </field>
         </record>
@@ -482,6 +496,15 @@
                     <filter name="filter_done" string="Done" domain="[('state', '=', 'done')]"/>
                     <filter name="filter_failed" string="Failed"
                             domain="[('state', 'in', ('failed','cancelled'))]"/>
+                    <separator/>
+                    <filter name="filter_pipeline_queued" string="Pipeline: Queued"
+                            domain="[('pipeline_status', '=', 'queued')]"/>
+                    <filter name="filter_pipeline_running" string="Pipeline: Running"
+                            domain="[('pipeline_status', '=', 'running')]"/>
+                    <filter name="filter_pipeline_done" string="Pipeline: Done"
+                            domain="[('pipeline_status', '=', 'done')]"/>
+                    <filter name="filter_pipeline_failed" string="Pipeline: Failed"
+                            domain="[('pipeline_status', '=', 'failed')]"/>
                     <separator/>
                     <filter name="filter_review_pass" string="Review: Pass"
                             domain="[('review_status', '=', 'pass')]"/>
