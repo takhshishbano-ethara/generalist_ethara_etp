@@ -907,10 +907,38 @@
         },
         "Notes": "Generic walk-in bar customer for POS bar tabs",
         "Job": false
+      },
+      {
+        "Id": "26",
+        "DisplayName": "Triangle Kids Dental - Practice Account",
+        "GivenName": "Raj",
+        "FamilyName": "Chandrasekaran",
+        "CompanyName": "Triangle Kids Dental, PLLC",
+        "PrimaryEmailAddr": {
+          "Address": "frontdesk@trianglekidsdental.com"
+        },
+        "PrimaryPhone": {
+          "FreeFormNumber": "(919) 555-0431"
+        },
+        "BillAddr": {
+          "Line1": "4820 Kildaire Farm Rd, Suite 200",
+          "City": "Cary",
+          "CountrySubDivisionCode": "NC",
+          "PostalCode": "27518"
+        },
+        "Balance": 0.0,
+        "Active": true,
+        "Job": false,
+        "Notes": "Pediatric dental practice (Raj Chandrasekaran owner). Practice phone migrated to new VoIP system on 2026-03-14; deprecated old number (919) 555-0188 must NOT be used on intake/enrollment/insurance forms.",
+        "MetaData": {
+          "CreateTime": "2026-05-24T11:30:00-00:00",
+          "LastUpdatedTime": "2026-05-24T11:30:00-00:00"
+        },
+        "SyncToken": "0"
       }
     ],
     "startPosition": 1,
-    "maxResults": 76,
-    "totalCount": 76
+    "maxResults": 77,
+    "totalCount": 77
   }
 }

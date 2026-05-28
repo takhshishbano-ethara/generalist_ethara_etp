@@ -325,7 +325,7 @@
     "Line": [
       {
         "Amount": 280.0,
-        "Description": "Judo mat rental - Spring Tournament Apr 5. 8 extra mats × $35.",
+        "Description": "Judo mat rental - Spring Tournament Apr 5. 8 extra mats \u00d7 $35.",
         "AccountBasedExpenseLineDetail": {
           "AccountRef": {
             "name": "Tournament Expenses",
@@ -476,5 +476,571 @@
       "LastUpdatedTime": "2026-05-14T11:30:00-07:00"
     },
     "SyncToken": "0"
+  },
+  {
+    "Id": "4001",
+    "DocNumber": "TXN-8821",
+    "VendorRef": {
+      "value": "13",
+      "name": "FreshFields Supply"
+    },
+    "TxnDate": "2026-11-04",
+    "DueDate": "2026-12-04",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 1840.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Milk Crates x24 (pallet)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 1840.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-04T10:00:00-05:00",
+      "LastUpdatedTime": "2026-11-04T10:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4002",
+    "DocNumber": "TXN-8822",
+    "VendorRef": {
+      "value": "13",
+      "name": "FreshFields Supply"
+    },
+    "TxnDate": "2026-11-04",
+    "DueDate": "2026-12-04",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 1840.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Milk Crates x24 (pallet)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 1840.0,
+    "Balance": 1840.0,
+    "Status": "Open",
+    "PrivateNote": "Entered same day as TXN-8821. Pending accounting sign-off before payment.",
+    "MetaData": {
+      "CreateTime": "2026-11-04T10:05:00-05:00",
+      "LastUpdatedTime": "2026-11-04T10:05:00-05:00"
+    },
+    "SyncToken": "0"
+  },
+  {
+    "Id": "4003",
+    "DocNumber": "TXN-8823",
+    "VendorRef": {
+      "value": "13",
+      "name": "FreshFields Supply"
+    },
+    "TxnDate": "2026-11-04",
+    "DueDate": "2026-12-04",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 960.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Orange Juice x18 (gallon)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 960.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-04T11:00:00-05:00",
+      "LastUpdatedTime": "2026-11-04T11:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4004",
+    "DocNumber": "TXN-8824",
+    "VendorRef": {
+      "value": "14",
+      "name": "Southern Bakery"
+    },
+    "TxnDate": "2026-11-05",
+    "DueDate": "2026-12-05",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 720.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Burger Buns x60 (case of 12)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 720.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-05T09:00:00-05:00",
+      "LastUpdatedTime": "2026-11-05T09:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4005",
+    "DocNumber": "TXN-8825",
+    "VendorRef": {
+      "value": "14",
+      "name": "Southern Bakery"
+    },
+    "TxnDate": "2026-11-05",
+    "DueDate": "2026-12-05",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 168.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Burger Buns x14 (case of 12) \u2014 supplemental line",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 168.0,
+    "Balance": 168.0,
+    "Status": "Open",
+    "PrivateNote": "Supplemental line added same delivery date. Pending manager review before payment.",
+    "MetaData": {
+      "CreateTime": "2026-11-05T14:30:00-05:00",
+      "LastUpdatedTime": "2026-11-05T14:30:00-05:00"
+    },
+    "SyncToken": "0"
+  },
+  {
+    "Id": "4006",
+    "DocNumber": "TXN-8826",
+    "VendorRef": {
+      "value": "15",
+      "name": "Atlanta Protein Co."
+    },
+    "TxnDate": "2026-11-06",
+    "DueDate": "2026-12-06",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 1120.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Turkey Bacon x32 (lb)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 1120.0,
+    "Balance": 1120.0,
+    "Status": "Open",
+    "PrivateNote": "Open bill \u2014 warehouse confirmation pending before approval.",
+    "MetaData": {
+      "CreateTime": "2026-11-06T08:00:00-05:00",
+      "LastUpdatedTime": "2026-11-06T08:00:00-05:00"
+    },
+    "SyncToken": "0"
+  },
+  {
+    "Id": "4007",
+    "DocNumber": "TXN-8827",
+    "VendorRef": {
+      "value": "15",
+      "name": "Atlanta Protein Co."
+    },
+    "TxnDate": "2026-11-06",
+    "DueDate": "2026-12-06",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 2480.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Chicken Breast x40 (lb) \u2014 boneless skinless",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 2480.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-06T09:00:00-05:00",
+      "LastUpdatedTime": "2026-11-06T09:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4008",
+    "DocNumber": "TXN-8828",
+    "VendorRef": {
+      "value": "16",
+      "name": "Metro Foods"
+    },
+    "TxnDate": "2026-11-06",
+    "DueDate": "2026-12-06",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 640.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Frozen Fries x55 (case)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 640.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-06T10:00:00-05:00",
+      "LastUpdatedTime": "2026-11-06T10:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4009",
+    "DocNumber": "TXN-8829",
+    "VendorRef": {
+      "value": "17",
+      "name": "Campus Cleaning"
+    },
+    "TxnDate": "2026-10-27",
+    "DueDate": "2026-11-26",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 210.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Floor Cleaner x12 (commercial gallon)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "21",
+            "name": "Cleaning Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 210.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-10-27T09:00:00-05:00",
+      "LastUpdatedTime": "2026-10-27T09:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4010",
+    "DocNumber": "TXN-8830",
+    "VendorRef": {
+      "value": "13",
+      "name": "FreshFields Supply"
+    },
+    "TxnDate": "2026-11-04",
+    "DueDate": "2026-12-04",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 390.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Disposable Gloves x120 (box of 100)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "21",
+            "name": "Cleaning Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 390.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-04T12:00:00-05:00",
+      "LastUpdatedTime": "2026-11-04T12:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4011",
+    "DocNumber": "TXN-8831",
+    "VendorRef": {
+      "value": "13",
+      "name": "FreshFields Supply"
+    },
+    "TxnDate": "2026-11-05",
+    "DueDate": "2026-12-05",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 320.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Orange Juice x6 (gallon) \u2014 supplemental order",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 320.0,
+    "Balance": 320.0,
+    "Status": "Open",
+    "PrivateNote": "Supplemental order entered 2026-11-05. Awaiting usability confirmation before payment.",
+    "MetaData": {
+      "CreateTime": "2026-11-05T15:00:00-05:00",
+      "LastUpdatedTime": "2026-11-05T15:00:00-05:00"
+    },
+    "SyncToken": "0"
+  },
+  {
+    "Id": "4012",
+    "DocNumber": "TXN-8832",
+    "VendorRef": {
+      "value": "16",
+      "name": "Metro Foods"
+    },
+    "TxnDate": "2026-10-01",
+    "DueDate": "2026-11-01",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 240.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Frozen Fries x20 (case) \u2014 prior period order",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 240.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "PrivateNote": "October order. Included in ledger export for reconciliation reference.",
+    "MetaData": {
+      "CreateTime": "2026-10-01T08:00:00-05:00",
+      "LastUpdatedTime": "2026-10-01T08:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4013",
+    "DocNumber": "TXN-8833",
+    "VendorRef": {
+      "value": "17",
+      "name": "Campus Cleaning"
+    },
+    "TxnDate": "2026-11-01",
+    "DueDate": "2026-12-01",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 85.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Paper Napkins x10 (case of 500)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "21",
+            "name": "Cleaning Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 85.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-01T10:00:00-05:00",
+      "LastUpdatedTime": "2026-11-01T10:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4014",
+    "DocNumber": "TXN-8834",
+    "VendorRef": {
+      "value": "13",
+      "name": "FreshFields Supply"
+    },
+    "TxnDate": "2026-11-02",
+    "DueDate": "2026-12-02",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 145.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Italian Dressing x20 (bottle)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 145.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-02T11:00:00-05:00",
+      "LastUpdatedTime": "2026-11-02T11:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4015",
+    "DocNumber": "TXN-8835",
+    "VendorRef": {
+      "value": "14",
+      "name": "Southern Bakery"
+    },
+    "TxnDate": "2026-11-03",
+    "DueDate": "2026-12-03",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 210.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Coffee Grounds x15 (lb bag)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 210.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-03T08:30:00-05:00",
+      "LastUpdatedTime": "2026-11-03T08:30:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4016",
+    "DocNumber": "TXN-8836",
+    "VendorRef": {
+      "value": "17",
+      "name": "Campus Cleaning"
+    },
+    "TxnDate": "2026-10-28",
+    "DueDate": "2026-11-27",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 120.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Trash Bags x50 (box)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "21",
+            "name": "Cleaning Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 120.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-10-28T09:00:00-05:00",
+      "LastUpdatedTime": "2026-10-28T09:00:00-05:00"
+    },
+    "SyncToken": "1"
+  },
+  {
+    "Id": "4017",
+    "DocNumber": "TXN-8837",
+    "VendorRef": {
+      "value": "16",
+      "name": "Metro Foods"
+    },
+    "TxnDate": "2026-11-04",
+    "DueDate": "2026-12-04",
+    "Line": [
+      {
+        "Id": "1",
+        "LineNum": 1,
+        "Amount": 175.0,
+        "DetailType": "AccountBasedExpenseLineDetail",
+        "Description": "Bread Loaves x30 (sliced, white)",
+        "AccountBasedExpenseLineDetail": {
+          "AccountRef": {
+            "value": "20",
+            "name": "Food & Beverage Supplies"
+          }
+        }
+      }
+    ],
+    "TotalAmt": 175.0,
+    "Balance": 0.0,
+    "Status": "Paid",
+    "MetaData": {
+      "CreateTime": "2026-11-04T13:00:00-05:00",
+      "LastUpdatedTime": "2026-11-04T13:00:00-05:00"
+    },
+    "SyncToken": "1"
   }
 ]

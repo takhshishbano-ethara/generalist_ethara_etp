@@ -1,0 +1,40 @@
+{
+  "etsy_listings": {
+    "WillowGlassWorks": {
+      "listing_id": "TJL-005",
+      "title": "Custom Tea Jar Labels — Set of 5 — Matte Round",
+      "price_usd": 28.00,
+      "min_resolution_px": "1500x1500",
+      "processing_days_min": 5,
+      "processing_days_max": 5,
+      "ships_from": "Asheville, NC",
+      "last_updated": "2026-05-12"
+    },
+    "PinedaleHorseArt": {
+      "listing_id": "HP-1114",
+      "title": "Watercolor Horse Print 11x14",
+      "price_usd": 42.00,
+      "min_resolution_px": null,
+      "processing_days_min": 7,
+      "processing_days_max": 10,
+      "ships_from": "Bozeman, MT",
+      "last_updated": "2026-05-10"
+    }
+  },
+  "calendar_may_2026": [
+    {"date": "2026-05-02", "title": "Hazel recital — Crestwood Stables", "on_call": false},
+    {"date": "2026-05-05", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-06", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-07", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-12", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-13", "title": "On-call shift + Sarah McBride due", "on_call": true},
+    {"date": "2026-05-14", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-19", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-20", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-21", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-23", "title": "Neil's birthday dinner", "on_call": false},
+    {"date": "2026-05-26", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-27", "title": "On-call shift", "on_call": true},
+    {"date": "2026-05-28", "title": "On-call shift", "on_call": true}
+  ]
+}

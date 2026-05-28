@@ -358,3 +358,40 @@ def report_ar_aging(realm_id: str):
 @app.get("/v3/company/{realm_id}/reports/AgedPayableDetail")
 def report_ap_aging(realm_id: str):
     return quickbooks_data.accounts_payable_aging()
+
+
+@app.get("/v3/companies")
+def list_companies():
+    return quickbooks_data.list_companies()
+
+
+@app.get("/v3/companies/{realm_id}")
+def get_company(realm_id: str):
+    result = quickbooks_data.get_company(realm_id)
+    if isinstance(result, dict) and "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result
+
+
+@app.get("/v3/companies/{realm_id}/estimates")
+def list_qb_estimates(
+    realm_id: str,
+    status: Optional[str] = Query(default=None),
+):
+    return quickbooks_data.list_qb_estimates(realm_id=realm_id, status=status)
+
+
+@app.get("/v3/companies/{realm_id}/estimates/{estimate_id}")
+def get_qb_estimate(realm_id: str, estimate_id: str):
+    result = quickbooks_data.get_qb_estimate(estimate_id)
+    if isinstance(result, dict) and "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result
+
+
+@app.get("/v3/companies/{realm_id}/estimates/{estimate_id}/lines")
+def list_qb_estimate_lines(realm_id: str, estimate_id: str):
+    result = quickbooks_data.list_qb_estimate_lines(estimate_id)
+    if isinstance(result, dict) and "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result

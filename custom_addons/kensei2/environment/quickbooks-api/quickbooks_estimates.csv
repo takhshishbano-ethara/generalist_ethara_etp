@@ -1,0 +1,6 @@
+realm_id,estimate_id,doc_number,txn_date,customer,job_name,status,total_amount
+hyde_woodcraft,EST-1042,1042,2026-05-04,Ted & Laura Hyde,Root & Remedy retail nook — barn studio,Pending,7000.00
+hyde_woodcraft,EST-1039,1039,2026-04-18,Marcy Calloway,Farmhouse dining table + 2 benches,Accepted,2400.00
+hyde_woodcraft,EST-1041,1041,2026-04-29,Rohan Tran,Built-in bookcase wall,Pending,3200.00
+hyde_woodcraft,EST-1027,1027,2025-09-12,Ted Hyde,Barn studio shelving,Closed,1180.00
+root_remedy,EST-2003,2003,2026-03-22,Root & Remedy,Market booth display panels,Pending,900.00

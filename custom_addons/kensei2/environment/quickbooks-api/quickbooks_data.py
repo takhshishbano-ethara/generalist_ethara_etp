@@ -131,6 +131,9 @@ _payments = _load_json("payments.json")
 _estimates = _load_json("estimates.json")
 _expenses = _load_json("expenses.json")
 _company_info = _load_json("company_info.json")
+_companies = _load("quickbooks_companies.csv")
+_qb_estimates_csv = _load("quickbooks_estimates.csv")
+_qb_estimate_lines = _load("quickbooks_estimate_lines.csv")
 
 # Mutable in-memory stores
 _customers_store = deepcopy(_customers)
@@ -143,6 +146,9 @@ _payments_store = deepcopy(_payments)
 _estimates_store = deepcopy(_estimates)
 _expenses_store = deepcopy(_expenses)
 _company_info_store = deepcopy(_company_info)
+_companies_store = deepcopy(_companies)
+_qb_estimates_csv_store = deepcopy(_qb_estimates_csv)
+_qb_estimate_lines_store = deepcopy(_qb_estimate_lines)
 
 _next_customer_id = max(int(c["Id"]) for c in _customers_store) + 1
 _next_vendor_id = max(int(v["Id"]) for v in _vendors_store) + 1
@@ -961,4 +967,46 @@ def accounts_payable_aging():
     }
 
 
+def list_companies():
+    return list(_companies_store)
+
+
+def get_company(realm_id: str):
+    for c in _companies_store:
+        if c["realm_id"] == realm_id:
+            return c
+    return {"error": f"Company {realm_id} not found"}
+
+
+def list_qb_estimates(realm_id: str = None, status: str = None):
+    results = list(_qb_estimates_csv_store)
+    if realm_id:
+        results = [e for e in results if e["realm_id"] == realm_id]
+    if status:
+        results = [e for e in results if e["status"].lower() == status.lower()]
+    return results
+
+
+def get_qb_estimate(estimate_id: str):
+    for e in _qb_estimates_csv_store:
+        if e["estimate_id"] == estimate_id:
+            lines = [
+                ln for ln in _qb_estimate_lines_store
+                if ln["estimate_id"] == estimate_id
+            ]
+            result = dict(e)
+            result["lines"] = lines
+            return result
+    return {"error": f"Estimate {estimate_id} not found"}
+
+
+def list_qb_estimate_lines(estimate_id: str):
+    lines = [
+        ln for ln in _qb_estimate_lines_store
+        if ln["estimate_id"] == estimate_id
+    ]
+    if not lines:
+        if not any(e["estimate_id"] == estimate_id for e in _qb_estimates_csv_store):
+            return {"error": f"Estimate {estimate_id} not found"}
+    return lines
 

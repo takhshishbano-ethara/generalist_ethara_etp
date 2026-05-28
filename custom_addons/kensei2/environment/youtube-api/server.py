@@ -347,3 +347,15 @@ def get_analytics(
             return JSONResponse(status_code=404, content=result)
         return result
     return youtube_data.get_channel_analytics()
+
+
+# --- Transcripts ---
+
+@app.get("/youtube/v3/transcripts")
+def get_transcript(
+    videoId: str = Query(...),
+):
+    result = youtube_data.get_transcript(videoId)
+    if "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result

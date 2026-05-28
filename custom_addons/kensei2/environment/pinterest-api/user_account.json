@@ -50,5 +50,18 @@
     "following_count": 191,
     "monthly_views": 18400,
     "created_at": "2024-01-18T09:20:00"
+  },
+  {
+    "account_type": "PERSONAL",
+    "username": "maria_grace_quilts",
+    "profile_image": "https://i.pinimg.com/avatars/maria_grace_quilts_1680000000_150.jpg",
+    "website_url": "",
+    "business_name": "",
+    "board_count": 1,
+    "pin_count": 30,
+    "follower_count": 184,
+    "following_count": 312,
+    "monthly_views": 11200,
+    "created_at": "2023-09-04T19:22:00"
   }
 ]

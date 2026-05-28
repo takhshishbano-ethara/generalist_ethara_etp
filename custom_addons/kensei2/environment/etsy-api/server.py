@@ -325,3 +325,34 @@ def get_return_policy(shop_id: int, policy_id: int):
     if "error" in result:
         return JSONResponse(status_code=404, content=result)
     return result
+
+
+@app.get("/v3/application/state")
+def get_state():
+    return etsy_data.get_state()
+
+
+@app.get("/v3/application/state/listings")
+def get_state_listings():
+    return etsy_data.get_state_listings()
+
+
+@app.get("/v3/application/state/listings/{shop_name}")
+def get_state_listing(shop_name: str):
+    result = etsy_data.get_state_listing(shop_name)
+    if isinstance(result, dict) and "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result
+
+
+@app.get("/v3/application/state/calendar")
+def get_state_calendar():
+    return etsy_data.get_state_calendar()
+
+
+@app.get("/v3/application/state/calendar/{date}")
+def get_state_calendar_by_date(date: str):
+    result = etsy_data.get_state_calendar_by_date(date)
+    if isinstance(result, dict) and "error" in result:
+        return JSONResponse(status_code=404, content=result)
+    return result

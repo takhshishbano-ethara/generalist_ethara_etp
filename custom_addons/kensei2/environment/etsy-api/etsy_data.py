@@ -178,6 +178,9 @@ _return_policies = _coerce_return_policies(_load("return_policies.csv"))
 with open(DATA_DIR / "shop.json", encoding="utf-8") as _f:
     _shop = json.load(_f)
 
+with open(DATA_DIR / "state.json", encoding="utf-8") as _f:
+    _state = json.load(_f)
+
 # Mutable in-memory stores
 _listings_store = deepcopy(_listings)
 _listing_images_store = deepcopy(_listing_images)
@@ -188,6 +191,7 @@ _shop_sections_store = deepcopy(_shop_sections)
 _shipping_profiles_store = deepcopy(_shipping_profiles)
 _return_policies_store = deepcopy(_return_policies)
 _shop_store = deepcopy(_shop)
+_state_store = deepcopy(_state)
 
 _next_listing_id = max(l["listing_id"] for l in _listings_store) + 1
 _next_receipt_id = max(r["receipt_id"] for r in _receipts_store) + 1
@@ -583,3 +587,32 @@ def get_return_policy(shop_id: int, policy_id: int):
         if p["shop_id"] == shop_id and p["return_policy_id"] == policy_id:
             return {"type": "return_policy", "return_policy": p}
     return {"error": f"Return policy {policy_id} not found"}
+
+
+def get_state():
+    return _state_store
+
+
+def get_state_listings():
+    return _state_store.get("etsy_listings", {})
+
+
+def get_state_listing(shop_name: str):
+    listings = _state_store.get("etsy_listings", {})
+    if shop_name in listings:
+        return listings[shop_name]
+    return {"error": f"Listing for shop '{shop_name}' not found"}
+
+
+def get_state_calendar():
+    return _state_store.get("calendar_may_2026", [])
+
+
+def get_state_calendar_by_date(date: str):
+    entries = [
+        e for e in _state_store.get("calendar_may_2026", [])
+        if e["date"] == date
+    ]
+    if not entries:
+        return {"error": f"No calendar entry for {date}"}
+    return entries[0]

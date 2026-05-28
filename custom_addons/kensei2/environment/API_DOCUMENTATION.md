@@ -842,6 +842,78 @@ Get a single return policy.
 
 ---
 
+### State (External Listings & Calendar)
+
+#### `GET /v3/application/state`
+Get the full state object (listings and calendar).
+
+**Response:** `200`
+```json
+{
+  "etsy_listings": [...],
+  "calendar_may_2026": [...]
+}
+```
+
+#### `GET /v3/application/state/listings`
+Get all state listings (keyed by shop name).
+
+**Response:** `200`
+```json
+{
+  "WillowGlassWorks": {
+    "listing_id": "TJL-005",
+    "title": "Custom Tea Jar Labels — Set of 5 — Matte Round",
+    "price_usd": 28.0,
+    "min_resolution_px": "1500x1500",
+    "processing_days_min": 5,
+    "processing_days_max": 5,
+    "ships_from": "Asheville, NC",
+    "last_updated": "2026-05-12"
+  },
+  "PinedaleHorseArt": { ... }
+}
+```
+
+#### `GET /v3/application/state/listings/{shop_name}`
+Get a state listing by shop name (case-insensitive partial match).
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| shop_name | str | Shop name to search for (partial match) |
+
+**Response:** `200` — Matching listing object
+**Response:** `404` — `{"error": "No listing found for shop: ..."}`
+
+#### `GET /v3/application/state/calendar`
+Get all calendar entries for May 2026.
+
+**Response:** `200`
+```json
+[
+  {
+    "date": "2026-05-02",
+    "title": "Hazel recital — Crestwood Stables",
+    "on_call": false
+  },
+  ...
+]
+```
+
+#### `GET /v3/application/state/calendar/{date}`
+Get calendar entry for a specific date.
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| date | str | Date string (e.g. "2026-05-01") |
+
+**Response:** `200` — Matching calendar entry
+**Response:** `404` — `{"error": "No calendar entry for date: ..."}`
+
+---
+
 ## 3. Google Classroom API
 
 **Port:** 8002 | **Env Var:** `GOOGLE_CLASSROOM_API_URL` | **Version:** v1.0
@@ -3404,6 +3476,130 @@ Get Aged Payable Detail report.
 
 ---
 
+### Companies (Multi-Company Support)
+
+#### `GET /v3/companies`
+List all companies/realms.
+
+**Response:** `200`
+```json
+{
+  "companies": [
+    {
+      "realm_id": "hyde_woodcraft",
+      "company_name": "Hyde Woodcraft",
+      "legal_name": "Hyde Woodcraft LLC",
+      "fiscal_year_start_month": "1",
+      "city": "Asheville",
+      "state": "NC",
+      "postal": "28801"
+    }
+  ]
+}
+```
+
+#### `GET /v3/companies/{realm_id}`
+Get a specific company by realm ID.
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| realm_id | str | Company realm identifier |
+
+**Response:** `200` — Company object
+**Response:** `404` — `{"error": "Company not found: ..."}`
+
+---
+
+### Multi-Company Estimates
+
+#### `GET /v3/companies/{realm_id}/estimates`
+List estimates for a company, with optional status filter.
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| realm_id | str | Company realm identifier |
+
+**Query Parameters:**
+| Name | Type | Default | Constraints | Description |
+|------|------|---------|-------------|-------------|
+| status | str | — | — | Filter by estimate status (e.g. "Accepted", "Pending") |
+
+**Response:** `200`
+```json
+{
+  "estimates": [
+    {
+      "realm_id": "hyde_woodcraft",
+      "estimate_id": "EST-1042",
+      "doc_number": "1042",
+      "txn_date": "2026-04-22",
+      "customer": "Brennan Kessel",
+      "job_name": "Kessel master-bath vanity",
+      "status": "Accepted",
+      "total_amount": "4200.00"
+    }
+  ]
+}
+```
+
+#### `GET /v3/companies/{realm_id}/estimates/{estimate_id}`
+Get a single estimate with embedded line items.
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| realm_id | str | Company realm identifier |
+| estimate_id | str | Estimate identifier (e.g. "EST-1042") |
+
+**Response:** `200`
+```json
+{
+  "estimate": {
+    "realm_id": "hyde_woodcraft",
+    "estimate_id": "EST-1042",
+    "doc_number": "1042",
+    "txn_date": "2026-04-22",
+    "customer": "Brennan Kessel",
+    "job_name": "Kessel master-bath vanity",
+    "status": "Accepted",
+    "total_amount": "4200.00",
+    "lines": [
+      {
+        "line_num": "1",
+        "item": "Walnut slab – live-edge",
+        "description": "Kiln-dried walnut, 72×24×2 in",
+        "qty": "1",
+        "unit_price": "980.00",
+        "amount": "980.00"
+      }
+    ]
+  }
+}
+```
+**Response:** `404` — `{"error": "Estimate not found: ..."}`
+
+#### `GET /v3/companies/{realm_id}/estimates/{estimate_id}/lines`
+Get only the line items for a specific estimate.
+
+**Path Parameters:**
+| Name | Type | Description |
+|------|------|-------------|
+| realm_id | str | Company realm identifier |
+| estimate_id | str | Estimate identifier |
+
+**Response:** `200`
+```json
+{
+  "estimate_id": "EST-1042",
+  "lines": [...]
+}
+```
+**Response:** `404` — `{"error": "Estimate not found: ..."}`
+
+---
+
 ## 9. Ring API
 
 **Port:** 8008 | **Env Var:** `RING_API_URL` | **Version:** v1.0.0
@@ -4144,3 +4340,30 @@ Get YouTube Analytics reports.
 | endDate | str | — | — | Report end date |
 
 **Response:** `200`
+
+---
+
+### Transcripts
+
+#### `GET /youtube/v3/transcripts`
+Get the transcript for a video (timestamped text segments).
+
+**Query Parameters:**
+| Name | Type | Default | Constraints | Description |
+|------|------|---------|-------------|-------------|
+| videoId | str | — | required | Video ID |
+
+**Response:** `200`
+```json
+{
+  "kind": "youtube#transcriptListResponse",
+  "videoId": "saa_oh_2024",
+  "items": [
+    {
+      "timestamp": "22:14",
+      "text": "Interviewees must be given a formal window to review..."
+    }
+  ]
+}
+```
+**Response:** `404` — `{"error": "No transcript found for video: ..."}`

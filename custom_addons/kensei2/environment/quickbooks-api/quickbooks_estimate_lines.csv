@@ -1,0 +1,11 @@
+realm_id,estimate_id,line_num,item,description,qty,unit_price,amount
+hyde_woodcraft,EST-1042,1,Wall shelving run,"Wall shelving run, maple — 96 x 12 x 84 in (W x D x H)",1,1850.00,1850.00
+hyde_woodcraft,EST-1042,2,Island display,"Freestanding island display, maple — 48 x 22 x 38 in (W x D x H)",1,2100.00,2100.00
+hyde_woodcraft,EST-1042,3,Checkout counter,"Checkout counter, maple — 42 x 24 x 36 in (W x D x H)",1,1650.00,1650.00
+hyde_woodcraft,EST-1042,4,Tincture cabinet (ALT),"Glass-front tincture cabinet, ALTERNATE — 36 x 16 x 60 in (W x D x H)",1,1400.00,1400.00
+hyde_woodcraft,EST-1039,1,Dining table,"Farmhouse dining table, white oak — 84 x 40 x 30 in (W x D x H)",1,1700.00,1700.00
+hyde_woodcraft,EST-1039,2,Bench,"Matching bench, white oak — 60 x 14 x 18 in (W x D x H)",2,350.00,700.00
+hyde_woodcraft,EST-1041,1,Bookcase lower,"Built-in bookcase, lower section — 72 x 14 x 36 in (W x D x H)",1,1400.00,1400.00
+hyde_woodcraft,EST-1041,2,Bookcase upper,"Built-in bookcase, upper section — 72 x 10 x 48 in (W x D x H)",1,1800.00,1800.00
+hyde_woodcraft,EST-1027,1,Utility shelving,"Utility shelving, pine — 120 x 16 x 72 in (W x D x H)",1,1180.00,1180.00
+root_remedy,EST-2003,1,Display panel,"Folding market display panel — 30 x 24 in (W x H)",3,300.00,900.00

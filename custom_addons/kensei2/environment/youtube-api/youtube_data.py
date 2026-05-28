@@ -193,6 +193,9 @@ with open(DATA_DIR / "channel_sections.json", encoding="utf-8") as _f:
 with open(DATA_DIR / "analytics.json", encoding="utf-8") as _f:
     _analytics = json.load(_f)
 
+with open(DATA_DIR / "transcripts.json", encoding="utf-8") as _f:
+    _transcripts = json.load(_f)
+
 _videos_store = deepcopy(_videos)
 _playlists_store = deepcopy(_playlists)
 _playlist_items_store = deepcopy(_playlist_items)
@@ -202,6 +205,7 @@ _channel_store = deepcopy(_channel_raw)
 _video_categories_store = deepcopy(_video_categories)
 _channel_sections_store = deepcopy(_channel_sections)
 _analytics_store = deepcopy(_analytics)
+_transcripts_store = deepcopy(_transcripts)
 
 _next_playlist_id = 11
 _next_playlist_item_id = 26
@@ -927,3 +931,20 @@ def get_video_analytics(video_id: str):
                 "metrics": entry,
             }
     return {"error": f"Analytics for video {video_id} not found"}
+
+
+# ---------------------------------------------------------------------------
+# Transcripts
+# ---------------------------------------------------------------------------
+
+def get_transcript(video_id: str):
+    if video_id not in _transcripts_store:
+        # Check if video exists at all
+        if not any(v["id"] == video_id for v in _videos_store):
+            return {"error": f"Video {video_id} not found"}
+        return {"error": f"No transcript available for video {video_id}"}
+    return {
+        "kind": "youtube#transcriptListResponse",
+        "videoId": video_id,
+        "items": _transcripts_store[video_id],
+    }
