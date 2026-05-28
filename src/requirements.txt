@@ -223,3 +223,4 @@ docker>=7.0.0
 dataclasses-json>=0.6.0
 GitPython>=3.1.0
 cairosvg==2.7.1
+yt-dlp
