@@ -35,34 +35,6 @@ class ResConfigSettings(models.TransientModel):
         default="video_editor_s3/youtube",
         config_parameter="video_editor_s3.youtube_prefix",
     )
-    video_editor_s3_youtube_cookies_file = fields.Char(
-        string="YouTube Cookies File Path",
-        config_parameter="video_editor_s3.youtube_cookies_file",
-        help=(
-            "Absolute path to a Netscape-format cookies.txt exported from a "
-            "logged-in YouTube session. Recommended for server deployments "
-            "when YouTube blocks the host with a bot challenge."
-        ),
-    )
-    video_editor_s3_youtube_cookies_from_browser = fields.Char(
-        string="YouTube Cookies From Browser",
-        config_parameter="video_editor_s3.youtube_cookies_from_browser",
-        help=(
-            "Browser name to read cookies from (e.g. chrome, firefox, edge). "
-            "The browser must be installed on the Odoo host, signed in to "
-            "YouTube, and not currently running. Ignored if 'Cookies File "
-            "Path' is set."
-        ),
-    )
-    video_editor_s3_youtube_proxy = fields.Char(
-        string="YouTube Proxy URL",
-        config_parameter="video_editor_s3.youtube_proxy",
-        help=(
-            "Optional proxy for yt-dlp (e.g. http://user:pass@host:port or "
-            "socks5://host:port). Use a residential proxy if your server IP "
-            "is consistently blocked by YouTube."
-        ),
-    )
     video_editor_s3_max_source_size_mb = fields.Integer(
         string="Max Source Size (MB)",
         default=5120,

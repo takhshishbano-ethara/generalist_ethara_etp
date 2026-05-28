@@ -17,14 +17,6 @@ _YOUTUBE_HOSTS = (
 )
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 
-_PLAYER_CLIENT_FALLBACKS = (None, "tv", "ios", "android", "web_safari", "mweb")
-
-_BOT_CHALLENGE_RE = re.compile(
-    r"(sign in to confirm|confirm you'?re not a bot|"
-    r"requires.*cookies|use --cookies)",
-    re.IGNORECASE,
-)
-
 
 def parse_youtube_url(url):
     if not url or not isinstance(url, str):
@@ -78,90 +70,22 @@ def _ensure_yt_dlp():
     return yt_dlp
 
 
-def _looks_like_bot_challenge(exc):
-    return bool(_BOT_CHALLENGE_RE.search(str(exc) or ""))
-
-
-def _bot_challenge_message(url, attempted_clients):
-    tried = ", ".join(c or "default" for c in attempted_clients)
-    return _(
-        "YouTube blocked the download with a bot-protection challenge for %(url)s.\n"
-        "\n"
-        "yt-dlp was tried with these player clients: %(tried)s.\n"
-        "\n"
-        "Open Settings \u2192 Video Editor S3 \u2192 YouTube Ingest and configure one of:\n"
-        "  \u2022 Cookies From Browser \u2014 e.g. chrome (the browser must be installed on "
-        "the Odoo host and signed in to YouTube). Works only on hosts where Odoo "
-        "can read that browser's cookie store.\n"
-        "  \u2022 Cookies File Path \u2014 absolute path to a Netscape-format cookies.txt "
-        "exported from a logged-in YouTube session (use the 'Get cookies.txt "
-        "LOCALLY' extension). Suitable for server deployments.\n"
-        "  \u2022 YouTube Proxy URL \u2014 optional residential proxy if your server's IP "
-        "is blocked by YouTube.",
-        url=url, tried=tried,
-    )
-
-
-def _apply_yt_auth_opts(opts, *, cookies_file=None, cookies_from_browser=None, proxy=None):
-    if cookies_file:
-        opts["cookiefile"] = cookies_file
-    elif cookies_from_browser:
-        opts["cookiesfrombrowser"] = (cookies_from_browser,)
-    if proxy:
-        opts["proxy"] = proxy
-    return opts
-
-
-def _set_player_client(opts, player_client):
-    if not player_client:
-        return opts
-    args = dict(opts.get("extractor_args") or {})
-    args["youtube"] = dict(args.get("youtube") or {})
-    args["youtube"]["player_client"] = [player_client]
-    opts["extractor_args"] = args
-    return opts
-
-
-def extract_metadata(url, *, cookies_file=None, cookies_from_browser=None, proxy=None):
+def extract_metadata(url):
     video_id, normalized = parse_youtube_url(url)
     if not video_id:
         raise UserError(_("Not a recognised YouTube URL: %s") % url)
     yt_dlp = _ensure_yt_dlp()
-    base_opts = {
+    opts = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
     }
-    _apply_yt_auth_opts(
-        base_opts,
-        cookies_file=cookies_file,
-        cookies_from_browser=cookies_from_browser,
-        proxy=proxy,
-    )
-    last_exc = None
-    attempted = []
-    info = None
-    for player_client in _PLAYER_CLIENT_FALLBACKS:
-        attempted.append(player_client)
-        opts = dict(base_opts)
-        _set_player_client(opts, player_client)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(normalized, download=False)
-            break
-        except yt_dlp.utils.DownloadError as exc:
-            last_exc = exc
-            if _looks_like_bot_challenge(exc):
-                _logger.warning(
-                    "yt-dlp metadata fetch hit bot challenge with player_client=%s; trying next",
-                    player_client or "default",
-                )
-                continue
-            raise UserError(_("Could not read YouTube metadata: %s") % exc) from exc
-    else:
-        raise UserError(_bot_challenge_message(normalized, attempted)) from last_exc
-
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(normalized, download=False)
+    except yt_dlp.utils.DownloadError as exc:
+        raise UserError(_("Could not read YouTube metadata: %s") % exc) from exc
     return {
         "video_id": info.get("id") or video_id,
         "title": info.get("title") or "",
@@ -210,17 +134,25 @@ def download_to_tempdir(
     progress_cb=None,
     cancel_event=None,
     cancel_exception=None,
-    cookies_file=None,
-    cookies_from_browser=None,
-    proxy=None,
 ):
+    """Download the YouTube video to ``target_dir``.
+
+    Returns ``(absolute_mp4_path, info_dict)``.
+
+    ``cancel_exception`` is the exception class to raise on cooperative
+    cancellation (typically ``JobCancelled`` from job_executor); defaults to
+    ``InterruptedError`` to avoid importing the worker module here.
+    """
     video_id, normalized = parse_youtube_url(url)
     if not video_id:
         raise UserError(_("Not a recognised YouTube URL: %s") % url)
     yt_dlp = _ensure_yt_dlp()
     cancel_exc = cancel_exception or InterruptedError
     outtmpl = "%s/%%(id)s.%%(ext)s" % target_dir.rstrip("/")
-    base_opts = {
+    opts = {
+        # vcodec!=none excludes storyboards and audio-only formats; otherwise
+        # /best can resolve to a thumbnail-strip image format and we end up
+        # uploading a JPEG to S3.
         "format": (
             "bestvideo[ext=mp4][vcodec!=none]+bestaudio[ext=m4a]"
             "/best[ext=mp4][vcodec!=none]"
@@ -238,38 +170,12 @@ def download_to_tempdir(
         ],
     }
     if max_size_bytes:
-        base_opts["max_filesize"] = int(max_size_bytes)
-    _apply_yt_auth_opts(
-        base_opts,
-        cookies_file=cookies_file,
-        cookies_from_browser=cookies_from_browser,
-        proxy=proxy,
-    )
-    last_exc = None
-    attempted = []
-    info = None
-    for player_client in _PLAYER_CLIENT_FALLBACKS:
-        if cancel_event is not None and cancel_event.is_set():
-            raise cancel_exc("YouTube download cancelled.")
-        attempted.append(player_client)
-        opts = dict(base_opts)
-        _set_player_client(opts, player_client)
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(normalized, download=True)
-            break
-        except yt_dlp.utils.DownloadError as exc:
-            last_exc = exc
-            if _looks_like_bot_challenge(exc):
-                _logger.warning(
-                    "yt-dlp hit bot challenge with player_client=%s; trying next",
-                    player_client or "default",
-                )
-                continue
-            raise UserError(_("YouTube download failed: %s") % exc) from exc
-    else:
-        raise UserError(_bot_challenge_message(normalized, attempted)) from last_exc
-
+        opts["max_filesize"] = int(max_size_bytes)
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(normalized, download=True)
+    except yt_dlp.utils.DownloadError as exc:
+        raise UserError(_("YouTube download failed: %s") % exc) from exc
     final_path = None
     requested = info.get("requested_downloads") or []
     if requested:

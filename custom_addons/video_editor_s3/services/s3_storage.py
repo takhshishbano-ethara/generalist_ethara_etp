@@ -300,15 +300,6 @@ class S3SettingsResolver(models.AbstractModel):
         return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3/youtube").strip("/")
 
     @api.model
-    def get_youtube_config(self) -> dict:
-        ICP = self.env["ir.config_parameter"].sudo()
-        return {
-            "cookies_file": (ICP.get_param("video_editor_s3.youtube_cookies_file") or "").strip(),
-            "cookies_from_browser": (ICP.get_param("video_editor_s3.youtube_cookies_from_browser") or "").strip(),
-            "proxy": (ICP.get_param("video_editor_s3.youtube_proxy") or "").strip(),
-        }
-
-    @api.model
     def get_bedrock_config(self) -> dict:
         ICP = self.env["ir.config_parameter"].sudo()
         return {
