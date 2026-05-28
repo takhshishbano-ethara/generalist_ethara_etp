@@ -1,0 +1,11 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_talos_wildclaw_task_tasker,talos_wildclaw.task tasker,model_talos_wildclaw_task,wildclaw_core.group_wildclaw_tasker,1,1,1,0
+access_talos_wildclaw_task_ql,talos_wildclaw.task ql,model_talos_wildclaw_task,wildclaw_core.group_wildclaw_ql,1,1,1,1
+access_talos_wildclaw_task_pl,talos_wildclaw.task pl,model_talos_wildclaw_task,wildclaw_core.group_wildclaw_pl,1,1,1,1
+access_talos_wildclaw_sandbox_tasker,talos_wildclaw.sandbox tasker,model_talos_wildclaw_sandbox,wildclaw_core.group_wildclaw_tasker,1,1,1,0
+access_talos_wildclaw_sandbox_ql,talos_wildclaw.sandbox ql,model_talos_wildclaw_sandbox,wildclaw_core.group_wildclaw_ql,1,1,1,1
+access_talos_wildclaw_sandbox_pl,talos_wildclaw.sandbox pl,model_talos_wildclaw_sandbox,wildclaw_core.group_wildclaw_pl,1,1,1,1
+access_talos_wildclaw_turn_tasker,talos_wildclaw.turn tasker,model_talos_wildclaw_turn,wildclaw_core.group_wildclaw_tasker,1,1,1,0
+access_talos_wildclaw_turn_ql,talos_wildclaw.turn ql,model_talos_wildclaw_turn,wildclaw_core.group_wildclaw_ql,1,1,1,1
+access_talos_wildclaw_turn_pl,talos_wildclaw.turn pl,model_talos_wildclaw_turn,wildclaw_core.group_wildclaw_pl,1,1,1,1
+access_talos_wildclaw_taxonomy_all,talos_wildclaw.taxonomy all,model_talos_wildclaw_taxonomy,wildclaw_core.group_wildclaw_tasker,1,1,1,1

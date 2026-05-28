@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_talos_wildclaw_task_list" model="ir.ui.view">
+        <field name="name">talos_wildclaw.task.list</field>
+        <field name="model">talos_wildclaw.task</field>
+        <field name="arch" type="xml">
+            <list string="Talos WildClaw Tasks">
+                <field name="task_id"/>
+                <field name="persona_id"/>
+                <field name="employee_ids" widget="many2many_tags" optional="show"/>
+                <field name="wc_task_status"/>
+                <field name="qc_status" widget="badge"
+                       decoration-success="qc_status == 'passed'"
+                       decoration-danger="qc_status == 'failed'"
+                       decoration-muted="qc_status == 'pending'"/>
+                <field name="wc_auto_process_status" widget="badge" optional="show"/>
+                <field name="wc_claude_status" optional="show"/>
+                <field name="wc_glm_status" optional="show"/>
+                <field name="wc_golden_status" widget="badge" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_talos_wildclaw_task_form" model="ir.ui.view">
+        <field name="name">talos_wildclaw.task.form</field>
+        <field name="model">talos_wildclaw.task</field>
+        <field name="arch" type="xml">
+            <form string="Talos WildClaw Task" class="o_talos_wildclaw_form_wide">
+                <header>
+                    <field name="wc_task_status" widget="statusbar"
+                           statusbar_visible="pending,draft,qc,completed,failed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_generate_golden_trajectory" type="object"
+                                class="oe_stat_button" icon="fa-magic"
+                                invisible="not wc_is_ql_or_pl">
+                            <div class="o_stat_info">
+                                <span class="o_stat_text">Generate Golden</span>
+                            </div>
+                        </button>
+                    </div>
+                    <group string="Task Details">
+                        <field name="wc_is_admin" invisible="1"/>
+                        <field name="wc_is_ql_or_pl" invisible="1"/>
+                        <field name="task_id" readonly="1"/>
+                        <field name="persona_id" readonly="1" options="{'no_open': True}"/>
+                        <field name="wc_task_status"/>
+                        <field name="qc_status" widget="badge"/>
+                        <field name="wc_auto_process_status" widget="badge" readonly="1"/>
+                        <field name="wc_auto_process_error" readonly="1"
+                               invisible="wc_auto_process_status != 'failed'"/>
+                    </group>
+                    <group string="Classification">
+                        <group>
+                            <field name="wc_heart_taxonomy_ids" widget="many2many_tags"/>
+                            <field name="task_type"/>
+                            <field name="difficulty"/>
+                        </group>
+                        <group>
+                            <field name="wc_trajectory_modifier"/>
+                            <field name="wc_safety_critical"/>
+                        </group>
+                    </group>
+                    <group string="Assignment">
+                        <group>
+                            <field name="employee_ids" widget="many2many_tags"/>
+                            <field name="wc_user_id"/>
+                            <field name="wc_email"/>
+                            <field name="wc_password" password="True"
+                                   readonly="not wc_is_admin"/>
+                            <field name="wc_gog_auth" readonly="not wc_is_admin"/>
+                        </group>
+                        <group>
+                            <field name="wc_outlook_username" readonly="not wc_is_admin"/>
+                            <field name="wc_outlook_password" password="True"
+                                   readonly="not wc_is_admin"/>
+                            <field name="wc_instagram_username" readonly="not wc_is_admin"/>
+                            <field name="wc_instagram_password" password="True"
+                                   readonly="not wc_is_admin"/>
+                            <field name="wc_facebook_username" readonly="not wc_is_admin"/>
+                            <field name="wc_facebook_password" password="True"
+                                   readonly="not wc_is_admin"/>
+                        </group>
+                    </group>
+                    <separator string="Prompt"/>
+                    <field name="initial_prompt" widget="text" readonly="1"/>
+                    <group string="Persona Documents">
+                        <group>
+                            <separator string="AGENTS.md"/>
+                            <field name="wc_agent_md" nolabel="1" widget="text" readonly="1"/>
+                        </group>
+                        <group>
+                            <separator string="SOUL.md"/>
+                            <field name="wc_soul_md" nolabel="1" widget="text" readonly="1"/>
+                        </group>
+                        <group>
+                            <separator string="MEMORY.md"/>
+                            <field name="wc_memory_md" nolabel="1" widget="text" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Sandboxes">
+                            <field name="wc_sandbox_ids">
+                                <list editable="bottom">
+                                    <field name="model_type"/>
+                                    <field name="variant_index"/>
+                                    <field name="docker_status" widget="badge"
+                                           decoration-info="docker_status in ('starting','stopping')"
+                                           decoration-success="docker_status == 'running'"
+                                           decoration-danger="docker_status == 'error'"
+                                           decoration-muted="docker_status == 'stopped'"/>
+                                    <field name="docker_dashboard_url" widget="url"/>
+                                    <field name="docker_port"/>
+                                    <field name="session_status"/>
+                                    <field name="wc_trajectory_status" widget="badge"/>
+                                    <button name="action_run_local" type="object" string="Run Local"
+                                            icon="fa-play" class="btn-link"
+                                            invisible="docker_status in ('starting','running')"/>
+                                    <button name="action_stop_local" type="object" string="Stop"
+                                            icon="fa-stop" class="btn-link"
+                                            invisible="docker_status not in ('starting','running')"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Trajectories">
+                            <separator string="Claude Trajectory"/>
+                            <field name="wc_claude_trajectory" nolabel="1" widget="text"/>
+                            <separator string="GLM Trajectory"/>
+                            <field name="wc_glm_trajectory" nolabel="1" widget="text"/>
+                            <separator string="Golden Trajectory"/>
+                            <field name="wc_golden_status" widget="badge"/>
+                            <field name="wc_golden_error" readonly="1"
+                                   invisible="wc_golden_status != 'error'"/>
+                            <field name="wc_golden_trajectory" nolabel="1" widget="text"/>
+                            <separator string="1PA-D Trajectories"/>
+                            <field name="wc_onePA_trajectory" widget="text"/>
+                            <field name="wc_onePB_trajectory" widget="text"/>
+                            <field name="wc_onePC_trajectory" widget="text"/>
+                            <field name="wc_onePD_trajectory" widget="text"/>
+                        </page>
+                        <page string="Turns">
+                            <field name="wc_turn_ids">
+                                <list>
+                                    <field name="wc_turn_number"/>
+                                    <field name="wc_prompt_timestamp"/>
+                                    <field name="wc_response_timestamp"/>
+                                    <field name="wc_model_name"/>
+                                    <field name="wc_tool_names"/>
+                                    <field name="wc_qc_severity" widget="badge"
+                                           decoration-danger="wc_qc_severity == 'block'"
+                                           decoration-warning="wc_qc_severity == 'warning'"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Auto-Hint">
+                            <field name="wc_auto_hint_enabled"/>
+                            <field name="wc_auto_hint_max_iterations"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_talos_wildclaw_task" model="ir.actions.act_window">
+        <field name="name">Talos WildClaw Tasks</field>
+        <field name="res_model">talos_wildclaw.task</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_talos_wildclaw_auto_process" model="ir.actions.server">
+        <field name="name">Publish to Auto-Process Queue</field>
+        <field name="model_id" ref="model_talos_wildclaw_task"/>
+        <field name="binding_model_id" ref="model_talos_wildclaw_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_publish_auto_process()</field>
+    </record>
+
+    <record id="view_talos_wildclaw_sandbox_list" model="ir.ui.view">
+        <field name="name">talos_wildclaw.sandbox.list</field>
+        <field name="model">talos_wildclaw.sandbox</field>
+        <field name="arch" type="xml">
+            <list string="Sandboxes">
+                <field name="wc_task_id"/>
+                <field name="model_type"/>
+                <field name="variant_index"/>
+                <field name="docker_status" widget="badge"/>
+                <field name="docker_dashboard_url" widget="url"/>
+                <field name="session_status"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_talos_wildclaw_sandbox_form" model="ir.ui.view">
+        <field name="name">talos_wildclaw.sandbox.form</field>
+        <field name="model">talos_wildclaw.sandbox</field>
+        <field name="arch" type="xml">
+            <form string="Sandbox">
+                <header>
+                    <button name="action_run_local" type="object" string="Run Local"
+                            class="btn-primary" icon="fa-play"
+                            invisible="docker_status in ('starting','running')"/>
+                    <button name="action_stop_local" type="object" string="Stop"
+                            class="btn-secondary" icon="fa-stop"
+                            invisible="docker_status not in ('starting','running')"/>
+                    <field name="docker_status" widget="statusbar"
+                           statusbar_visible="stopped,starting,running,stopping,error"/>
+                </header>
+                <sheet>
+                    <group>
+                        <field name="wc_task_id" options="{'no_open': True}"/>
+                        <field name="model_type"/>
+                        <field name="variant_index"/>
+                        <field name="docker_dashboard_url" widget="url"/>
+                        <field name="docker_ws_url" widget="url"/>
+                        <field name="session_status"/>
+                    </group>
+                    <field name="docker_error" readonly="1"
+                           invisible="docker_status != 'error'"/>
+                    <field name="wc_trajectory_jsonl" widget="text"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_talos_wildclaw_sandbox" model="ir.actions.act_window">
+        <field name="name">Talos WildClaw Sandboxes</field>
+        <field name="res_model">talos_wildclaw.sandbox</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="menu_talos_wildclaw_root" name="Talos WildClaw" sequence="57"/>
+    <menuitem id="menu_talos_wildclaw_tasks" name="Tasks"
+              parent="menu_talos_wildclaw_root"
+              action="action_talos_wildclaw_task" sequence="10"/>
+    <menuitem id="menu_talos_wildclaw_sandboxes" name="Sandboxes"
+              parent="menu_talos_wildclaw_root"
+              action="action_talos_wildclaw_sandbox" sequence="20"/>
+</odoo>
