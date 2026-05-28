@@ -1,0 +1,11 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_kensei_wildclaw_task_tasker,kensei_wildclaw.task tasker,model_kensei_wildclaw_task,wildclaw_core.group_wildclaw_tasker,1,1,1,0
+access_kensei_wildclaw_task_ql,kensei_wildclaw.task ql,model_kensei_wildclaw_task,wildclaw_core.group_wildclaw_ql,1,1,1,1
+access_kensei_wildclaw_task_pl,kensei_wildclaw.task pl,model_kensei_wildclaw_task,wildclaw_core.group_wildclaw_pl,1,1,1,1
+access_kensei_wildclaw_sandbox_tasker,kensei_wildclaw.sandbox tasker,model_kensei_wildclaw_sandbox,wildclaw_core.group_wildclaw_tasker,1,1,1,0
+access_kensei_wildclaw_sandbox_ql,kensei_wildclaw.sandbox ql,model_kensei_wildclaw_sandbox,wildclaw_core.group_wildclaw_ql,1,1,1,1
+access_kensei_wildclaw_sandbox_pl,kensei_wildclaw.sandbox pl,model_kensei_wildclaw_sandbox,wildclaw_core.group_wildclaw_pl,1,1,1,1
+access_kensei_wildclaw_turn_tasker,kensei_wildclaw.turn tasker,model_kensei_wildclaw_turn,wildclaw_core.group_wildclaw_tasker,1,1,1,0
+access_kensei_wildclaw_turn_ql,kensei_wildclaw.turn ql,model_kensei_wildclaw_turn,wildclaw_core.group_wildclaw_ql,1,1,1,1
+access_kensei_wildclaw_turn_pl,kensei_wildclaw.turn pl,model_kensei_wildclaw_turn,wildclaw_core.group_wildclaw_pl,1,1,1,1
+access_kensei_wildclaw_attachment_all,kensei_wildclaw.attachment all,model_kensei_wildclaw_attachment,wildclaw_core.group_wildclaw_tasker,1,1,1,0

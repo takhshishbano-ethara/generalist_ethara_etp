@@ -1,0 +1,404 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================== kensei_wildclaw.task ============================== -->
+
+    <record id="view_kensei_wildclaw_task_list" model="ir.ui.view">
+        <field name="name">kensei_wildclaw.task.list</field>
+        <field name="model">kensei_wildclaw.task</field>
+        <field name="arch" type="xml">
+            <list string="Kensei WildClaw Tasks">
+                <field name="task_id"/>
+                <field name="persona_id"/>
+                <field name="employee_ids" widget="many2many_tags" optional="show"/>
+                <field name="wc_task_status"/>
+                <field name="qc_status" widget="badge"
+                       decoration-success="qc_status == 'passed'"
+                       decoration-danger="qc_status == 'failed'"
+                       decoration-muted="qc_status == 'pending'"/>
+                <field name="wc_auto_process_status" widget="badge"
+                       decoration-info="wc_auto_process_status in ('queued','processing')"
+                       decoration-success="wc_auto_process_status == 'done'"
+                       decoration-danger="wc_auto_process_status == 'failed'" optional="show"/>
+                <field name="wc_batch_status" widget="badge"
+                       decoration-info="wc_batch_status in ('starting','running')"
+                       decoration-success="wc_batch_status == 'done'"
+                       decoration-danger="wc_batch_status == 'error'" optional="show"/>
+                <field name="wc_claude_status" widget="badge" optional="hide"/>
+                <field name="wc_gpt_status" widget="badge" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_kensei_wildclaw_task_form" model="ir.ui.view">
+        <field name="name">kensei_wildclaw.task.form</field>
+        <field name="model">kensei_wildclaw.task</field>
+        <field name="arch" type="xml">
+            <form string="Kensei WildClaw Task" class="o_kensei_wildclaw_form_wide">
+                <header>
+                    <field name="wc_task_status" widget="statusbar" statusbar_visible="pending,draft,qc,completed,failed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_generate_golden_trajectory" type="object"
+                                class="oe_stat_button" icon="fa-magic"
+                                invisible="not wc_is_ql_or_pl">
+                            <div class="o_stat_info">
+                                <span class="o_stat_text">Generate</span>
+                                <span class="o_stat_text">Golden</span>
+                            </div>
+                        </button>
+                        <button name="action_export_to_harbor" type="object"
+                                class="oe_stat_button" icon="fa-cloud-upload"
+                                invisible="not wc_is_ql_or_pl">
+                            <div class="o_stat_info">
+                                <span class="o_stat_text">Export</span>
+                                <span class="o_stat_text">to Harbor</span>
+                            </div>
+                        </button>
+                    </div>
+
+                    <group string="Task Details">
+                        <field name="wc_is_admin" invisible="1"/>
+                        <field name="wc_is_ql_or_pl" invisible="1"/>
+                        <field name="task_id" readonly="1"/>
+                        <field name="persona_id" readonly="1" options="{'no_open': True}"/>
+                        <field name="wc_task_status"/>
+                        <field name="qc_status" widget="badge"/>
+                        <field name="wc_auto_process_status" widget="badge" readonly="1"/>
+                        <field name="wc_auto_process_error" readonly="1"
+                               invisible="wc_auto_process_status != 'failed'"/>
+                    </group>
+
+                    <group string="Classification">
+                        <field name="domain_l1_id" options="{'no_open': True}"
+                               domain="[('parent_id','=', False)]"/>
+                        <field name="domain_l2_id" options="{'no_open': True}"
+                               domain="[('parent_id','=', domain_l1_id)]"
+                               readonly="not domain_l1_id"/>
+                        <field name="task_type"/>
+                        <field name="difficulty"/>
+                    </group>
+
+                    <group string="Assignment">
+                        <field name="employee_ids" widget="many2many_tags"/>
+                        <field name="wc_user_id"/>
+                        <field name="wc_email"/>
+                    </group>
+
+                    <field name="system_prompt" invisible="1"/>
+                    <separator string="Prompt"/>
+                    <field name="initial_prompt" widget="text" readonly="1"/>
+
+                    <group string="Persona Documents">
+                        <group>
+                            <separator string="AGENTS.md"/>
+                            <field name="wc_agent_md" nolabel="1" widget="text" readonly="1"/>
+                        </group>
+                        <group>
+                            <separator string="SOUL.md"/>
+                            <field name="wc_soul_md" nolabel="1" widget="text" readonly="1"/>
+                        </group>
+                        <group>
+                            <separator string="MEMORY.md"/>
+                            <field name="wc_memory_md" nolabel="1" widget="text" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <field name="wc_batch_status" invisible="1"/>
+                    <field name="wc_batch_prompt" invisible="1"/>
+                    <field name="wc_batch_started_at" invisible="1"/>
+                    <field name="wc_batch_completed_at" invisible="1"/>
+
+                    <notebook>
+                        <page string="Sandboxes">
+                            <field name="wc_sandbox_ids">
+                                <list editable="bottom" decoration-info="docker_status == 'running'"
+                                      decoration-danger="docker_status == 'error'">
+                                    <field name="model_type"/>
+                                    <field name="variant_index"/>
+                                    <field name="docker_status" widget="badge"
+                                           decoration-info="docker_status in ('starting','stopping')"
+                                           decoration-success="docker_status == 'running'"
+                                           decoration-danger="docker_status == 'error'"
+                                           decoration-muted="docker_status == 'stopped'"/>
+                                    <field name="docker_port"/>
+                                    <field name="docker_dashboard_url" widget="url"/>
+                                    <field name="session_status"/>
+                                    <field name="wc_trajectory_status" widget="badge"/>
+                                    <button name="action_run_local" type="object" string="Run Local"
+                                            icon="fa-play" class="btn-link"
+                                            invisible="docker_status in ('starting','running')"/>
+                                    <button name="action_stop_local" type="object" string="Stop"
+                                            icon="fa-stop" class="btn-link"
+                                            invisible="docker_status not in ('starting','running')"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Trajectories">
+                            <group>
+                                <separator string="Claude Trajectory"/>
+                                <field name="wc_claude_trajectory" nolabel="1" widget="text"/>
+                                <separator string="GPT Trajectory"/>
+                                <field name="wc_gpt_trajectory" nolabel="1" widget="text"/>
+                                <separator string="Golden Trajectory"/>
+                                <field name="wc_golden_status" widget="badge"/>
+                                <field name="wc_golden_error" readonly="1"
+                                       invisible="wc_golden_status != 'error'"/>
+                                <field name="wc_golden_trajectory" nolabel="1" widget="text"/>
+                            </group>
+                            <field name="wc_onePA_trajectory" invisible="1"/>
+                            <field name="wc_onePB_trajectory" invisible="1"/>
+                            <field name="wc_onePC_trajectory" invisible="1"/>
+                            <field name="wc_onePD_trajectory" invisible="1"/>
+                        </page>
+                        <page string="Turns">
+                            <field name="wc_turn_ids">
+                                <list>
+                                    <field name="wc_turn_number"/>
+                                    <field name="wc_prompt_timestamp"/>
+                                    <field name="wc_response_timestamp"/>
+                                    <field name="wc_model_name"/>
+                                    <field name="wc_tool_names"/>
+                                    <field name="wc_qc_severity" widget="badge"
+                                           decoration-danger="wc_qc_severity == 'block'"
+                                           decoration-warning="wc_qc_severity == 'warning'"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="File Attachments">
+                            <field name="wc_file_attachment_ids" widget="many2many_tags"/>
+                        </page>
+                        <page string="Intent Tests">
+                            <field name="wc_intent_test_status" widget="badge"/>
+                            <field name="wc_intent_test_jsonl" widget="text"/>
+                        </page>
+                        <page string="Rubrics &amp; Test Weights" invisible="not wc_is_ql_or_pl">
+                            <separator string="Rubrics"/>
+                            <field name="rubrics" widget="text"/>
+                            <separator string="Test Weights"/>
+                            <field name="test_weights" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_kensei_wildclaw_task" model="ir.actions.act_window">
+        <field name="name">Kensei WildClaw Tasks</field>
+        <field name="res_model">kensei_wildclaw.task</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_kensei_wildclaw_auto_process" model="ir.actions.server">
+        <field name="name">Publish to Auto-Process Queue</field>
+        <field name="model_id" ref="model_kensei_wildclaw_task"/>
+        <field name="binding_model_id" ref="model_kensei_wildclaw_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_publish_auto_process()</field>
+    </record>
+
+    <record id="action_kensei_wildclaw_export_harbor" model="ir.actions.server">
+        <field name="name">Mass Export to Harbor</field>
+        <field name="model_id" ref="model_kensei_wildclaw_task"/>
+        <field name="binding_model_id" ref="model_kensei_wildclaw_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_mass_export_to_harbor()</field>
+    </record>
+
+    <record id="action_kensei_wildclaw_download_harbor" model="ir.actions.server">
+        <field name="name">Download Harbor Bundle</field>
+        <field name="model_id" ref="model_kensei_wildclaw_task"/>
+        <field name="binding_model_id" ref="model_kensei_wildclaw_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_download_harbor_bundle()</field>
+    </record>
+
+    <!-- ============================== kensei_wildclaw.sandbox ============================== -->
+
+    <record id="view_kensei_wildclaw_sandbox_list" model="ir.ui.view">
+        <field name="name">kensei_wildclaw.sandbox.list</field>
+        <field name="model">kensei_wildclaw.sandbox</field>
+        <field name="arch" type="xml">
+            <list string="Sandboxes">
+                <field name="wc_task_id"/>
+                <field name="wc_employee_ids" widget="many2many_tags" optional="hide"/>
+                <field name="model_type"/>
+                <field name="variant_index"/>
+                <field name="docker_status" widget="badge"
+                       decoration-info="docker_status in ('starting','stopping')"
+                       decoration-success="docker_status == 'running'"
+                       decoration-danger="docker_status == 'error'"
+                       decoration-muted="docker_status == 'stopped'"/>
+                <field name="docker_dashboard_url" widget="url"/>
+                <field name="docker_port"/>
+                <field name="session_status"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_kensei_wildclaw_sandbox_form" model="ir.ui.view">
+        <field name="name">kensei_wildclaw.sandbox.form</field>
+        <field name="model">kensei_wildclaw.sandbox</field>
+        <field name="arch" type="xml">
+            <form string="Sandbox">
+                <header>
+                    <button name="action_run_local" type="object" string="Run Local"
+                            class="btn-primary" icon="fa-play"
+                            invisible="docker_status in ('starting','running')"/>
+                    <button name="action_stop_local" type="object" string="Stop"
+                            class="btn-secondary" icon="fa-stop"
+                            invisible="docker_status not in ('starting','running')"/>
+                    <button name="action_retry_pod" type="object" string="Retry Pod"
+                            icon="fa-refresh" invisible="docker_status != 'error'"/>
+                    <field name="docker_status" widget="statusbar"
+                           statusbar_visible="stopped,starting,running,stopping,error"/>
+                </header>
+                <sheet>
+                    <group string="Sandbox Info">
+                        <field name="wc_task_id" options="{'no_open': True}"/>
+                        <field name="model_type"/>
+                        <field name="variant_index"/>
+                        <field name="wc_employee_ids" widget="many2many_tags"/>
+                    </group>
+                    <group string="Docker Status">
+                        <field name="docker_status" widget="badge"/>
+                        <field name="docker_compose_project"/>
+                        <field name="docker_workdir"/>
+                        <field name="docker_error" readonly="1"
+                               invisible="docker_status != 'error'"/>
+                    </group>
+                    <group string="Container Links">
+                        <field name="docker_dashboard_url" widget="url"/>
+                        <field name="docker_ws_url" widget="url"/>
+                        <field name="docker_port"/>
+                        <field name="docker_litellm_port"/>
+                        <field name="session_status"/>
+                    </group>
+                    <notebook>
+                        <page string="Trajectory">
+                            <field name="wc_trajectory_status" widget="badge"/>
+                            <field name="wc_trajectory_error" readonly="1"
+                                   invisible="wc_trajectory_status != 'error'"/>
+                            <field name="wc_trajectory_jsonl" widget="text"/>
+                        </page>
+                        <page string="API Request Logs"
+                              groups="wildclaw_core.group_wildclaw_pl">
+                            <field name="wc_api_request_ids">
+                                <list>
+                                    <field name="request_time"/>
+                                    <field name="service_name"/>
+                                    <field name="method"/>
+                                    <field name="path"/>
+                                    <field name="status_code"/>
+                                    <field name="duration_ms"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Test Results">
+                            <field name="wc_test_result_ids">
+                                <list>
+                                    <field name="status" widget="badge"/>
+                                    <field name="score"/>
+                                    <field name="tests_total"/>
+                                    <field name="tests_passed"/>
+                                    <field name="tests_failed"/>
+                                    <field name="duration_execution_ms"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Connection / WebSocket Errors">
+                            <div class="alert alert-warning" role="alert"
+                                 invisible="not wc_connection_error">
+                                <strong>Connection error:</strong>
+                                <field name="wc_connection_error" readonly="1" nolabel="1"/>
+                            </div>
+                            <separator string="Latest Error Trace"/>
+                            <field name="wc_latest_error_trace" widget="text" readonly="1"/>
+                        </page>
+                        <page string="Turns">
+                            <field name="wc_turn_ids">
+                                <list>
+                                    <field name="wc_turn_number"/>
+                                    <field name="wc_prompt_timestamp"/>
+                                    <field name="wc_model_name"/>
+                                    <field name="wc_qc_severity" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_kensei_wildclaw_sandbox" model="ir.actions.act_window">
+        <field name="name">Kensei WildClaw Sandboxes</field>
+        <field name="res_model">kensei_wildclaw.sandbox</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ============================== kensei_wildclaw.turn ============================== -->
+
+    <record id="view_kensei_wildclaw_turn_list" model="ir.ui.view">
+        <field name="name">kensei_wildclaw.turn.list</field>
+        <field name="model">kensei_wildclaw.turn</field>
+        <field name="arch" type="xml">
+            <list string="Turns">
+                <field name="wc_turn_number"/>
+                <field name="wc_task_id"/>
+                <field name="wc_sandbox_id"/>
+                <field name="wc_prompt_timestamp"/>
+                <field name="wc_response_timestamp"/>
+                <field name="wc_model_name"/>
+                <field name="wc_tool_names"/>
+                <field name="wc_qc_severity" widget="badge"
+                       decoration-danger="wc_qc_severity == 'block'"
+                       decoration-warning="wc_qc_severity == 'warning'"
+                       decoration-muted="wc_qc_severity == 'advisory'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_kensei_wildclaw_turn_form" model="ir.ui.view">
+        <field name="name">kensei_wildclaw.turn.form</field>
+        <field name="model">kensei_wildclaw.turn</field>
+        <field name="arch" type="xml">
+            <form string="Turn">
+                <sheet>
+                    <group>
+                        <field name="wc_turn_number"/>
+                        <field name="wc_task_id"/>
+                        <field name="wc_sandbox_id"/>
+                        <field name="wc_model_name"/>
+                        <field name="wc_prompt_timestamp"/>
+                        <field name="wc_response_timestamp"/>
+                        <field name="wc_qc_severity" widget="badge"/>
+                        <field name="wc_qc_dismiss_reason"/>
+                    </group>
+                    <notebook>
+                        <page string="Prompt"><field name="wc_prompt" widget="text"/></page>
+                        <page string="Response"><field name="wc_response" widget="text"/></page>
+                        <page string="Tool Calls"><field name="wc_tool_calls" widget="text"/></page>
+                        <page string="Raw Events"><field name="wc_raw_events" widget="text"/></page>
+                        <page string="Trajectory"><field name="wc_trajectory" widget="text"/></page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- ============================== Menu ============================== -->
+
+    <menuitem id="menu_kensei_wildclaw_root" name="Kensei WildClaw" sequence="55"/>
+    <menuitem id="menu_kensei_wildclaw_tasks" name="Tasks"
+              parent="menu_kensei_wildclaw_root"
+              action="action_kensei_wildclaw_task" sequence="10"/>
+    <menuitem id="menu_kensei_wildclaw_sandboxes" name="Sandboxes"
+              parent="menu_kensei_wildclaw_root"
+              action="action_kensei_wildclaw_sandbox" sequence="20"/>
+</odoo>
