@@ -49,10 +49,8 @@ Wrappers built on this core (in this repository):
             "yt-dlp",
             "huggingface-hub",
         ],
-        "bin": [
-            "ffmpeg",
-            "ffprobe",
-        ],
+        # bin: ffmpeg & ffprobe required at runtime (installed via Homebrew)
+        # but omitted here to avoid install-time PATH mismatch.
     },
     "data": [
         "security/wildclaw_security.xml",

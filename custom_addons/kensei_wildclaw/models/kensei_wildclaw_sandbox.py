@@ -33,19 +33,19 @@ class KenseiWildclawSandbox(models.Model):
          "Sandbox variant must be unique per (task, model_type)."),
     ]
 
-    @api.depends("id")
     def _compute_api_requests(self):
+        APIReq = self.env["wildclaw.api.request"]
         for rec in self:
-            rec.wc_api_request_ids = self.env["wildclaw.api.request"].search([
-                ("sandbox_model", "=", "kensei_wildclaw.sandbox"),
+            rec.wc_api_request_ids = APIReq.search([
+                ("sandbox_model", "=", rec._name),
                 ("sandbox_id_int", "=", rec.id),
             ])
 
-    @api.depends("id")
     def _compute_test_results(self):
+        TR = self.env["wildclaw.test.result"]
         for rec in self:
-            rec.wc_test_result_ids = self.env["wildclaw.test.result"].search([
-                ("sandbox_model", "=", "kensei_wildclaw.sandbox"),
+            rec.wc_test_result_ids = TR.search([
+                ("sandbox_model", "=", rec._name),
                 ("sandbox_id_int", "=", rec.id),
             ])
 
