@@ -713,7 +713,13 @@
                     <span class="o_kensei2_rubrics_count">
                         <t t-out="state.rubrics.length"/> rubric(s)
                     </span>
-                    <div class="o_kensei2_rubrics_actions ms-auto d-flex gap-2">
+                    <div class="o_kensei2_rubrics_actions ms-auto d-flex gap-2 align-items-center">
+                        <label class="o_kensei2_rubrics_upload_btn ms-0" title="Append rubrics from a JSON or text file containing rubric JSON">
+                            <i class="fa fa-upload me-1"/>Upload rubric file
+                            <input type="file"
+                                   t-on-change="onUploadRubricsFile"
+                                   style="display:none"/>
+                        </label>
                         <button class="btn btn-sm btn-primary"
                                 t-on-click="onStreamRubricEval"
                                 t-att-disabled="state.rubricEvalStatus === 'generating' || !state.rubrics.length">
@@ -742,12 +748,6 @@
 
                 <div t-if="state.rubricEvalError" class="alert alert-danger py-1 px-2 mb-2 small">
                     <i class="fa fa-exclamation-circle me-1"/>Rubric eval: <t t-out="state.rubricEvalError"/>
-                    <label class="o_kensei2_rubrics_upload_btn" title="Append rubrics from a JSON or text file containing rubric JSON">
-                        <i class="fa fa-upload me-1"/>Upload rubric file
-                        <input type="file"
-                               t-on-change="onUploadRubricsFile"
-                               style="display:none"/>
-                    </label>
                 </div>
                 <div t-if="state.rubricError" class="o_kensei2_rubrics_error">
                     <i class="fa fa-exclamation-triangle me-1"/><t t-out="state.rubricError"/>
