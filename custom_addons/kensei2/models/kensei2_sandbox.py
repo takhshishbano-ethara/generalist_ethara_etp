@@ -4522,6 +4522,14 @@ class Kensei2Sandbox(models.Model):
                 except (json.JSONDecodeError, TypeError):
                     pass
 
+        try:
+            for container_path in self._list_sandbox_output_files():
+                _add_artifact(container_path, seen, artifacts)
+        except Exception:
+            _logger.exception(
+                "filesystem output-artifact scan failed (sandbox=%s)", self.id,
+            )
+
         # Fallback: list anything already in s3://<bucket>/<prefix>/output/tasks/<task_id>/
         # and merge it into the manifest. Catches files uploaded by paths the
         # regex didn't recognize (user's custom S3 code, base64-inline media
@@ -5179,6 +5187,113 @@ class Kensei2Sandbox(models.Model):
         except OSError as e:
             _logger.warning("Failed to read artifact %s: %s", host_path, e)
             return None
+
+    def _list_sandbox_output_files(self):
+        self.ensure_one()
+        scan_dirs = (
+            "/home/node/.openclaw/workspace",
+            "/home/node/.openclaw/output",
+            "/home/node/.openclaw/media",
+        )
+        max_files = 500
+        skip_exts = {"pyc", "pyo", "swp", "swo"}
+        skip_names = {".DS_Store", "Thumbs.db"}
+        skip_dirs = {"__pycache__", ".git", "node_modules", ".cache"}
+
+        def _is_kept(name):
+            if not name or name in skip_names or name.startswith("."):
+                return False
+            ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+            if ext in skip_exts:
+                return False
+            return True
+
+        mode = self._deployment_mode()
+
+        if mode == "k8s":
+            import subprocess
+            from .kensei2_sandbox_k8s import NAMESPACE
+
+            pod_name = "kensei2-sandbox-%s" % self.id
+            find_cmd = (
+                "find %s -type f 2>/dev/null | head -n %d"
+                % (" ".join(scan_dirs), max_files)
+            )
+            try:
+                res = subprocess.run(
+                    [
+                        "kubectl", "exec", pod_name,
+                        "-n", NAMESPACE, "-c", "openclaw", "--",
+                        "sh", "-c", find_cmd,
+                    ],
+                    capture_output=True, text=True, timeout=30,
+                )
+            except Exception as e:
+                _logger.warning(
+                    "_list_sandbox_output_files (k8s) exec failed: %s", e,
+                )
+                return []
+            paths = []
+            for line in res.stdout.splitlines():
+                p = line.strip()
+                if not p or not p.startswith("/home/node/.openclaw/"):
+                    continue
+                basename = p.rsplit("/", 1)[-1]
+                if not _is_kept(basename):
+                    continue
+                rel = p[len("/home/node/.openclaw/"):]
+                parts = rel.split("/")
+                if any(part in skip_dirs for part in parts[:-1]):
+                    continue
+                paths.append(p)
+                if len(paths) >= max_files:
+                    break
+            return paths
+
+        workdir = self.docker_workdir
+        if not workdir:
+            return []
+        persona_name = (
+            self.kensei2_id.persona_id.name
+            if self.kensei2_id and self.kensei2_id.persona_id
+            else "marcus"
+        )
+        allowed_base = os.path.realpath(
+            os.path.join(workdir, "data", persona_name)
+        )
+        paths = []
+        for sub in ("workspace", "output", "media"):
+            host_root = os.path.realpath(os.path.join(allowed_base, sub))
+            if not (
+                host_root == allowed_base
+                or host_root.startswith(allowed_base + os.sep)
+            ):
+                continue
+            if not os.path.isdir(host_root):
+                continue
+            try:
+                walker = os.walk(host_root)
+            except OSError:
+                continue
+            for root, dirnames, filenames in walker:
+                dirnames[:] = [
+                    d for d in dirnames
+                    if d not in skip_dirs and not d.startswith(".")
+                ]
+                for fname in filenames:
+                    if not _is_kept(fname):
+                        continue
+                    abs_path = os.path.realpath(os.path.join(root, fname))
+                    if not abs_path.startswith(allowed_base + os.sep):
+                        continue
+                    rel = os.path.relpath(abs_path, allowed_base)
+                    container_path = (
+                        "/home/node/.openclaw/" + rel.replace(os.sep, "/")
+                    )
+                    paths.append(container_path)
+                    if len(paths) >= max_files:
+                        return paths
+        return paths
 
     def action_stop_sandbox(self, export_trajectory=True):
         self.ensure_one()
