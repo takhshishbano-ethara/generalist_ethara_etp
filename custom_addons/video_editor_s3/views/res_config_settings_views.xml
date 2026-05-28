@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_video_editor_s3" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.video.editor.s3</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Video Editor S3" string="Video Editor S3" name="video_editor_s3" groups="video_editor_s3.group_video_editor_s3_manager">
+                    <block title="Amazon S3 Credentials" name="video_editor_s3_credentials">
+                        <setting id="video_editor_s3_aws_bucket" string="S3 Bucket" help="Default S3 bucket for export operations.">
+                            <field name="video_editor_s3_aws_bucket" placeholder="my-video-bucket"/>
+                        </setting>
+                        <setting id="video_editor_s3_aws_region" string="AWS Region">
+                            <field name="video_editor_s3_aws_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting id="video_editor_s3_aws_access_key" string="Access Key">
+                            <field name="video_editor_s3_aws_access_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_aws_secret_key" string="Secret Key">
+                            <field name="video_editor_s3_aws_secret_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_export_prefix" string="Export Key Prefix" help="S3 key prefix prepended to all rendered exports.">
+                            <field name="video_editor_s3_export_prefix"/>
+                        </setting>
+                        <setting id="video_editor_s3_youtube_prefix" string="YouTube Key Prefix" help="S3 key prefix for ingested YouTube videos.">
+                            <field name="video_editor_s3_youtube_prefix"/>
+                        </setting>
+                        <setting>
+                            <button name="action_test_s3_connection" string="Test S3 Connection" type="object" class="btn-primary"/>
+                        </setting>
+                    </block>
+                    <block title="Processing Limits" name="video_editor_s3_limits">
+                        <setting id="video_editor_s3_max_source_size_mb" string="Max Source Size (MB)" help="Reject S3 source downloads larger than this size.">
+                            <field name="video_editor_s3_max_source_size_mb"/>
+                        </setting>
+                        <setting id="video_editor_s3_max_concurrent_jobs" string="Max Concurrent Jobs" help="Process pool capacity. Restart Odoo workers after changing.">
+                            <field name="video_editor_s3_max_concurrent_jobs"/>
+                        </setting>
+                    </block>
+                    <block title="Bedrock Prompt QC" name="video_editor_s3_bedrock">
+                        <setting id="video_editor_s3_bedrock_region" string="Bedrock Region">
+                            <field name="video_editor_s3_bedrock_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting id="video_editor_s3_bedrock_model_id" string="Model ID" help="Bedrock model identifier (e.g. anthropic.claude-3-5-sonnet-20241022-v2:0).">
+                            <field name="video_editor_s3_bedrock_model_id"/>
+                        </setting>
+                        <setting id="video_editor_s3_bedrock_access_key" string="Access Key">
+                            <field name="video_editor_s3_bedrock_access_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_bedrock_secret_key" string="Secret Key">
+                            <field name="video_editor_s3_bedrock_secret_key" password="True"/>
+                        </setting>
+                    </block>
+                    <block title="Prompt QC Seed" name="video_editor_s3_qc_seed">
+                        <setting id="video_editor_s3_qc_seed_prompt" string="QC Seed Prompt" help="Seed prompt that instructs the LLM how to evaluate project prompts. Leave empty to use the bundled default.">
+                            <field name="video_editor_s3_qc_seed_prompt" widget="text" placeholder="Leave empty to use the bundled default seed prompt."/>
+                        </setting>
+                    </block>
+                    <block title="System Paths" name="video_editor_s3_paths">
+                        <setting id="video_editor_s3_media_root" string="Media Root Override" help="Absolute directory for downloaded sources and rendered outputs. Leave empty to auto-detect.">
+                            <field name="video_editor_s3_media_root" placeholder="/var/lib/odoo/video_editor_s3_media"/>
+                        </setting>
+                        <setting id="video_editor_s3_ffmpeg_path" string="FFmpeg Binary Override">
+                            <field name="video_editor_s3_ffmpeg_path" placeholder="/usr/bin/ffmpeg"/>
+                        </setting>
+                        <setting id="video_editor_s3_ffprobe_path" string="FFprobe Binary Override">
+                            <field name="video_editor_s3_ffprobe_path" placeholder="/usr/bin/ffprobe"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_video_editor_s3_settings" model="ir.actions.act_window">
+        <field name="name">Video Editor S3 Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'video_editor_s3'}</field>
+    </record>
+</odoo>

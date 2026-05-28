@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_video_editor_s3_root"
+              name="Crowly Sourcing"
+              web_icon="video_editor_s3,static/description/icon.png"
+              sequence="50"
+              groups="video_editor_s3.group_video_editor_s3_user"/>
+
+    <menuitem id="menu_video_editor_s3_projects"
+              name="Projects"
+              parent="menu_video_editor_s3_root"
+              action="action_video_editor_project"
+              sequence="10"/>
+
+    <menuitem id="menu_video_editor_s3_jobs"
+              name="Jobs"
+              parent="menu_video_editor_s3_root"
+              action="action_video_editor_job"
+              sequence="20"
+              groups="video_editor_s3.group_video_editor_s3_editor"/>
+
+    <menuitem id="menu_video_editor_s3_logs"
+              name="Processing Logs"
+              parent="menu_video_editor_s3_root"
+              action="action_video_editor_processing_log"
+              sequence="30"
+              groups="video_editor_s3.group_video_editor_s3_manager"/>
+
+    <menuitem id="menu_video_editor_s3_config"
+              name="Configuration"
+              parent="menu_video_editor_s3_root"
+              sequence="90"
+              groups="video_editor_s3.group_video_editor_s3_manager"/>
+
+    <menuitem id="menu_video_editor_s3_config_settings"
+              name="Settings"
+              parent="menu_video_editor_s3_config"
+              action="action_video_editor_s3_settings"
+              sequence="10"
+              groups="video_editor_s3.group_video_editor_s3_manager"/>
+</odoo>

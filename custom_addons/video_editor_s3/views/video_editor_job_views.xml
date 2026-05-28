@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_video_editor_job_list" model="ir.ui.view">
+        <field name="name">video.editor.job.list</field>
+        <field name="model">video.editor.job</field>
+        <field name="arch" type="xml">
+            <list string="Jobs" decoration-info="status == 'queued'" decoration-warning="status == 'running'" decoration-success="status == 'done'" decoration-danger="status == 'failed'" decoration-muted="status == 'cancelled'">
+                <field name="id"/>
+                <field name="project_id"/>
+                <field name="job_type"/>
+                <field name="status" widget="badge"/>
+                <field name="progress_text"/>
+                <field name="started_at"/>
+                <field name="finished_at"/>
+                <field name="duration_ms"/>
+                <button name="action_cancel" type="object" icon="fa-stop" invisible="status not in ('queued','running')"/>
+                <button name="action_retry" type="object" icon="fa-refresh" invisible="status not in ('failed','cancelled')"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_video_editor_job_form" model="ir.ui.view">
+        <field name="name">video.editor.job.form</field>
+        <field name="model">video.editor.job</field>
+        <field name="arch" type="xml">
+            <form string="Job">
+                <header>
+                    <button name="action_cancel" type="object" string="Cancel" invisible="status not in ('queued','running')"/>
+                    <button name="action_retry" type="object" string="Retry" invisible="status not in ('failed','cancelled')"/>
+                    <field name="status" widget="statusbar" statusbar_visible="queued,running,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="project_id"/>
+                            <field name="job_type"/>
+                            <field name="progress_text"/>
+                            <field name="last_heartbeat"/>
+                        </group>
+                        <group>
+                            <field name="started_at"/>
+                            <field name="finished_at"/>
+                            <field name="duration_ms"/>
+                            <field name="output_path"/>
+                            <field name="output_s3_url" widget="url"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Error" name="error" invisible="not error_message">
+                            <field name="error_message" widget="text"/>
+                        </page>
+                        <page string="FFmpeg Command" name="ffmpeg_command" invisible="not ffmpeg_command">
+                            <field name="ffmpeg_command" widget="text"/>
+                        </page>
+                        <page string="Log" name="log" invisible="not log">
+                            <field name="log" widget="text"/>
+                        </page>
+                        <page string="Config" name="config">
+                            <field name="config_json" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_video_editor_job_search" model="ir.ui.view">
+        <field name="name">video.editor.job.search</field>
+        <field name="model">video.editor.job</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="project_id"/>
+                <field name="job_type"/>
+                <field name="status"/>
+                <filter string="Queued" name="status_queued" domain="[('status','=','queued')]"/>
+                <filter string="Running" name="status_running" domain="[('status','=','running')]"/>
+                <filter string="Done" name="status_done" domain="[('status','=','done')]"/>
+                <filter string="Failed" name="status_failed" domain="[('status','=','failed')]"/>
+                <filter string="Cancelled" name="status_cancelled" domain="[('status','=','cancelled')]"/>
+                <separator/>
+                <filter string="Status" name="group_status" context="{'group_by':'status'}"/>
+                <filter string="Type" name="group_type" context="{'group_by':'job_type'}"/>
+                <filter string="Project" name="group_project" context="{'group_by':'project_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_video_editor_job" model="ir.actions.act_window">
+        <field name="name">Jobs</field>
+        <field name="res_model">video.editor.job</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_video_editor_job_search"/>
+    </record>
+
+    <record id="view_video_editor_processing_log_list" model="ir.ui.view">
+        <field name="name">video.editor.processing.log.list</field>
+        <field name="model">video.editor.processing.log</field>
+        <field name="arch" type="xml">
+            <list string="Processing Logs" decoration-info="level == 'info'" decoration-warning="level == 'warning'" decoration-danger="level == 'error'">
+                <field name="create_date"/>
+                <field name="project_id"/>
+                <field name="job_id"/>
+                <field name="level" widget="badge"/>
+                <field name="operation"/>
+                <field name="duration_ms"/>
+                <field name="message"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_video_editor_processing_log" model="ir.actions.act_window">
+        <field name="name">Processing Logs</field>
+        <field name="res_model">video.editor.processing.log</field>
+        <field name="view_mode">list</field>
+    </record>
+</odoo>

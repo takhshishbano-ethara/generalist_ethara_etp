@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="video_editor_s3.VideoEditor">
+        <div class="o_video_editor_s3" t-ref="editorRoot">
+            <header class="o_video_editor_s3__header d-flex align-items-center gap-2 p-2 border-bottom">
+                <button class="btn btn-light" t-on-click="onClose" title="Close">
+                    <i class="fa fa-arrow-left"/>
+                </button>
+                <strong t-if="state.project" class="me-2"><t t-esc="state.project.name"/></strong>
+                <span class="text-muted small" t-if="state.project">
+                    [<t t-esc="state.project.state"/>]
+                </span>
+                <div class="d-flex align-items-center gap-1 ms-2" t-if="!state.projectId">
+                    <input type="text" class="form-control form-control-sm" style="width:380px"
+                           placeholder="s3://bucket/path/video.mp4"
+                           t-model="state.inputS3Url"/>
+                    <button class="btn btn-primary btn-sm" t-on-click="onLoadFromUrl">Load</button>
+                </div>
+                <div class="d-flex align-items-center gap-1 ms-2" t-if="state.project">
+                    <button class="btn btn-sm" t-att-class="state.sourceKind === 'source' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-att-disabled="!state.project.has_source"
+                            t-on-click="() => this.onSwitchSourceKind('source')">Source</button>
+                    <button class="btn btn-sm" t-att-class="state.sourceKind === 'preview' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-att-disabled="!state.project.has_preview"
+                            t-on-click="() => this.onSwitchSourceKind('preview')">Preview</button>
+                    <button class="btn btn-sm" t-att-class="state.sourceKind === 'edited' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-att-disabled="!state.project.has_edited"
+                            t-on-click="() => this.onSwitchSourceKind('edited')">Edited</button>
+                </div>
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button class="btn btn-primary btn-sm" t-att-disabled="state.rendering || state.polling"
+                            t-on-click="() => this.onRender(false)">Save &amp; Render</button>
+                    <button class="btn btn-success btn-sm" style="display:none"
+                            t-att-disabled="!state.project or !state.project.has_edited or state.exporting or state.polling"
+                            t-on-click="onExport">Export to S3</button>
+                    <button class="btn btn-outline-danger btn-sm" t-if="state.jobId" t-on-click="onCancelJob">Cancel Job</button>
+                </div>
+            </header>
+
+            <div class="o_video_editor_s3__banner alert alert-info py-1 px-2 m-0" t-if="state.statusBanner">
+                <span><t t-esc="state.statusBanner"/></span>
+                <span class="ms-2 text-muted small" t-if="state.job and state.job.progress_text">
+                    — <t t-esc="state.job.progress_text"/>
+                </span>
+            </div>
+
+            <div class="o_video_editor_s3__body d-flex" style="height: calc(100vh - 120px);">
+                <aside class="o_video_editor_s3__sidebar border-end p-2" style="width:280px; overflow-y:auto;">
+                    <div class="btn-group btn-group-sm mb-3 w-100" role="group">
+                        <button class="btn" t-att-class="state.mode === 'trim' ? 'btn-primary' : 'btn-outline-secondary'" t-on-click="() => this.onChangeMode('trim')">Trim</button>
+                        <button class="btn" t-att-class="state.mode === 'crop' ? 'btn-primary' : 'btn-outline-secondary'" t-on-click="() => this.onChangeMode('crop')">Crop</button>
+                    </div>
+                    <EditorToolbar
+                        mode="state.mode"
+                        config="state.config"
+                        disabled="state.rendering"
+                        onChangeMode.bind="onChangeMode"
+                        onResetSlot.bind="onResetSlot"
+                        onToggleMute.bind="onToggleMute"
+                        onUpdateFilter.bind="onUpdateFilter"
+                        onUpdateRotate.bind="onUpdateRotate"
+                        onUpdateResize.bind="onUpdateResize"/>
+                </aside>
+
+                <section class="o_video_editor_s3__stage flex-grow-1 d-flex flex-column">
+                    <div class="o_video_editor_s3__stage_canvas flex-grow-1 d-flex align-items-center justify-content-center bg-dark"
+                         t-ref="stage" style="position:relative; overflow:hidden;">
+                        <div class="o_video_editor_s3__stage_frame" t-att-style="stageFrameStyle" style="position:relative; max-width:100%; max-height:100%;">
+                            <video t-if="state.sourceUrl" t-ref="video" t-att-src="state.sourceUrl"
+                                   t-att-style="videoFilterStyle"
+                                   preload="metadata" playsinline="playsinline"
+                                   style="width:100%; height:100%; object-fit:contain; background:#000;"
+                                   t-on-click="() => this.onStageClick()"/>
+                            <div t-ref="cropBox" t-if="state.mode === 'crop' and state.config.crop"
+                                 class="o_crop_overlay" t-att-style="cropOverlayStyle"
+                                 t-on-mousedown="(ev) => this.onCropDragStart(ev)">
+                                <span class="o_crop_label">
+                                    <t t-esc="state.config.crop.w"/> × <t t-esc="state.config.crop.h"/>
+                                </span>
+                                <t t-foreach="cropCorners" t-as="c" t-key="c">
+                                    <span t-attf-class="o_crop_handle o_crop_handle_{{c}}"
+                                          t-on-mousedown="(ev) => this.onCropResizeStart(c, ev)"/>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="o_video_editor_s3__playback border-top p-2 d-flex align-items-center gap-2">
+                        <button class="btn btn-light btn-sm" t-on-click="onPlayPause" t-att-disabled="!state.sourceUrl">
+                            <i t-att-class="state.playing ? 'fa fa-pause' : 'fa fa-play'"/>
+                        </button>
+                        <span class="text-muted small" style="min-width:90px;">
+                            <t t-esc="(state.currentTime || 0).toFixed(1)"/>s / <t t-esc="(state.duration || 0).toFixed(1)"/>s
+                        </span>
+                        <input type="range" class="form-range" min="0" t-att-max="state.duration || 0" step="0.01"
+                               t-att-value="state.currentTime" t-on-input="onScrub"/>
+                        <button class="btn btn-outline-secondary btn-sm" t-on-click="onClearCrop" t-if="state.mode === 'crop' and state.config.crop">Clear crop</button>
+                    </div>
+
+                    <div class="o_video_editor_s3__timeline border-top p-2">
+                        <EditorTimeline
+                            duration="state.duration"
+                            currentTime="state.currentTime"
+                            trim="state.config.trim"
+                            disabled="state.rendering"
+                            onTrimChange.bind="onTrimChange"
+                            onSeek.bind="onSeek"/>
+                    </div>
+                </section>
+            </div>
+
+            <div class="o_video_editor_s3__loader" t-if="state.loading">
+                <div class="spinner-border text-light"/>
+                <div class="text-light mt-2">Loading…</div>
+            </div>
+            <div class="o_video_editor_s3__error alert alert-danger m-2" t-if="state.videoError">
+                <t t-esc="state.videoError"/>
+            </div>
+        </div>
+    </t>
+
+    <t t-name="video_editor_s3.EditorToolbar">
+        <div class="o_video_editor_s3_toolbar">
+            <t t-if="props.mode === 'trim'">
+                <div class="card mb-2">
+                    <div class="card-body p-2">
+                        <h6 class="card-title">Trim</h6>
+                        <div class="d-flex gap-1 small">
+                            <label class="text-muted">Start</label>
+                            <span><t t-esc="(props.config.trim.start || 0).toFixed(2)"/>s</span>
+                        </div>
+                        <div class="d-flex gap-1 small">
+                            <label class="text-muted">End</label>
+                            <span><t t-esc="(props.config.trim.end || 0).toFixed(2)"/>s</span>
+                        </div>
+                        <button class="btn btn-outline-secondary btn-sm mt-2 w-100" t-on-click="() => this.onReset('trim')">Reset trim</button>
+                    </div>
+                </div>
+            </t>
+
+            <t t-if="props.mode === 'crop'">
+                <div class="card mb-2">
+                    <div class="card-body p-2">
+                        <h6 class="card-title">Crop</h6>
+                        <p class="small text-muted">Click on the video to add a crop box. Drag handles to resize.</p>
+                        <button class="btn btn-outline-secondary btn-sm w-100" t-on-click="() => this.onReset('crop')">Clear crop</button>
+                    </div>
+                </div>
+            </t>
+
+            <div class="card mb-2">
+                <div class="card-body p-2">
+                    <h6 class="card-title">Audio</h6>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="vesMute"
+                               t-att-checked="isMuted ? 'checked' : null"
+                               t-on-change="onMute"/>
+                        <label class="form-check-label" for="vesMute">Mute</label>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </t>
+
+    <t t-name="video_editor_s3.EditorTimeline">
+        <div class="o_ves_timeline">
+            <div class="o_ves_timeline_bar" t-ref="bar" t-on-mousedown="onBarClick">
+                <div class="o_ves_timeline_dim" t-attf-style="left:0; width:{{startPct}}%;"/>
+                <div class="o_ves_timeline_dim" t-attf-style="left:{{endPct}}%; right:0; width:auto;"/>
+                <div class="o_ves_timeline_active" t-attf-style="left:{{startPct}}%; width:{{endPct - startPct}}%;"/>
+                <div class="o_ves_timeline_cursor" t-attf-style="left:{{cursorPct}}%;"/>
+                <span class="o_trim_handle o_trim_handle_start" t-attf-style="left:{{startPct}}%;"
+                      t-on-mousedown="(ev) => this.onHandleDown('start', ev)"/>
+                <span class="o_trim_handle o_trim_handle_end" t-attf-style="left:{{endPct}}%;"
+                      t-on-mousedown="(ev) => this.onHandleDown('end', ev)"/>
+            </div>
+            <div class="d-flex justify-content-between small text-muted mt-1">
+                <span>start: <t t-esc="formatTime(trim.start)"/></span>
+                <span>end: <t t-esc="formatTime(trim.end)"/></span>
+            </div>
+        </div>
+    </t>
+
+</templates>
