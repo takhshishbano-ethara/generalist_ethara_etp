@@ -324,23 +324,6 @@ class VideoEditorProject(models.Model):
             cookies_from_browser=cfg.get("cookies_browser"),
         )
 
-    def _maybe_auto_ingest_youtube(self):
-        for rec in self:
-            if not rec.youtube_url:
-                continue
-            if rec.youtube_ingested_at and rec.s3_source_url:
-                continue
-            if rec.job_ids.filtered(lambda j: j.status in ("queued", "running")):
-                continue
-            video_id, _normalized = youtube_downloader.parse_youtube_url(rec.youtube_url)
-            if not video_id:
-                continue
-            rec._probe_youtube_or_raise()
-            try:
-                rec._kick_job("youtube_ingest", config={"youtube_url": rec.youtube_url})
-            except UserError as exc:
-                _logger.info("auto-ingest skipped for project %s: %s", rec.id, exc)
-
     def _maybe_probe_s3_source(self):
         for rec in self:
             if not rec.s3_source_url:
@@ -371,15 +354,12 @@ class VideoEditorProject(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
-        records._maybe_auto_ingest_youtube()
         records._maybe_probe_s3_source()
         records._maybe_run_prompt_qc()
         return records
 
     def write(self, vals):
         res = super().write(vals)
-        if "youtube_url" in vals:
-            self._maybe_auto_ingest_youtube()
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
         if "prompt" in vals:
