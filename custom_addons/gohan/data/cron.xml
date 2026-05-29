@@ -33,4 +33,24 @@
         <field name="interval_type">minutes</field>
         <field name="active" eval="True"/>
     </record>
+
+    <record id="ir_cron_gohan_prd_dispatch" model="ir.cron">
+        <field name="name">Gohan: Dispatch PRD Jobs</field>
+        <field name="model_id" ref="model_gohan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_dispatch_prd_jobs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <record id="ir_cron_gohan_prd_reconcile" model="ir.cron">
+        <field name="name">Gohan: Reconcile PRD Jobs</field>
+        <field name="model_id" ref="model_gohan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_reconcile_prd_jobs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
 </odoo>

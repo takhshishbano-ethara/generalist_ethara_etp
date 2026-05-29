@@ -1,0 +1,149 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odoo-config
+  namespace: gohan
+data:
+  odoo.conf: |
+    [options]
+    admin_passwd = admin
+    db_host = postgres.gohan.svc.cluster.local
+    db_port = 5432
+    db_user = odoo
+    db_password = odoo_local_pw
+    db_name = odoo
+    addons_path = /opt/odoo/addons,/opt/odoo/custom_addons
+    data_dir = /tmp/odoo-data
+    server_wide_modules = base,web
+    without_demo = all
+    workers = 0
+    limit_time_cpu = 600
+    limit_time_real = 1200
+    max_cron_threads = 1
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odoo-data-pvc
+  namespace: gohan
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odoo
+  namespace: gohan
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: odoo
+  template:
+    metadata:
+      labels:
+        app: odoo
+    spec:
+      containers:
+        - name: odoo
+          image: gohan-prd-worker:latest
+          imagePullPolicy: Never
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              pip install --quiet --disable-pip-version-check 'kubernetes>=29.0.0,<33.0.0' || pip install --quiet --disable-pip-version-check 'kubernetes<33'
+              python /opt/odoo/odoo-bin --config=/etc/odoo/odoo.conf \
+                --init=base,web,base_setup,mail,bus,etp_user_roles,gohan \
+                --stop-after-init --no-http 2>&1 || true
+              exec python /opt/odoo/odoo-bin --config=/etc/odoo/odoo.conf
+          ports:
+            - containerPort: 8069
+            - containerPort: 8072
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: DB_PASSWORD
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: AWS_ENDPOINT_URL_S3
+              value: "http://minio.gohan.svc.cluster.local:9000"
+            - name: GOHAN_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: WEBHOOK_TOKEN
+            - name: LEVIATHAN_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: WEBHOOK_TOKEN
+          volumeMounts:
+            - name: odoo-config
+              mountPath: /etc/odoo/odoo.conf
+              subPath: odoo.conf
+              readOnly: true
+            - name: odoo-data
+              mountPath: /tmp/odoo-data
+          resources:
+            requests:
+              cpu: "1500m"
+              memory: "2Gi"
+            limits:
+              cpu: "3"
+              memory: "4Gi"
+          readinessProbe:
+            httpGet:
+              path: /web/health
+              port: 8069
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /web/health
+              port: 8069
+            initialDelaySeconds: 60
+            periodSeconds: 30
+      volumes:
+        - name: odoo-config
+          configMap:
+            name: odoo-config
+        - name: odoo-data
+          persistentVolumeClaim:
+            claimName: odoo-data-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: odoo
+  namespace: gohan
+spec:
+  type: NodePort
+  selector:
+    app: odoo
+  ports:
+    - port: 8069
+      targetPort: 8069
+      nodePort: 30069
+      name: http
+    - port: 8072
+      targetPort: 8072
+      name: longpolling
