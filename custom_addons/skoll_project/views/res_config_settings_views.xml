@@ -24,6 +24,17 @@
                             <field name="skoll_opus_arn" />
                         </setting>
                     </block>
+                    <block title="OpenClaw Sandbox">
+                        <setting string="OpenClaw Image">
+                            <field name="skoll_openclaw_image" />
+                        </setting>
+                        <setting string="Web Search Provider">
+                            <field name="skoll_web_search_provider" widget="radio"/>
+                        </setting>
+                        <setting string="Brave API Key" help="Required when Web Search Provider is Brave. Get a key at https://api.search.brave.com (Search plan).">
+                            <field name="skoll_brave_api_key" password="True"/>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

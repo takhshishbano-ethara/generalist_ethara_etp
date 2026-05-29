@@ -1,6 +1,6 @@
 {
     "name": "Skoll",
-    "version": "19.0.7.0.0",
+    "version": "19.0.7.1.0",
     "category": "Tools",
     "summary": "Skoll — LLM task management with sandbox environments",
     "description": """

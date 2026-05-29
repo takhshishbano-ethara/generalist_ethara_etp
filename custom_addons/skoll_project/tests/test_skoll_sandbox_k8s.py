@@ -89,6 +89,45 @@ class TestK8sHelperFunctions(SkollTestCase):
                 MODEL_DEFAULTS[model_type],
             )
 
+    def test_build_openclaw_config_brave_default(self):
+        """Default provider is Brave; brave plugin entry present when key supplied."""
+        from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
+        cfg = _build_openclaw_config(
+            "tok", {}, brave_api_key="BSA-test-key"
+        )
+        self.assertEqual(cfg["tools"]["web"]["search"]["provider"], "brave")
+        self.assertEqual(
+            cfg["plugins"]["entries"]["brave"]["config"]["webSearch"]["apiKey"],
+            "BSA-test-key",
+        )
+        self.assertNotIn("enabled", cfg["tools"]["web"]["search"])
+
+    def test_build_openclaw_config_duckduckgo(self):
+        """DuckDuckGo provider does not require an API key or plugins block."""
+        from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
+        cfg = _build_openclaw_config(
+            "tok", {}, web_search_provider="duckduckgo"
+        )
+        self.assertEqual(cfg["tools"]["web"]["search"]["provider"], "duckduckgo")
+        self.assertNotIn("plugins", cfg)
+
+    def test_build_openclaw_config_disabled(self):
+        """Disabled provider sets enabled=False and omits provider key."""
+        from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
+        cfg = _build_openclaw_config(
+            "tok", {}, web_search_provider="disabled"
+        )
+        self.assertFalse(cfg["tools"]["web"]["search"]["enabled"])
+        self.assertNotIn("provider", cfg["tools"]["web"]["search"])
+        self.assertNotIn("plugins", cfg)
+
+    def test_build_openclaw_config_brave_no_key(self):
+        """Brave provider without a key still sets provider but omits plugins block."""
+        from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
+        cfg = _build_openclaw_config("tok", {}, brave_api_key="")
+        self.assertEqual(cfg["tools"]["web"]["search"]["provider"], "brave")
+        self.assertNotIn("plugins", cfg)
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # 2. deploy_sandbox

@@ -22,3 +22,22 @@ class SkollConfigSettings(models.TransientModel):
         string="Opus ARN",
         config_parameter="skoll.opus_arn",
     )
+    skoll_openclaw_image = fields.Char(
+        string="OpenClaw Image",
+        config_parameter="skoll.openclaw_image",
+        default="ghcr.io/openclaw/openclaw:latest",
+    )
+    skoll_web_search_provider = fields.Selection(
+        [
+            ("brave", "Brave"),
+            ("duckduckgo", "DuckDuckGo"),
+            ("disabled", "Disabled"),
+        ],
+        string="Web Search Provider",
+        config_parameter="skoll.web_search_provider",
+        default="brave",
+    )
+    skoll_brave_api_key = fields.Char(
+        string="Brave API Key",
+        config_parameter="skoll.brave_api_key",
+    )

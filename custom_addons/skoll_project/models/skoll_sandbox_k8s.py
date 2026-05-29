@@ -141,7 +141,13 @@ def _build_prestop_script(task_id, persona_name):
     ) % {"session": session_path, "browser": browser_path}
 
 
-def _build_openclaw_config(gateway_token, env, model_type="claude"):
+def _build_openclaw_config(
+    gateway_token,
+    env,
+    model_type="claude",
+    web_search_provider="brave",
+    brave_api_key="",
+):
     aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
     aws_region = env.get("AWS_REGION", "ap-south-1").strip()
     bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
@@ -239,13 +245,30 @@ def _build_openclaw_config(gateway_token, env, model_type="claude"):
             },
         ],
     }
-    config_dict["tools"] = {
-        "web": {
-            "search": {
-                "provider": "kimi",
+    # Web search provider is config-driven so we can swap Brave / DuckDuckGo /
+    # disabled from Odoo Settings without rebuilding the OpenClaw image. Stock
+    # ghcr.io/openclaw/openclaw:latest rejects `freshness` for Kimi at runtime
+    # (`unsupported_freshness`), which is why Kimi is no longer the default.
+    tools_web_search = {
+        "maxResults": 5,
+        "timeoutSeconds": 30,
+        "cacheTtlMinutes": 60,
+    }
+    if web_search_provider == "disabled":
+        tools_web_search["enabled"] = False
+    else:
+        tools_web_search["provider"] = web_search_provider
+    config_dict["tools"] = {"web": {"search": tools_web_search}}
+
+    if web_search_provider == "brave" and brave_api_key:
+        config_dict.setdefault("plugins", {}).setdefault("entries", {})["brave"] = {
+            "config": {
+                "webSearch": {
+                    "apiKey": brave_api_key,
+                    "mode": "web",
+                }
             }
         }
-    }
 
     config_dict["agents"] = {
         "defaults": {
@@ -318,6 +341,12 @@ class SkollSandboxK8s(models.AbstractModel):
         s3_bucket = self._get_config_param("skoll.s3_bucket", S3_BUCKET)
         s3_prefix = self._get_config_param("skoll.s3_prefix", S3_SKOLL_PREFIX)
 
+        web_search_provider = (
+            self._get_config_param("skoll.web_search_provider", "brave").strip()
+            or "brave"
+        )
+        brave_api_key = self._get_config_param("skoll.brave_api_key", "").strip()
+
         gateway_token = sandbox_record.docker_gateway_token
 
         self._create_secret(
@@ -330,6 +359,7 @@ class SkollSandboxK8s(models.AbstractModel):
             aws_bearer=aws_bearer,
             llama_api_key=llama_api_key,
             moonshot_api_key=moonshot_api_key,
+            brave_api_key=brave_api_key,
         )
 
         self._create_persona_configmap(
@@ -347,7 +377,11 @@ class SkollSandboxK8s(models.AbstractModel):
         )
 
         openclaw_config = _build_openclaw_config(
-            gateway_token, env, sandbox_record.model_type
+            gateway_token,
+            env,
+            sandbox_record.model_type,
+            web_search_provider=web_search_provider,
+            brave_api_key=brave_api_key,
         )
         self._create_openclaw_config_configmap(
             core_v1,
@@ -408,6 +442,7 @@ class SkollSandboxK8s(models.AbstractModel):
         aws_bearer,
         llama_api_key="",
         moonshot_api_key="",
+        brave_api_key="",
     ):
         secret = client.V1Secret(
             api_version="v1",
@@ -424,6 +459,7 @@ class SkollSandboxK8s(models.AbstractModel):
                 "AWS_BEARER_TOKEN_BEDROCK": aws_bearer,
                 "LLAMA_API_KEY": llama_api_key,
                 "MOONSHOT_API_KEY": moonshot_api_key,
+                "BRAVE_API_KEY": brave_api_key,
             },
         )
         try:
@@ -883,6 +919,16 @@ class SkollSandboxK8s(models.AbstractModel):
                         secret_key_ref=client.V1SecretKeySelector(
                             name=secret_name,
                             key="MOONSHOT_API_KEY",
+                        ),
+                    ),
+                ),
+                client.V1EnvVar(
+                    name="BRAVE_API_KEY",
+                    value_from=client.V1EnvVarSource(
+                        secret_key_ref=client.V1SecretKeySelector(
+                            name=secret_name,
+                            key="BRAVE_API_KEY",
+                            optional=True,
                         ),
                     ),
                 ),
