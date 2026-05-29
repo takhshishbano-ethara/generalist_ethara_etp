@@ -13,6 +13,11 @@
               parent="menu_kaiju_commit0_root"
               action="action_kaiju_commit0_run"
               sequence="20"/>
+    <menuitem id="menu_kaiju_commit0_eval_ready"
+              name="Ready for Evaluation"
+              parent="menu_kaiju_commit0_root"
+              action="action_kaiju_commit0_eval_ready"
+              sequence="15"/>
     <menuitem id="menu_kaiju_commit0_import"
               name="Import Bulk Builds (CSV)"
               parent="menu_kaiju_commit0_root"
