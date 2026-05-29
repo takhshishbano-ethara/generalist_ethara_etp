@@ -226,3 +226,5 @@ cairosvg==2.7.1
 yt-dlp
 segment-anything==1.0
 ffmpeg-python==0.2.0
+yt-dlp
+ffmpeg==5.1.9
