@@ -3424,6 +3424,20 @@ class LeviathanJob(models.Model):
             return False
 
     def _get_webhook_url(self):
+        # Resolution: explicit override (Settings → "Webhook URL Override")
+        # wins over the derived ``web.base.url``-based URL. The override
+        # exists for two cases:
+        #   1. Local dev — ``web.base.url`` is ``http://localhost:8069``
+        #      from inside the host Odoo's perspective, but the Lambda
+        #      container needs ``host.docker.internal`` to reach it.
+        #   2. Stage/prod behind a load balancer where ``web.base.url``
+        #      points at the public UI URL, but the Lambda callback
+        #      should hit an internal VPC endpoint.
+        # Vegeta parity (see ``vegeta_webhook_url_override``).
+        ICP = self.env["ir.config_parameter"].sudo()
+        override = (ICP.get_param("leviathan.webhook_url_override") or "").strip()
+        if override:
+            return override.rstrip("/")
         # Defensive strip: a single accidental leading/trailing space in
         # the `web.base.url` System Parameter (very easy to introduce via
         # the UI or a copy-paste) produces a URL httpx rejects with
@@ -3432,9 +3446,7 @@ class LeviathanJob(models.Model):
         # watchdog eventually marking it `failed` 20 min later. Strip
         # here so the entire pipeline is whitespace-tolerant.
         base_url = (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("web.base.url", "http://localhost:8069")
+            ICP.get_param("web.base.url", "http://localhost:8069")
             or ""
         ).strip().rstrip("/")
         return f"{base_url}/api/v1/leviathan/webhook/extraction-complete"

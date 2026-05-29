@@ -270,6 +270,34 @@ class ResConfigSettings(models.TransientModel):
     )
 
     # -- Webhook (LIVE — read per request) --
+    #
+    # Vegeta parity (F-flag from STAGED_REVIEW.md / user request 2026-05-29):
+    # both the cron controllers and the extraction callback resolve the
+    # secret as ICP > env > refuse. Storing it in Settings means devops
+    # can rotate the token without re-deploying the pod (the K8s Secret
+    # remains the deploy-time floor; this ICP value is the live override).
+    leviathan_webhook_token = fields.Char(
+        string="Webhook Token",
+        config_parameter="leviathan.webhook_token",
+        help="Shared secret the Lambda + K8s CronJobs send as the "
+             "X-Leviathan-Token header. If empty, the controllers fall "
+             "back to the LEVIATHAN_WEBHOOK_TOKEN env var on the Odoo "
+             "pod. Rotate live by updating here AND rotating the "
+             "leviathan-webhook-token K8s Secret — no pod restart "
+             "needed. Constant-time compared "
+             "(``hmac.compare_digest``).",
+    )
+    leviathan_webhook_url_override = fields.Char(
+        string="Webhook URL Override",
+        config_parameter="leviathan.webhook_url_override",
+        help="Full callback URL the Lambda will POST extraction "
+             "results to. If empty, derived from web.base.url + "
+             "/api/v1/leviathan/webhook/extraction-complete. Set this "
+             "in local dev when web.base.url is localhost — use "
+             "http://host.docker.internal:8069/api/v1/leviathan/"
+             "webhook/extraction-complete so the lambda container can "
+             "reach the host Odoo process.",
+    )
     leviathan_webhook_max_bytes = fields.Integer(
         string="Webhook Max Body Bytes",
         config_parameter="leviathan.webhook_max_bytes",
