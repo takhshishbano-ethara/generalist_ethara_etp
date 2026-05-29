@@ -606,14 +606,11 @@ class GohanController(http.Controller):
                         record._upload_artifacts_bg,
                         db_name, record_id, artifacts_for_bg, s3_config,
                     )
-                # 2) PRD generation — runs concurrently with the upload.
-                #    Skipped for gated single jobs: PRD generation is kicked
-                #    off later by the tasker via action_generate_prd.
-                if is_batch:
-                    _submit_bg(
-                        f"prd-gen[job={record_id}]",
-                        record._run_prd_generation_bg, db_name, record_id,
-                    )
+                # PRD generation is dispatched by the gohan-worker pod which
+                # claims rows in state='generating' via SELECT FOR UPDATE
+                # SKIP LOCKED. Batch jobs already land here in 'generating'
+                # state (set by the webhook write above); the worker daemon
+                # picks them up on its next claim tick.
 
             request.env.cr.postcommit.add(_deferred)
 

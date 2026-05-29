@@ -46,6 +46,7 @@
     "license": "LGPL-3",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],
     "external_dependencies": {"python": ["requests", "markdown"]},
+    "post_load": "post_load",
     "data": [
         "security/gohan_security.xml",
         "security/ir.model.access.csv",

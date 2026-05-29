@@ -9,8 +9,8 @@ from pathlib import Path
 
 import requests
 
-from odoo import api, fields, models, SUPERUSER_ID
-from odoo.exceptions import UserError
+from odoo import _, api, fields, models, SUPERUSER_ID
+from odoo.exceptions import AccessError, UserError
 from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
@@ -70,6 +70,44 @@ _FANOUT_WAVE_DELAY_S = int(os.environ.get("GOHAN_FANOUT_WAVE_DELAY_S", "60"))
 # what the user reported for job 25 on turo.com (webhook rolled back, poller
 # wrote partial data, UI showed empty extraction).
 _GOHAN_WEBHOOK_LOCK_NS = 0x60134A82
+
+try:
+    from kubernetes import client as k8s_client, config as k8s_config
+    from kubernetes.client.rest import ApiException as K8sApiException
+    K8S_AVAILABLE = True
+except ImportError:
+    K8S_AVAILABLE = False
+    k8s_client = None
+    k8s_config = None
+    K8sApiException = Exception
+
+GOHAN_SERVICE_ACCOUNT = "gohan-worker"
+
+# Advisory-lock IDs distinct from _GOHAN_WEBHOOK_LOCK_NS and from each other
+# so dispatch / reconcile / webhook crons can hold their own locks
+# concurrently without blocking each other.
+_PRD_DISPATCH_LOCK_ID = 0x60134B01
+_PRD_RECONCILE_LOCK_ID = 0x60134B02
+
+_k8s_config_loaded = False
+_k8s_config_loaded_at = 0
+_k8s_config_lock = threading.Lock()
+_K8S_CONFIG_MAX_AGE = 3000
+
+
+def _load_k8s_config():
+    global _k8s_config_loaded, _k8s_config_loaded_at
+    if _k8s_config_loaded and (time.time() - _k8s_config_loaded_at) < _K8S_CONFIG_MAX_AGE:
+        return
+    with _k8s_config_lock:
+        if _k8s_config_loaded and (time.time() - _k8s_config_loaded_at) < _K8S_CONFIG_MAX_AGE:
+            return
+        try:
+            k8s_config.load_incluster_config()
+        except k8s_config.ConfigException:
+            k8s_config.load_kube_config()
+        _k8s_config_loaded = True
+        _k8s_config_loaded_at = time.time()
 
 
 def _submit_bg(label, fn, *args, **kwargs):
@@ -623,6 +661,14 @@ class GohanJob(models.Model):
     # _POOL._work_queue for >45 min get false-failed even though no work has
     # been attempted on them yet.
     started_processing_at = fields.Datetime(string="Worker Picked Up At")
+    # Worker label stamped by the gohan-worker pod's CLAIM_UPDATE_SQL when a
+    # row is picked off the queue (SELECT FOR UPDATE SKIP LOCKED). NULL means
+    # "available for claim"; non-NULL means "owned by <worker_label>". The
+    # reconcile cron clears this when last_heartbeat goes stale so another
+    # pod can re-claim after a worker crash.
+    job_name = fields.Char(
+        string="Worker Label", readonly=True, copy=False, index=True,
+    )
 
     # Computed HTML for asset previews
     screenshot_urls_html = fields.Html(
@@ -697,6 +743,11 @@ class GohanJob(models.Model):
         string="AWS Request ID", readonly=True, copy=False,
         help="X-Amzn-RequestId returned by API Gateway or Lambda for this run.",
     )
+    last_lambda_log_ts = fields.Datetime(
+        string="Last Lambda Log Fetched", readonly=True, copy=False,
+        help="Watermark for CloudWatch log polling — only events after this timestamp are pulled on next refresh.",
+    )
+    log_ids = fields.One2many("gohan.job.log", "job_id", string="Execution Logs", readonly=True)
     s3_artifact_prefix = fields.Char(
         string="S3 Artifact Prefix",
         help="s3://{bucket}/runs/{job_id}/ — root of all pipeline artifacts.",
@@ -1938,14 +1989,12 @@ class GohanJob(models.Model):
                 len(gen_ids), to_generate.mapped("name"),
             )
 
-            def _deferred_generate():
-                for rid in gen_ids:
-                    _submit_bg(
-                        f"prd-gen[job={rid}]",
-                        self._run_prd_generation_bg, db_name, rid,
-                    )
-
-            self.env.cr.postcommit.add(_deferred_generate)
+            to_generate.write({
+                "state": "generating",
+                "last_heartbeat": fields.Datetime.now(),
+                "started_processing_at": False,
+                "job_name": False,
+            })
 
         # --- Path B: no extraction data -> Lambda fan-out ---
         if to_extract:
@@ -2181,19 +2230,12 @@ class GohanJob(models.Model):
                 # picks the job up. Until then the watchdog must not see
                 # this row as "actually started".
                 "started_processing_at": False,
+                "job_name": False,
             })
             _logger.info(
                 "[gohan][job=%s] retry: prd_prompt present — skipping extraction, "
                 "going straight to PRD generation",
                 self.name,
-            )
-            db_name = self.env.cr.dbname
-            record_id = self.id
-            self.env.cr.postcommit.add(
-                lambda: _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    self._run_prd_generation_bg, db_name, record_id,
-                )
             )
             return
 
@@ -2306,18 +2348,9 @@ class GohanJob(models.Model):
                 "duration_seconds": False,
                 "last_heartbeat": now,
                 "started_processing_at": False,
+                "job_name": False,
             })
             gen_ids.append(rec.id)
-
-        if gen_ids:
-            def _deferred_generate():
-                for rid in gen_ids:
-                    _submit_bg(
-                        f"prd-gen[job={rid}]",
-                        self._run_prd_generation_bg, db_name, rid,
-                    )
-
-            self.env.cr.postcommit.add(_deferred_generate)
 
         # --- Path B: no prd_prompt → full pipeline (Lambda extraction first) ---
         if to_extract:
@@ -2442,16 +2475,8 @@ class GohanJob(models.Model):
                 # Cleared so the bg worker's re-entry guard re-claims this
                 # rerun — the field still holds the prior run's claim.
                 "started_processing_at": False,
+                "job_name": False,
             })
-            db_name = self.env.cr.dbname
-            record_id = self.id
-
-            self.env.cr.postcommit.add(
-                lambda: _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    self._run_prd_generation_bg, db_name, record_id,
-                )
-            )
 
     def action_rerun_with_extract(self):
         """Rerun with full re-extraction."""
@@ -2510,15 +2535,12 @@ class GohanJob(models.Model):
                 + qc_feedback
             )
 
-        db_name = self.env.cr.dbname
-        record_id = self.id
-
-        self.env.cr.postcommit.add(
-            lambda: _submit_bg(
-                f"prd-gen[job={record_id}]",
-                self._run_prd_generation_bg, db_name, record_id,
-            )
-        )
+        self.write({
+            "state": "generating",
+            "last_heartbeat": fields.Datetime.now(),
+            "started_processing_at": False,
+            "job_name": False,
+        })
 
     # ------------------------------------------------------------------
     # Extraction review gate
@@ -2742,16 +2764,8 @@ class GohanJob(models.Model):
             # Cleared so the bg worker's re-entry guard claims this run
             # (a job re-entering 'extracted' may still hold a prior claim).
             "started_processing_at": False,
+            "job_name": False,
         })
-
-        db_name = self.env.cr.dbname
-        record_id = self.id
-        self.env.cr.postcommit.add(
-            lambda: _submit_bg(
-                f"prd-gen[job={record_id}]",
-                self._run_prd_generation_bg, db_name, record_id,
-            )
-        )
 
     # ------------------------------------------------------------------
     # Staged (per-stage) pipeline — run the job one stage at a time.
@@ -3541,52 +3555,18 @@ class GohanJob(models.Model):
                     if not record.exists():
                         return
 
-                    # --- Fix 4 re-entry guard ---
-                    # The watchdog's deferred-job pass may re-submit a job that
-                    # was admission-rejected OR is queued-but-slow. If the
-                    # original submission ALSO runs, we would double-run the
-                    # whole Bedrock pipeline. Claim the job with a row-locked
-                    # compare-and-set on started_processing_at: SELECT ... FOR
-                    # UPDATE serialises competing workers — the first to reach
-                    # here sets the mark and wins; any later worker sees it set
-                    # and bails before any Bedrock call. Callers reset
-                    # started_processing_at=False when they (re)trigger a run,
-                    # so a stale mark from a prior cycle never blocks a new one.
-                    cr.execute(
-                        "SELECT state, started_processing_at FROM gohan_job "
-                        "WHERE id = %s FOR UPDATE",
-                        (record_id,),
-                    )
-                    _claim_row = cr.fetchone()
-                    if not _claim_row:
-                        cr.commit()
-                        return
-                    _claim_state, _claim_spa = _claim_row
-                    if _claim_state not in ("generating", "scoring"):
-                        # Cancelled / failed / already done out from under us.
+                    # State sanity check. The worker daemon's CLAIM SQL
+                    # (SELECT FOR UPDATE SKIP LOCKED on job_name IS NULL +
+                    # cancel_requested=FALSE) is the sole de-duplication path,
+                    # so we only verify the row is still in a runnable state in
+                    # case it was cancelled between claim and method entry.
+                    if record.state not in ("generating", "scoring"):
                         _logger.info(
                             "[gohan][job=%s] PRD worker: state=%s is not "
                             "generating/scoring — skipping (already handled)",
-                            record_id, _claim_state,
+                            record_id, record.state,
                         )
-                        cr.commit()
                         return
-                    if _claim_spa:
-                        # Another worker already claimed and is running this job.
-                        _logger.warning(
-                            "[gohan][job=%s] PRD worker: already claimed "
-                            "(started_processing_at=%s) — skipping duplicate run",
-                            record_id, _claim_spa,
-                        )
-                        cr.commit()
-                        return
-                    # Claim it now, atomically, while the row lock is still held.
-                    cr.execute(
-                        "UPDATE gohan_job SET started_processing_at = "
-                        "(now() AT TIME ZONE 'UTC') WHERE id = %s",
-                        (record_id,),
-                    )
-                    cr.commit()
 
                     ICP = env["ir.config_parameter"].sudo()
                     bedrock_access_key, bedrock_secret_key = _get_bedrock_credentials(env)
@@ -3658,10 +3638,6 @@ class GohanJob(models.Model):
                         )
                         return
 
-                    # started_processing_at was already claimed by the re-entry
-                    # guard above (it is the watchdog's "running, not just
-                    # queued" signal). Here we only (re)affirm state and pulse
-                    # the heartbeat now that config has loaded cleanly.
                     record.write({
                         "state": "generating",
                         "last_heartbeat": fields.Datetime.now(),
@@ -4507,34 +4483,19 @@ class GohanJob(models.Model):
                     fields.Datetime.now() - timedelta(minutes=deferred_threshold),
                 ),
             ])
-            db_name = self.env.cr.dbname
             for job in deferred:
                 _logger.warning(
                     "[gohan][job=%s] watchdog: %s with no worker for >%dmin "
-                    "(admission-rejected or pool-starved) — re-submitting",
+                    "— clearing job_name so a fresh worker pod re-claims it",
                     job.name, job.state, deferred_threshold,
                 )
-                # Pulse the heartbeat now so that if the re-submission is
-                # ALSO rejected (pool still full), this job is not re-picked
-                # until another deferred_threshold elapses — natural backoff
-                # instead of a tight re-submit loop every watchdog tick.
-                job.last_heartbeat = fields.Datetime.now()
-
-                def _resubmit(_rid=job.id):
-                    handle = _submit_bg(
-                        f"prd-gen[watchdog-resubmit,job={_rid}]",
-                        self._run_prd_generation_bg, db_name, _rid,
-                    )
-                    if handle is None:
-                        _logger.warning(
-                            "[gohan][job=%s] watchdog re-submission ALSO "
-                            "rejected (pool still full) — will retry on a "
-                            "later watchdog tick", _rid,
-                        )
-
-                # postcommit so the heartbeat pulse is durably committed
-                # before the re-submitted worker can race the cron's txn.
-                self.env.cr.postcommit.add(_resubmit)
+                # Worker-pod model: clear the claim and pulse heartbeat so
+                # the next dispatch cron tick scales a worker that picks
+                # this row up via SELECT FOR UPDATE SKIP LOCKED.
+                job.write({
+                    "last_heartbeat": fields.Datetime.now(),
+                    "job_name": False,
+                })
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(987654321)")
 
@@ -4625,6 +4586,107 @@ class GohanJob(models.Model):
             "(request_id=%s)", self.name, request_id or "n/a",
         )
         self._notify_state_change()
+
+    def _fetch_lambda_logs_one(self, job, logs_client, log_group):
+        request_id = (job.lambda_request_id or "").strip()
+        if not request_id:
+            return
+        # CloudWatch filter_log_events without startTime scans a narrow recent window
+        # and returns 0 events for older RequestIds. Always pass startTime; align the
+        # default to when Lambda actually ran so matching events land on page 1 within
+        # the 5x200 pagination cap.
+        if job.last_lambda_log_ts:
+            start_ms = int(job.last_lambda_log_ts.timestamp() * 1000) + 1
+        elif job.started_at:
+            start_ms = int(job.started_at.timestamp() * 1000) - 60_000
+        else:
+            import time as _time
+            start_ms = int(_time.time() * 1000) - 7 * 86400 * 1000
+        events = []
+        next_token = None
+        page_limit = 5
+        for _ in range(page_limit):
+            kwargs = {
+                "logGroupName": log_group,
+                "filterPattern": f'"{request_id}"',
+                "limit": 200,
+                "startTime": start_ms,
+            }
+            if next_token:
+                kwargs["nextToken"] = next_token
+            try:
+                resp = logs_client.filter_log_events(**kwargs)
+            except logs_client.exceptions.ResourceNotFoundException:
+                return
+            except Exception:
+                _logger.exception("[gohan][job=%s] filter_log_events failed", job.id)
+                return
+            events.extend(resp.get("events", []))
+            next_token = resp.get("nextToken")
+            if not next_token:
+                break
+        if not events:
+            return
+        Log = self.env["gohan.job.log"].sudo()
+        latest_ms = 0
+        rows = []
+        from datetime import datetime as _dt
+        for ev in events:
+            ts_ms = ev.get("timestamp") or 0
+            if ts_ms > latest_ms:
+                latest_ms = ts_ms
+            ts = _dt.utcfromtimestamp(ts_ms / 1000.0) if ts_ms else _dt.utcnow()
+            msg = (ev.get("message") or "").rstrip("\n")
+            level = "INFO"
+            if "ERROR" in msg or "Traceback" in msg:
+                level = "ERROR"
+            elif "WARN" in msg or "WARNING" in msg:
+                level = "WARNING"
+            rows.append({
+                "job_id": job.id,
+                "timestamp": ts,
+                "source": "lambda",
+                "level": level,
+                "message": msg[:16384],
+            })
+        if rows:
+            Log.create(rows)
+        if latest_ms:
+            new_watermark = _dt.utcfromtimestamp(latest_ms / 1000.0)
+            job.sudo().write({"last_lambda_log_ts": new_watermark})
+
+    def action_refresh_lambda_logs(self):
+        self.ensure_one()
+        if not self.env.user.has_group("gohan.group_gohan_admin"):
+            raise AccessError(_("Only Gohan administrators can fetch Lambda CloudWatch logs."))
+        if not self.lambda_request_id:
+            return False
+        ICP = self.env["ir.config_parameter"].sudo()
+        function_name = (ICP.get_param("gohan.lambda_function_name") or "").strip()
+        region = (ICP.get_param("gohan.lambda_region") or "us-east-1").strip()
+        access_key_id = (ICP.get_param("gohan.extraction_access_key_id") or "").strip()
+        secret_access_key = (ICP.get_param("gohan.extraction_secret_access_key") or "").strip()
+        if not function_name:
+            return False
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except ImportError:
+            return False
+        client_kwargs = {
+            "service_name": "logs",
+            "region_name": region,
+            "config": BotoConfig(read_timeout=30, connect_timeout=10, retries={"max_attempts": 2}),
+        }
+        if access_key_id and secret_access_key:
+            client_kwargs["aws_access_key_id"] = access_key_id
+            client_kwargs["aws_secret_access_key"] = secret_access_key
+        logs_client = boto3.client(**client_kwargs)
+        self._fetch_lambda_logs_one(self, logs_client, f"/aws/lambda/{function_name}")
+        return {
+            "type": "ir.actions.client",
+            "tag": "soft_reload",
+        }
 
     # ------------------------------------------------------------------
     # S3 Rescue: shared by reconcile cron, watchdog, and manual button
@@ -5038,19 +5100,174 @@ class GohanJob(models.Model):
             next_state=write_vals.get("state") or self.state,
         )
 
-        if write_vals.get("state") == "generating":
-            def _deferred():
-                _submit_bg(
-                    f"prd-gen[reconcile,job={record_id}]",
-                    self._run_prd_generation_bg, db_name, record_id,
-                )
-            self.env.cr.postcommit.add(_deferred)
-
         return True, (
             f"Recovered from {rescue_source_key} (screenshots="
             f"{len(screenshot_keys)}, assets={len(asset_keys)}); "
             f"advanced to {write_vals.get('state') or self.state}"
         )
+
+    # ------------------------------------------------------------------
+    # Worker Pod Dispatch — PRD generation runs in gohan-worker pods,
+    # claimed via SELECT FOR UPDATE SKIP LOCKED. This Odoo backend cron
+    # scales the worker Deployment based on queue depth; the reconcile
+    # cron clears stale claims on worker crashes.
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _cron_dispatch_prd_jobs(self):
+        self.env.cr.execute("SELECT pg_try_advisory_lock(%s)", (_PRD_DISPATCH_LOCK_ID,))
+        locked = self.env.cr.fetchone()
+        if not locked or not locked[0]:
+            _logger.debug("[gohan] PRD scaler: lock held elsewhere, skipping")
+            return
+        try:
+            self._run_worker_deployment_scaler()
+        finally:
+            self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (_PRD_DISPATCH_LOCK_ID,))
+
+    @api.model
+    def _worker_scaler_config(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        return {
+            "deployment_name": ICP.get_param("gohan.worker_deployment_name", "gohan-worker"),
+            "namespace": ICP.get_param("gohan.k8s_namespace", "gohan"),
+            "min_replicas": int(ICP.get_param("gohan.worker_min_replicas", "0")),
+            "max_replicas": int(ICP.get_param("gohan.worker_max_replicas", "10")),
+            "per_pod_concurrency": int(ICP.get_param("gohan.worker_target_concurrency", "100")),
+        }
+
+    def _run_worker_deployment_scaler(self):
+        if not K8S_AVAILABLE:
+            _logger.warning(
+                "[gohan] worker scaler: kubernetes package unavailable — "
+                "Deployment cannot be scaled from Odoo. Install kubernetes "
+                "in the Odoo backend image (pinned <33 due to v36 auth bug)."
+            )
+            return
+        cfg = self._worker_scaler_config()
+
+        load = self.sudo().search_count([
+            ("state", "=", "generating"),
+            ("cancel_requested", "=", False),
+        ])
+        desired = -(-max(load, 0) // cfg["per_pod_concurrency"])
+        desired = max(cfg["min_replicas"], min(desired, cfg["max_replicas"]))
+
+        try:
+            _load_k8s_config()
+            apps_v1 = k8s_client.AppsV1Api()
+            deployment = apps_v1.read_namespaced_deployment(
+                name=cfg["deployment_name"], namespace=cfg["namespace"],
+            )
+        except Exception:
+            _logger.exception(
+                "[gohan] worker scaler: failed to read Deployment %s/%s",
+                cfg["namespace"], cfg["deployment_name"],
+            )
+            return
+
+        # Use max(spec, status) as "current" so scale-down mid-drain doesn't
+        # double-charge: spec might be 1 while status.replicas is 5 (4 pods
+        # draining). Treating as 1 would prompt no-scale-up on a fresh burst.
+        spec_replicas = (deployment.spec.replicas if deployment.spec else 0) or 0
+        status_replicas = (deployment.status.replicas if deployment.status else 0) or 0
+        current = max(spec_replicas, status_replicas)
+
+        if current == desired:
+            _logger.debug(
+                "[gohan] worker scaler: %s/%s already at %d (spec=%d status=%d, load=%d)",
+                cfg["namespace"], cfg["deployment_name"], current,
+                spec_replicas, status_replicas, load,
+            )
+            return
+
+        # Scale UP is immediate (burst response); scale DOWN waits for the
+        # cooldown to elapse since the last change. Cron tick (1 min) is
+        # much shorter than pod drain (~30 min), so without this gate a
+        # burst+drain cycle flaps the Deployment up/down/up.
+        if desired < current:
+            ICP = self.env["ir.config_parameter"].sudo()
+            cooldown_s = int(ICP.get_param("gohan.worker_scale_down_cooldown_s", "600"))
+            last_change = ICP.get_param("gohan.worker_last_scale_change_utc", "")
+            if last_change:
+                try:
+                    from datetime import datetime as _dt
+                    last_dt = _dt.fromisoformat(last_change)
+                    elapsed = (fields.Datetime.now() - last_dt).total_seconds()
+                    if elapsed < cooldown_s:
+                        _logger.info(
+                            "[gohan] worker scaler: load=%d desired=%d < current=%d, "
+                            "scale-down cooldown active (%.0fs / %ds) — deferring",
+                            load, desired, current, elapsed, cooldown_s,
+                        )
+                        return
+                except Exception:
+                    _logger.warning(
+                        "[gohan] worker scaler: could not parse last-scale timestamp %r — "
+                        "proceeding with scale-down (hysteresis disabled this tick)",
+                        last_change,
+                    )
+
+        _logger.info(
+            "[gohan] worker scaler: %s/%s %d -> %d replicas (spec=%d status=%d "
+            "load=%d per_pod=%d range=%d..%d)",
+            cfg["namespace"], cfg["deployment_name"], current, desired,
+            spec_replicas, status_replicas, load,
+            cfg["per_pod_concurrency"], cfg["min_replicas"], cfg["max_replicas"],
+        )
+
+        try:
+            apps_v1.patch_namespaced_deployment(
+                name=cfg["deployment_name"],
+                namespace=cfg["namespace"],
+                body={"spec": {"replicas": desired}},
+            )
+            self.env["ir.config_parameter"].sudo().set_param(
+                "gohan.worker_last_scale_change_utc",
+                fields.Datetime.now().isoformat(),
+            )
+        except Exception:
+            _logger.exception(
+                "[gohan] worker scaler: patch %s/%s -> %d replicas failed",
+                cfg["namespace"], cfg["deployment_name"], desired,
+            )
+
+    @api.model
+    def _cron_reconcile_prd_jobs(self):
+        self.env.cr.execute("SELECT pg_try_advisory_lock(%s)", (_PRD_RECONCILE_LOCK_ID,))
+        locked = self.env.cr.fetchone()
+        if not locked or not locked[0]:
+            _logger.debug("[gohan] PRD reconcile: lock held elsewhere, skipping")
+            return
+        try:
+            self._run_reconcile_prd_jobs()
+        finally:
+            self.env.cr.execute("SELECT pg_advisory_unlock(%s)", (_PRD_RECONCILE_LOCK_ID,))
+
+    @api.model
+    def _run_reconcile_prd_jobs(self):
+        ICP = self.env["ir.config_parameter"].sudo()
+        stale_minutes = int(ICP.get_param("gohan.worker_heartbeat_stale_minutes", "10"))
+        stale_cutoff = fields.Datetime.now() - timedelta(minutes=stale_minutes)
+        stale = self.sudo().search([
+            ("state", "=", "generating"),
+            ("job_name", "!=", False),
+            ("last_heartbeat", "<", stale_cutoff),
+        ])
+        if not stale:
+            return
+        _logger.warning(
+            "[gohan] PRD reconcile: clearing %d stale claim(s) (heartbeat older than %dmin): %s",
+            len(stale), stale_minutes, stale.mapped("name"),
+        )
+        # Clearing job_name returns the row to the unclaimed pool so the next
+        # worker dispatch tick (1 min) picks it up via SELECT FOR UPDATE
+        # SKIP LOCKED. Heartbeat is pulsed so the watchdog doesn't false-fail
+        # the row before a worker claims it again.
+        stale.write({
+            "job_name": False,
+            "last_heartbeat": fields.Datetime.now(),
+        })
 
     # ------------------------------------------------------------------
     # Cron: Reconcile orphaned runs (HANDOFF_ODOO.md §4.6)

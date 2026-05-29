@@ -212,6 +212,35 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum active tasks (draft + extracting + generating + scoring + done) per tasker. 0 = unlimited.",
     )
 
+    # -- Worker Pod Dispatch (PRD generation runs in a separate Kubernetes
+    # Deployment, claimed via SELECT FOR UPDATE SKIP LOCKED) --
+    gohan_worker_deployment_name = fields.Char(
+        string="Worker Deployment Name",
+        config_parameter="gohan.worker_deployment_name",
+        default="gohan-worker",
+        help="Kubernetes Deployment name patched by the dispatch cron to scale "
+             "PRD worker replicas based on queue depth.",
+    )
+    gohan_worker_min_replicas = fields.Integer(
+        string="Worker Min Replicas",
+        config_parameter="gohan.worker_min_replicas",
+        default=0,
+        help="Floor for the worker replica count. 0 = scale to zero when idle.",
+    )
+    gohan_worker_max_replicas = fields.Integer(
+        string="Worker Max Replicas",
+        config_parameter="gohan.worker_max_replicas",
+        default=10,
+        help="Ceiling for the worker replica count.",
+    )
+    gohan_worker_target_concurrency = fields.Integer(
+        string="Worker Target Concurrency",
+        config_parameter="gohan.worker_target_concurrency",
+        default=100,
+        help="Per-pod concurrency target used to compute desired replicas: "
+             "ceil(load / target_concurrency), clamped to [min, max].",
+    )
+
     def _compute_gohan_prompt_status(self):
         ICP = self.env["ir.config_parameter"].sudo()
         prd = (ICP.get_param("gohan.prd_system_prompt", "") or "").strip()

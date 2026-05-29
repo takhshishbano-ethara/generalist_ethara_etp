@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gohan-worker
+  namespace: gohan
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: gohan-worker
+  template:
+    metadata:
+      labels:
+        app: gohan-worker
+    spec:
+      serviceAccountName: gohan-worker
+      containers:
+        - name: worker
+          image: gohan-prd-worker:latest
+          imagePullPolicy: Never
+          command: ["python", "/opt/odoo/custom_addons/gohan/worker/run_prd.py"]
+          env:
+            - name: ODOO_DB
+              value: "odoo"
+            - name: ODOO_CONF
+              value: "/etc/odoo/odoo.conf"
+            - name: DB_HOST
+              value: "postgres.gohan.svc.cluster.local"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: "odoo"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: DB_PASSWORD
+            - name: GOHAN_WORKER_CONCURRENCY
+              value: "10"
+            - name: GOHAN_WORKER_CLAIM_BATCH
+              value: "5"
+            - name: GOHAN_WORKER_POLL_S
+              value: "5"
+            - name: GOHAN_BEDROCK_MAX_CONCURRENT
+              value: "5"
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: AWS_DEFAULT_REGION
+              value: "us-east-1"
+            - name: AWS_REGION
+              value: "us-east-1"
+            - name: AWS_ENDPOINT_URL_S3
+              value: "http://minio.gohan.svc.cluster.local:9000"
+            - name: GOHAN_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: WEBHOOK_TOKEN
+            - name: LEVIATHAN_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: gohan-local-env
+                  key: WEBHOOK_TOKEN
+          volumeMounts:
+            - name: odoo-config
+              mountPath: /etc/odoo/odoo.conf
+              subPath: odoo.conf
+              readOnly: true
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              memory: "2Gi"
+      volumes:
+        - name: odoo-config
+          configMap:
+            name: odoo-config
+      terminationGracePeriodSeconds: 1800

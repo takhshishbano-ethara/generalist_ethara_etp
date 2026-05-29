@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="video_editor_s3.VideoUrlPreviewField">
+        <div class="o_video_url_preview_field d-flex align-items-center gap-1 w-100">
+            <t t-if="props.readonly">
+                <a t-if="rawValue and (rawValue.startsWith('http://') or rawValue.startsWith('https://'))"
+                   t-att-href="rawValue"
+                   target="_blank"
+                   rel="noopener"
+                   class="text-break flex-grow-1">
+                    <t t-esc="rawValue"/>
+                </a>
+                <span t-else="" class="text-break flex-grow-1 text-muted">
+                    <t t-esc="rawValue or '—'"/>
+                </span>
+            </t>
+            <t t-else="">
+                <input type="text"
+                       class="o_input flex-grow-1"
+                       t-att-value="rawValue"
+                       t-att-placeholder="props.placeholder || ''"
+                       t-on-change="(ev) => this.props.record.update({ [this.props.name]: ev.target.value })"/>
+            </t>
+            <button type="button"
+                    class="o_video_url_preview_btn"
+                    title="Preview video"
+                    t-att-disabled="!canPreview"
+                    t-on-click.stop.prevent="onPreview">
+                <span class="o_video_url_preview_btn__icon">
+                    <i class="fa fa-play"/>
+                </span>
+                <span class="o_video_url_preview_btn__label">Preview</span>
+            </button>
+        </div>
+    </t>
+
+    <t t-name="video_editor_s3.VideoPreviewDialog">
+        <Dialog title="props.title" size="'xl'" contentClass="'o_video_preview_dialog'">
+            <div class="o_video_preview_dialog__body">
+                <video controls="controls"
+                       preload="metadata"
+                       playsinline="playsinline"
+                       t-att-src="props.src"
+                       style="width: 100%; max-height: 70vh; background: #000; border-radius: 4px;">
+                    Your browser does not support HTML5 video playback.
+                </video>
+                <div class="mt-2 small text-muted text-break">
+                    <strong>URL:</strong>
+                    <a t-att-href="props.src" target="_blank" rel="noopener" class="ms-1">
+                        <t t-esc="props.src"/>
+                    </a>
+                </div>
+            </div>
+            <t t-set-slot="footer">
+                <button type="button" class="btn btn-secondary" t-on-click="() => props.close()">Close</button>
+            </t>
+        </Dialog>
+    </t>
+
+</templates>

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_video_editor_s3" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.video.editor.s3</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Crowly Sourcing" string="Crowly Sourcing" name="video_editor_s3" groups="video_editor_s3.group_video_editor_s3_manager">
+                    <block title="Amazon S3 Credentials" name="video_editor_s3_credentials">
+                        <setting id="video_editor_s3_aws_bucket" string="S3 Bucket" help="Default S3 bucket for export operations.">
+                            <field name="video_editor_s3_aws_bucket" placeholder="my-video-bucket"/>
+                        </setting>
+                        <setting id="video_editor_s3_aws_region" string="AWS Region">
+                            <field name="video_editor_s3_aws_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting id="video_editor_s3_aws_access_key" string="Access Key">
+                            <field name="video_editor_s3_aws_access_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_aws_secret_key" string="Secret Key">
+                            <field name="video_editor_s3_aws_secret_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_export_prefix" string="Export Key Prefix" help="S3 key prefix prepended to all rendered exports.">
+                            <field name="video_editor_s3_export_prefix"/>
+                        </setting>
+                        <setting id="video_editor_s3_youtube_prefix" string="YouTube Key Prefix" help="S3 key prefix for ingested YouTube videos.">
+                            <field name="video_editor_s3_youtube_prefix"/>
+                        </setting>
+                        <setting>
+                            <button name="action_test_s3_connection" string="Test S3 Connection" type="object" class="btn-primary"/>
+                        </setting>
+                    </block>
+                    <block title="Processing Limits" name="video_editor_s3_limits">
+                        <setting id="video_editor_s3_max_source_size_mb" string="Max Source Size (MB)" help="Reject S3 source downloads larger than this size.">
+                            <field name="video_editor_s3_max_source_size_mb"/>
+                        </setting>
+                        <setting id="video_editor_s3_max_concurrent_jobs" string="Max Concurrent Jobs" help="Process pool capacity. Restart Odoo workers after changing.">
+                            <field name="video_editor_s3_max_concurrent_jobs"/>
+                        </setting>
+                    </block>
+                    <block title="Kimi K2.5 Prompt QC" name="video_editor_s3_bedrock">
+                        <setting id="video_editor_s3_bedrock_region" string="Bedrock Region" help="AWS region hosting the Kimi K2.5 deployment. Supported: us-east-1, us-west-2, ap-south-1, ap-northeast-1, ap-southeast-2, ap-southeast-3, ap-southeast-4, eu-north-1, eu-west-2, sa-east-1.">
+                            <field name="video_editor_s3_bedrock_region" placeholder="us-east-1"/>
+                        </setting>
+                        <setting id="video_editor_s3_bedrock_model_id" string="Kimi Model ID / ARN" help="Bedrock foundation-model ID (e.g. 'moonshotai.kimi-k2.5') or a Bedrock Marketplace endpoint ARN. URL-encoded into the Converse API path.">
+                            <field name="video_editor_s3_bedrock_model_id" placeholder="moonshotai.kimi-k2.5"/>
+                        </setting>
+                        <setting id="video_editor_s3_bedrock_api_key" string="Bedrock API Key" help="Long-term Bedrock API key from the AWS console. Sent as the 'Authorization: Bearer ...' header on Kimi K2.5 Converse calls.">
+                            <field name="video_editor_s3_bedrock_api_key" password="True"/>
+                        </setting>
+                    </block>
+                    <block title="Prompt QC Seed" name="video_editor_s3_qc_seed">
+                        <setting id="video_editor_s3_qc_seed_file_setting" string="QC Seed Prompt File" help="Upload a .md or .txt file (UTF-8, max 100 KB) to override the bundled default QC seed prompt. Clear the file to revert to the bundled default.">
+                            <field name="video_editor_s3_qc_seed_file" filename="video_editor_s3_qc_seed_filename"/>
+                            <field name="video_editor_s3_qc_seed_filename" invisible="1"/>
+                        </setting>
+                    </block>
+                    <block title="YouTube Ingest" name="video_editor_s3_youtube">
+                        <setting id="video_editor_s3_yt_cookies_browser" string="Cookies From Browser" help="Auto-import YouTube cookies from an installed browser (chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). Optionally append :PROFILE e.g. 'chrome:Profile 1'. The browser must be installed on the Odoo host and logged in to YouTube.">
+                            <field name="video_editor_s3_yt_cookies_browser" placeholder="chrome"/>
+                        </setting>
+                        <setting id="video_editor_s3_yt_cookies_path" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Recommended for server deployments.">
+                            <field name="video_editor_s3_yt_cookies_path" placeholder="/var/lib/odoo/yt_cookies.txt"/>
+                        </setting>
+                        <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
+                            <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
+                        </setting>
+                    </block>
+                    <block title="System Paths" name="video_editor_s3_paths">
+                        <setting id="video_editor_s3_media_root" string="Media Root Override" help="Absolute directory for downloaded sources and rendered outputs. Leave empty to auto-detect.">
+                            <field name="video_editor_s3_media_root" placeholder="/var/lib/odoo/video_editor_s3_media"/>
+                        </setting>
+                        <setting id="video_editor_s3_ffmpeg_path" string="FFmpeg Binary Override">
+                            <field name="video_editor_s3_ffmpeg_path" placeholder="/usr/bin/ffmpeg"/>
+                        </setting>
+                        <setting id="video_editor_s3_ffprobe_path" string="FFprobe Binary Override">
+                            <field name="video_editor_s3_ffprobe_path" placeholder="/usr/bin/ffprobe"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_video_editor_s3_settings" model="ir.actions.act_window">
+        <field name="name">Crowly Sourcing Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'video_editor_s3'}</field>
+    </record>
+</odoo>
