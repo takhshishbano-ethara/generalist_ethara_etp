@@ -1,6 +1,6 @@
 {
     "name": "Leviathan",
-    "version": "19.0.3.0.0",
+    "version": "19.0.6.0.0",
     "category": "Tools",
     "summary": "Leviathan — Automated PRD Generation Pipeline (async-Lambda, 250-concurrent)",
     "description": (
@@ -13,10 +13,17 @@
         "or PRD-gen failure (not missing screenshots). Skip re-extraction when "
         "a PRD prompt already exists. New 'discarded' terminal state + Discard "
         "button. Robust self-recovering thread pool. Full transparency: raw "
-        "Lambda callback + LLM trace per job. Watchdog 'started' ping."
+        "Lambda callback + LLM trace per job. Watchdog 'started' ping.\n\n"
+        "v19.0.5.0.0: durable PRD queue with FOR UPDATE SKIP LOCKED claim, "
+        "prd_claim_count fence, two-mode dispatch (inprocess|worker).\n\n"
+        "v19.0.6.0.0: per-job Logs tab + log handler (auto-scrapes [job=N] "
+        "tags from anywhere in the addon), current_phase sub-step visibility, "
+        "lambda_request_id capture for CloudWatch fetch, chatter posts at "
+        "every pipeline boundary."
     ),
     "author": "Ethara",
     "depends": ["base", "base_setup", "web", "mail", "bus", "etp_user_roles"],
+    "post_load": "post_load",
     "data": [
         "security/leviathan_security.xml",
         "security/ir.model.access.csv",

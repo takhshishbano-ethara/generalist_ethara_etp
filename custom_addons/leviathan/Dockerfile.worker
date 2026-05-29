@@ -1,0 +1,88 @@
+# Leviathan PRD worker — production EKS image (amd64).
+#
+# Boots a headless Odoo 19 registry and runs the standalone PRD claim loop
+# (worker/run_prd.py). Lighter than the etp-be image: PRD generation only
+# calls the Bedrock + S3 HTTPS APIs, so no docker-cli / buildx / skopeo /
+# AWS-CLI is installed.
+#
+# Build context: repo root (so src/ and custom_addons/ are reachable).
+#
+# Build:
+#   docker build --platform linux/amd64 \
+#     -f custom_addons/leviathan/Dockerfile.worker \
+#     -t 426628337772.dkr.ecr.ap-south-1.amazonaws.com/leviathan-prd-worker:latest .
+#
+# Push:
+#   aws ecr get-login-password --region ap-south-1 | \
+#     docker login --username AWS --password-stdin \
+#     426628337772.dkr.ecr.ap-south-1.amazonaws.com
+#   docker push 426628337772.dkr.ecr.ap-south-1.amazonaws.com/leviathan-prd-worker:latest
+#
+# CI must rebuild + push this image whenever custom_addons/leviathan/ or
+# src/ changes — the image bundles the addon source.
+
+FROM python:3.12-slim-bookworm AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git \
+        libpq-dev \
+        libxml2-dev libxslt1-dev \
+        libssl-dev libffi-dev \
+        libjpeg62-turbo-dev zlib1g-dev \
+        build-essential gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+COPY custom_addons/leviathan/worker/requirements.txt /tmp/worker-requirements.txt
+
+RUN pip install --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r /tmp/worker-requirements.txt
+
+# ---------- runtime stage ----------
+FROM python:3.12-slim-bookworm
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/opt/odoo:/opt/odoo/custom_addons
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        postgresql-client \
+        libpq5 \
+        libxml2 libxslt1.1 \
+        libssl3 \
+        libffi8 \
+        libjpeg62-turbo \
+        zlib1g \
+        ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib/python3.12/site-packages \
+                    /usr/local/lib/python3.12/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+WORKDIR /opt/odoo
+
+COPY src/ /opt/odoo/
+COPY custom_addons/leviathan/ /opt/odoo/custom_addons/leviathan/
+# Dependency closure: leviathan depends on etp_user_roles, which in turn
+# depends only on core Odoo modules. Bundle it so the registry boot can
+# resolve the dep graph at startup.
+COPY custom_addons/etp_user_roles/ /opt/odoo/custom_addons/etp_user_roles/
+
+RUN chmod +x /opt/odoo/odoo-bin 2>/dev/null || true
+
+RUN useradd -r -u 1000 -m -d /opt/odoo -s /usr/sbin/nologin odoo \
+    && chown -R odoo:odoo /opt/odoo \
+    && mkdir -p /tmp/odoo-data \
+    && chown -R odoo:odoo /tmp/odoo-data
+
+USER odoo
+
+# K8s readiness/liveness can call this binary with --check:
+#   readinessProbe: { exec: { command: ["python", "/opt/odoo/custom_addons/leviathan/worker/run_prd.py", "--check"] } }
+# (--check runs a single drainer iteration and exits 0 on success.)
+CMD ["python", "/opt/odoo/custom_addons/leviathan/worker/run_prd.py"]

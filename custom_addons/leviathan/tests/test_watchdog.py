@@ -112,7 +112,7 @@ class TestWatchdogAutoRetry(LeviathanTestCase):
                 last_heartbeat=self._stale(),
                 started_at=self._stale(),
             )
-        with self._patch_submit_bg():
+        with self._patch_cursor_commit(), self._patch_submit_bg():
             self.Job._watchdog_recover_chunked(
                 jobs,
                 reason="ignored on first hit",
@@ -136,9 +136,10 @@ class TestWatchdogAutoRetry(LeviathanTestCase):
             watchdog_retry_count=1,  # auto-retry already happened
         )
         reason = "Watchdog: extraction timed out (no response for 30+ minutes)"
-        self.Job._watchdog_recover_chunked(
-            job, reason=reason, log_label="extracting >30min", auto_retry_max=1,
-        )
+        with self._patch_cursor_commit():
+            self.Job._watchdog_recover_chunked(
+                job, reason=reason, log_label="extracting >30min", auto_retry_max=1,
+            )
         self.assertEqual(job.state, "failed")
         self.assertEqual(job.error_message, reason)
         self.assertEqual(
@@ -156,10 +157,11 @@ class TestWatchdogAutoRetry(LeviathanTestCase):
             last_heartbeat=self._stale(),
             started_at=self._stale(),
         )
-        self.Job._watchdog_recover_chunked(
-            job,
-            reason="ignored",
-            log_label="extracting >30min",
-            auto_retry_max=0,  # disabled
-        )
+        with self._patch_cursor_commit():
+            self.Job._watchdog_recover_chunked(
+                job,
+                reason="ignored",
+                log_label="extracting >30min",
+                auto_retry_max=0,  # disabled
+            )
         self.assertEqual(job.state, "failed", "with cap=0 first hit must mark failed")

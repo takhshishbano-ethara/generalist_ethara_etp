@@ -56,6 +56,57 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="leviathan.bedrock_secret_access_key",
     )
 
+    # -- LLM image attachment (opt-in; off by default) --
+    #
+    # Attaching screenshots to Bedrock calls is a known failure-rate
+    # amplifier: long-output PRD generation + image content blocks
+    # produces 4xx rejections far more often than text-only requests.
+    # Default: both OFF — matches the historical hardcoded behaviour
+    # (`screenshot_blocks = []` and `screenshot_blocks accepted but
+    # ignored` in qc_service). Opt in per-environment when you want to
+    # trade reliability for marginally better visual grounding.
+    leviathan_prd_include_images = fields.Boolean(
+        string="Attach Screenshots to PRD Generation",
+        config_parameter="leviathan.prd_include_images",
+        default=False,
+        help=(
+            "When ON, the PRD generation Bedrock call receives the first "
+            "N screenshots (capped by Attach — Max Images, default 4) "
+            "as image content blocks. When OFF (default and recommended), "
+            "PRD generation is text-only: the extraction Lambda's "
+            "`prd_prompt` already encodes a textual description of the "
+            "visual extraction, and text-only requests are much less "
+            "likely to hit Bedrock 4xx rejections."
+        ),
+    )
+    leviathan_qc_include_images = fields.Boolean(
+        string="Attach Screenshots to QC Alignment Check",
+        config_parameter="leviathan.qc_include_images",
+        default=False,
+        help=(
+            "When ON, the QC alignment-check Bedrock call receives the "
+            "first N screenshots (same cap as PRD generation). When OFF "
+            "(default and recommended), QC compares the PRD against the "
+            "extraction-JSON summary text — not screenshots. Turn ON "
+            "only if reviewers report 'PRD says hero is dark but "
+            "screenshot shows light'-style misalignments slipping "
+            "through."
+        ),
+    )
+    leviathan_prd_max_images = fields.Integer(
+        string="Attach — Max Images",
+        config_parameter="leviathan.prd_max_images",
+        default=4,
+        help=(
+            "Maximum number of screenshots to attach when either "
+            "`prd_include_images` or `qc_include_images` is ON. Each "
+            "image is resized to fit Bedrock's 8000-px-per-side limit "
+            "before upload. Higher values give the model more visual "
+            "context but also raise the 4xx-rejection rate — 4 is the "
+            "observed sweet spot on Claude."
+        ),
+    )
+
     # -- S3 --
     leviathan_s3_bucket = fields.Char(
         string="S3 Bucket Name",
@@ -139,27 +190,73 @@ class ResConfigSettings(models.TransientModel):
              "stuck hit). Live — takes effect on next cron tick.",
     )
 
-    # -- Concurrency (RESTART required for changes to take full effect) --
+    # -- PRD-queue two-gate reconcile (LIVE) --
+    #
+    # The drainer's stale-recovery step uses TWO gates so a worker that's
+    # genuinely alive-but-slow does NOT get reclaimed (and the same job
+    # billed on Bedrock twice). See `_prd_queue_recover_stale` docstring.
+    leviathan_prd_stale_minutes = fields.Integer(
+        string="PRD Stale Heartbeat (long gate, min)",
+        config_parameter="leviathan.prd_stale_minutes",
+        default=15,
+        help="Long / unconditional gate. A row with no heartbeat for "
+             "this many minutes is recovered no matter what. Set above "
+             "the worst-case real PRD pipeline duration (Bedrock + QC "
+             "+ S3 upload ≈ 5 min worst case; 15 leaves wide margin). "
+             "Live — takes effect on next drainer tick.",
+    )
+    leviathan_prd_short_stale_minutes = fields.Integer(
+        string="PRD Stale Heartbeat (short gate, min)",
+        config_parameter="leviathan.prd_short_stale_minutes",
+        default=5,
+        help="Short / fast gate. Combined with the failure-count "
+             "threshold below: a row is recovered if its heartbeat is "
+             "older than THIS many minutes AND its "
+             "heartbeat_failure_count is at or above the threshold. "
+             "Lower = faster recovery when the worker is *demonstrably* "
+             "failing to pulse. Live — takes effect on next drainer tick.",
+    )
+    leviathan_prd_heartbeat_failure_threshold = fields.Integer(
+        string="Heartbeat Failure Threshold",
+        config_parameter="leviathan.prd_heartbeat_failure_threshold",
+        default=3,
+        help="How many consecutive heartbeat-write failures must be "
+             "observed before the short-stale gate trips. The counter "
+             "resets on every successful pulse, so this is 'failures "
+             "in a row,' not 'failures ever.' 3 means a worker has "
+             "missed three full heartbeat cycles in a row (~180s by "
+             "default) before short-gate recovery fires.",
+    )
+
+    # -- Concurrency (LIVE THROTTLE-DOWN; restart required to raise above boot cap) --
     leviathan_prd_pool_size = fields.Integer(
         string="PRD Pool Size (per process)",
         config_parameter="leviathan.prd_pool_size",
-        default=50,
-        help="Max concurrent PRD-generation threads PER Odoo worker process. "
-             "Real total = this × Odoo workers × pods. Sized against db_maxconn: "
-             "(pool × workers × pods × 2 cursors) + 50 reserved < db_maxconn. "
-             "REQUIRES POD RESTART (env LEVIATHAN_PRD_POOL_SIZE also needs to "
-             "be updated by devops) — ThreadPoolExecutor can't be resized live.",
+        default=100,
+        help="Max concurrent PRD-generation threads PER worker process. "
+             "Real total = this × worker pods. Sized against db_maxconn: "
+             "(pool × pods × 2 cursors) + 50 reserved < db_maxconn. "
+             "LIVE-TUNABLE: lowering this in Settings takes effect on the "
+             "next drainer tick (≤5s) and immediately caps how many jobs "
+             "the worker claims. RAISING above the env "
+             "LEVIATHAN_PRD_POOL_SIZE has no effect — the Python "
+             "ThreadPoolExecutor cap is set at boot. To raise, bump the "
+             "env var AND restart the worker pod.",
     )
     leviathan_bedrock_max_concurrent = fields.Integer(
         string="Bedrock Max Concurrent Calls",
         config_parameter="leviathan.bedrock_max_concurrent",
-        default=5,
+        default=22,
         help="In-process semaphore that caps simultaneous Bedrock API calls. "
              "Prevents AWS adaptive throttle from queuing calls for 30+ min. "
-             "Size ≈ TPS_quota × avg_call_seconds. Default 5 is safe for "
-             "Bedrock's default 5-10 RPS quota. Raise once devops confirms "
-             "higher quota. REQUIRES POD RESTART (env "
-             "LEVIATHAN_BEDROCK_MAX_CONCURRENT) — semaphore can't be resized.",
+             "Size ≈ TPS_quota × avg_call_seconds. Default 22 assumes a "
+             "cluster-wide Bedrock quota of ~220 concurrent calls split "
+             "across 10 worker pods; raise once devops confirms higher "
+             "quota. LIVE-TUNABLE downwards: lowering throttles within "
+             "one drainer tick. RAISING above the env "
+             "LEVIATHAN_BEDROCK_MAX_CONCURRENT has no effect — the "
+             "Python Semaphore's cap is set at construction. To raise, "
+             "bump the env var AND restart the pod.",
     )
     leviathan_bedrock_inner_retries = fields.Integer(
         string="Bedrock Internal Retries",
@@ -180,6 +277,96 @@ class ResConfigSettings(models.TransientModel):
         help="Maximum size of the webhook callback body from Lambda. "
              "Defense against OOM from oversized payloads. Default 10 MB. "
              "Live — takes effect on next request.",
+    )
+
+    # -- K8s worker auto-scaler (worker mode only) --
+    #
+    # Settings ported from vegeta v19.0.2.6.0 — see
+    # ``services/k8s_scaler.py`` for the patching logic. Scaler is a no-op
+    # unless ``leviathan.prd_queue_enabled=True`` AND
+    # ``leviathan.prd_execution_mode=worker``.
+    leviathan_worker_deployment_name = fields.Char(
+        string="Worker Deployment Name",
+        config_parameter="leviathan.worker_deployment_name",
+        default="leviathan-prd-worker",
+        help="Kubernetes Deployment that the scaler patches. Must exist "
+             "in the namespace below. Matches the manifest in deploy/.",
+    )
+    leviathan_k8s_namespace = fields.Char(
+        string="K8s Namespace",
+        config_parameter="leviathan.k8s_namespace",
+        default="leviathan",
+        help="Namespace where the worker Deployment lives. The Odoo "
+             "backend ServiceAccount needs get/patch RBAC on "
+             "deployments + deployments/scale in this namespace.",
+    )
+    leviathan_worker_min_replicas = fields.Integer(
+        string="Worker Min Replicas",
+        config_parameter="leviathan.worker_min_replicas",
+        default=0,
+        help="Floor for the auto-scaler. 0 = scale-to-zero between bursts "
+             "(saves $$). 1 = keep one warm pod for instant claim "
+             "(shaves ~60-90s cold start).",
+    )
+    leviathan_worker_max_replicas = fields.Integer(
+        string="Worker Max Replicas",
+        config_parameter="leviathan.worker_max_replicas",
+        default=10,
+        help="Burst ceiling. Sized against (Bedrock TPM quota) ÷ "
+             "(per_pod Bedrock concurrency × avg call seconds). Going "
+             "too high risks Bedrock throttle queueing.",
+    )
+    leviathan_worker_target_concurrency = fields.Integer(
+        string="Worker Target Concurrency",
+        config_parameter="leviathan.worker_target_concurrency",
+        default=100,
+        help="Jobs each pod is sized to handle in parallel. Matches the "
+             "LEVIATHAN_PRD_POOL_SIZE env var on the worker pod. The "
+             "scaler computes desired_pods = ceil(queue_depth / this).",
+    )
+    leviathan_worker_scale_down_cooldown_s = fields.Integer(
+        string="Scale-Down Cooldown (s)",
+        config_parameter="leviathan.worker_scale_down_cooldown_s",
+        default=600,
+        help="Minimum seconds between any scale-down patch. Asymmetric "
+             "hysteresis — scale-up is immediate (burst response), "
+             "scale-down waits this long. Don't go below 120s, risks "
+             "flapping when a burst comes in waves.",
+    )
+
+    # -- Worker loop knobs (ICP > env > default) --
+    #
+    # Promoted from env-only to ICP so an operator can re-tune live from
+    # Odoo Settings. The standalone worker re-reads these every poll-tick
+    # (see ``worker/run_prd.py::_resolve_int_setting``); ``LEVIATHAN_*``
+    # env vars on the Deployment are still honoured as fallback.
+    leviathan_worker_poll_s = fields.Integer(
+        string="Worker Poll Interval (s)",
+        config_parameter="leviathan.worker_poll_s",
+        default=5,
+        help="How often each worker pod polls the queue for claimable "
+             "rows. Lower = faster burst response, higher DB load. "
+             "Don't go below 2s on a shared RDS. Live — picked up on "
+             "next tick, no pod restart.",
+    )
+    leviathan_worker_claim_fail_limit = fields.Integer(
+        string="Worker Claim-Failure Limit",
+        config_parameter="leviathan.worker_claim_fail_limit",
+        default=5,
+        help="Consecutive drainer-tick failures before the worker pod "
+             "exits non-zero so K8s replaces it with a fresh registry. "
+             "Recovers automatically from RDS failover or stale "
+             "connections. Live — picked up on next tick.",
+    )
+    leviathan_worker_shutdown_timeout_s = fields.Integer(
+        string="Worker Shutdown Drain (s)",
+        config_parameter="leviathan.worker_shutdown_timeout_s",
+        default=1800,
+        help="Bounded drain budget on SIGTERM. Worker stops claiming new "
+             "jobs and waits this long for in-flight PRDs to finish; "
+             "anything still running past the budget is abandoned to "
+             "SIGKILL and stale-heartbeat recovery re-claims it. MUST be "
+             "less than the pod's terminationGracePeriodSeconds.",
     )
 
     @api.depends("leviathan_prd_prompt_filename", "leviathan_qc_prompt_filename")

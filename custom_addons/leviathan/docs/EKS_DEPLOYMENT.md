@@ -7,6 +7,20 @@ in-process inside the Odoo pod via `boto3 lambda:Invoke(InvocationType='Event')`
 with a 250-wide `ThreadPoolExecutor`. Each invoke returns in <1 s; Lambdas run
 asynchronously and post back to the existing webhook.
 
+**What changed in 19.0.5.x (drainer flag, behaviour-neutral default):** the
+`leviathan_job` table is now a durable PRD queue gated by the System
+Parameter `leviathan.prd_queue_enabled` (default `False`). When `True`, an
+in-Odoo `ir.cron` drainer claims `state='generating'` rows via
+`SELECT ... FOR UPDATE SKIP LOCKED`, fence-protected by `prd_claim_count`.
+No deployment change is required to ship this; flipping the flag is live.
+
+**What changed in 2026-05-26 (standalone PRD worker pod, opt-in):** a new
+System Parameter `leviathan.prd_execution_mode` (`inprocess` \| `worker`,
+default `inprocess`) selects where the drainer loop runs. In `worker`
+mode the in-Odoo cron short-circuits and a **standalone Python process**
+(`custom_addons/leviathan/worker/run_prd.py`) owns the loop. This is the
+production target. See §10 below for the new Deployment spec.
+
 ---
 
 ## 0. This Release — Pre-Deploy Checklist
@@ -356,6 +370,260 @@ After deploying both the new Lambda zip and the updated Odoo image:
 
 Then run a full-batch test of 50–100 URLs to confirm the webhook handler
 isn't dropping callbacks under burst.
+
+---
+
+## 10. Leviathan PRD worker Deployment (`leviathan-prd-worker`)
+
+Introduced 2026-05-26. Independent of the `etp-be` Deployment in §3.
+
+### 10.1 What it is
+
+A Kubernetes `Deployment` of one or more long-lived pods, each running
+`python /opt/odoo/custom_addons/leviathan/worker/run_prd.py`. Each pod
+boots a headless Odoo `Registry` once, then runs the PRD claim-loop
+(`_prd_queue_fail_poison` → `_prd_queue_recover_stale` →
+`_prd_queue_claim_and_dispatch`) every `LEVIATHAN_WORKER_POLL_S` seconds
+(default 5 s). Work is dispatched to the in-process `_PRD_POOL`
+(`LEVIATHAN_PRD_POOL_SIZE` slots, default 50). On SIGTERM the worker
+stops claiming, bounded-drains in-flight futures for
+`LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S` (default 1800 s), then exits.
+Anything still running past the budget is abandoned to SIGKILL — the
+row's heartbeat goes stale and the next worker's recovery step
+re-claims it. No silent job loss.
+
+### 10.2 Image
+
+`Dockerfile.worker` lives at `custom_addons/leviathan/Dockerfile.worker`.
+
+```bash
+docker build --platform linux/amd64 \
+  -f custom_addons/leviathan/Dockerfile.worker \
+  -t <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/leviathan-prd-worker:<NEW_TAG> .
+
+aws ecr get-login-password --region <REGION> | \
+  docker login --username AWS --password-stdin \
+  <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com
+
+docker push <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/leviathan-prd-worker:<NEW_TAG>
+```
+
+**Build context = repo root.** The image bundles `src/`,
+`custom_addons/leviathan/`, and `custom_addons/etp_user_roles/`.
+**CI must rebuild + push this image on every leviathan addon change**,
+in lockstep with the etp-be deploy — a stale worker image is silent
+bugs.
+
+### 10.3 Deployment spec (reference)
+
+| Property | Value |
+|---|---|
+| Kind | `Deployment` |
+| Namespace | `leviathan` (or `ethara` — set `leviathan.k8s_namespace` to match if you change it) |
+| Name | `leviathan-prd-worker` |
+| Replicas | **1 baseline** (manually scale with `kubectl scale` until the auto-scaler ships in Phase 2D) |
+| ServiceAccount | `leviathan-worker` |
+| Image | `<ECR>/leviathan-prd-worker:<TAG>` (`imagePullPolicy: Always`) |
+| CPU request / limit | `2` / `4` |
+| Memory request / limit | `4Gi` / `6Gi` |
+| Security | non-root, `runAsUser: 1000` |
+| Pod annotation | `karpenter.sh/do-not-disrupt: "true"` |
+| `terminationGracePeriodSeconds` | `1860` (must be > `LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S`) |
+| RollingUpdate | `maxUnavailable: 0`, `maxSurge: 1` |
+| readinessProbe | `exec: command: ["python", "/opt/odoo/custom_addons/leviathan/worker/run_prd.py", "--check"]`, `initialDelaySeconds: 30`, `periodSeconds: 60`, `timeoutSeconds: 30` |
+
+Env vars:
+
+| Env | Value | Purpose |
+|---|---|---|
+| `ODOO_DB` | _required_ | DB name (same DB as `etp-be`). |
+| `ODOO_CONF` | `/etc/odoo/odoo.conf` | Skeleton; real DB creds come from env. |
+| `DB_HOST` / `DB_PORT` / `DB_USER` / `DB_PASSWORD` | _Secret_ | RDS creds. |
+| `LEVIATHAN_ROLE` | `worker` | Pod-role hint (auto-set by the binary; setting it here is belt-and-suspenders). |
+| `LEVIATHAN_PRD_POOL_SIZE` | `50` | In-flight PRD jobs per pod. |
+| `LEVIATHAN_WORKER_POLL_S` | `5` | Drainer-tick interval. |
+| `LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S` | `1800` | Bounded-drain budget on SIGTERM. **Must be < `terminationGracePeriodSeconds`.** |
+| `LEVIATHAN_WORKER_CLAIM_FAIL_LIMIT` | `5` | After N consecutive drainer failures the process exits non-zero so K8s replaces the pod with a fresh registry. |
+
+### 10.4 RBAC
+
+* A namespace `leviathan` (or the namespace from `leviathan.k8s_namespace`).
+* A ServiceAccount `leviathan-worker` in that namespace. The pod runs
+  as this account. AWS access for Bedrock + S3 is granted via
+  **EKS Pod Identity** — associate an IAM role with permissions:
+  `bedrock:InvokeModel`, `bedrock:Converse`, `s3:GetObject`,
+  `s3:PutObject` on the bucket.
+* **No K8s API permissions needed** for the worker itself in this phase
+  (no auto-scaler yet — see Phase 2D).
+
+### 10.5 Postgres sizing
+
+Each worker pod holds up to `LEVIATHAN_PRD_POOL_SIZE` long-lived
+cursors (one per in-flight PRD job) plus a per-job heartbeat-thread
+cursor plus registry overhead. Rough budget:
+
+```
+per-pod ceiling = 50 (pool) + 50 (heartbeats, peak) + 10 (overhead) = ~110
+set db_maxconn = 128 per worker pod (~15% headroom).
+
+cluster total (1 worker + 2 etp-be HTTP pods + admin):
+  1 × 128  =  128
+  2 ×  64  =  128
+  admin/cron =  50
+  -------------
+           = ~310 — RDS max_connections = 500 is plenty for baseline.
+```
+
+**PgBouncer (if present): session pooling mode is REQUIRED.** The
+drainer's `pg_try_advisory_lock('leviathan.prd_drainer')` is
+session-scoped; transaction pooling silently breaks it and you get
+double-drain on every cron tick.
+
+### 10.6 Enable the worker (one-time)
+
+With the Deployment running and `replicas: 1`:
+
+```bash
+# 1. Make sure the queue is on (idempotent if already set).
+psql -h <RDS> -U <USER> -d <DB> -c \
+  "INSERT INTO ir_config_parameter (key, value) \
+   VALUES ('leviathan.prd_queue_enabled', 'True') \
+   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
+
+# 2. Hand the drainer to the standalone worker.
+psql -h <RDS> -U <USER> -d <DB> -c \
+  "INSERT INTO ir_config_parameter (key, value) \
+   VALUES ('leviathan.prd_execution_mode', 'worker') \
+   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;"
+```
+
+Both changes are **live, no restart needed.** The next Odoo cron tick
+short-circuits; the next worker tick (within `LEVIATHAN_WORKER_POLL_S`
+seconds) starts claiming. Verify:
+
+```bash
+kubectl -n leviathan logs -l app=leviathan-prd-worker --tail=50 | \
+  grep -E "registry booted|claimed [0-9]+ job|queue depth="
+# Should show the registry boot line and (when there is work) claim/depth lines.
+
+# UI pod must NOT be draining anymore:
+kubectl -n ethara logs -l app=etp-be --tail=200 | grep "drainer tick"
+# Expect: empty.
+```
+
+### 10.7 Rolling deploy
+
+```bash
+kubectl -n leviathan set image deployment/leviathan-prd-worker \
+  worker=<ECR>/leviathan-prd-worker:<NEW_TAG>
+kubectl -n leviathan rollout status deployment/leviathan-prd-worker
+```
+
+`maxUnavailable: 0` brings the new pod up before the old pod gets
+SIGTERM. Old pod drains in-flight jobs up to
+`LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S`; anything still running past the
+budget is abandoned and re-claimed by the new pod via stale-heartbeat
+recovery. No silent job loss.
+
+### 10.8 Roll back to in-process drainer
+
+Live, no redeploy:
+
+```bash
+psql -h <RDS> -U <USER> -d <DB> -c \
+  "UPDATE ir_config_parameter SET value='inprocess' \
+     WHERE key='leviathan.prd_execution_mode';"
+kubectl -n leviathan scale deployment/leviathan-prd-worker --replicas=0
+```
+
+The in-Odoo cron resumes draining. Reverse with the opposite two
+commands.
+
+### 10.9 Settings-parameter propagation to the worker pod (operator gotcha)
+
+When an operator updates a System Parameter via the etp-be UI (e.g.
+rotates `leviathan.bedrock_access_key_id`, changes
+`leviathan.prd_max_attempts`), the change becomes visible inside the
+worker pod on its **next drain tick** (default 5 s, see
+`LEVIATHAN_WORKER_POLL_S`). The worker process explicitly clears its
+ORM cache at the top of every tick — it cannot rely on Odoo's normal
+`bus.bus` cross-process invalidation because the worker runs
+`--no-http` and does not start the bus listener.
+
+Practical implication for runbooks:
+
+* **Bedrock token rotation:** save the new value in Settings → click
+  Save → within ~5 s the worker is using the new token. **No pod
+  restart needed.** Verify by tailing the worker log around the next
+  job's PHASE 2; a fresh 200-OK Bedrock call confirms the rotation
+  landed.
+* **`prd_queue_enabled` toggle:** instantaneous — the worker's tick
+  reads the master flag right after the cache clear.
+* **`prd_max_attempts` / `batch_max_size`:** same; next-tick.
+* **Anything that requires schema change** (a new column, a new
+  index) still requires `odoo -u leviathan` on the etp-be pod AND a
+  rolling restart of the worker Deployment (image bundles the addon
+  source, so the worker pod must pull the new image to see new
+  fields).
+
+If an operator complains "I updated a setting but the worker is still
+using the old value", the answer is almost always: wait 5 s. If it's
+still stale after a full minute, `kubectl rollout restart
+deployment/leviathan-prd-worker -n leviathan` is the hammer.
+
+### 10.10 Opt-in image attachment to Bedrock (extraction-richness commit, 2026-05-26)
+
+The pipeline ships with two System Parameters that let an operator
+trade reliability for visual grounding on Bedrock LLM calls. Both
+default to `False` so this is behaviour-neutral until you flip one.
+
+| Parameter | Default | What it does |
+|---|---:|---|
+| `leviathan.prd_include_images` | `False` | When `True`, PRD-generation attaches up to `prd_max_images` screenshots to the Bedrock Converse call |
+| `leviathan.qc_include_images` | `False` | When `True`, QC alignment-check attaches up to `prd_max_images` screenshots |
+| `leviathan.prd_max_images` | `4` | Hard cap on N for both flags above |
+
+**Why both default OFF.** Long-output PRD generation + image content
+blocks raises Bedrock's 4xx rejection rate sharply. The Lambda's
+`build_prd_prompt` already encodes the visual extraction as text —
+attaching images on top is signal-redundant for a well-extracted site
+and mainly serves to raise the failure rate. Turn `qc_include_images`
+ON first if you turn anything ON — QC is a short-output Bedrock call,
+much less prone to image-related 4xx than PRD-gen.
+
+**How operators flip them.** Settings → Leviathan → "Attach
+Screenshots to LLM Calls (opt-in)" → toggle the two booleans, set
+max-images, Save. Within ~5 s the worker pod sees the new values
+(see §10.9). No pod restart required.
+
+**How to back out.** Toggle them OFF in Settings. Next-tick. If a
+job is mid-PRD-generation when you toggle, that job runs with the
+old setting (config is captured at the start of the Bedrock call);
+the NEXT job picks up the new value.
+
+**Telemetry to watch when flipping ON.**
+
+```bash
+# 1. Bedrock 4xx rejections (should stay close to current baseline)
+kubectl -n leviathan logs -l app=leviathan-prd-worker --since=1h | \
+  grep -E "Bedrock API error \[4"
+
+# 2. "attached N screenshot block(s)" lines confirm images are flowing
+kubectl -n leviathan logs -l app=leviathan-prd-worker --since=1h | \
+  grep "attached.*screenshot block"
+
+# 3. PRD failure_count and poison-cap rate — should not spike
+psql -h <RDS> -U <USER> -d <DB> -c \
+  "SELECT date_trunc('hour', completed_at) AS hour, \
+          count(*) FILTER (WHERE state='failed' AND error_message LIKE '%poison cap%') AS poisoned, \
+          count(*) FILTER (WHERE state='done') AS done \
+     FROM leviathan_job \
+    WHERE completed_at > NOW() - INTERVAL '6 hours' \
+    GROUP BY 1 ORDER BY 1;"
+```
+
+If poison-cap rate jumps after flipping a flag ON, flip it back —
+it's not worth more visual signal at the cost of more failed jobs.
 
 ---
 

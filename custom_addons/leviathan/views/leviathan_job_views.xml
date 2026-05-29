@@ -194,12 +194,15 @@
                     <!-- Start Task is LIST-VIEW ONLY (via js_class button)  -->
                     <!-- =================================================== -->
 
-                    <!-- DRAFT / NOT ASSIGNED: full auto pipeline (extract -> ... -> done) -->
+                    <!-- DRAFT / NOT ASSIGNED: full auto pipeline (extract -> ... -> done).
+                         Shown on batch-completed not_assigned tasks too — if the task
+                         already has extraction data, action_run / action_stage_extract
+                         open the rerun wizard instead of destroying the existing PRD. -->
                     <button name="action_run" type="object"
                             string="Run All" class="oe_highlight"
                             invisible="state not in ('draft', 'not_assigned')"/>
 
-                    <!-- DRAFT / NOT ASSIGNED: staged manual run — extract, then park -->
+                    <!-- DRAFT / NOT ASSIGNED: staged manual run — extract, then park. -->
                     <button name="action_stage_extract" type="object"
                             string="Extract" class="btn-primary"
                             invisible="state not in ('draft', 'not_assigned')"/>
@@ -258,6 +261,16 @@
 
                     <field name="state" widget="statusbar" statusbar_visible="draft,extracting,extracted,generating,generated,scoring,scored,qc_running,done,submitted"/>
                 </header>
+
+                <!-- Phase-2 tasker visibility (§5.15): short phase indicator
+                     updated at every boundary by the worker / dispatcher /
+                     webhook. Hidden when empty. -->
+                <div class="d-flex align-items-center px-3 pt-2"
+                     invisible="not pipeline_status">
+                    <span class="badge bg-info text-white me-2">Pipeline</span>
+                    <field name="pipeline_status" readonly="1" nolabel="1"
+                           class="text-muted"/>
+                </div>
 
                 <!-- Pipeline progress (timing indicator) -->
                 <field name="stage_progress_html" readonly="1" nolabel="1"
@@ -397,12 +410,36 @@
                         <!-- ============================== -->
                         <!-- TAB 3: Assets                  -->
                         <!-- ============================== -->
-                        <page string="Assets" invisible="not screenshot_keys and not asset_keys">
+                        <!--
+                            Always visible. Pre-2026-05-26 this tab was
+                            hidden when both `screenshot_keys` and
+                            `asset_keys` were empty (`invisible="not
+                            screenshot_keys and not asset_keys"`), which
+                            meant a tasker hitting a job where extraction
+                            silently produced 0 uploads never even saw
+                            the tab — worse UX than an empty tab.
+                            Always-visible with an empty-state message
+                            tells the tasker "extraction ran but produced
+                            nothing here, talk to the operator" instead
+                            of vanishing.
+                        -->
+                        <page string="Assets">
                             <!-- Re-extract: available to both admin and tasker on done -->
                             <div class="mb-3" invisible="state != 'done'">
                                 <button name="action_open_rerun_wizard" type="object"
                                         string="Re-extract Website" class="btn btn-sm btn-secondary"
                                         confirm="Re-extract this website? Opens the rerun wizard."/>
+                            </div>
+
+                            <!-- Empty state: appears only when extraction
+                                 produced zero screenshots AND zero assets. -->
+                            <div class="alert alert-info mb-3"
+                                 invisible="screenshot_keys or asset_keys">
+                                <strong>No assets uploaded yet.</strong>
+                                Either extraction has not finished, or the
+                                Lambda hit an upload error. Check the
+                                Quality / Pipeline tabs for details, or
+                                click <em>Re-extract Website</em> above.
                             </div>
 
                             <!-- Extraction Summary (like Quality tab score breakdown) -->
@@ -454,6 +491,39 @@
                             <field name="lambda_callback_json" widget="json" readonly="1" invisible="not lambda_callback_json"/>
                             <separator string="LLM Trace — every PRD attempt + QC" invisible="not llm_trace_json"/>
                             <field name="llm_trace_json" widget="json" readonly="1" invisible="not llm_trace_json"/>
+                        </page>
+
+                        <!-- Logs tab: per-job tail of every log record from
+                             every process (Odoo / Worker / Lambda). Populated
+                             live by log_handler.py for the [job=N]-tagged
+                             Python logs; Lambda CloudWatch events are pulled
+                             on demand via the Refresh button (admin only).
+                             Always visible — empty list is fine when the job
+                             is brand new. -->
+                        <page string="Logs" name="logs">
+                            <div class="oe_button_box mb-2">
+                                <button name="action_refresh_lambda_logs"
+                                        type="object"
+                                        string="Refresh Lambda Logs"
+                                        class="btn-secondary"
+                                        groups="leviathan.group_leviathan_admin"
+                                        invisible="not lambda_request_id"/>
+                                <field name="lambda_request_id" readonly="1" class="ms-3"/>
+                                <field name="last_lambda_log_ts" readonly="1" class="ms-3" invisible="not last_lambda_log_ts"/>
+                            </div>
+                            <field name="log_ids" nolabel="1" readonly="1">
+                                <list decoration-danger="level == 'ERROR' or level == 'CRITICAL'"
+                                      decoration-warning="level == 'WARNING'"
+                                      decoration-muted="level == 'DEBUG'"
+                                      default_order="timestamp asc, id asc"
+                                      create="false" edit="false" delete="false">
+                                    <field name="timestamp"/>
+                                    <field name="source"/>
+                                    <field name="level"/>
+                                    <field name="pod" optional="hide"/>
+                                    <field name="message"/>
+                                </list>
+                            </field>
                         </page>
 
                     </notebook>

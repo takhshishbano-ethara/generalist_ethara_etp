@@ -5,6 +5,31 @@
 > **Downtime:** None if executed in order. ~30 s of degraded latency during pod roll.
 > **Companion docs:** [EKS_DEPLOYMENT.md](./EKS_DEPLOYMENT.md) (architecture deep-dive), `PRODUCTION_FIXES_AND_DEVOPS.md §9` (change list).
 
+## What this runbook covers
+
+This document covers the **19.0.2.x → 19.0.2.x roll** of the `etp-be`
+Odoo Deployment and the extraction Lambda. It is correct and unchanged.
+
+The **2026-05-26 standalone PRD worker pod
+(`leviathan-prd-worker`)** is a *new* Deployment with its own image and
+lifecycle — it does NOT change anything in this runbook. Its bring-up
+is a self-contained procedure in
+[`EKS_DEPLOYMENT.md` §10](./EKS_DEPLOYMENT.md). One-line summary:
+
+1. CI builds + pushes `leviathan-prd-worker:<tag>` to ECR alongside
+   the etp-be image.
+2. DevOps creates the `leviathan` namespace, the `leviathan-worker`
+   ServiceAccount (Pod Identity bound to the IAM role with
+   Bedrock + S3), and the `leviathan-prd-worker` Deployment at
+   `replicas: 1` from §10.3 of `EKS_DEPLOYMENT.md`.
+3. Operator flips two System Parameters:
+   `leviathan.prd_queue_enabled=True`,
+   `leviathan.prd_execution_mode=worker`. **Live, no restart.**
+
+Roll back — also live: set `prd_execution_mode=inprocess` and
+`kubectl scale leviathan-prd-worker --replicas=0`. The in-Odoo cron
+drainer resumes immediately.
+
 ---
 
 ## What you're shipping

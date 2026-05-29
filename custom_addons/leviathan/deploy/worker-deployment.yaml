@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: leviathan-prd-worker
+  namespace: leviathan
+  labels:
+    app: leviathan-prd-worker
+    platform: leviathan
+spec:
+  # IMPORTANT: do NOT set replicas here. Odoo's `_cron_dispatch_prd_jobs`
+  # owns this field — it patches replicas every minute based on queue
+  # depth (`leviathan.worker_min_replicas` ≤ desired ≤ `worker_max_replicas`).
+  # If you set replicas here it will fight with the scaler.
+  #
+  # First-time deploy: kubectl apply WITHOUT replicas → K8s defaults to 1.
+  # The scaler will then drive it to whatever queue depth demands within
+  # the next 1-min tick.
+  selector:
+    matchLabels:
+      app: leviathan-prd-worker
+  strategy:
+    # Rolling update: terminate one pod at a time and let SIGTERM drain
+    # up to LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S (1800s default) of in-flight
+    # PRDs. terminationGracePeriodSeconds below must >= that drain.
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: leviathan-prd-worker
+        # REQUIRED for NetworkPolicy match — see network-policy.yaml.
+        platform: leviathan
+      annotations:
+        # Don't let Karpenter consolidate a pod mid-PRD; a worker handling
+        # 100 in-flight Bedrock calls cannot be cheaply rescheduled.
+        karpenter.sh/do-not-disrupt: "true"
+    spec:
+      serviceAccountName: leviathan-worker
+      # 30 min drain (workers honor SIGTERM) + 60s slack.
+      terminationGracePeriodSeconds: 1860
+      containers:
+      - name: worker
+        # F-CRIT-1 — image must be pinned. Either an immutable semver
+        # tag built by CI (preferred) OR a sha256 digest. Do NOT use
+        # `:latest`. CI sets ``IMAGE_TAG`` to ``v19.0.6.0.0-<git-sha>``
+        # and patches this value via Kustomize / sed / Helm; the value
+        # below is the placeholder the validate.sh script enforces.
+        image: 426628337772.dkr.ecr.ap-south-1.amazonaws.com/leviathan-prd-worker:CHANGE-ME-PIN-TAG-OR-DIGEST
+        imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: "2"
+            memory: "6Gi"
+            ephemeral-storage: "2Gi"
+          limits:
+            cpu: "4"
+            memory: "8Gi"
+            # F-LOW-8 — bound node-local disk so a runaway Bedrock log
+            # or a Playwright cache leak cannot fill the node.
+            ephemeral-storage: "4Gi"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          readOnlyRootFilesystem: false  # Odoo writes to /tmp/odoo-data
+          allowPrivilegeEscalation: false
+        env:
+        - name: ODOO_DB
+          valueFrom:
+            secretKeyRef:
+              name: leviathan-odoo-config
+              key: db_name
+        - name: ODOO_CONF
+          value: /etc/odoo/odoo.conf
+        - name: LEVIATHAN_ROLE
+          # Belt-and-braces — the worker bypasses the role guard anyway,
+          # but setting this protects against the in-Odoo cron firing if
+          # someone re-enables ir.cron records by mistake.
+          value: worker
+        - name: LEVIATHAN_WEBHOOK_TOKEN
+          # Lambda + cron callbacks land here; the worker doesn't itself
+          # call the webhook endpoint, but the addon's controllers do,
+          # and the addon module is imported in this process at registry
+          # boot. Token mirrored from the same Secret the backend uses.
+          valueFrom:
+            secretKeyRef:
+              name: leviathan-webhook-token
+              key: token
+        - name: LEVIATHAN_PRD_POOL_SIZE
+          # Per-pod thread pool capacity. 100 in-flight PRD pipeline jobs
+          # per pod is the canonical sizing — matches the code default
+          # in models/leviathan_job.py:_PRD_POOL_SIZE. Bedrock concurrency
+          # (next env) is the actual rate limiter; idle threads waiting on
+          # the Bedrock semaphore are cheap (no cursor held during the
+          # wait — fences open/close cursors around state transitions
+          # only). Operator can LOWER live via Settings →
+          # leviathan.prd_pool_size; raising requires a pod restart
+          # (module-import-time read).
+          value: "100"
+        - name: LEVIATHAN_WORKER_POLL_S
+          # Fallback only; live value comes from Settings →
+          # `leviathan.worker_poll_s`.
+          value: "5"
+        - name: LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S
+          # Fallback only; live value comes from Settings →
+          # `leviathan.worker_shutdown_timeout_s`. MUST stay <
+          # `terminationGracePeriodSeconds` above.
+          value: "1800"
+        - name: LEVIATHAN_WORKER_CLAIM_FAIL_LIMIT
+          # Exit non-zero after N consecutive claim failures — forces a
+          # pod respawn with fresh DB credentials. Recovers automatically
+          # from RDS failover where the old connection is permanently
+          # routed to the demoted instance.
+          value: "5"
+        - name: LEVIATHAN_BEDROCK_MAX_CONCURRENT
+          # Per-pod Bedrock semaphore. THIS is the actual rate limit —
+          # the pool above can over-provision threads cheaply; this cap
+          # is what protects Bedrock TPM quota. Aggregate cluster cap =
+          # this × pod count. At max_replicas=10 the cluster peaks at
+          # 220 concurrent Bedrock calls — confirm TPM quota covers it.
+          value: "22"
+        - name: AWS_REGION
+          value: "ap-south-1"
+        volumeMounts:
+        - name: odoo-config
+          mountPath: /etc/odoo
+          readOnly: true
+        - name: tmp
+          mountPath: /tmp
+        readinessProbe:
+          exec:
+            command:
+            - python
+            - /opt/odoo/custom_addons/leviathan/worker/run_prd.py
+            - --check
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        # F-HIGH-5 — liveness probe. Covers process-internal deadlock
+        # that readiness alone cannot recover from (semaphore held but
+        # not released, hung Python thread, etc.). Wider failure
+        # threshold than readiness so transient DB slowness doesn't
+        # trigger a restart cascade: 5 × 120s = 10 min of probe failure
+        # before kubelet kills the pod.
+        livenessProbe:
+          exec:
+            command:
+            - python
+            - /opt/odoo/custom_addons/leviathan/worker/run_prd.py
+            - --check
+          initialDelaySeconds: 120
+          periodSeconds: 120
+          timeoutSeconds: 30
+          failureThreshold: 5
+      volumes:
+      - name: odoo-config
+        secret:
+          # ExternalSecret syncs this from AWS Secrets Manager. The secret
+          # file format is the standard Odoo odoo.conf — see
+          # custom_addons/leviathan/docs/EKS_DEPLOYMENT.md §4.
+          secretName: leviathan-odoo-config
+      - name: tmp
+        emptyDir:
+          sizeLimit: 2Gi

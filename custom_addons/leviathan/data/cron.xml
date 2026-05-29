@@ -7,6 +7,30 @@
         <field name="padding">5</field>
     </record>
 
+    <!--
+      19.0.6.0.0: ALL cron records are DEACTIVATED (active="False").
+      The drainer and watchdog are now driven by HTTP endpoints
+      (`/api/v1/leviathan/cron/{dispatch,reconcile,watchdog}`) called
+      by an external scheduler — Kubernetes CronJob in production,
+      curl-loop / launchd in local dev. See controllers/cron_1min.py
+      and controllers/cron_5min.py.
+
+      Rationale for the cron-out-of-Odoo move:
+      * Odoo's internal `ir.cron` scheduler picks a tick worker non-
+        deterministically — locality to a specific pod is impossible
+        to guarantee, and racing cron threads were a recurring source
+        of "the drainer fired twice" gotchas in Phase-1.
+      * External scheduling makes "pause all dispatch for 10 min
+        during an incident" a 1-line kubectl change instead of a
+        Settings toggle + worker restart.
+
+      Rollback: flip eval="False" → eval="True" on either record and
+      upgrade the module; the in-Odoo cron will start firing again
+      and the advisory lock inside `_prd_drain_once` keeps it from
+      colliding with the HTTP endpoint if the K8s CronJob is still
+      active too.
+    -->
+
     <record id="ir_cron_leviathan_watchdog" model="ir.cron">
         <field name="name">Leviathan: Watchdog Stuck Tasks</field>
         <field name="model_id" ref="model_leviathan_job"/>
@@ -14,6 +38,26 @@
         <field name="code">model._cron_watchdog_stuck_jobs()</field>
         <field name="interval_number">5</field>
         <field name="interval_type">minutes</field>
-        <field name="active" eval="True"/>
+        <field name="active" eval="False"/>
+    </record>
+
+    <record id="ir_cron_leviathan_prd_queue_drainer" model="ir.cron">
+        <field name="name">Leviathan: PRD Queue Drainer</field>
+        <field name="model_id" ref="model_leviathan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_prd_queue_drainer()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="False"/>
+    </record>
+
+    <record id="ir_cron_leviathan_prd_dispatch" model="ir.cron">
+        <field name="name">Leviathan: Dispatch PRD Jobs (K8s scaler)</field>
+        <field name="model_id" ref="model_leviathan_job"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_dispatch_prd_jobs()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="False"/>
     </record>
 </odoo>

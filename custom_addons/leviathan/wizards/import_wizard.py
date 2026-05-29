@@ -90,7 +90,10 @@ class LeviathanImportWizard(models.TransientModel):
                 errors.append(f"Row {i}: {exc}")
 
         # Build result message
-        msg = f"Created {tasks_created} task(s). Taskers can now pick them up via Start Task."
+        msg = (
+            f"Created {tasks_created} task(s) in the batch queue (state: Not Assigned). "
+            "Run Batch / Run Pipeline to generate PRDs before taskers can claim them via Start Task."
+        )
         if errors:
             msg += f"\n\n{len(errors)} warning(s):\n" + "\n".join(errors[:20])
             if len(errors) > 20:

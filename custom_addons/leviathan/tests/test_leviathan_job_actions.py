@@ -11,14 +11,14 @@ from .common import LeviathanTestCase
 @tagged("post_install", "-at_install", "leviathan")
 class TestActionStartTask(LeviathanTestCase):
 
-    def test_picks_oldest_unassigned_task(self):
-        a = self._create_job()
-        b = self._create_job()
+    def test_picks_oldest_prd_ready_unassigned_task(self):
+        a = self._create_job(prd_text="ready prd a")
+        b = self._create_job(prd_text="ready prd b")
         action = self.Job.action_start_task()
         self.assertEqual(action["res_id"], a.id)
         a.invalidate_recordset()
         self.assertEqual(a.user_id, self.tasker)
-        self.assertEqual(a.state, "draft")
+        self.assertEqual(a.state, "done")
         b.invalidate_recordset()
         self.assertFalse(b.user_id)
 
@@ -27,8 +27,8 @@ class TestActionStartTask(LeviathanTestCase):
             self.Job.action_start_task()
 
     def test_category_filter(self):
-        self._create_job(category_id=self.category.id)
-        ct_job = self._create_job(category_id=self.category_ct.id)
+        self._create_job(category_id=self.category.id, prd_text="ready plain")
+        ct_job = self._create_job(category_id=self.category_ct.id, prd_text="ready ct")
         action = self.Job.with_context(
             start_task_category_id=self.category_ct.id,
         ).action_start_task()
@@ -40,10 +40,16 @@ class TestActionStartTask(LeviathanTestCase):
         job.invalidate_recordset()
         self.assertEqual(job.state, "done")
 
+    def test_skips_fresh_not_assigned_jobs_without_prd(self):
+        self._create_job(url="https://fresh-only.com")
+        ready = self._create_job(url="https://ready.com", prd_text="existing PRD body")
+        action = self.Job.action_start_task()
+        self.assertEqual(action["res_id"], ready.id)
+
     def test_bandwidth_limit_blocks_pickup(self):
         self._set_param("leviathan.max_jobs_per_user", "1")
         self._create_job(user_id=self.tasker.id)
-        self._create_job()
+        self._create_job(prd_text="ready prd")
         with self.assertRaises(UserError):
             self.Job.action_start_task()
 
@@ -51,7 +57,7 @@ class TestActionStartTask(LeviathanTestCase):
         self._set_param("leviathan.max_jobs_per_user", "0")
         for _ in range(3):
             self._create_job(user_id=self.tasker.id, state="extracting")
-        new_job = self._create_job()
+        new_job = self._create_job(prd_text="ready prd")
         self.Job.action_start_task()
         new_job.invalidate_recordset()
         self.assertEqual(new_job.user_id, self.tasker)
@@ -292,6 +298,7 @@ class TestActionRetryFailedBatch(LeviathanTestCase):
 
     def test_re_extract_without_lambda_config_raises(self):
         # No leviathan.lambda_function_name set
+        self._set_param("leviathan.lambda_function_name", "")
         job = self._create_job(user_id=self.tasker.id, state="failed")
         with self.assertRaises(UserError):
             job.action_retry_failed_batch()
@@ -353,7 +360,10 @@ class TestWatchdogCron(LeviathanTestCase):
         job = self._create_job(
             user_id=self.tasker.id, state="extracting", last_heartbeat=old,
         )
-        self.Job._cron_watchdog_stuck_jobs()
+        # Disable auto-retry so the watchdog marks it FAILED on the first hit.
+        self._set_param("leviathan.watchdog_auto_retry_max", "0")
+        with self._patch_cursor_commit():
+            self.Job._cron_watchdog_stuck_jobs()
         job.invalidate_recordset()
         self.assertEqual(job.state, "failed")
         self.assertIn("timed out", job.error_message)
@@ -362,10 +372,14 @@ class TestWatchdogCron(LeviathanTestCase):
         old = fields.Datetime.now() - timedelta(minutes=120)
         job = self._create_job(
             user_id=self.tasker.id, state="generating", last_heartbeat=old,
+            started_processing_at=old,
         )
-        self.Job._cron_watchdog_stuck_jobs()
+        self._set_param("leviathan.watchdog_auto_retry_max", "0")
+        with self._patch_cursor_commit(), self._patch_submit_bg():
+            self.Job._cron_watchdog_stuck_jobs()
         job.invalidate_recordset()
         self.assertEqual(job.state, "failed")
+
 
     def test_fresh_jobs_untouched(self):
         job = self._create_job(

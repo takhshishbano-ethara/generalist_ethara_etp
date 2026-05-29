@@ -315,9 +315,19 @@ def _run_llm_alignment_check(
         f"{extraction_summary}"
     )
 
-    # Build content blocks: screenshots (if available) + text
-    content_blocks = list(screenshot_blocks or [])
-    content_blocks.append({"text": user_message})
+    # QC content layout:
+    #   * When the caller passed screenshot_blocks (i.e. the operator has
+    #     turned ON `leviathan.qc_include_images` in Settings) the images
+    #     are prepended to the content array so the model sees them first,
+    #     then the user_message text describing what to compare.
+    #   * When screenshot_blocks is None/empty (the default, recommended),
+    #     this is a pure text-only QC pass against the extraction-JSON
+    #     summary — lower failure rate, same alignment-check semantics.
+    # Pre-2026-05-26 this method ignored `screenshot_blocks` entirely
+    # ("P0-4: QC is text-only"). The opt-in pathway re-enables image
+    # signal for environments that want it. See
+    # LEVIATHAN_POD_ARCHITECTURE.md §25.
+    content_blocks = list(screenshot_blocks or []) + [{"text": user_message}]
 
     try:
         response = _call_bedrock(

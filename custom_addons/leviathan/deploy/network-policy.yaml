@@ -1,0 +1,63 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: leviathan-worker-egress
+  namespace: leviathan
+spec:
+  podSelector:
+    matchLabels:
+      platform: leviathan
+  policyTypes:
+  - Egress
+  egress:
+  # DNS
+  - to:
+    - namespaceSelector: {}
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  # HTTPS — Bedrock, S3, ECR
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 169.254.169.254/32   # block IMDS, force IRSA
+    ports:
+    - protocol: TCP
+      port: 443
+  # Postgres (adjust CIDR to your RDS / Aurora subnet)
+  - to:
+    - ipBlock:
+        cidr: 10.0.0.0/8       # <-- adjust to VPC CIDR
+    ports:
+    - protocol: TCP
+      port: 5432
+
+---
+# Allow ingress so the Odoo backend (in the `ethara` namespace) can patch
+# the worker Deployment. Workers themselves don't expose HTTP; this is
+# only for kubectl-style API traffic.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: leviathan-cron-ingress
+  namespace: ethara
+spec:
+  podSelector:
+    matchLabels:
+      app: odoo-backend     # <-- adjust to your backend pod labels
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: leviathan
+    ports:
+    - protocol: TCP
+      port: 8069
