@@ -16,14 +16,14 @@ PROJECT_STATES = [
     ("processing", "Processing"),
     ("processed", "Processed"),
     ("exporting", "Exporting"),
-    ("exported", "Exported"),
+    ("exported", "Done"),
     ("error", "Error"),
 ]
 
 
 class VideoEditorProject(models.Model):
     _name = "video.editor.project"
-    _description = "Video Editor S3 project"
+    _description = "Crowly Sourcing project"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "id desc"
 
@@ -87,6 +87,7 @@ class VideoEditorProject(models.Model):
     qc_reason = fields.Text(string="QC Reason", readonly=True)
     qc_issues = fields.Text(string="QC Issues", readonly=True)
     qc_evaluated_prompt = fields.Text(string="Evaluated Prompt", readonly=True)
+    qc_corrected_prompt = fields.Text(string="Corrected Prompt", readonly=True)
     qc_evaluated_at = fields.Datetime(string="QC Evaluated At", readonly=True)
 
     category = fields.Selection(

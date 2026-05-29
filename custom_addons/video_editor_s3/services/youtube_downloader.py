@@ -396,7 +396,7 @@ def _bot_challenge_message(url, *, opts=None):
         "not rotate the cookies.\n"
         "  6. Upload the file to the Odoo host (e.g. /var/lib/odoo/yt_cookies.txt), "
         "make it readable by the Odoo OS user (%(user)s), and set Settings → "
-        "Crowley Sourcing → YouTube Ingest → Cookies File Path to that absolute path.\n\n"
+        "Crowly Sourcing → YouTube Ingest → Cookies File Path to that absolute path.\n\n"
         "Alternative for local development only:\n"
         "  • Sign in to YouTube in Chrome / Firefox / Edge / Brave on this host. The "
         "downloader will auto-pick the first installed browser. Note: YouTube rotates "

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="cron_reap_stale_jobs" model="ir.cron">
-        <field name="name">Video Editor S3: Reap stale jobs</field>
+        <field name="name">Crowly Sourcing: Reap stale jobs</field>
         <field name="model_id" ref="model_video_editor_job"/>
         <field name="state">code</field>
         <field name="code">model._cron_reap_stale_jobs()</field>

@@ -58,7 +58,8 @@ The JSON object MUST have exactly these keys:
   "issues": [
     "Concrete, actionable issue 1.",
     "Concrete, actionable issue 2."
-  ]
+  ],
+  "corrected_prompt": "A rewritten, production-grade version of the user's prompt."
 }
 ```
 
@@ -70,6 +71,12 @@ Field rules:
 - `reason` — single sentence, 200 chars max, summarizes the call.
 - `issues` — array of short strings, each an actionable improvement; empty
   array if there are none.
+- `corrected_prompt` — a single rewritten prompt string that preserves the
+  user's original intent, fixes every issue listed, and reads as a
+  production-grade brief (subject, action, setting, style, camera/lens,
+  lighting, pacing). If the original prompt is already `expert` and `pass`,
+  return it verbatim. If the prompt violates policy, return an empty string.
+  Plain text only — no markdown, no headings, no quotes around it.
 
 Do not include any other keys, comments, or natural-language preamble outside
 the fenced JSON block.

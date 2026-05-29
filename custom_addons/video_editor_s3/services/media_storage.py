@@ -21,7 +21,7 @@ def _default_media_root():
 
 class MediaStorage(models.AbstractModel):
     _name = "video.editor.s3.media.storage"
-    _description = "Video Editor S3 On-Disk Media Storage"
+    _description = "Crowly Sourcing On-Disk Media Storage"
 
     @api.model
     def get_media_root(self):

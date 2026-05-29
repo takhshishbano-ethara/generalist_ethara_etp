@@ -477,6 +477,17 @@ export class VideoEditor extends Component {
             this.state.job = job;
             this._startPolling();
             this.notification.add(preview ? _t("Preview queued") : _t("Render queued"), { type: "info" });
+            if (!preview) {
+                this._stopPolling();
+                await this.action.doAction({
+                    type: "ir.actions.act_window",
+                    res_model: "video.editor.project",
+                    res_id: this.state.projectId,
+                    views: [[false, "form"]],
+                    target: "current",
+                }, { clearBreadcrumbs: true });
+                return;
+            }
         } catch (err) {
             this.notification.add(err.message || String(err), { type: "danger" });
         } finally {

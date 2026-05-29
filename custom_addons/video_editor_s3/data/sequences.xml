@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <record id="seq_video_editor_project" model="ir.sequence">
-        <field name="name">Video Editor S3 Project</field>
+        <field name="name">Crowly Sourcing Project</field>
         <field name="code">video.editor.project</field>
         <field name="prefix">VES/%(year)s/</field>
         <field name="padding">5</field>

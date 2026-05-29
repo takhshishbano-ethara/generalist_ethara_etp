@@ -259,7 +259,7 @@ def head_object_exists(s3_config: dict, s3_key: str) -> bool:
 
 class S3SettingsResolver(models.AbstractModel):
     _name = "video.editor.s3.settings"
-    _description = "Video Editor S3 Configuration Resolver"
+    _description = "Crowly Sourcing Configuration Resolver"
 
     @api.model
     def get_s3_config(self) -> dict:
@@ -303,10 +303,9 @@ class S3SettingsResolver(models.AbstractModel):
     def get_bedrock_config(self) -> dict:
         ICP = self.env["ir.config_parameter"].sudo()
         return {
-            "region": (ICP.get_param("video_editor_s3.bedrock_region") or "ap-south-1").strip(),
-            "model_id": (ICP.get_param("video_editor_s3.bedrock_model_id") or "anthropic.claude-3-5-sonnet-20241022-v2:0").strip(),
-            "access_key": (ICP.get_param("video_editor_s3.bedrock_access_key") or "").strip(),
-            "secret_key": (ICP.get_param("video_editor_s3.bedrock_secret_key") or "").strip(),
+            "region": (ICP.get_param("video_editor_s3.bedrock_region") or "us-east-1").strip(),
+            "model_id": (ICP.get_param("video_editor_s3.bedrock_model_id") or "").strip(),
+            "api_key": (ICP.get_param("video_editor_s3.bedrock_api_key") or "").strip(),
         }
 
     @api.model

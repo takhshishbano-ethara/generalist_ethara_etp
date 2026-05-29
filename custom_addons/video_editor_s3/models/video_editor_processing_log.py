@@ -4,7 +4,7 @@ from odoo import fields, models
 
 class VideoEditorProcessingLog(models.Model):
     _name = "video.editor.processing.log"
-    _description = "Video Editor S3 processing log"
+    _description = "Crowly Sourcing processing log"
     _order = "id desc"
     _rec_name = "operation"
 

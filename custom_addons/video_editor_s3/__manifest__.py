@@ -5,7 +5,7 @@
     "summary": "Import S3 videos, edit (trim/crop/rotate/resize/filters) via FFmpeg, "
                "render asynchronously and export back to S3.",
     "description": """
-Video Editor S3
+Crowley Sourcing
 ===============
 
 Production-grade Odoo 19 module that lets editors:

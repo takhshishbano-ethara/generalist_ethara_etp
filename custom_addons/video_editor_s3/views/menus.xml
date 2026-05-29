@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <menuitem id="menu_video_editor_s3_root"
-              name="Crowly Sourcing"
+              name="Crowley Sourcing"
               web_icon="video_editor_s3,static/description/icon.png"
               sequence="50"
               groups="video_editor_s3.group_video_editor_s3_user"/>

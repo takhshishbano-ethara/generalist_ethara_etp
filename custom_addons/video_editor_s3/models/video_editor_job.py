@@ -35,7 +35,7 @@ JOB_STATES = [
 
 class VideoEditorJob(models.Model):
     _name = "video.editor.job"
-    _description = "Video Editor S3 job"
+    _description = "Crowly Sourcing job"
     _order = "id desc"
     _rec_name = "display_name"
 
@@ -561,16 +561,16 @@ def _run_prompt_qc(db, uid, job_id, cancel_event):
         bedrock_cfg = env["video.editor.s3.settings"].get_bedrock_config()
         seed_prompt = env["video.editor.s3.settings"].get_qc_seed_prompt()
 
-    if not bedrock_cfg.get("access_key") or not bedrock_cfg.get("secret_key"):
+    if not bedrock_cfg.get("api_key"):
         _log_yt(db, uid, job_id, project_id, "error", "prompt_qc_failed",
-                "Bedrock credentials missing — configure under Settings.")
-        raise UserError(_("Bedrock credentials missing — configure under Settings."))
+                "Kimi K2.5 API key missing — configure under Settings > Crowly Sourcing > Kimi K2.5 Prompt QC.")
+        raise UserError(_("Kimi K2.5 API key missing — configure under Settings > Crowly Sourcing > Kimi K2.5 Prompt QC."))
     if not bedrock_cfg.get("model_id"):
-        raise UserError(_("Bedrock model_id missing — configure under Settings."))
+        raise UserError(_("Kimi K2.5 model ID/ARN missing — configure under Settings > Crowly Sourcing > Kimi K2.5 Prompt QC."))
 
-    _bump_heartbeat(db, job_id, "evaluating prompt")
+    _bump_heartbeat(db, job_id, "evaluating prompt via Kimi K2.5")
     _log_yt(db, uid, job_id, project_id, "info", "prompt_qc_start",
-            "model=%s region=%s prompt_chars=%d" % (
+            "kimi_k2.5 model=%s region=%s prompt_chars=%d" % (
                 bedrock_cfg.get("model_id"),
                 bedrock_cfg.get("region"),
                 len(prompt),
@@ -580,8 +580,7 @@ def _run_prompt_qc(db, uid, job_id, cancel_event):
         result = llm_qc.evaluate_prompt(
             prompt=prompt,
             seed_prompt=seed_prompt,
-            access_key=bedrock_cfg["access_key"],
-            secret_key=bedrock_cfg["secret_key"],
+            api_key=bedrock_cfg["api_key"],
             region=bedrock_cfg.get("region") or llm_qc.DEFAULT_REGION,
             model_id=bedrock_cfg.get("model_id") or llm_qc.DEFAULT_MODEL_ID,
         )
@@ -609,6 +608,7 @@ def _run_prompt_qc(db, uid, job_id, cancel_event):
             "qc_quality": result.get("quality") if result.get("quality") in ("pass", "fail") else "fail",
             "qc_reason": result.get("reason") or "",
             "qc_issues": result.get("issues") or "",
+            "qc_corrected_prompt": result.get("corrected_prompt") or "",
             "qc_evaluated_prompt": prompt,
             "qc_evaluated_at": fields.Datetime.now(),
         })

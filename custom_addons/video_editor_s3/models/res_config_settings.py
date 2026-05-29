@@ -72,16 +72,25 @@ class ResConfigSettings(models.TransientModel):
     )
     video_editor_s3_bedrock_model_id = fields.Char(
         string="Bedrock Model ID",
-        default="anthropic.claude-3-5-sonnet-20241022-v2:0",
+        default="moonshotai.kimi-k2.5",
         config_parameter="video_editor_s3.bedrock_model_id",
+        help=(
+            "Bedrock foundation-model ID used for prompt QC via the Converse API. "
+            "Default 'moonshotai.kimi-k2.5' (Kimi K2.5, 256K context, available in "
+            "ap-south-1/us-east-1/us-west-2/eu-north-1/eu-west-2/ap-northeast-1/"
+            "ap-southeast-2/ap-southeast-3/ap-southeast-4/sa-east-1, "
+            "Converse API + bearer-token auth). "
+            "Other compatible IDs: 'moonshotai.kimi-k2-thinking', "
+            "'amazon.nova-pro-v1:0', 'amazon.nova-lite-v1:0', "
+            "'anthropic.claude-sonnet-4-5-20250929-v1:0', "
+            "'anthropic.claude-3-5-sonnet-20241022-v2:0', "
+            "'deepseek.deepseek-v3-2', 'deepseek.deepseek-r1'. "
+            "All use the same Converse request shape."
+        ),
     )
-    video_editor_s3_bedrock_access_key = fields.Char(
-        string="Bedrock Access Key",
-        config_parameter="video_editor_s3.bedrock_access_key",
-    )
-    video_editor_s3_bedrock_secret_key = fields.Char(
-        string="Bedrock Secret Key",
-        config_parameter="video_editor_s3.bedrock_secret_key",
+    video_editor_s3_bedrock_api_key = fields.Char(
+        string="Bedrock API Key",
+        config_parameter="video_editor_s3.bedrock_api_key",
     )
     video_editor_s3_qc_seed_file = fields.Binary(
         string="QC Seed Prompt File",

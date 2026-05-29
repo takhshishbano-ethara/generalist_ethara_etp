@@ -84,31 +84,36 @@
                     </group>
                     <notebook>
                         <page string="General Information" name="general">
-                            <group>
+                            <group string="Project Details">
                                 <group>
                                     <field name="project_name"/>
                                     <field name="category"/>
                                     <field name="style"/>
                                 </group>
                             </group>
-                            <group>
-                                <field name="prompt" nolabel="1" placeholder="Prompt..."/>
+                            <group string="Prompt">
+                                <field name="prompt" placeholder="Prompt..."/>
                             </group>
                             <group string="Prompt QC" invisible="not qc_evaluated_at">
-                                <group>
-                                    <field name="qc_score" readonly="1"/>
-                                    <field name="qc_expert_level" readonly="1"/>
+                                <group string="Verdict">
                                     <field name="qc_quality" widget="badge" decoration-success="qc_quality == 'pass'" decoration-danger="qc_quality == 'fail'" readonly="1"/>
+                                    <field name="qc_score" readonly="1"/>
+                                    <field name="qc_expert_level" string="Accuracy Level" readonly="1"/>
+                                </group>
+                                <group string="Run">
                                     <field name="qc_evaluated_at" readonly="1"/>
                                 </group>
-                                <group>
-                                    <field name="qc_reason" readonly="1" nolabel="1"/>
+                                <group string="Error Reason" colspan="2">
+                                    <field name="qc_reason" string="Error Reason" readonly="1" placeholder="No reason provided."/>
                                 </group>
-                                <group colspan="2">
-                                    <field name="qc_issues" readonly="1" nolabel="1" placeholder="No issues."/>
+                                <group string="Corrected Prompt" colspan="2">
+                                    <field name="qc_corrected_prompt" string="Corrected Prompt" readonly="1" placeholder="No corrected prompt suggested."/>
                                 </group>
-                                <group colspan="2">
-                                    <field name="qc_evaluated_prompt" readonly="1" nolabel="1" string="Evaluated Prompt"/>
+                                <group string="Issues" colspan="2">
+                                    <field name="qc_issues" string="Issues" readonly="1" placeholder="No issues."/>
+                                </group>
+                                <group string="Evaluated Prompt" colspan="2">
+                                    <field name="qc_evaluated_prompt" string="Evaluated Prompt" readonly="1"/>
                                 </group>
                             </group>
                         </page>
@@ -205,7 +210,7 @@
     </record>
 
     <record id="action_video_editor_project" model="ir.actions.act_window">
-        <field name="name">Video Projects</field>
+        <field name="name">Crowley Sourcing</field>
         <field name="res_model">video.editor.project</field>
         <field name="view_mode">list,kanban,form</field>
         <field name="search_view_id" ref="view_video_editor_project_search"/>

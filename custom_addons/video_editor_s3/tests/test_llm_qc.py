@@ -71,22 +71,12 @@ class TestParseQcResponse(TransactionCase):
 @tagged("post_install", "-at_install", "video_editor_s3")
 class TestEvaluatePrompt(TransactionCase):
 
-    def test_missing_access_key_raises(self):
+    def test_missing_api_key_raises(self):
         with self.assertRaises(UserError):
             llm_qc.evaluate_prompt(
                 prompt="Test prompt",
                 seed_prompt="You are a QC expert.",
-                access_key="",
-                secret_key="secret",
-            )
-
-    def test_missing_secret_key_raises(self):
-        with self.assertRaises(UserError):
-            llm_qc.evaluate_prompt(
-                prompt="Test prompt",
-                seed_prompt="You are a QC expert.",
-                access_key="AKIATEST",
-                secret_key="",
+                api_key="",
             )
 
     def test_empty_prompt_raises(self):
@@ -94,8 +84,7 @@ class TestEvaluatePrompt(TransactionCase):
             llm_qc.evaluate_prompt(
                 prompt="",
                 seed_prompt="You are a QC expert.",
-                access_key="AKIATEST",
-                secret_key="secret",
+                api_key="bedrock-api-key",
             )
 
     def test_evaluates_via_mocked_bedrock(self):
@@ -124,8 +113,7 @@ class TestEvaluatePrompt(TransactionCase):
             result = llm_qc.evaluate_prompt(
                 prompt="A cinematic shot of a sunset over the ocean.",
                 seed_prompt="You are a QC expert.",
-                access_key="AKIATEST",
-                secret_key="secret",
+                api_key="bedrock-api-key",
             )
 
         self.assertEqual(result["score"], 80.0)
