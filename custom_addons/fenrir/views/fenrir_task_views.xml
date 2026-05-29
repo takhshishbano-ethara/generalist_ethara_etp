@@ -33,10 +33,10 @@
             <form string="Task">
                 <header>
                     <button name="action_approve_task" type="object"
-                            string="Approved" class="btn-primary"
+                            string="Approve" class="btn-primary"
                             invisible="not id or not context.get('from_all_tasks') or status in ('approved', 'completed')"/>
                     <button name="action_reject_task" type="object"
-                            string="Rejected" class="btn-danger"
+                            string="Reject" class="btn-danger"
                             invisible="not id or not context.get('from_all_tasks') or status in ('rejected', 'completed')"/>
                     <field name="status" widget="statusbar"
                            statusbar_visible="draft,pending_review,approved,rejected,completed"/>
