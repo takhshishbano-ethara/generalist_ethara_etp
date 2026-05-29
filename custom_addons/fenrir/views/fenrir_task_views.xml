@@ -34,9 +34,11 @@
                 <header>
                     <button name="action_approve_task" type="object"
                             string="Approve" class="btn-primary"
+                            groups="fenrir.group_fenrir_manager"
                             invisible="not id or not context.get('from_all_tasks') or status in ('approved', 'completed')"/>
                     <button name="action_reject_task" type="object"
                             string="Reject" class="btn-danger"
+                            groups="fenrir.group_fenrir_manager"
                             invisible="not id or not context.get('from_all_tasks') or status in ('rejected', 'completed')"/>
                     <field name="status" widget="statusbar"
                            statusbar_visible="draft,pending_review,approved,rejected,completed"/>

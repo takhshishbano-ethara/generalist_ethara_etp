@@ -81,10 +81,14 @@ class FenrirTask(models.Model):
     )
 
     def action_approve_task(self):
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise UserError("Only managers can approve tasks.")
         for rec in self:
             rec.status = "approved"
 
     def action_reject_task(self):
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise UserError("Only managers can reject tasks.")
         for rec in self:
             rec.status = "rejected"
 
