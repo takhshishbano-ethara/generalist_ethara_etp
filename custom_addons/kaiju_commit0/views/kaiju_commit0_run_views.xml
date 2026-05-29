@@ -88,6 +88,15 @@
                             <field name="use_spec_info"
                                    readonly="run_status in ('running', 'done')"/>
                         </group>
+                        <group string="Advanced Settings" invisible="run_status in ('running', 'done')">
+                            <field name="skip_to_stage"/>
+                            <field name="inactivity_timeout"/>
+                            <field name="max_wall_time"/>
+                            <field name="eval_timeout"/>
+                            <field name="stage_timeout"/>
+                            <field name="max_test_output_length"/>
+                            <field name="no_stage3_lint"/>
+                        </group>
                     </group>
 
                     <div class="c0-phase-screen">
