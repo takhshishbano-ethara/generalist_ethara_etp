@@ -19,7 +19,6 @@ class TestModuleInstall(TransactionCase):
     def test_groups_exist(self):
         for xmlid in (
             "video_editor_s3.group_video_editor_s3_user",
-            "video_editor_s3.group_video_editor_s3_editor",
             "video_editor_s3.group_video_editor_s3_manager",
         ):
             self.assertTrue(self.env.ref(xmlid, raise_if_not_found=False), xmlid)

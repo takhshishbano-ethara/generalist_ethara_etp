@@ -1,10 +1,7 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_project_user,video.editor.project.user,model_video_editor_project,group_video_editor_s3_user,1,1,1,0
-access_project_editor,video.editor.project.editor,model_video_editor_project,group_video_editor_s3_editor,1,1,1,0
 access_project_manager,video.editor.project.manager,model_video_editor_project,group_video_editor_s3_manager,1,1,1,1
 access_job_user,video.editor.job.user,model_video_editor_job,group_video_editor_s3_user,1,1,1,0
-access_job_editor,video.editor.job.editor,model_video_editor_job,group_video_editor_s3_editor,1,1,1,0
 access_job_manager,video.editor.job.manager,model_video_editor_job,group_video_editor_s3_manager,1,1,1,1
 access_log_user,video.editor.processing.log.user,model_video_editor_processing_log,group_video_editor_s3_user,1,0,0,0
-access_log_editor,video.editor.processing.log.editor,model_video_editor_processing_log,group_video_editor_s3_editor,1,1,1,0
 access_log_manager,video.editor.processing.log.manager,model_video_editor_processing_log,group_video_editor_s3_manager,1,1,1,1
