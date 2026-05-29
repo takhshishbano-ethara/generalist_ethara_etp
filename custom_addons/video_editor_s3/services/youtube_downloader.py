@@ -608,12 +608,34 @@ def have_free_space(target_dir, needed_bytes):
 
 
 def _info_to_metadata(info, fallback_video_id):
+    width = int(info.get("width") or 0)
+    height = int(info.get("height") or 0)
+    fps = float(info.get("fps") or 0.0)
+    vcodec = (info.get("vcodec") or "").split(".")[0] if info.get("vcodec") else ""
+    if not (width and height and fps):
+        for fmt in info.get("formats") or []:
+            if (fmt.get("vcodec") or "none") == "none":
+                continue
+            if not width:
+                width = int(fmt.get("width") or 0)
+            if not height:
+                height = int(fmt.get("height") or 0)
+            if not fps:
+                fps = float(fmt.get("fps") or 0.0)
+            if not vcodec and fmt.get("vcodec"):
+                vcodec = fmt["vcodec"].split(".")[0]
+            if width and height and fps:
+                break
     return {
         "video_id": info.get("id") or fallback_video_id,
         "title": info.get("title") or "",
         "channel": info.get("channel") or info.get("uploader") or "",
         "thumbnail": info.get("thumbnail") or "",
         "duration_seconds": float(info.get("duration") or 0.0),
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "vcodec": vcodec,
     }
 
 

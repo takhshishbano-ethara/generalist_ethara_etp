@@ -8,6 +8,7 @@
                 <field name="name"/>
                 <field name="s3_source_url"/>
                 <field name="resolution"/>
+                <field name="source_fps" optional="show"/>
                 <field name="duration_seconds" widget="float_time"/>
                 <field name="source_size_mb" widget="float"/>
                 <field name="state" widget="badge"/>
@@ -79,6 +80,8 @@
                         </group>
                         <group name="primary_right">
                             <field name="output_s3_url" widget="video_url_preview" readonly="1"/>
+                            <field name="resolution" readonly="1" invisible="not resolution"/>
+                            <field name="source_fps" readonly="1" invisible="not source_fps"/>
                             <field name="assigned_to" widget="many2one_avatar_user"/>
                         </group>
                     </group>
@@ -127,6 +130,8 @@
                                 </group>
                                 <group>
                                     <field name="youtube_duration_seconds" widget="float_time" readonly="1"/>
+                                    <field name="youtube_resolution" readonly="1"/>
+                                    <field name="youtube_fps" readonly="1"/>
                                     <field name="youtube_thumbnail_url" readonly="1" widget="url"/>
                                 </group>
                             </group>
@@ -134,6 +139,7 @@
                                 <group>
                                     <field name="s3_source_key" readonly="1"/>
                                     <field name="resolution" readonly="1"/>
+                                    <field name="source_fps" readonly="1"/>
                                 </group>
                                 <group>
                                     <field name="duration_seconds" widget="float_time" readonly="1"/>

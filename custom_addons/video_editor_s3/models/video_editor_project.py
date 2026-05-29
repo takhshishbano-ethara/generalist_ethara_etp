@@ -56,6 +56,11 @@ class VideoEditorProject(models.Model):
         compute="_compute_source_summary",
         store=True,
     )
+    source_fps = fields.Float(
+        string="Source FPS",
+        compute="_compute_source_summary",
+        store=True,
+    )
     source_size_mb = fields.Float(
         string="Source Size (MB)",
         compute="_compute_source_summary",
@@ -73,6 +78,8 @@ class VideoEditorProject(models.Model):
     youtube_channel = fields.Char(string="YouTube Channel", readonly=True)
     youtube_thumbnail_url = fields.Char(string="YouTube Thumbnail", readonly=True)
     youtube_duration_seconds = fields.Float(string="YouTube Duration (s)", readonly=True)
+    youtube_resolution = fields.Char(string="YouTube Resolution", readonly=True)
+    youtube_fps = fields.Float(string="YouTube FPS", readonly=True)
     youtube_ingested_at = fields.Datetime(string="YouTube Ingested At", readonly=True)
 
     prompt = fields.Text(string="Prompt")
@@ -176,6 +183,7 @@ class VideoEditorProject(models.Model):
             meta = rec.source_metadata or {}
             rec.duration_seconds = float(meta.get("duration") or 0.0)
             rec.resolution = meta.get("resolution") or ""
+            rec.source_fps = float(meta.get("fps") or 0.0)
             rec.source_size_mb = float(meta.get("size_bytes") or 0.0) / (1024 * 1024)
 
     @api.depends("job_ids.status")
@@ -333,6 +341,22 @@ class VideoEditorProject(models.Model):
             except UserError as exc:
                 _logger.info("auto-ingest skipped for project %s: %s", rec.id, exc)
 
+    def _maybe_probe_s3_source(self):
+        for rec in self:
+            if not rec.s3_source_url:
+                continue
+            meta = rec.source_metadata or {}
+            if meta.get("size_bytes") or meta.get("duration"):
+                continue
+            if rec.job_ids.filtered(
+                lambda j: j.job_type in ("s3_probe", "youtube_ingest") and j.status in ("queued", "running")
+            ):
+                continue
+            try:
+                rec._kick_job("s3_probe")
+            except UserError as exc:
+                _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
+
     def _maybe_run_prompt_qc(self):
         for rec in self:
             if not rec.prompt:
@@ -348,6 +372,7 @@ class VideoEditorProject(models.Model):
     def create(self, vals_list):
         records = super().create(vals_list)
         records._maybe_auto_ingest_youtube()
+        records._maybe_probe_s3_source()
         records._maybe_run_prompt_qc()
         return records
 
@@ -355,6 +380,8 @@ class VideoEditorProject(models.Model):
         res = super().write(vals)
         if "youtube_url" in vals:
             self._maybe_auto_ingest_youtube()
+        if "s3_source_url" in vals:
+            self._maybe_probe_s3_source()
         if "prompt" in vals:
             self._maybe_run_prompt_qc()
         return res
