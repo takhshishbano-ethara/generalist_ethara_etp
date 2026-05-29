@@ -200,6 +200,7 @@ def _set_done(db, job_id):
             "finished_at": datetime.utcnow(),
         })
         cr.commit()
+    job_executor._notify_job_completion(db, job_id)
 
 
 def _read_job_type(db, uid, job_id):

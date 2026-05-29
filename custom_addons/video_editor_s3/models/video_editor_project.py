@@ -264,6 +264,7 @@ class VideoEditorProject(models.Model):
         self.ensure_one()
         if not self.youtube_url:
             raise UserError(_("Set a YouTube URL first."))
+        self._probe_youtube_or_raise()
         job = self._kick_job("youtube_ingest", config={"youtube_url": self.youtube_url})
         return {
             "type": "ir.actions.client",
@@ -301,6 +302,19 @@ class VideoEditorProject(models.Model):
             "context": {"default_project_id": self.id},
         }
 
+    def _probe_youtube_or_raise(self):
+        """Run the 2160p50/60 gate synchronously so a UserError surfaces as a modal popup."""
+        self.ensure_one()
+        if not self.youtube_url:
+            return
+        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
+        youtube_downloader.probe_and_select(
+            self.youtube_url,
+            cookies_path=cfg.get("cookies_path"),
+            proxy_url=cfg.get("proxy_url"),
+            cookies_from_browser=cfg.get("cookies_browser"),
+        )
+
     def _maybe_auto_ingest_youtube(self):
         for rec in self:
             if not rec.youtube_url:
@@ -312,6 +326,7 @@ class VideoEditorProject(models.Model):
             video_id, _normalized = youtube_downloader.parse_youtube_url(rec.youtube_url)
             if not video_id:
                 continue
+            rec._probe_youtube_or_raise()
             try:
                 rec._kick_job("youtube_ingest", config={"youtube_url": rec.youtube_url})
             except UserError as exc:

@@ -7,7 +7,7 @@ import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
-from odoo import SUPERUSER_ID, api
+from odoo import SUPERUSER_ID, _, api
 from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
@@ -145,6 +145,78 @@ def _mark_status(db, job_id, status, error=None):
             cr.commit()
     except Exception:
         _logger.exception("failed to mark job %s as %s", job_id, status)
+    _notify_job_completion(db, job_id)
+
+
+_JOB_TYPE_LABELS = {
+    "render": "Render",
+    "preview": "Preview",
+    "export": "Export",
+    "youtube_ingest": "YouTube ingest",
+    "prompt_qc": "Prompt QC",
+}
+
+
+def _notify_job_completion(db, job_id):
+    try:
+        with _open_cursor(db) as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            job = env["video.editor.job"].browse(job_id)
+            if not job.exists():
+                return
+            user = job.create_uid
+            if not user or not user.active or not user.partner_id:
+                return
+            payload = _build_notification_payload(job)
+            if payload is None:
+                return
+            user._bus_send("simple_notification", payload)
+            cr.commit()
+    except Exception:
+        _logger.exception("notify_job_completion failed for job %s", job_id)
+
+
+def _build_notification_payload(job):
+    status = job.status
+    job_type = job.job_type
+    project = job.project_id
+    label = _JOB_TYPE_LABELS.get(job_type, job_type or "Job")
+    if status == "done":
+        if job_type == "youtube_ingest":
+            title = project.youtube_title or _("(no title)")
+            message = _("Video '%s' ingested. Source S3 URL set.") % title
+        elif job_type in ("render", "preview"):
+            message = _("Project: %s") % (project.name or "")
+        elif job_type == "export":
+            message = job.output_s3_url or (project.name or "")
+        elif job_type == "prompt_qc":
+            message = _("Quality: %s (score: %s)") % (
+                project.qc_quality or _("(unknown)"),
+                project.qc_score or 0,
+            )
+        else:
+            message = project.name or ""
+        return {
+            "type": "success",
+            "title": _("%s complete") % label,
+            "message": message,
+            "sticky": False,
+        }
+    if status == "failed":
+        return {
+            "type": "danger",
+            "title": _("%s failed (#%s)") % (label, job.id),
+            "message": job.error_message or _("Job failed without a message."),
+            "sticky": True,
+        }
+    if status == "cancelled":
+        return {
+            "type": "warning",
+            "title": _("%s cancelled (#%s)") % (label, job.id),
+            "message": _("Job cancelled."),
+            "sticky": False,
+        }
+    return None
 
 
 def submit_job_async(db, uid, job_id, runner):
