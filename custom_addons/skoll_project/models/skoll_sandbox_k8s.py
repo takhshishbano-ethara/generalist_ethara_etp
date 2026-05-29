@@ -157,6 +157,7 @@ def _build_openclaw_config(
 
     config_dict = {
         "gateway": {
+            "mode": "local",
             "bind": "lan",
             "auth": {
                 "mode": "token",
@@ -707,6 +708,7 @@ class SkollSandboxK8s(models.AbstractModel):
             client.V1Container(
                 name="session-restore",
                 image=aws_cli_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -746,6 +748,7 @@ class SkollSandboxK8s(models.AbstractModel):
             client.V1Container(
                 name="persona-setup",
                 image=openclaw_image,
+                image_pull_policy="Always",
                 command=[
                     "sh",
                     "-c",
@@ -772,6 +775,7 @@ class SkollSandboxK8s(models.AbstractModel):
             client.V1Container(
                 name="snapshot-start",
                 image=aws_cli_image,
+                image_pull_policy="IfNotPresent",
                 command=[
                     "sh",
                     "-c",
@@ -793,6 +797,7 @@ class SkollSandboxK8s(models.AbstractModel):
             client.V1Container(
                 name="gog-setup",
                 image=openclaw_image,
+                image_pull_policy="Always",
                 command=[
                     "sh",
                     "-c",
@@ -828,6 +833,7 @@ class SkollSandboxK8s(models.AbstractModel):
             client.V1Container(
                 name="gog-install",
                 image=openclaw_image,
+                image_pull_policy="Always",
                 command=[
                     "sh",
                     "-c",
@@ -855,6 +861,8 @@ class SkollSandboxK8s(models.AbstractModel):
         openclaw_container = client.V1Container(
             name="openclaw",
             image=openclaw_image,
+            image_pull_policy="Always",
+            command=["node", "openclaw.mjs", "gateway", "--allow-unconfigured"],
             ports=[client.V1ContainerPort(container_port=18789)],
             env=[
                 client.V1EnvVar(
@@ -1004,6 +1012,7 @@ class SkollSandboxK8s(models.AbstractModel):
         litellm_container = client.V1Container(
             name="litellm",
             image=litellm_image,
+            image_pull_policy="IfNotPresent",
             ports=[client.V1ContainerPort(container_port=4000)],
             command=["litellm", "--config", "/app/config.yaml", "--port", "4000"],
             env=[
@@ -1092,6 +1101,7 @@ class SkollSandboxK8s(models.AbstractModel):
         session_backup_container = client.V1Container(
             name="session-backup",
             image=aws_cli_image,
+            image_pull_policy="IfNotPresent",
             command=[
                 "sh",
                 "-c",
@@ -1123,6 +1133,7 @@ class SkollSandboxK8s(models.AbstractModel):
         postgres_container = client.V1Container(
             name="postgres",
             image=postgres_image,
+            image_pull_policy="IfNotPresent",
             ports=[client.V1ContainerPort(container_port=5432)],
             env=[
                 client.V1EnvVar(name="POSTGRES_DB", value="litellm"),
