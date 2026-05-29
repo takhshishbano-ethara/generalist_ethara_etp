@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Crowley Sourcing",
-    "version": "19.0.1.0.5",
+    "version": "19.0.1.0.6",
     "summary": "Import S3 videos, edit (trim/crop/rotate/resize/filters) via FFmpeg, "
                "render asynchronously and export back to S3.",
     "description": """

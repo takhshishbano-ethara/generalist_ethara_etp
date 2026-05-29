@@ -65,6 +65,9 @@
                         <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
                             <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
                         </setting>
+                        <setting>
+                            <button name="action_test_youtube_cookies" string="Test YouTube Config" type="object" class="btn-primary"/>
+                        </setting>
                     </block>
                     <block title="System Paths" name="video_editor_s3_paths">
                         <setting id="video_editor_s3_media_root" string="Media Root Override" help="Absolute directory for downloaded sources and rendered outputs. Leave empty to auto-detect.">
