@@ -71,7 +71,7 @@ class FenrirTask(models.Model):
             ("draft", "Draft"),
             ("pending_review", "Pending Review"),
             ("approved", "Approved"),
-            ("in_progress", "In Progress"),
+            ("rejected", "Rejected"),
             ("completed", "Completed"),
             ("cancelled", "Cancelled"),
         ],
@@ -79,7 +79,21 @@ class FenrirTask(models.Model):
         default="draft",
         tracking=True,
     )
+
+    def action_approve_task(self):
+        for rec in self:
+            rec.status = "approved"
+
+    def action_reject_task(self):
+        for rec in self:
+            rec.status = "rejected"
+
+    def action_submit_task(self):
+        for rec in self:
+            rec.status = "completed"
+            rec.submitted_at = fields.Datetime.now()
     remarks = fields.Text(string="Remarks")
+    submitted_at = fields.Datetime(string="Submitted At", readonly=True, tracking=True)
 
     dockerfile_attachment = fields.Binary(string="Dockerfile", attachment=True)
     dockerfile_filename = fields.Char(default="Dockerfile")
@@ -103,6 +117,7 @@ class FenrirTask(models.Model):
                            help="Buyer-side pricing")
     price_tier = fields.Char(string="Price Tier")
     delivery_time = fields.Date(string="Delivery Time", tracking=True)
+    order_accepted_date = fields.Date(string="Order Accepted Date", tracking=True)
 
     seller_offer_ids = fields.One2many(
         comodel_name="fenrir.seller.offer",

@@ -130,8 +130,27 @@ class FenrirSellerOffer(models.Model):
                 ]
         return res
 
+    @staticmethod
+    def _strip_empty_score_cmds(vals):
+        cmds = vals.get("rubric_score_ids")
+        if not cmds:
+            return vals
+        cleaned = []
+        for cmd in cmds:
+            if isinstance(cmd, (list, tuple)) and len(cmd) >= 3 and cmd[0] == 0:
+                if not (cmd[2] or {}).get("rubric_id"):
+                    continue
+            cleaned.append(cmd)
+        new_vals = dict(vals)
+        new_vals["rubric_score_ids"] = cleaned
+        return new_vals
+
+    def write(self, vals):
+        return super().write(self._strip_empty_score_cmds(vals))
+
     @api.model_create_multi
     def create(self, vals_list):
+        vals_list = [self._strip_empty_score_cmds(v) for v in vals_list]
         for vals in vals_list:
             if not vals.get("seller_no") and vals.get("task_id"):
                 existing = self.search_count([("task_id", "=", vals["task_id"])])
