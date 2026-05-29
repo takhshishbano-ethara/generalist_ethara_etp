@@ -154,6 +154,7 @@ _JOB_TYPE_LABELS = {
     "export": "Export",
     "youtube_ingest": "YouTube ingest",
     "prompt_qc": "Prompt QC",
+    "s3_probe": "S3 probe",
 }
 
 

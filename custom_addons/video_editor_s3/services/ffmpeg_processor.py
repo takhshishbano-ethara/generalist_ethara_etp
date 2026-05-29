@@ -115,6 +115,11 @@ class FfmpegProcessor(models.AbstractModel):
                     out["duration"] = float(fmt["duration"])
                 except (TypeError, ValueError):
                     pass
+            if not out["size_bytes"] and fmt.get("size"):
+                try:
+                    out["size_bytes"] = int(fmt["size"])
+                except (TypeError, ValueError):
+                    pass
             for stream in data.get("streams") or []:
                 if stream.get("codec_type") == "video":
                     out["width"] = int(stream.get("width") or 0)
@@ -217,7 +222,16 @@ class FfmpegProcessor(models.AbstractModel):
         if preview:
             cmd += ["-c:v", "libx264", "-preset", "veryfast", "-crf", "30"]
         else:
-            cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "22"]
+            # x264 defaults (ncpu threads, ref=3, bframes=3, rc-lookahead=40)
+            # OOM on 2160p sources because each thread keeps its own reference
+            # and lookahead frame buffers. Cap to a memory budget that survives
+            # 2 concurrent jobs on a small VPS while leaving quality nearly
+            # unchanged (~5-8 % bitrate cost at the same CRF).
+            cmd += [
+                "-c:v", "libx264", "-preset", "medium", "-crf", "22",
+                "-threads", "2",
+                "-x264-params", "ref=2:bframes=2:rc-lookahead=10",
+            ]
 
         cmd += ["-pix_fmt", "yuv420p", "-movflags", "+faststart", dst]
         return cmd

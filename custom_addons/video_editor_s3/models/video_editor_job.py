@@ -96,6 +96,13 @@ class VideoEditorJob(models.Model):
         self.ensure_one()
         if self.status not in ("failed", "cancelled"):
             raise UserError(_("Only failed or cancelled jobs can be retried."))
+        sibling = self.project_id.job_ids.filtered(
+            lambda j: j.id != self.id and j.status in ("queued", "running")
+        )
+        if sibling:
+            raise UserError(_(
+                "Another job is already queued/running for this project (#%d, %s)."
+            ) % (sibling[0].id, sibling[0].job_type))
         self.write({
             "status": "queued",
             "error_message": False,
@@ -103,7 +110,12 @@ class VideoEditorJob(models.Model):
             "finished_at": False,
             "progress_text": False,
         })
-        self._submit_async()
+        job = self
+
+        def _submit():
+            job._submit_async()
+
+        self.env.cr.postcommit.add(_submit)
         return True
 
     def action_view_log(self):
