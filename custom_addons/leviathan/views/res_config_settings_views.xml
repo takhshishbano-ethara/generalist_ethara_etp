@@ -62,6 +62,23 @@
                                 </div>
                             </div>
                         </setting>
+                        <setting string="Attach Screenshots to LLM Calls (opt-in)"
+                                 help="Attach extracted screenshots to PRD generation and/or QC alignment-check Bedrock calls. OFF by default — text-only requests have a much lower 4xx-rejection rate (long output + images is the failure-prone combo). Turn ON per pipeline stage when you want visual grounding and are prepared to triage more failed jobs. Live settings: the worker pod picks them up on its next drain tick.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <field name="leviathan_prd_include_images" class="oe_inline"/>
+                                    <label for="leviathan_prd_include_images" class="o_light_label"/>
+                                </div>
+                                <div class="row mt16">
+                                    <field name="leviathan_qc_include_images" class="oe_inline"/>
+                                    <label for="leviathan_qc_include_images" class="o_light_label"/>
+                                </div>
+                                <div class="row mt16">
+                                    <label for="leviathan_prd_max_images" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_prd_max_images" class="oe_inline"/>
+                                </div>
+                            </div>
+                        </setting>
                     </block>
                     <block title="S3 Storage">
                         <setting string="S3 Bucket">
@@ -160,7 +177,23 @@
                                 </div>
                             </div>
                         </setting>
-                        <setting string="Webhook" help="Maximum webhook body size (bytes). Live — takes effect on next request.">
+                        <setting string="Webhook Token" help="Shared secret the Lambda and K8s CronJobs send as X-Leviathan-Token. Falls back to LEVIATHAN_WEBHOOK_TOKEN env var if empty. Rotate live (no restart). Mirror to K8s Secret 'leviathan-webhook-token' key='token'.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_webhook_token" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_webhook_token" class="oe_inline" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Webhook URL Override" help="Full callback URL the Lambda POSTs to. Leave empty in production to derive from web.base.url. Set in local dev when web.base.url is localhost.">
+                            <div class="content-group">
+                                <div class="row mt16">
+                                    <label for="leviathan_webhook_url_override" class="col-lg-3 o_light_label"/>
+                                    <field name="leviathan_webhook_url_override" class="oe_inline" placeholder="http://host.docker.internal:8069/api/v1/leviathan/webhook/extraction-complete"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Webhook Max Body Bytes" help="Maximum webhook body size (bytes). Live — takes effect on next request.">
                             <div class="content-group">
                                 <div class="row mt16">
                                     <label for="leviathan_webhook_max_bytes" class="col-lg-3 o_light_label"/>

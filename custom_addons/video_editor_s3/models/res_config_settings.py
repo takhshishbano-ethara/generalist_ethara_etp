@@ -5,7 +5,7 @@ import binascii
 from odoo import _, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from ..services import s3_storage
+from ..services import s3_storage, youtube_downloader
 
 _QC_SEED_FILE_PARAM = "video_editor_s3.qc_seed_file"
 _QC_SEED_FILENAME_PARAM = "video_editor_s3.qc_seed_filename"
@@ -195,6 +195,30 @@ class ResConfigSettings(models.TransientModel):
                 "type": "success",
                 "title": _("S3 connection OK"),
                 "message": _("Bucket %s is reachable.") % cfg["bucket"],
+                "sticky": False,
+            },
+        }
+
+    def action_test_youtube_cookies(self):
+        self.ensure_one()
+        cfg = self.env["video.editor.s3.settings"].get_youtube_ingest_config()
+        cookies_path = (cfg.get("cookies_path") or "").strip()
+        proxy_url = (cfg.get("proxy_url") or "").strip()
+        if not cookies_path and not proxy_url:
+            raise UserError(_(
+                "Nothing to test — set Cookies File Path or Proxy URL first."
+            ))
+        if cookies_path:
+            youtube_downloader.validate_cookies_file(cookies_path)
+        if proxy_url:
+            youtube_downloader.validate_proxy_url(proxy_url)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": "success",
+                "title": _("YouTube ingest configuration OK"),
+                "message": _("Cookies file and/or proxy URL passed validation."),
                 "sticky": False,
             },
         }

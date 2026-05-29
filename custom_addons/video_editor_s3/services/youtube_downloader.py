@@ -48,6 +48,34 @@ _BOT_CHALLENGE_MARKERS = (
     "confirm you're not a bot",
     "confirm you\u2019re not a bot",
     "cookies-from-browser",
+    "captcha",
+)
+
+# Split out from bot-challenge because the remediation is different: a 429
+# means the host IP is throttled (proxy / backoff fixes it), not that
+# YouTube wants a logged-in cookie.
+_RATE_LIMIT_MARKERS = (
+    "http error 429",
+    "too many requests",
+    "rate-limited",
+    "rate limited",
+)
+
+# yt-dlp accepts the Netscape format only; an exported JSON / SQLite dump
+# silently fails as "no cookies found" once the actual download starts, so
+# we validate the header upfront and surface a clear error instead.
+_NETSCAPE_HEADER_MARKERS = (
+    "# netscape http cookie file",
+    "# http cookie file",
+)
+
+_PROXY_SCHEMES = (
+    "http://",
+    "https://",
+    "socks5://",
+    "socks5h://",
+    "socks4://",
+    "socks4a://",
 )
 
 
@@ -299,6 +327,64 @@ def _invalidate_cookie_cache():
         _logger.warning("Could not invalidate cookie cache %s: %s", path, exc)
 
 
+def validate_cookies_file(path):
+    if not os.path.isfile(path):
+        raise UserError(_(
+            "YouTube cookies file not found: %s\n\n"
+            "Export a Netscape-format cookies.txt from a logged-in YouTube "
+            "session (use the 'Get cookies.txt LOCALLY' extension for "
+            "Chrome / Edge, or 'cookies.txt' for Firefox), upload it to the "
+            "Odoo host, then set Settings \u2192 Crowly Sourcing \u2192 "
+            "YouTube Ingest \u2192 Cookies File Path to the absolute path."
+        ) % path)
+    if not os.access(path, os.R_OK):
+        try:
+            os_user = getpass.getuser()
+        except Exception:
+            os_user = "?"
+        raise UserError(_(
+            "YouTube cookies file at %(path)s is not readable by the Odoo "
+            "OS user (%(user)s).\n\n"
+            "Fix on the server:\n"
+            "  chown odoo:odoo %(path)s\n"
+            "  chmod 600 %(path)s"
+        ) % {"path": path, "user": os_user})
+    try:
+        size = os.path.getsize(path)
+    except OSError as exc:
+        raise UserError(_(
+            "Could not stat YouTube cookies file %s: %s"
+        ) % (path, exc)) from exc
+    if size <= 0:
+        raise UserError(_(
+            "YouTube cookies file %s is empty. Re-export it from a "
+            "logged-in YouTube session and upload again."
+        ) % path)
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            first_line = fh.readline().strip().lower()
+    except OSError as exc:
+        raise UserError(_(
+            "Could not read YouTube cookies file %s: %s"
+        ) % (path, exc)) from exc
+    if not any(marker in first_line for marker in _NETSCAPE_HEADER_MARKERS):
+        raise UserError(_(
+            "YouTube cookies file %s is not in Netscape format (first line "
+            "must start with '# Netscape HTTP Cookie File'). Re-export it "
+            "using the 'Get cookies.txt LOCALLY' (Chrome / Edge) or "
+            "'cookies.txt' (Firefox) extension."
+        ) % path)
+
+
+def validate_proxy_url(url):
+    lower = url.strip().lower()
+    if not any(lower.startswith(scheme) for scheme in _PROXY_SCHEMES):
+        raise UserError(_(
+            "YouTube Proxy URL %s has an unsupported scheme. Use one of: "
+            "http://, https://, socks5://, socks5h://, socks4://, socks4a://"
+        ) % url)
+
+
 def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None):
     """Base ydl opts: retries + cookies + proxy + headers + remote components."""
     opts = {
@@ -314,13 +400,9 @@ def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None
         "remote_components": list(_DEFAULT_REMOTE_COMPONENTS),
     }
     if cookies_path:
-        if os.path.isfile(cookies_path):
-            opts["cookiefile"] = cookies_path
-            _logger.info("yt-dlp cookies file=%s", cookies_path)
-        else:
-            _logger.warning(
-                "YouTube cookies file not found at %s — ignoring.", cookies_path
-            )
+        validate_cookies_file(cookies_path)
+        opts["cookiefile"] = cookies_path
+        _logger.info("yt-dlp cookies file=%s", cookies_path)
 
     # Browser cookies are opt-in only — auto-detecting a signed-in browser
     # makes YouTube serve a stripped format set, which breaks the 2160p gate.
@@ -345,6 +427,7 @@ def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None
                 )
 
     if proxy_url:
+        validate_proxy_url(proxy_url)
         opts["proxy"] = proxy_url
         _logger.info("yt-dlp proxy configured")
     return opts
@@ -411,6 +494,33 @@ def _bot_challenge_message(url, *, opts=None):
         "cookiefile": cookiefile_line,
         "proxy": proxy_line,
     }
+
+
+def _looks_like_rate_limit(exc):
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _RATE_LIMIT_MARKERS)
+
+
+def _rate_limit_message(url, *, opts=None):
+    opts = opts or {}
+    proxy = opts.get("proxy")
+    proxy_line = (
+        _("  • YouTube Proxy URL: configured (active)")
+        if proxy else _("  • YouTube Proxy URL: not set")
+    )
+    return _(
+        "YouTube rate-limited this Odoo host (HTTP 429 / too many requests) "
+        "while fetching %(url)s.\n\n"
+        "Current configuration:\n"
+        "%(proxy)s\n\n"
+        "Remediation:\n"
+        "  1. Wait 10–30 minutes before retrying — the limit resets on its own.\n"
+        "  2. If retries keep failing, the Odoo host's IP itself is throttled. "
+        "Set Settings → Crowly Sourcing → YouTube Ingest → "
+        "Proxy URL to a residential HTTP / SOCKS5 proxy and retry.\n"
+        "  3. Reduce concurrency of bulk ingests via Settings → "
+        "Crowly Sourcing → Processing Limits → Max Concurrent Jobs."
+    ) % {"url": url, "proxy": proxy_line}
 
 
 def _is_hdr(fmt):
@@ -498,12 +608,34 @@ def have_free_space(target_dir, needed_bytes):
 
 
 def _info_to_metadata(info, fallback_video_id):
+    width = int(info.get("width") or 0)
+    height = int(info.get("height") or 0)
+    fps = float(info.get("fps") or 0.0)
+    vcodec = (info.get("vcodec") or "").split(".")[0] if info.get("vcodec") else ""
+    if not (width and height and fps):
+        for fmt in info.get("formats") or []:
+            if (fmt.get("vcodec") or "none") == "none":
+                continue
+            if not width:
+                width = int(fmt.get("width") or 0)
+            if not height:
+                height = int(fmt.get("height") or 0)
+            if not fps:
+                fps = float(fmt.get("fps") or 0.0)
+            if not vcodec and fmt.get("vcodec"):
+                vcodec = fmt["vcodec"].split(".")[0]
+            if width and height and fps:
+                break
     return {
         "video_id": info.get("id") or fallback_video_id,
         "title": info.get("title") or "",
         "channel": info.get("channel") or info.get("uploader") or "",
         "thumbnail": info.get("thumbnail") or "",
         "duration_seconds": float(info.get("duration") or 0.0),
+        "width": width,
+        "height": height,
+        "fps": fps,
+        "vcodec": vcodec,
     }
 
 
@@ -523,6 +655,8 @@ def probe_and_select(url, *, cookies_path=None, proxy_url=None, cookies_from_bro
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(normalized, download=False)
     except yt_dlp.utils.DownloadError as exc:
+        if _looks_like_rate_limit(exc):
+            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
         if _looks_like_bot_challenge(exc):
             _invalidate_cookie_cache()
             raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
@@ -568,6 +702,8 @@ def extract_metadata(url, *, cookies_path=None, proxy_url=None, cookies_from_bro
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(normalized, download=False)
     except yt_dlp.utils.DownloadError as exc:
+        if _looks_like_rate_limit(exc):
+            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
         if _looks_like_bot_challenge(exc):
             _invalidate_cookie_cache()
             raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
@@ -673,6 +809,8 @@ def download_to_tempdir(
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(normalized, download=True)
     except yt_dlp.utils.DownloadError as exc:
+        if _looks_like_rate_limit(exc):
+            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
         if _looks_like_bot_challenge(exc):
             _invalidate_cookie_cache()
             raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc

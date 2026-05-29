@@ -85,6 +85,19 @@ class LeviathanTestCase(TransactionCase):
             _postcommit.add = _add
             yield captured
 
+    @contextmanager
+    def _patch_cursor_commit(self):
+        """Neutralise commit/rollback on the live test cursor.
+
+        Some production paths intentionally chunk-commit for isolation, but
+        Odoo's TransactionCase forbids commit/rollback on the shared test
+        cursor. Tests that exercise those paths should patch both methods on
+        ``self.env.cr`` and assert the record mutations directly.
+        """
+        with patch.object(self.env.cr, "commit"), \
+             patch.object(self.env.cr, "rollback"):
+            yield
+
     @staticmethod
     def _png_bytes(width=10, height=10, color=(255, 0, 0)):
         """Build a minimal PNG byte string for image-resize tests."""

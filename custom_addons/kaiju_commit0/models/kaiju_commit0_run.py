@@ -9,6 +9,20 @@ _logger = logging.getLogger(__name__)
 
 RUN_WORKFLOW_TEMPLATE = "kaiju-run-pipeline"
 
+# Maps Odoo model_name selection values to pipeline model_short directory names.
+# Must match PRESET_SHORT in eks/pipeline/init_run.py and run_stage.py.
+MODEL_SHORT = {
+    "opus": "opus4.6",
+    "sonnet": "sonnet4",
+    "haiku": "haiku3.5",
+    "kimi": "kimi-k2.5",
+    "glm5": "glm-5",
+    "minimax": "minimax-m2.5",
+    "nova_premier": "nova-premier",
+    "nova_lite": "nova-2-lite",
+    "gpt54": "gpt-5.4",
+}
+
 
 class KaijuCommit0Run(models.Model):
     _name = "kaiju.commit0.run"
@@ -24,13 +38,19 @@ class KaijuCommit0Run(models.Model):
 
     model_name = fields.Selection(
         [
-            ("glm_5", "GLM-5"),
-            ("nova2_lite", "Nova2-Lite"),
-            ("opus_4_7", "Opus-4.7"),
+            ("opus", "Opus 4.6"),
+            ("sonnet", "Sonnet 4"),
+            ("haiku", "Haiku 3.5"),
+            ("kimi", "Kimi K2.5"),
+            ("glm5", "GLM-5"),
+            ("minimax", "Minimax M2.5"),
+            ("nova_premier", "Nova Premier"),
+            ("nova_lite", "Nova Lite"),
+            ("gpt54", "GPT-5.4"),
         ],
         string="Model",
         required=True,
-        default="glm_5",
+        default="opus",
     )
     num_samples = fields.Integer(
         string="Samples",
@@ -46,6 +66,44 @@ class KaijuCommit0Run(models.Model):
         string="Use Spec Info",
         default=True,
         help="Include specification in LLM context",
+    )
+
+    # ── Advanced Run Configuration ─────────────────────────────────────
+
+    skip_to_stage = fields.Integer(
+        string="Skip to Stage",
+        default=1,
+        help="Resume from stage N (1=start fresh, 2=skip stage1, 3=skip stage1+2)",
+    )
+    inactivity_timeout = fields.Integer(
+        string="Inactivity Timeout (s)",
+        default=900,
+        help="Kill agent if no log activity for this many seconds",
+    )
+    stage_timeout = fields.Integer(
+        string="Stage Timeout (s)",
+        default=0,
+        help="Max time per stage (0=unlimited)",
+    )
+    max_wall_time = fields.Integer(
+        string="Max Wall Time (s)",
+        default=86400,
+        help="Absolute maximum wall-clock time for entire pipeline",
+    )
+    eval_timeout = fields.Integer(
+        string="Eval Timeout (s)",
+        default=3600,
+        help="Timeout for each evaluation step",
+    )
+    max_test_output_length = fields.Integer(
+        string="Max Test Output Length",
+        default=15000,
+        help="Truncate test output beyond this many characters",
+    )
+    no_stage3_lint = fields.Boolean(
+        string="No Stage 3 Lint",
+        default=False,
+        help="Disable lint info in stage 3 (ablation flag)",
     )
 
     # ── Run Status ───────────────────────────────────────────────────────────
@@ -215,42 +273,77 @@ class KaijuCommit0Run(models.Model):
 
         callback_url = self._get_run_callback_url()
 
-        # Map model_name to model_preset expected by the pipeline
+        # Map Odoo selection keys to pipeline preset names
         model_preset_map = {
-            "glm_5": "glm-5",
-            "nova2_lite": "nova2-lite",
-            "opus_4_7": "opus-4.7",
+            "nova_premier": "nova-premier",
+            "nova_lite": "nova-lite",
         }
+
+        model_preset = model_preset_map.get(self.model_name, self.model_name)
 
         parameters = {
             "repo_name": build.repo_name,
             "language": build.language,
-            "branch_name": "commit0_combined",  # constant; pipeline hardcodes commit0_all internally
-            "model_preset": model_preset_map.get(self.model_name, self.model_name),
+            "branch_name": "commit0_combined",
+            "model_preset": model_preset,
             "num_samples": str(self.num_samples),
             "max_iteration": str(self.max_iteration),
             "use_spec_info": "true" if self.use_spec_info else "false",
             "odoo_job_id": str(self.id),
             "callback_url": callback_url,
-            "kaiju_agent_image": build.image_uri,
+            "skip_to_stage": str(self.skip_to_stage or 1),
+            "inactivity_timeout": str(self.inactivity_timeout or 900),
+            "stage_timeout": str(self.stage_timeout or 0),
+            "max_wall_time": str(self.max_wall_time or 86400),
+            "eval_timeout": str(self.eval_timeout or 3600),
+            "max_test_output_length": str(self.max_test_output_length or 15000),
+            "no_stage3_lint": "true" if self.no_stage3_lint else "false",
         }
 
-        try:
-            workflow_name = argo.submit_workflow(
-                RUN_WORKFLOW_TEMPLATE,
-                parameters,
-                labels={"kaiju/run-id": self.name, "kaiju/repo": repo_short},
-            )
-        except RuntimeError as e:
-            _logger.error("Failed to submit run workflow for %s: %s", self.name, e)
-            raise UserError(f"Failed to submit run workflow: {e}") from e
+        # Submit workflow(s) — for pass@k, submit N workflows with sample_index=0..N-1
+        num_samples = max(1, self.num_samples or 1)
+        workflow_names = []
+
+        for sample_idx in range(num_samples):
+            sample_params = dict(parameters)
+            sample_params["sample_index"] = str(sample_idx)
+
+            try:
+                wf_name = argo.submit_workflow(
+                    RUN_WORKFLOW_TEMPLATE,
+                    sample_params,
+                    labels={
+                        "kaiju/run-id": self.name,
+                        "kaiju/repo": repo_short,
+                        "kaiju/sample-index": str(sample_idx),
+                    },
+                )
+                workflow_names.append(wf_name)
+            except RuntimeError as e:
+                _logger.error(
+                    "Failed to submit run workflow sample %d for %s: %s",
+                    sample_idx, self.name, e,
+                )
+                if not workflow_names:
+                    raise UserError(f"Failed to submit run workflow: {e}") from e
+                _logger.warning(
+                    "Partial submission: %d/%d samples submitted for %s",
+                    len(workflow_names), num_samples, self.name,
+                )
+                break
+
+        wf_display = ", ".join(workflow_names)
+        log_msg = (
+            f"Submitted {len(workflow_names)} workflow(s): {wf_display}\n"
+            f"Waiting for pipeline..."
+        )
 
         self.write(
             {
                 "run_status": "running",
                 "run_start": fields.Datetime.now(),
-                "workflow_name": workflow_name,
-                "run_log": f"Workflow submitted: {workflow_name}\nWaiting for pipeline...",
+                "workflow_name": workflow_names[0] if workflow_names else "",
+                "run_log": log_msg,
             }
         )
 
@@ -307,6 +400,11 @@ class KaijuCommit0Run(models.Model):
             except Exception as e:
                 errors.append(f"{rec.name}: {e}")
                 _logger.warning("Sync logs failed for %s: %s", rec.name, e)
+            # Also try to fetch pipeline metrics (best-effort, independent of log sync)
+            try:
+                rec._fetch_pipeline_metrics()
+            except Exception:
+                pass
 
         if errors and len(errors) == len(eligible):
             raise UserError(
@@ -583,6 +681,122 @@ class KaijuCommit0Run(models.Model):
                 "Reconciled %d steps for %s from manifest",
                 updated,
                 self.name,
+            )
+
+    # ── Pipeline Results Fetch (metrics from S3) ────────────────────
+
+    def _fetch_pipeline_metrics(self):
+        """Download pipeline_results.json from the dataset S3 bucket and
+        populate run metrics (pass_rate, cost, test counts).
+
+        Called automatically on callback receipt.  Best-effort: logs
+        warnings but never raises."""
+        self.ensure_one()
+        build = self.build_id
+        if not build.repo_name or not build.language or not self.model_name:
+            _logger.info("Skipping metrics fetch for %s: missing repo/lang/model", self.name)
+            return
+
+        import json
+        try:
+            import boto3
+        except ImportError:
+            _logger.warning("boto3 not installed — cannot fetch pipeline metrics")
+            return
+
+        ICP = self.env["ir.config_parameter"].sudo()
+        bucket = ICP.get_param("kaiju.s3_log_bucket", "production-grtlabs-tag")
+        region = ICP.get_param("kaiju.aws_region", "ap-south-1")
+        access_key = ICP.get_param("kaiju.aws_access_key_id", "") or None
+        secret_key = ICP.get_param("kaiju.aws_secret_access_key", "") or None
+
+        client_kwargs = {"region_name": region}
+        if access_key and secret_key:
+            client_kwargs["aws_access_key_id"] = access_key
+            client_kwargs["aws_secret_access_key"] = secret_key
+
+        try:
+            s3 = boto3.client("s3", **client_kwargs)
+        except Exception as e:
+            _logger.warning("S3 client creation failed for metrics fetch: %s", e)
+            return
+
+        # Build dataset S3 prefix: datasets/{lang}/{org}_{repo}/logs_{model_short}/
+        repo_parts = build.repo_name.split("/")
+        org = repo_parts[0].lower() if len(repo_parts) > 1 else "unknown"
+        repo_short = repo_parts[-1].lower()
+        model_short = MODEL_SHORT.get(self.model_name, self.model_name)
+        prefix = f"datasets/{build.language.lower()}/{org}_{repo_short}/logs_{model_short}/"
+
+        # Find latest run_N/
+        try:
+            paginator = s3.get_paginator("list_objects_v2")
+            run_numbers = []
+            for page in paginator.paginate(Bucket=bucket, Prefix=prefix, Delimiter="/"):
+                for cp in page.get("CommonPrefixes", []):
+                    dirname = cp["Prefix"][len(prefix):].rstrip("/")
+                    if dirname.startswith("run_"):
+                        try:
+                            run_numbers.append(int(dirname[4:]))
+                        except ValueError:
+                            pass
+        except Exception as e:
+            _logger.warning("S3 listing failed for %s: %s", prefix, e)
+            return
+
+        if not run_numbers:
+            _logger.info("No run_N dirs found under s3://%s/%s", bucket, prefix)
+            return
+
+        latest_run = max(run_numbers)
+        results_key = f"{prefix}run_{latest_run}/pipeline_results.json"
+
+        try:
+            obj = s3.get_object(Bucket=bucket, Key=results_key)
+            data = json.loads(obj["Body"].read())
+        except Exception as e:
+            _logger.info(
+                "pipeline_results.json not found at s3://%s/%s: %s",
+                bucket, results_key, e,
+            )
+            return
+
+        # Extract metrics from the JSON (matches upstream run_pipeline.sh schema)
+        vals = {}
+        # Stage 3 pass_rate is the final metric; fall back to stage 2, then stage 1
+        for stage_key in ["stage3", "stage2", "stage1"]:
+            stage = data.get(stage_key, {})
+            if stage.get("pass_rate") is not None:
+                vals["pass_rate"] = round(stage["pass_rate"] * 100, 1)
+                vals["tests_passed"] = stage.get("num_passed", 0)
+                vals["tests_total"] = stage.get("num_tests", 0)
+                vals["tests_failed"] = vals["tests_total"] - vals["tests_passed"]
+                break
+
+        # Cost: use stage3 cumulative if available, else sum all stages
+        s3_data = data.get("stage3", {})
+        if "cost_usd_cumulative" in s3_data:
+            vals["cost_usd"] = s3_data["cost_usd_cumulative"]
+        else:
+            total_cost = 0.0
+            for sk in ["stage1", "stage2", "stage3"]:
+                sd = data.get(sk, {})
+                total_cost += sd.get("cost_usd", 0.0) or sd.get("cost_usd_incremental", 0.0)
+            if total_cost:
+                vals["cost_usd"] = total_cost
+
+        # Duration: sum all stage elapsed times
+        total_elapsed = sum(
+            data.get(sk, {}).get("elapsed_s", 0) for sk in ["stage1", "stage2", "stage3"]
+        )
+        if total_elapsed:
+            vals["duration_seconds"] = total_elapsed
+
+        if vals:
+            self.write(vals)
+            _logger.info(
+                "Populated metrics for %s from s3://%s/%s: %s",
+                self.name, bucket, results_key, vals,
             )
 
     @staticmethod

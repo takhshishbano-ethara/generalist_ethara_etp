@@ -1,4 +1,4 @@
-# Video Editor S3
+# Crowly Sourcing
 
 Server-side video editor for Odoo 19 that ingests source video from an Amazon S3 URL, edits it
 in a browser-based OWL UI (trim, crop, rotate, resize, mute, filters), processes the result with
@@ -82,11 +82,11 @@ The two modules share no models. They can be installed together.
 | Binary | `ffprobe` | same search order |
 
 Both binaries can be pinned via system parameters
-`video_editor_s3.ffmpeg_path` and `video_editor_s3.ffprobe_path` (Settings → Video Editor S3).
+`video_editor_s3.ffmpeg_path` and `video_editor_s3.ffprobe_path` (Settings → Crowly Sourcing).
 
 ## Settings
 
-Settings → General Settings → "Video Editor S3" section (manager group only):
+Settings → General Settings → "Crowly Sourcing" section (manager group only):
 
 | Field | ICP key | Default |
 |---|---|---|
@@ -105,7 +105,7 @@ Settings → General Settings → "Video Editor S3" section (manager group only)
 | Bedrock Model ID | `video_editor_s3.bedrock_model_id` | `anthropic.claude-3-5-sonnet-20241022-v2:0` |
 | Bedrock Access Key | `video_editor_s3.bedrock_access_key` | — |
 | Bedrock Secret Key | `video_editor_s3.bedrock_secret_key` | — |
-| QC Seed Prompt File | `video_editor_s3.qc_seed_file` (+ filename in `video_editor_s3.qc_seed_filename`) | bundled default (`data/qc_seed_prompt.md`) |
+| QC Seed Prompt | `video_editor_s3.qc_seed_prompt` | bundled default (`data/qc_seed_prompt.md`) |
 | YouTube Cookies From Browser | `video_editor_s3.yt_cookies_browser` | autodetected — first installed of chrome/firefox/edge/brave/chromium/vivaldi/opera |
 | YouTube Cookies File Path | `video_editor_s3.yt_cookies_path` | — |
 | YouTube Proxy URL | `video_editor_s3.yt_proxy_url` | — |
@@ -232,7 +232,7 @@ If the bot-challenge still fires, follow yt-dlp's recommended flow ([Extractors 
    rotate the cookies behind your back.
 6. Upload the file to the Odoo host (e.g. `/var/lib/odoo/yt_cookies.txt`), make it
    readable by the Odoo OS user (`chmod 644`), and set
-   **Settings → Crowley Sourcing → YouTube Ingest → Cookies File Path** to the
+   **Settings → Crowly Sourcing → YouTube Ingest → Cookies File Path** to the
    absolute path.
 
 This incognito + cookies.txt flow is the **recommended fix for production**. The
@@ -253,30 +253,40 @@ You can also pin a specific browser (or browser profile) with **Cookies From Bro
 ## Prompt QC
 
 Every time the `prompt` field on a project is written (on create or update), the module
-queues a `prompt_qc` job that evaluates the prompt with an AWS Bedrock model and writes
-the result back to the project. The General Information notebook page shows the latest
-score, expert level, pass/fail badge, reason, issues, and the evaluated prompt snapshot —
-the form auto-refreshes once the job completes.
+queues a `prompt_qc` job that evaluates the prompt with **Moonshot Kimi K2.5** hosted on
+AWS Bedrock, and writes the result back to the project. The General Information notebook
+page shows the latest score, expert level, pass/fail badge, reason, issues, and the
+evaluated prompt snapshot — the form auto-refreshes once the job completes.
 
-The seed prompt (which tells the LLM how to score) is configurable under
-**Settings → Video Editor S3 → Prompt QC Seed → QC Seed Prompt File** — upload a
-`.md` or `.txt` file (UTF-8, max 100 KB). The uploaded content is stored under the
-`video_editor_s3.qc_seed_file` system parameter (base64) with the original filename
-in `video_editor_s3.qc_seed_filename`.
+The integration calls Bedrock's Converse REST endpoint directly
+(`https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse`) with a
+long-lived Bedrock API key sent as `Authorization: Bearer ...`. The model identifier
+is either a foundation-model ID (e.g. `moonshotai.kimi-k2.5`) or a Bedrock Marketplace
+endpoint ARN — both are URL-encoded into the path. This mirrors the pattern used by
+`task_forge_core/services/kimi_client.py`, and avoids the boto3 Bedrock-runtime
+dependency for the QC path. Retries cover HTTP 408/425/429/5xx and network errors with
+exponential backoff (default 3 attempts).
 
-Resolution priority at QC time: **uploaded file → bundled default**. Leaving the
-upload empty uses the bundled default at
-`data/qc_seed_prompt.md`, which scores 0–100 on Clarity / Specificity / Coherence /
-Feasibility / Safety, classifies expert level as novice / intermediate / advanced /
-expert, and only passes when the score is ≥ 60, the expert level is at least
-intermediate, and there is no policy violation. The LLM is required to return a single
-fenced ` ```json ` block with `score`, `expert_level`, `quality` (`pass`/`fail`),
-`reason`, and `issues` (array). Malformed responses cause the job to fail; the raw
-output is stored in `output_path` on the job for inspection.
+The seed prompt (which tells Kimi K2.5 how to score) is configurable. Upload a `.md` or
+`.txt` file (UTF-8, max 100 KB) under **Settings → Crowly Sourcing → Prompt QC Seed**,
+or leave it blank to use the bundled default at `data/qc_seed_prompt.md`, which scores
+0–100 on Clarity / Specificity / Coherence / Feasibility / Safety, classifies expert
+level as novice / intermediate / advanced / expert, and only passes when the score is
+≥ 60, the expert level is at least intermediate, and there is no policy violation. The
+model is required to return a single fenced ` ```json ` block with `score`,
+`expert_level`, `quality` (`pass`/`fail`), `reason`, and `issues` (array). Malformed
+responses cause the job to fail; the raw output is stored in `output_path` on the job
+for inspection.
 
-Credentials reuse the AWS access/secret pair under the **Bedrock Prompt QC** block in
-Settings (separate from the S3 keys so you can use a dedicated IAM principal). The
-default model is `anthropic.claude-3-5-sonnet-20241022-v2:0` in `ap-south-1`.
+Credentials live under the **Kimi K2.5 Prompt QC** block in Settings (separate from the
+S3 keys). Configure:
+
+- **Bedrock Region** — e.g. `us-east-1` (also supported: `us-west-2`, `ap-south-1`,
+  `ap-northeast-1`, `ap-southeast-2/3/4`, `eu-north-1`, `eu-west-2`, `sa-east-1`).
+- **Kimi Model ID / ARN** — defaults to `moonshotai.kimi-k2.5`; paste a Marketplace
+  endpoint ARN here if you provisioned Kimi K2.5 via the Bedrock Marketplace.
+- **Bedrock API Key** — long-term key from the AWS console, sent as
+  `Authorization: Bearer ...`.
 
 ## See also
 

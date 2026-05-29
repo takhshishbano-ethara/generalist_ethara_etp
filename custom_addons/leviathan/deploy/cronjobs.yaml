@@ -1,0 +1,117 @@
+# K8s CronJobs that drive the HTTP cron endpoints exposed by Odoo's
+# controllers/cron_1min.py and controllers/cron_5min.py.
+#
+# Why CronJobs and not ir.cron:
+#   * Single, observable, restart-resistant tick source (kubectl get cronjob).
+#   * "Pause dispatch for 10 min during an incident" = `kubectl patch
+#     cronjob leviathan-cron-dispatch -p '{"spec":{"suspend":true}}'`.
+#   * No assumption about WHICH Odoo pod runs the cron — any backend pod
+#     answering the HTTP route serves it; the advisory lock inside the
+#     model methods enforces "only one cluster-wide drain per tick."
+#
+# Auth: shared secret in `leviathan-webhook-token` (key=`token`) — same
+# secret the Lambda uses for X-Leviathan-Token callbacks. Constant-time
+# compared inside the controller (hmac.compare_digest). For prod, split
+# this into a separate `leviathan-cron-token` secret (F-MED-4).
+#
+# IMPORTANT — POST, not GET (F-HIGH-3):
+#   These endpoints mutate state (claim/recover/scale-patch). HTTP
+#   semantics: GET is supposed to be safe + idempotent. Using POST
+#   prevents accidental triggers from monitoring probes, browser
+#   bookmarks, ingress probes, and HTTP caches. The curl commands
+#   below use ``-X POST -d ''`` (empty body — the endpoint takes no
+#   parameters).
+#
+# Endpoints called (must be reachable inside the cluster as
+# http://odoo-backend.ethara:8069 — adjust to your Service DNS):
+#   POST /api/v1/leviathan/cron/dispatch    (1 min) — scaler + drainer
+#   POST /api/v1/leviathan/cron/watchdog    (5 min) — stuck-job recovery
+#
+# NOTE on the deleted `leviathan-cron-reconcile`:
+#   F-CRIT-3 of STAGED_REVIEW.md identified the previous reconcile cronjob
+#   as a duplicate of dispatch at the same 1-min cadence — both took the
+#   same advisory lock so one always no-op'd. The controller endpoint
+#   ``/api/v1/leviathan/cron/reconcile`` is intentionally kept (so ops can
+#   schedule a faster recovery cadence during an incident) but the
+#   regular CronJob is removed. To re-enable temporarily, add it back
+#   with a NON-1-minute schedule (e.g. */30 * * * * * for 30s cadence
+#   via two staggered CronJobs).
+
+# Image used to trigger the endpoints. Pin to a digest in prod (F-MED-7)
+# — using the official curl image's :latest re-pulls a new build per
+# CronJob run, breaking deploy reproducibility.
+# Find the current digest with:
+#   docker pull curlimages/curl:8.10.1
+#   docker inspect --format='{{index .RepoDigests 0}}' curlimages/curl:8.10.1
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: leviathan-cron-dispatch
+  namespace: leviathan
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: trigger
+            image: curlimages/curl:8.10.1   # <-- pin to digest in prod
+            command:
+            - sh
+            - -c
+            - |
+              set -e
+              curl -sf --max-time 60 -X POST -d '' \
+                -H "X-Leviathan-Token: $LEVIATHAN_WEBHOOK_TOKEN" \
+                "$ODOO_URL/api/v1/leviathan/cron/dispatch"
+            env:
+            - name: ODOO_URL
+              value: "http://odoo-backend.ethara:8069"   # <-- CHANGE: real Service DNS
+            - name: LEVIATHAN_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: leviathan-webhook-token
+                  key: token
+
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: leviathan-cron-watchdog
+  namespace: leviathan
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: trigger
+            image: curlimages/curl:8.10.1   # <-- pin to digest in prod
+            command:
+            - sh
+            - -c
+            - |
+              set -e
+              curl -sf --max-time 60 -X POST -d '' \
+                -H "X-Leviathan-Token: $LEVIATHAN_WEBHOOK_TOKEN" \
+                "$ODOO_URL/api/v1/leviathan/cron/watchdog"
+            env:
+            - name: ODOO_URL
+              value: "http://odoo-backend.ethara:8069"   # <-- CHANGE: real Service DNS
+            - name: LEVIATHAN_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: leviathan-webhook-token
+                  key: token

@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: leviathan-worker
+  namespace: leviathan
+  # If you use IRSA / EKS Pod Identity for Bedrock + S3, annotate the
+  # ServiceAccount with the role ARN here, e.g.:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::426628337772:role/leviathan-worker
+  # The role needs:
+  #   - bedrock:InvokeModel (+ -WithResponseStream) on the inference ARNs
+  #   - s3:Get/Put/Delete on the artifact bucket
+  # No K8s API permissions needed on the worker SA itself — the SCALER
+  # uses the Odoo BACKEND SA, granted via the Role below.
+
+---
+# RBAC binding the Odoo backend ServiceAccount to read/patch this
+# Deployment. Replace `etp-backend-etp-be` with the actual SA name of
+# your Odoo backend pod if it differs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: leviathan-worker-scaler
+  namespace: leviathan
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments", "deployments/scale"]
+  resourceNames: ["leviathan-prd-worker"]
+  verbs: ["get", "patch"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: leviathan-worker-scaler
+  namespace: leviathan
+subjects:
+- kind: ServiceAccount
+  name: etp-backend-etp-be    # <-- CHANGE if your backend SA name differs
+  namespace: ethara           # <-- CHANGE if your backend lives elsewhere
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: leviathan-worker-scaler

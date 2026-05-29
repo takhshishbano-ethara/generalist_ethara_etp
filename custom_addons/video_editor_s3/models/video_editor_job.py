@@ -22,6 +22,7 @@ JOB_TYPES = [
     ("export", "Export to S3"),
     ("youtube_ingest", "YouTube Ingest"),
     ("prompt_qc", "Prompt QC"),
+    ("s3_probe", "Probe S3 source"),
 ]
 
 JOB_STATES = [
@@ -95,6 +96,13 @@ class VideoEditorJob(models.Model):
         self.ensure_one()
         if self.status not in ("failed", "cancelled"):
             raise UserError(_("Only failed or cancelled jobs can be retried."))
+        sibling = self.project_id.job_ids.filtered(
+            lambda j: j.id != self.id and j.status in ("queued", "running")
+        )
+        if sibling:
+            raise UserError(_(
+                "Another job is already queued/running for this project (#%d, %s)."
+            ) % (sibling[0].id, sibling[0].job_type))
         self.write({
             "status": "queued",
             "error_message": False,
@@ -102,7 +110,12 @@ class VideoEditorJob(models.Model):
             "finished_at": False,
             "progress_text": False,
         })
-        self._submit_async()
+        job = self
+
+        def _submit():
+            job._submit_async()
+
+        self.env.cr.postcommit.add(_submit)
         return True
 
     def action_view_log(self):
@@ -160,6 +173,8 @@ def _run_job(db, uid, job_id):
             _run_youtube_ingest(db, uid, job_id, cancel_event)
         elif job_type == "prompt_qc":
             _run_prompt_qc(db, uid, job_id, cancel_event)
+        elif job_type == "s3_probe":
+            _run_s3_probe(db, uid, job_id, cancel_event)
         else:
             raise UserError(_("Unknown job_type: %s") % job_type)
         _set_done(db, job_id)
@@ -399,17 +414,38 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             )
         except Exception as exc:
             _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
-            metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0}
+            metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0,
+                        "width": 0, "height": 0, "fps": 0.0, "vcodec": ""}
         s3_url = s3_storage.build_url(cfg["bucket"], cfg["region"], target_key)
+        yt_width = int(metadata.get("width") or 0)
+        yt_height = int(metadata.get("height") or 0)
+        yt_fps = float(metadata.get("fps") or 0.0)
+        yt_vcodec = metadata.get("vcodec") or ""
+        yt_resolution = "%dx%d" % (yt_width, yt_height) if yt_width and yt_height else ""
         with Registry(db).cursor() as cr:
             env = api.Environment(cr, uid or SUPERUSER_ID, {})
             project = env["video.editor.project"].browse(project_id)
             project.write({
                 "s3_source_url": s3_url,
+                "source_metadata": {
+                    "duration": float(metadata.get("duration_seconds") or 0.0),
+                    "size_bytes": 0,
+                    "width": yt_width,
+                    "height": yt_height,
+                    "resolution": yt_resolution,
+                    "fps": yt_fps,
+                    "codec": yt_vcodec,
+                    "youtube_width": yt_width,
+                    "youtube_height": yt_height,
+                    "youtube_fps": yt_fps,
+                    "youtube_vcodec": yt_vcodec,
+                },
                 "youtube_title": metadata.get("title") or "",
                 "youtube_channel": metadata.get("channel") or "",
                 "youtube_thumbnail_url": metadata.get("thumbnail") or "",
                 "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
+                "youtube_resolution": yt_resolution or "",
+                "youtube_fps": float(yt_fps or 0.0),
                 "youtube_ingested_at": fields.Datetime.now(),
             })
             job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
@@ -520,6 +556,24 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
         _log_yt(db, uid, job_id, project_id, "info", "s3_upload_done",
                 "url=%s" % s3_url)
 
+        yt_width = int(chosen_format.get("width") or probe_info.get("width") or 0)
+        yt_height = int(chosen_format.get("height") or probe_info.get("height") or 0)
+        yt_fps = float(chosen_format.get("fps") or probe_info.get("fps") or 0.0)
+        yt_vcodec_raw = chosen_format.get("vcodec") or probe_info.get("vcodec") or ""
+        yt_vcodec = yt_vcodec_raw.split(".")[0] if yt_vcodec_raw else ""
+        yt_resolution = "%dx%d" % (yt_width, yt_height) if yt_width and yt_height else ""
+
+        probe_width = int(probe.get("width") or 0)
+        probe_height = int(probe.get("height") or 0)
+        probe_fps = float(probe.get("fps") or 0.0)
+        final_width = probe_width or yt_width
+        final_height = probe_height or yt_height
+        final_fps = probe_fps or yt_fps
+        final_resolution = probe.get("resolution") or (
+            "%dx%d" % (final_width, final_height) if final_width and final_height else ""
+        )
+        final_codec = probe.get("codec") or yt_vcodec
+
         with Registry(db).cursor() as cr:
             env = api.Environment(cr, uid or SUPERUSER_ID, {})
             project = env["video.editor.project"].browse(project_id)
@@ -528,11 +582,22 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "source_metadata": {
                     "duration": float(metadata.get("duration_seconds") or 0.0),
                     "size_bytes": os.path.getsize(abs_path),
+                    "width": final_width,
+                    "height": final_height,
+                    "resolution": final_resolution,
+                    "fps": final_fps,
+                    "codec": final_codec,
+                    "youtube_width": yt_width,
+                    "youtube_height": yt_height,
+                    "youtube_fps": yt_fps,
+                    "youtube_vcodec": yt_vcodec,
                 },
                 "youtube_title": metadata.get("title") or "",
                 "youtube_channel": metadata.get("channel") or "",
                 "youtube_thumbnail_url": metadata.get("thumbnail") or "",
                 "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
+                "youtube_resolution": yt_resolution or "",
+                "youtube_fps": float(yt_fps or 0.0),
                 "youtube_ingested_at": fields.Datetime.now(),
             })
             job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
@@ -544,6 +609,33 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                     "Removed tempdir %s" % tempdir)
         except Exception as exc:
             _logger.warning("Cleanup tempdir failed: %s", exc)
+
+
+def _run_s3_probe(db, uid, job_id, cancel_event):
+    job_executor._check_cancelled(cancel_event)
+    _bump_heartbeat(db, job_id, "probing source")
+
+    with Registry(db).cursor() as cr:
+        env = api.Environment(cr, uid or SUPERUSER_ID, {})
+        job = env["video.editor.job"].browse(job_id)
+        project = job.project_id
+        if not project.s3_source_url:
+            raise UserError(_("Project has no source S3 URL."))
+        src_input = _build_source_input(env, project)
+        job_executor._check_cancelled(cancel_event)
+        meta = env["video.editor.s3.ffmpeg.processor"].probe(src_input) or {}
+        existing = dict(project.source_metadata or {})
+        existing.update({
+            "duration": float(meta.get("duration") or 0.0),
+            "resolution": meta.get("resolution") or "",
+            "fps": float(meta.get("fps") or 0.0),
+            "size_bytes": int(meta.get("size_bytes") or 0),
+            "width": int(meta.get("width") or 0),
+            "height": int(meta.get("height") or 0),
+            "codec": meta.get("codec") or "",
+        })
+        project.write({"source_metadata": existing})
+        cr.commit()
 
 
 def _run_prompt_qc(db, uid, job_id, cancel_event):

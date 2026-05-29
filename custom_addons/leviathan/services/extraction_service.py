@@ -18,8 +18,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 import boto3
+import httpx
 from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
+
+# Local-RIE invokes are not bound by AWS Lambda's 15-min ceiling; the host
+# Odoo decides when to give up. Generous default for noisy laptop networks.
+_LOCAL_INVOKE_TIMEOUT = httpx.Timeout(900.0, connect=10.0)
 
 _logger = logging.getLogger(__name__)
 
@@ -98,6 +103,36 @@ def _get_lambda_client(region: str, access_key_id: str = "", secret_access_key: 
         return client
 
 
+def _invoke_lambda_local(local_url: str, payload: dict, job_id: int) -> dict:
+    """Fire-and-forget POST to a local AWS Lambda RIE endpoint.
+
+    Used when ``leviathan.lambda_local_url`` is set (local dev). The host
+    Odoo does NOT block waiting for extraction to finish — the lambda
+    container POSTs the webhook back when done, exactly like the AWS
+    async-Event flow.
+    """
+    def _fire():
+        try:
+            with httpx.Client(timeout=_LOCAL_INVOKE_TIMEOUT) as client:
+                response = client.post(local_url, json=payload)
+            _logger.info(
+                "Local lambda invoke for job %d finished: status=%s",
+                job_id, response.status_code,
+            )
+        except Exception:
+            _logger.exception(
+                "Local lambda invoke for job %d failed (url=%s)",
+                job_id, local_url,
+            )
+
+    threading.Thread(
+        target=_fire,
+        daemon=True,
+        name=f"leviathan-local-invoke-{job_id}",
+    ).start()
+    return {"success": True, "request_id": f"local-{job_id}"}
+
+
 def trigger_extraction(
     url: str,
     job_id: int,
@@ -106,6 +141,7 @@ def trigger_extraction(
     region: str,
     access_key_id: str = "",
     secret_access_key: str = "",
+    local_url: str = "",
 ) -> dict:
     """Fire-and-forget async invoke. Returns in <1s.
 
@@ -113,15 +149,22 @@ def trigger_extraction(
         url: Website URL to extract.
         job_id: Odoo job record ID (echoed back in the webhook).
         callback_url: Webhook URL the Lambda will POST results to.
-        function_name: Lambda function name or full ARN.
-        region: AWS region of the Lambda.
+        function_name: Lambda function name or full ARN. Ignored when
+            ``local_url`` is set.
+        region: AWS region of the Lambda. Ignored when ``local_url`` is set.
         access_key_id / secret_access_key: Optional; falls back to pod-role
-            (IRSA on EKS) or instance profile when omitted.
+            (IRSA on EKS) or instance profile when omitted. Ignored when
+            ``local_url`` is set.
+        local_url: AWS Lambda RIE endpoint for local development, e.g.
+            ``http://localhost:9000/2015-03-31/functions/function/invocations``.
+            When set, routes through httpx instead of boto3 — bypasses AWS
+            entirely. See custom_addons/leviathan/local/README.md.
 
     Returns:
         dict with 'success' bool and optional 'error' or 'request_id'.
-        'success=True' here means the invoke was accepted by AWS, NOT that
-        extraction succeeded — that arrives only via the webhook.
+        'success=True' here means the invoke was accepted (by AWS in prod
+        or by RIE locally), NOT that extraction succeeded — that arrives
+        only via the webhook.
     """
     is_valid, error_msg = validate_url(url)
     if not is_valid:
@@ -130,14 +173,21 @@ def trigger_extraction(
         )
         return {"success": False, "error": f"URL validation failed: {error_msg}"}
 
-    if not function_name:
-        return {"success": False, "error": "Lambda function name not configured"}
-
     payload = {
         "url": url,
         "job_id": job_id,
         "callback_url": callback_url,
     }
+
+    if local_url:
+        _logger.info(
+            "Routing job %d via local RIE: %s (callback=%s)",
+            job_id, local_url, callback_url,
+        )
+        return _invoke_lambda_local(local_url, payload, job_id)
+
+    if not function_name:
+        return {"success": False, "error": "Lambda function name not configured"}
 
     try:
         client = _get_lambda_client(region, access_key_id, secret_access_key)

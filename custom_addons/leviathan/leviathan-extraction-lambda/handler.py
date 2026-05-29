@@ -820,6 +820,30 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
                 except Exception as exc:
                     logger.warning("[job=%s] Codegen export failed: %s", job_id, exc)
 
+            # ── Phase 8A.5: Scroll-and-Snap Tiles (full-page viewport coverage) ─
+            #
+            # Why this exists: tasker reviewers expect to see the WHOLE page,
+            # not just heroes and section closeups. Existing screenshots come
+            # from interaction_capture (clicks/menus), responsive_analyzer
+            # (breakpoints) and wireframe_generator (mobile mockups) — none
+            # of which give the "contact sheet of the whole scrollable page"
+            # view a reviewer actually needs to spot extraction gaps.
+            #
+            # Strategy: scroll by 0.9 × viewport_height steps (10% overlap
+            # so content is never cut at viewport seams), capped at 20 tiles
+            # so a 30k-px-tall page doesn't blow the upload budget. Single-
+            # viewport sites (games, landing pages with no scroll) produce
+            # exactly 1 tile.
+            #
+            # MUST run before Phase 8B wireframes (which mutate the DOM).
+            if not _over_deadline():
+                logger.info("[job=%s] (+%.1fs) Phase 8A.5: Scroll-and-Snap Tiles", job_id, _elapsed())
+                try:
+                    n_tiles = await _capture_scroll_tiles(page, work_dir, job_id)
+                    logger.info("[job=%s] Scroll tiles: %d viewport(s) captured", job_id, n_tiles)
+                except Exception as exc:
+                    logger.warning("[job=%s] Scroll-and-snap failed: %s", job_id, exc)
+
             # ── Phase 8B: Lo-Fi Wireframe Screenshots (runs LAST, modifies DOM) ─
             if not _over_deadline():
                 logger.info("[job=%s] (+%.1fs) Phase 8B: Lo-Fi Wireframe Screenshots", job_id, _elapsed())
@@ -889,6 +913,113 @@ async def _run_extraction(url: str, job_id: int, callback_url: str):
 
 
 # =============================================================================
+# SCROLL-AND-SNAP: capture viewport tiles of the whole scrollable page
+# =============================================================================
+
+async def _capture_scroll_tiles(page, work_dir: str, job_id: int) -> int:
+    """Scroll the page in 0.9 × viewport-height steps and screenshot each tile.
+
+    Writes ``screenshots/scroll_NN_y<offset>.png`` for the tasker's
+    "whole-page contact sheet" view. Capped at 20 tiles (handles up to
+    ~16,000 px of scrollable content; longer pages get the top portion).
+
+    The 10 % overlap between tiles is intentional: it prevents content
+    from being cut at viewport seams, which is the main complaint
+    reviewers have with no-overlap contact sheets. Pages that are
+    shorter than one viewport produce exactly one tile at y=0.
+
+    Returns the number of tiles actually written.
+    """
+    SCROLL_TILE_CAP = 20
+    OVERLAP_FRACTION = 0.9   # step = 0.9 * viewport_height
+    SETTLE_MS = 400          # wait after each scroll for lazy-load + animation settle
+
+    ss_dir = os.path.join(work_dir, "screenshots")
+    os.makedirs(ss_dir, exist_ok=True)
+
+    # Viewport height: prefer the live page, fall back to a sane default.
+    try:
+        vp = page.viewport_size or {}
+        viewport_h = int(vp.get("height") or 900)
+    except Exception:
+        viewport_h = 900
+    step = max(200, int(viewport_h * OVERLAP_FRACTION))
+
+    # Scroll height: how tall is the document right now?
+    try:
+        scroll_h = int(await page.evaluate(
+            "() => Math.max("
+            "  document.body.scrollHeight,"
+            "  document.documentElement.scrollHeight,"
+            "  document.body.offsetHeight,"
+            "  document.documentElement.offsetHeight"
+            ")"
+        ))
+    except Exception:
+        scroll_h = viewport_h
+
+    # Single-screen sites (games, splash pages, fixed-height landings):
+    # exactly one tile at y=0.
+    if scroll_h <= viewport_h:
+        path = os.path.join(ss_dir, "scroll_01_y0000.png")
+        try:
+            await page.evaluate("window.scrollTo(0, 0)")
+            await page.wait_for_timeout(SETTLE_MS)
+            await page.screenshot(path=path, full_page=False)
+            return 1
+        except Exception as exc:
+            logger.warning("[job=%s] scroll tile 01 failed: %s", job_id, exc)
+            return 0
+
+    # Multi-viewport site: walk y=0, step, 2*step, … until end-of-page,
+    # capped at SCROLL_TILE_CAP.
+    offsets = []
+    y = 0
+    while y < scroll_h and len(offsets) < SCROLL_TILE_CAP:
+        offsets.append(y)
+        y += step
+    # Make sure we capture the very bottom (last viewport): nudge the
+    # last offset to scroll_h - viewport_h if that gives us a better
+    # bottom shot AND we still have a tile slot.
+    last_anchor = max(0, scroll_h - viewport_h)
+    if offsets and offsets[-1] < last_anchor:
+        if len(offsets) < SCROLL_TILE_CAP:
+            offsets.append(last_anchor)
+        else:
+            offsets[-1] = last_anchor
+
+    written = 0
+    for idx, y_off in enumerate(offsets, start=1):
+        try:
+            await page.evaluate(f"window.scrollTo(0, {y_off})")
+            await page.wait_for_timeout(SETTLE_MS)
+            fname = f"scroll_{idx:02d}_y{y_off:04d}.png"
+            await page.screenshot(
+                path=os.path.join(ss_dir, fname),
+                full_page=False,
+            )
+            written += 1
+        except Exception as exc:
+            # One bad tile must not kill the whole pass — every
+            # screenshot we DO get is value the tasker didn't have
+            # before this commit.
+            logger.warning(
+                "[job=%s] scroll tile %d (y=%d) failed: %s",
+                job_id, idx, y_off, exc,
+            )
+
+    # Restore scroll position so the rest of the lambda (wireframes,
+    # final asset_collector passes if any) sees a pristine top-of-page.
+    try:
+        await page.evaluate("window.scrollTo(0, 0)")
+        await page.wait_for_timeout(200)
+    except Exception:
+        pass
+
+    return written
+
+
+# =============================================================================
 # FINALIZE: Upload to S3, send callback
 # =============================================================================
 
@@ -935,7 +1066,7 @@ async def _finalize_and_callback(
     # Validate image integrity (remove corrupted files)
     _validate_all_images(work_dir)
 
-    # Build SOP-compliant deliverables (Page Assets, _unused, References)
+    # Build SOP-compliant deliverables (Page Assets, Extracted Assets, References)
     try:
         _build_sop_deliverables(work_dir, site_data, brand_data, url=site_data.get("url", ""))
     except Exception as exc:
@@ -1081,35 +1212,63 @@ def _upload_to_s3(job_id: int, work_dir: str, hard_deadline: float = 0) -> tuple
     def _time_left():
         return hard_deadline <= 0 or time.time() < hard_deadline
 
-    # Upload screenshots
+    # Upload screenshots.
+    # Previous behaviour was ``sorted(os.listdir(ss_dir))[:10]`` which
+    # silently dropped everything beyond the alphabetically-first 10
+    # files — a hostile filter for reviewers expecting to see the whole
+    # scrollable page. New rule: upload ALL valid screenshots (PNG / JPG
+    # / WebP, non-zero size) sorted by name, with a safety cap of 50
+    # so an unexpected screenshot-storm can't run away with the upload
+    # budget. 50 is plenty: scroll-and-snap caps at 20, plus heroes /
+    # sections / interactions / wireframes / responsive ~= 25 worst-case.
+    SCREENSHOT_UPLOAD_CAP = 50
     ss_dir = os.path.join(work_dir, "screenshots")
     if os.path.isdir(ss_dir):
-        for fname in sorted(os.listdir(ss_dir))[:10]:
+        ss_files = [
+            fn for fn in sorted(os.listdir(ss_dir))
+            if fn.lower().endswith((".png", ".jpg", ".jpeg", ".webp"))
+        ][:SCREENSHOT_UPLOAD_CAP]
+        for fname in ss_files:
             if not _time_left():
                 logger.warning("S3 upload deadline reached during screenshots")
                 break
             fpath = os.path.join(ss_dir, fname)
-            if (os.path.isfile(fpath) and os.path.getsize(fpath) > 0
-                    and fname.lower().endswith((".png", ".jpg", ".webp"))):
+            if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
                 key = f"{prefix}/screenshots/{fname}"
                 try:
-                    content_type = "image/png" if fname.endswith(".png") else "image/jpeg"
+                    content_type = (
+                        "image/png" if fname.lower().endswith(".png")
+                        else "image/webp" if fname.lower().endswith(".webp")
+                        else "image/jpeg"
+                    )
                     client.upload_file(fpath, S3_BUCKET, key, ExtraArgs={"ContentType": content_type})
                     screenshot_keys.append(key)
                 except Exception as exc:
                     logger.warning("S3 upload failed for %s: %s", fname, exc)
 
-    # Upload assets (preserve subfolder structure)
+    # Upload assets (preserve subfolder structure).
+    #
+    # Filter posture: upload EVERYTHING we collected EXCEPT web-font
+    # subsets (WOFF / WOFF2). A typical modern site ships 30-80 font
+    # subset files per variable font (Inter, Geist, etc.) which are
+    # useless as tasker reference material and just bloat S3 + the
+    # Assets-tab gallery. The actual *visible* assets (images, SVGs,
+    # videos, logos, JSON manifests, textures) all reach the tasker.
+    FONT_SKIP_EXTS = (".woff", ".woff2")
     assets_dir = os.path.join(work_dir, "assets")
     if os.path.isdir(assets_dir):
         for subdir in ["images", "svgs", "fonts", "videos", "logos", "json", "textures"]:
             sub_path = os.path.join(assets_dir, subdir)
             if not os.path.isdir(sub_path):
                 continue
+            n_skipped_fonts = 0
             for fname in sorted(os.listdir(sub_path)):
                 if not _time_left():
                     logger.warning("S3 upload deadline reached during assets")
                     break
+                if fname.lower().endswith(FONT_SKIP_EXTS):
+                    n_skipped_fonts += 1
+                    continue
                 fpath = os.path.join(sub_path, fname)
                 if os.path.isfile(fpath) and os.path.getsize(fpath) > 0:
                     key = f"{prefix}/assets/{subdir}/{fname}"
@@ -1118,6 +1277,12 @@ def _upload_to_s3(job_id: int, work_dir: str, hard_deadline: float = 0) -> tuple
                         asset_keys.append(key)
                     except Exception as exc:
                         logger.warning("S3 upload failed for %s: %s", fname, exc)
+            if n_skipped_fonts:
+                logger.info(
+                    "[job=%s] Skipped %d web-font subset(s) from assets/%s/ "
+                    "(WOFF/WOFF2 — not useful as tasker reference)",
+                    job_id, n_skipped_fonts, subdir,
+                )
 
     # Upload raw_data as single JSON bundle
     raw_dir = os.path.join(work_dir, "raw_data")
@@ -1143,7 +1308,7 @@ def _upload_to_s3(job_id: int, work_dir: str, hard_deadline: float = 0) -> tuple
             except Exception as exc:
                 logger.warning("S3 upload failed for raw_data.json: %s", exc)
 
-    # Upload SOP deliverables (Page Assets, _unused, References)
+    # Upload SOP deliverables (Page Assets, Extracted Assets, References)
     dlv_dir = os.path.join(work_dir, "deliverables")
     if os.path.isdir(dlv_dir):
         for root, _dirs, files in os.walk(dlv_dir):
@@ -1269,7 +1434,7 @@ def _ensure_dirs(output_dir: str):
         "wireframes", "assets", "assets/images", "assets/svgs",
         "assets/fonts", "assets/videos", "assets/json",
         "deliverables", "deliverables/Page Assets",
-        "deliverables/_unused", "deliverables/References",
+        "deliverables/Extracted Assets", "deliverables/References",
     ]:
         os.makedirs(os.path.join(output_dir, subdir), exist_ok=True)
 
@@ -1589,14 +1754,19 @@ def _build_sop_deliverables(
         deliverables/
             References/          — up to 10 unique screenshots (style, component, wireframe, interaction)
             Page Assets/         — up to 5 copyright-free files (text logo SVG, decorative SVG, stock/safe images)
-            _unused/             — all potentially copyrighted extracted assets
+            Extracted Assets/    — every asset we scraped (treat as reference material; copyright-encumbered — do NOT ship in final delivery)
             image_credits.json   — attribution and font mapping metadata
     """
     brand_data = brand_data or {}
     dlv_dir = os.path.join(work_dir, "deliverables")
     refs_dir = os.path.join(dlv_dir, "References")
     pa_dir = os.path.join(dlv_dir, "Page Assets")
-    unused_dir = os.path.join(dlv_dir, "_unused")
+    # Folder renamed from `_unused/` (pre-2026-05-26) to `Extracted Assets/`.
+    # Same semantics — copyright-encumbered scraped material that taskers
+    # use as reference but must NOT ship in the final delivery zip — but
+    # the new name doesn't read as "junk we filtered out", which was
+    # making reviewers ignore the folder entirely.
+    unused_dir = os.path.join(dlv_dir, "Extracted Assets")
     assets_dir = os.path.join(work_dir, "assets")
 
     for d in [refs_dir, pa_dir, unused_dir]:
@@ -1678,7 +1848,7 @@ def _build_sop_deliverables(
 
     # NO copyrighted raster fallback. If stock APIs are unavailable,
     # Page Assets will have fewer than 5 files rather than include
-    # copyrighted website images. Extracted rasters go to _unused/.
+    # copyrighted website images. Extracted rasters go to Extracted Assets/.
     if not stock_downloaded:
         logger.info("No stock API keys available; skipping content images (copyright compliance)")
 
@@ -1693,7 +1863,7 @@ def _build_sop_deliverables(
             selected[f"svg_{len(selected) + 1}"] = os.path.basename(svg_path)
             used_paths.add(svg_path)
 
-    # ---- Move all extracted assets to _unused/ (copyright-encumbered) ----
+    # ---- Move all extracted assets to Extracted Assets/ (copyright-encumbered) ----
     for fpath in all_files:
         if fpath in used_paths:
             continue
@@ -1758,7 +1928,7 @@ def _build_sop_deliverables(
     with open(credits_path, "w") as f:
         json.dump(credits, f, indent=2)
 
-    logger.info("SOP deliverables built: %d Page Assets, %d References, %d _unused",
+    logger.info("SOP deliverables built: %d Page Assets, %d References, %d Extracted Assets",
                 len(selected),
                 len(os.listdir(refs_dir)),
                 len(os.listdir(unused_dir)))

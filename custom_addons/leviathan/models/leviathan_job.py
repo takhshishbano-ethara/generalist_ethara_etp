@@ -7,13 +7,55 @@ from datetime import timedelta
 from pathlib import Path
 
 from odoo import api, fields, models, SUPERUSER_ID
-from odoo.exceptions import UserError
+from odoo.exceptions import AccessError, UserError
 from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
-_PRD_POOL_SIZE = int(os.environ.get("LEVIATHAN_PRD_POOL_SIZE", "50"))
+_PRD_POOL_SIZE = int(os.environ.get("LEVIATHAN_PRD_POOL_SIZE", "100"))
 _BATCH_FANOUT_POOL_SIZE = int(os.environ.get("LEVIATHAN_BATCH_FANOUT_SIZE", "250"))
+
+# P0-3 admission ceiling: refuse to queue new heavy work once the pool's
+# in-RAM backlog exceeds this. The job stays in its DB state and the watchdog
+# re-dispatches it — far safer than the 443-deep queue that OOM-ed the pod on
+# 21 May. See docs/BATCH_500_TEST_PLAN.md.
+_PRD_ADMISSION_MAX = int(os.environ.get(
+    "LEVIATHAN_PRD_ADMISSION_MAX", str(_PRD_POOL_SIZE * 3)))
+
+# P0-2: task-label prefixes cheap enough (<1s) to safely run inline if the
+# pool rejects. prd-gen / extract are NEVER inline — a multi-minute Bedrock
+# call in an HTTP worker thread is what collapsed the instance on 21 May.
+_INLINE_SAFE = ("artifacts-upload",)
+
+# === Phase-2 PRD-queue in-flight counter (see docs/LEVIATHAN_POD_ARCHITECTURE.md §5.5) ==
+# Per-process counter: PRD-gen tasks currently in the pool (running OR queued
+# inside the executor — practically the same since the drainer only submits
+# `free` jobs, so the queue stays ~0). The drainer claims at most
+# `_PRD_POOL_SIZE - _prd_inflight_count()` rows per tick. Correctness comes
+# from the DB row state (heartbeat + claim_count); this counter is just a
+# rate-limiter. A pod restart resets it to 0 — that is fine, the DB-driven
+# recovery (§5.6) re-syncs reality on the next tick.
+_prd_inflight = 0
+_prd_inflight_lock = threading.Lock()
+
+
+def _prd_inflight_count() -> int:
+    with _prd_inflight_lock:
+        return _prd_inflight
+
+
+def _prd_inflight_inc():
+    global _prd_inflight
+    with _prd_inflight_lock:
+        _prd_inflight += 1
+
+
+def _prd_inflight_dec():
+    global _prd_inflight
+    with _prd_inflight_lock:
+        # Clamp to 0 defensively — should never go negative, but a bug would
+        # only manifest as the drainer over-claiming, never under-claiming.
+        _prd_inflight = max(0, _prd_inflight - 1)
 
 # Per-pid pool registry. Odoo forks N worker processes from the master; a
 # module-level ThreadPoolExecutor instantiated at import time would either
@@ -29,27 +71,47 @@ _POOL_REGISTRY: dict[int, ThreadPoolExecutor] = {}
 _POOL_REGISTRY_LOCK = threading.Lock()
 
 
+def _pool_is_dead(pool) -> bool:
+    """A ThreadPoolExecutor is unusable once a worker thread failed to spawn
+    (`_broken` — every subsequent submit() raises) or it was shut down
+    (`_shutdown`). Either way it must be discarded and rebuilt."""
+    return bool(
+        getattr(pool, "_broken", None) or getattr(pool, "_shutdown", False)
+    )
+
+
 def _get_pool() -> ThreadPoolExecutor:
     """Return the ThreadPoolExecutor for the current process, creating it
-    lazily on first call. Safe across Odoo's prefork-style worker model."""
+    lazily on first call. Safe across Odoo's prefork-style worker model.
+
+    P0-1: a `_broken`/`_shutdown` pool is detected and rebuilt rather than
+    served forever — on 21 May the dead pool was handed out for 80 minutes,
+    forcing every job onto the (catastrophic) inline fallback.
+    """
     pid = os.getpid()
     pool = _POOL_REGISTRY.get(pid)
-    if pool is not None:
+    if pool is not None and not _pool_is_dead(pool):
         return pool
     with _POOL_REGISTRY_LOCK:
         pool = _POOL_REGISTRY.get(pid)
-        if pool is None:
-            pool = ThreadPoolExecutor(
-                max_workers=_PRD_POOL_SIZE,
-                thread_name_prefix=f"leviathan-prd[pid={pid}]",
+        if pool is not None and not _pool_is_dead(pool):
+            return pool
+        if pool is not None:
+            _logger.error(
+                "[leviathan] PRD pool for pid=%d is DEAD (broken/shutdown) — "
+                "rebuilding", pid,
             )
-            _POOL_REGISTRY[pid] = pool
-            _logger.info(
-                "[leviathan] PRD pool initialised for pid=%d (max_workers=%d). "
-                "If you run M Odoo workers × N pods, total concurrent PRD "
-                "threads = %d × M × N — size db_maxconn accordingly.",
-                pid, _PRD_POOL_SIZE, _PRD_POOL_SIZE,
-            )
+        pool = ThreadPoolExecutor(
+            max_workers=_PRD_POOL_SIZE,
+            thread_name_prefix=f"leviathan-prd[pid={pid}]",
+        )
+        _POOL_REGISTRY[pid] = pool
+        _logger.info(
+            "[leviathan] PRD pool initialised for pid=%d (max_workers=%d). "
+            "If you run M Odoo workers × N pods, total concurrent PRD "
+            "threads = %d × M × N — size db_maxconn accordingly.",
+            pid, _PRD_POOL_SIZE, _PRD_POOL_SIZE,
+        )
     return pool
 
 
@@ -60,8 +122,13 @@ def _submit_bg(label, fn, *args, **kwargs):
       Bedrock/S3 never silently swallows work without a trace.
     - Wraps the callable so any escaped exception is logged instead of being
       lost in an un-awaited Future.
-    - If the pool is gone (process recycling), runs inline as a last resort so
-      the job is never silently dropped. The watchdog cron is the final backstop.
+    - P0-2: if the pool rejects the task, heavy work (prd-gen/extract) is
+      NEVER run inline — the job is left in its DB state for the watchdog to
+      re-dispatch. Only sub-second `_INLINE_SAFE` tasks keep the inline
+      fallback. Running a multi-minute Bedrock call inside an HTTP worker
+      thread is what collapsed the instance on 21 May.
+    - P0-3: heavy work is also refused when the pool backlog exceeds
+      `_PRD_ADMISSION_MAX`, again deferring to the watchdog.
     """
     pool = _get_pool()
     qsize = -1
@@ -75,6 +142,18 @@ def _submit_bg(label, fn, *args, **kwargs):
             )
     except Exception:
         pass
+
+    # P0-3 admission control: bound the in-RAM backlog. Heavy work past the
+    # ceiling is refused here — the job stays in its DB state and the watchdog
+    # re-dispatches it. Sub-second `artifacts-upload` tasks are exempt.
+    kind = label.split("[", 1)[0]
+    if kind not in _INLINE_SAFE and qsize >= _PRD_ADMISSION_MAX:
+        _logger.warning(
+            "[leviathan] pool admission full (queue=%d >= %d) — deferring "
+            "'%s' to watchdog recovery (job left in its DB state)",
+            qsize, _PRD_ADMISSION_MAX, label,
+        )
+        return None
 
     # Submit-time marker: lets you measure pool queue-wait by diffing this
     # timestamp against the "started" line _guarded() emits below. A large
@@ -92,12 +171,20 @@ def _submit_bg(label, fn, *args, **kwargs):
             "[leviathan] bg task '%s' STARTED (pool queue-wait=%.1fs)",
             label, wait_s,
         )
+        # Phase-2: track in-flight count for the queue drainer's free-capacity
+        # math (§5.5). Increment when the worker actually starts (avoids a
+        # race with pool.submit returning slowly). Decrement in finally.
+        is_prd_gen = (kind == "prd-gen")
+        if is_prd_gen:
+            _prd_inflight_inc()
         t0 = time.monotonic()
         try:
             return fn(*args, **kwargs)
         except Exception:
             _logger.exception("[leviathan] background task '%s' crashed", label)
         finally:
+            if is_prd_gen:
+                _prd_inflight_dec()
             _logger.info(
                 "[leviathan] bg task '%s' FINISHED (ran %.1fs, queue-wait %.1fs)",
                 label, time.monotonic() - t0, wait_s,
@@ -105,11 +192,24 @@ def _submit_bg(label, fn, *args, **kwargs):
 
     try:
         return pool.submit(_guarded)
-    except RuntimeError:
-        _logger.error(
-            "[leviathan] thread pool unavailable for '%s' — running inline", label,
-        )
-        _guarded()
+    except RuntimeError as exc:
+        # P0-2: the pool rejected the task (broken / shut down). Heavy tasks
+        # (prd-gen, extract) must NEVER run inline — a multi-minute Bedrock
+        # call inside an HTTP worker thread is exactly what drained
+        # db_maxconn and collapsed the whole instance on 21 May. Leave the
+        # job in its DB state; the watchdog re-dispatches it. Only the
+        # sub-second `artifacts-upload` task keeps the inline fallback.
+        if kind in _INLINE_SAFE:
+            _logger.error(
+                "[leviathan] pool rejected '%s' (%s) — running inline "
+                "(inline-safe task)", label, exc,
+            )
+            _guarded()
+        else:
+            _logger.error(
+                "[leviathan] pool rejected '%s' (%s) — NOT run inline; left "
+                "for watchdog recovery", label, exc,
+            )
         return None
 
 
@@ -204,6 +304,33 @@ class _HeartbeatManager:
                             "ids=%s (will retry next tick)",
                             db_name, ids, exc_info=True,
                         )
+                        # Two-gate-reconcile feeder: when the bulk UPDATE
+                        # raises (DB blip, lock contention, RDS failover),
+                        # every in-flight job in this batch just missed
+                        # its heartbeat. Bump heartbeat_failure_count for
+                        # all of them so the recovery query in
+                        # ``_prd_queue_recover_stale`` can fire the
+                        # short-stale gate (5 min + failures ≥ 3) instead
+                        # of waiting the full 15-min unconditional gate.
+                        # This separate UPDATE uses its own fresh cursor
+                        # — if THIS one also fails, swallow silently
+                        # (best-effort; the unconditional gate is the
+                        # backstop).
+                        try:
+                            with Registry(db_name).cursor() as cr:
+                                cr.execute(
+                                    "UPDATE leviathan_job "
+                                    "SET heartbeat_failure_count = "
+                                    "    heartbeat_failure_count + 1 "
+                                    "WHERE id = ANY(%s) "
+                                    "  AND state IN ('extracting', "
+                                    "    'generating', 'scoring', "
+                                    "    'qc_running')",
+                                    (list(ids),),
+                                )
+                                cr.commit()
+                        except Exception:
+                            pass
             except Exception:
                 # Catch-all so a bad tick never kills the thread.
                 # Watchdog cron is the real safety net.
@@ -216,9 +343,17 @@ class _HeartbeatManager:
         with registry.cursor() as cr:
             cr.execute(
                 "UPDATE leviathan_job "
-                "SET last_heartbeat = (now() AT TIME ZONE 'UTC') "
+                "SET last_heartbeat = (now() AT TIME ZONE 'UTC'), "
+                # Reset the failure counter on every successful pulse —
+                # paired with the +1 bump in the aggregator's catch
+                # path above. Net effect: heartbeat_failure_count
+                # accumulates only across CONSECUTIVE failures, never
+                # across an isolated DB blip recovered on the next tick.
+                "    heartbeat_failure_count = 0 "
                 "WHERE id = ANY(%s) "
-                "  AND state IN ('extracting', 'generating', 'scoring')",
+                # qc_running included so a multi-minute QC call doesn't go
+                # silent and get false-recovered by the drainer (§5.12).
+                "  AND state IN ('extracting', 'generating', 'scoring', 'qc_running')",
                 (list(record_ids),),
             )
             pulsed = cr.rowcount
@@ -346,6 +481,109 @@ def _resize_image_for_bedrock(img_bytes: bytes, fmt: str) -> bytes:
         return img_bytes
 
 
+def _load_screenshot_blocks_from_s3(
+    screenshot_keys,
+    max_n,
+    s3_bucket,
+    s3_region="us-east-1",
+    s3_access_key_id="",
+    s3_secret_access_key="",
+    log_prefix="leviathan",
+):
+    """Return Bedrock Converse image content blocks ready for the
+    ``messages[].content`` array, OR an empty list on any error.
+
+    Best-effort visual enrichment — if S3 is misconfigured, the bucket
+    is empty, or PIL chokes on one file, we return [] and the caller's
+    PRD/QC request goes through text-only. **Never raises.** Image
+    attachment is opt-in via Settings; the cost of a failure must never
+    be losing the whole PRD generation.
+
+    Output block shape (Bedrock Converse API):
+
+        {"image": {"format": "png", "source": {"bytes": "<b64_string>"}}}
+
+    The bytes field is **base64-encoded string**, not raw bytes. This is
+    what the bearer-auth httpx path needs (JSON serialization can't
+    carry raw bytes). If/when the SigV4 (boto3) path is wired for
+    images, it will need a single ``base64.b64decode`` step before
+    forwarding to ``client.converse``; for now bearer is the only
+    image-capable path and that's all we need.
+
+    Args:
+        screenshot_keys: list of S3 keys (typically ``record.screenshot_keys``).
+            Order is honoured — the first ``max_n`` are taken.
+        max_n: hard cap on how many images we load + attach.
+        s3_bucket / s3_region / s3_access_key_id / s3_secret_access_key:
+            connection parameters; empty creds fall back to IRSA / pod role.
+        log_prefix: prepended to log lines for grep'ability.
+    """
+    if not screenshot_keys or max_n <= 0 or not s3_bucket:
+        return []
+
+    import base64
+    try:
+        from ..services.s3_service import download_file_from_s3
+    except Exception:
+        _logger.warning(
+            "[%s] cannot import s3_service — returning empty screenshot "
+            "blocks; falling back to text-only request", log_prefix,
+        )
+        return []
+
+    blocks = []
+    for key in screenshot_keys[:max_n]:
+        try:
+            raw = download_file_from_s3(
+                key=key,
+                bucket=s3_bucket,
+                access_key_id=s3_access_key_id or None,
+                secret_key=s3_access_key_id and s3_secret_access_key or None,
+                region=s3_region or "us-east-1",
+            )
+        except Exception as exc:
+            _logger.warning(
+                "[%s] screenshot S3 download failed for %s: %s — skipping",
+                log_prefix, key, exc,
+            )
+            continue
+
+        # Detect format from the file extension on the key; fall back to
+        # PNG (the dominant format for our scroll-tile and hero captures).
+        ext = (key.rsplit(".", 1)[-1] or "").lower()
+        fmt = ext if ext in ("png", "jpeg", "jpg", "webp", "gif") else "png"
+        # Bedrock spells JPEG as "jpeg", not "jpg".
+        if fmt == "jpg":
+            fmt = "jpeg"
+
+        # Resize over the Bedrock 8000-px-per-side cap; safe on errors.
+        resized = _resize_image_for_bedrock(raw, fmt)
+
+        try:
+            b64 = base64.b64encode(resized).decode("ascii")
+        except Exception as exc:
+            _logger.warning(
+                "[%s] base64 encode failed for %s: %s — skipping",
+                log_prefix, key, exc,
+            )
+            continue
+
+        blocks.append({
+            "image": {
+                "format": fmt,
+                "source": {"bytes": b64},
+            },
+        })
+
+    if blocks:
+        _logger.info(
+            "[%s] attached %d screenshot block(s) to Bedrock content "
+            "(requested up to %d, S3 keys available: %d)",
+            log_prefix, len(blocks), max_n, len(screenshot_keys),
+        )
+    return blocks
+
+
 class LeviathanJob(models.Model):
     _name = "leviathan.job"
     _description = "Leviathan Pipeline Task"
@@ -459,6 +697,126 @@ class LeviathanJob(models.Model):
              "hit marks the job failed for real.",
     )
 
+    # === Phase-2 PRD-queue fields (see docs/LEVIATHAN_POD_ARCHITECTURE.md §3) ==
+    # All four are inert when the feature flag `leviathan.prd_queue_enabled` is
+    # False (Phase-1 behaviour unchanged); they activate when the flag flips on.
+    prd_queued_at = fields.Datetime(
+        string="PRD Queued At",
+        copy=False,
+        help="Timestamp the job entered the PRD queue (auto pipeline). "
+             "Used by the drainer to claim rows FIFO (ORDER BY prd_queued_at "
+             "NULLS FIRST). NULL on legacy rows is treated as 'oldest'.",
+    )
+    # Monotonic fence token — drainer increments on every claim; workers carry
+    # the captured value and write conditionally so a stale worker's writes
+    # affect 0 rows after a recovery re-claim. See §5.4 / §5.10 / §5.11.
+    prd_claim_count = fields.Integer(
+        string="PRD Claim Count",
+        default=0,
+        copy=False,
+        help="Fence token. Incremented by the drainer on each claim. Every "
+             "worker write is conditional on prd_claim_count = captured value, "
+             "so a worker that lost its claim to recovery cannot corrupt the row.",
+    )
+    # Poison counter — only the worker increments it, only on a genuine
+    # exception. Recovery / re-claims do NOT touch it. A job hitting
+    # leviathan.prd_max_attempts is marked failed by the drainer. See §5.7.
+    prd_failure_count = fields.Integer(
+        string="PRD Failure Count",
+        default=0,
+        copy=False,
+        help="Counts genuine PRD-worker exceptions. Hitting "
+             "leviathan.prd_max_attempts (default 3) → drainer marks failed. "
+             "NOT incremented by pod restarts, recovery, or re-claims.",
+    )
+    # Tasker-visible 'what is the pipeline doing now'. Short Char, updated at
+    # every phase boundary by the worker / dispatcher / webhook. NOT used for
+    # any correctness check — informational only. See §5.15.
+    pipeline_status = fields.Char(
+        string="Pipeline Status",
+        copy=False,
+        help="Human-readable phase indicator shown under the statusbar. "
+             "Examples: 'Generating PRD (Bedrock)', 'QC complete — finalizing'. "
+             "Updated at every phase boundary; not load-bearing for correctness.",
+    )
+
+    # Sub-step WITHIN a state. Where `pipeline_status` says "Generating PRD",
+    # `current_phase` carries the finer-grained "generating.calling_bedrock"
+    # or "generating.scoring" — turned into a label via `_PHASE_LABELS` and
+    # rendered above the stage timer in `stage_progress_html`. Tasker-facing
+    # only; not load-bearing for correctness. Always-non-NULL (default '')
+    # so writes never need NULL-guards.
+    current_phase = fields.Char(
+        string="Current Phase",
+        default="",
+        readonly=True,
+        copy=False,
+        help="Internal phase key like 'generating.calling_bedrock' — "
+             "translated to a human-readable label via _PHASE_LABELS and "
+             "shown in the Stage Progress widget. Tasker-facing only.",
+    )
+
+    # AWS Lambda RequestId captured at invoke time. Used by
+    # `action_refresh_lambda_logs` to filter CloudWatch events down to
+    # this exact invocation. Indexed (partial index via migration) for
+    # the reconcile case where we look up jobs by RequestId.
+    lambda_request_id = fields.Char(
+        string="Lambda RequestId",
+        readonly=True,
+        copy=False,
+        index=True,
+        help="AWS Lambda RequestId from the most recent invoke. Used by "
+             "the Refresh Lambda Logs button to filter CloudWatch events "
+             "for this job.",
+    )
+    # Watermark for CloudWatch log polling. NULL on first fetch; updated
+    # to the timestamp of the most recent event ingested. The fetch path
+    # pulls only events newer than this watermark, so a re-click doesn't
+    # re-ingest the entire log group.
+    last_lambda_log_ts = fields.Datetime(
+        string="Last Lambda Log Fetched",
+        readonly=True,
+        copy=False,
+        help="Watermark for CloudWatch log polling; only events after "
+             "this timestamp are pulled on the next refresh.",
+    )
+
+    # One2many to the per-job execution log table. Populated by:
+    #   1. `log_handler.LeviathanJobLogHandler` (auto-scrapes [job=N] tags)
+    #   2. `action_refresh_lambda_logs` (CloudWatch pull, admin button)
+    # Read-only from the UI — never user-edited.
+    log_ids = fields.One2many(
+        "leviathan.job.log",
+        "job_id",
+        string="Execution Logs",
+        readonly=True,
+    )
+
+    # Consecutive heartbeat-write failures for this row. Bumped by the
+    # heartbeat aggregator's catch path when a pulse UPDATE raises;
+    # reset to 0 on every successful pulse (the same UPDATE sets both
+    # `last_heartbeat` and `heartbeat_failure_count = 0`).
+    #
+    # The two-gate reconcile in `_prd_queue_recover_stale` reads this:
+    # a row with a stale heartbeat AND a failure count above the
+    # threshold is recovered EARLY (default 5 min instead of 15) —
+    # because we know the worker has been actively failing to pulse,
+    # not just slow. Without this column, the single-gate "stale
+    # heartbeat alone" check produced the documented double-Bedrock-
+    # spend incident in vegeta v19.0.2.4.0.
+    heartbeat_failure_count = fields.Integer(
+        string="Heartbeat Failure Count",
+        default=0,
+        readonly=True,
+        copy=False,
+        help="Consecutive heartbeat-write failures since the last "
+             "successful pulse. Bumped by the heartbeat aggregator on "
+             "exception, reset to 0 on success. The two-gate reconcile "
+             "uses this to short-circuit recovery when a worker is "
+             "alive but its heartbeat writes are failing.",
+    )
+
+
     # Computed HTML for asset previews
     screenshot_urls_html = fields.Html(
         string="Screenshot Previews", compute="_compute_asset_previews",
@@ -543,6 +901,97 @@ class LeviathanJob(models.Model):
         return "draft"
 
     # ------------------------------------------------------------------
+    # Phase-2 PRD-queue feature flag (LEVIATHAN_POD_ARCHITECTURE.md §4)
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _prd_execution_mode(self):
+        """Where the PRD drainer loop runs.
+
+        Returns one of:
+          * ``"inprocess"`` (default) — the Odoo ``ir.cron`` runs the drainer
+            every minute and submits jobs to the in-process pool. The legacy
+            Phase-2 target (single-pod, no separate worker process).
+          * ``"worker"`` — a standalone Python process
+            (``custom_addons/leviathan/worker/run_prd.py``) owns the claim
+            loop. The Odoo ``ir.cron`` short-circuits so the worker pod is
+            the *only* drainer cluster-wide. This is the production target
+            (LEVIATHAN_POD_ARCHITECTURE.md §6).
+
+        Independent of ``leviathan.prd_queue_enabled``: the mode is only
+        consulted when the queue is enabled. With the queue OFF the
+        Phase-1 in-process ``_submit_bg`` path runs and this setting is
+        irrelevant.
+        """
+        return (
+            self.env["ir.config_parameter"].sudo()
+                .get_param("leviathan.prd_execution_mode", "inprocess")
+            or "inprocess"
+        ).strip().lower()
+
+    @api.model
+    def _prd_queue_enabled(self):
+        """Master switch for Phase-2 PRD-queue behaviour.
+
+        When False (default): every Phase-1 path runs exactly as today.
+        Webhook + dispatchers go through `_submit_bg`, the worker's PHASE 1
+        does the existing atomic claim, the watchdog handles PRD-side recovery.
+
+        When True: the webhook + dispatchers write `state=generating` and
+        return; the drainer cron claims & dispatches; the worker uses
+        fence-verify in PHASE 1; the watchdog's PRD-side blocks no-op.
+
+        Flipping the flag is reversible at any time (§12). Stored as a
+        System Parameter so it can be toggled live without a restart.
+        """
+        return self.env["ir.config_parameter"].sudo().get_param(
+            "leviathan.prd_queue_enabled", "False",
+        ).strip().lower() in ("1", "true", "yes", "on")
+
+    @api.model
+    def _prd_queue_producer_vals(self):
+        """Standard fields every producer merges into its state-write when
+        transitioning a row to 'generating' on the auto pipeline (§11
+        reference write). Harmless in flag-OFF mode — just extra data.
+
+        - `auto_continue=True` keeps the drainer eligible for the row.
+        - `prd_queued_at=now()` is the drainer's FIFO ordering key.
+        - `prd_failure_count=0` is a user-initiated reset (Retry button etc.).
+        - `started_processing_at=False` makes the row claim-ready.
+        - `pipeline_status` gives the tasker a phase indicator.
+        """
+        return {
+            "auto_continue": True,
+            "prd_queued_at": fields.Datetime.now(),
+            "prd_failure_count": 0,
+            "started_processing_at": False,
+            "pipeline_status": "Queued for PRD generation",
+        }
+
+    def _enter_prd_queue_dispatch(self, label_suffix=""):
+        """Postcommit-dispatch helper for any producer that has just written
+        state='generating' on this row.
+
+        - Flag-OFF: schedules `_submit_bg("prd-gen[...]", ...)` (Phase-1 path).
+        - Flag-ON : no-op; the drainer claims the row within ~1 min.
+        """
+        self.ensure_one()
+        if self._prd_queue_enabled():
+            _logger.info(
+                "[leviathan][job=%s] producer: queue enabled — row left "
+                "for drainer (no _submit_bg)", self.id,
+            )
+            return
+        db_name = self.env.cr.dbname
+        record_id = self.id
+        label = f"prd-gen[job={record_id}]{label_suffix}"
+        self.env.cr.postcommit.add(
+            lambda: _submit_bg(
+                label, self._run_prd_generation_bg, db_name, record_id,
+            )
+        )
+
+    # ------------------------------------------------------------------
     # Prompt helpers (read from Settings, fallback to file)
     # ------------------------------------------------------------------
 
@@ -592,7 +1041,32 @@ class LeviathanJob(models.Model):
         "scoring": 30,       # ~30s
     }
 
-    @api.depends("state", "started_at", "last_heartbeat", "completed_at", "duration_seconds")
+    # Human-readable label for every distinct value of `current_phase`.
+    # Add new entries here when adding new `_write_with_cursor({"current_phase": ...})`
+    # call sites in the worker; the label appears in stage_progress_html
+    # the moment the write commits. Anything not in this table falls
+    # back to an empty label (no header shown), which is the right thing
+    # for transient/internal values.
+    _PHASE_LABELS = {
+        # Extraction sub-steps (UI / controller path)
+        "extracting.invoking": "Invoking Lambda",
+        "extracting.running": "Lambda running",
+        # Worker pickup → PRD pipeline
+        "generating.starting": "Worker starting",
+        "generating.downloading_screenshots": "Downloading screenshots",
+        "generating.calling_bedrock": "Calling Bedrock (PRD)",
+        "generating.scoring": "Scoring PRD",
+        "generating.uploading": "Uploading artifacts to S3",
+        # QC phase
+        "scoring.qc_review": "Running QC review (Bedrock)",
+        "scoring.qc_complete": "QC complete — finalizing",
+        # Staged-flow sub-steps
+        "staged.generate": "Staged: generating PRD (manual)",
+        "staged.qc": "Staged: running QC (manual)",
+    }
+
+    @api.depends("state", "started_at", "last_heartbeat", "completed_at",
+                 "duration_seconds", "current_phase")
     def _compute_stage_progress(self):
         now = fields.Datetime.now()
         for rec in self:
@@ -637,7 +1111,17 @@ class LeviathanJob(models.Model):
                 m, s = divmod(int(secs), 60)
                 return f"{m}m {s:02d}s" if m else f"{s}s"
 
+            # Sub-step header (only renders when current_phase is set and
+            # has a human label). Sits ABOVE the main timer so the tasker
+            # sees "Calling Bedrock" + 1m 23s, not just "1m 23s".
+            phase_label = self._PHASE_LABELS.get(rec.current_phase or "", "")
+            phase_html = (
+                f'<div style="font-size:13px;color:#0d6efd;padding:2px 0;'
+                f'font-weight:500;">&#9881; {phase_label}</div>'
+            ) if phase_label else ""
+
             rec.stage_progress_html = (
+                f'{phase_html}'
                 f'<div style="font-size:13px;color:#495057;padding:4px 0;">'
                 f'Stage: <b>{_fmt(stage_elapsed)}</b>'
                 f' &middot; Total: <b>{_fmt(overall_elapsed)}</b>'
@@ -990,7 +1474,7 @@ class LeviathanJob(models.Model):
     # Actions
     # ------------------------------------------------------------------
 
-    _ACTIVE_STATES = ("draft", "extracting", "generating", "scoring", "done")
+    _ACTIVE_STATES = ("draft", "extracting", "generating", "scoring", "qc_running", "done")
 
     def action_start_task(self):
         """Tasker grabs the next available unassigned task — race-safe.
@@ -1025,11 +1509,20 @@ class LeviathanJob(models.Model):
         cat_clause = " AND category_id = %s" if cat_id else ""
         params = [int(cat_id)] if cat_id else []
 
+        # Only hand out tasks whose PRD is actually ready for review: a
+        # `not_assigned` job with prd_text set (a batch-completed job, or a
+        # released `done` task). Fresh `not_assigned` jobs (URL imported,
+        # pipeline never run) and `failed` jobs are NOT tasker work — fresh
+        # jobs go through a batch run, failed jobs through Retry. On claim,
+        # _smart_state_on_assign restores a prd_text job to `done`, so the
+        # tasker always lands on a finished PRD.
         self.env.cr.execute(
             f"""
             SELECT id FROM leviathan_job
-             WHERE state IN ('not_assigned', 'failed')
+             WHERE state = 'not_assigned'
                AND user_id IS NULL
+               AND prd_text IS NOT NULL
+               AND prd_text != ''
                {cat_clause}
              ORDER BY create_date ASC
              LIMIT 1
@@ -1196,6 +1689,23 @@ class LeviathanJob(models.Model):
             "duration_seconds": False,
             "last_heartbeat": fields.Datetime.now(),
         })
+        # Chatter: pipeline kicked off — record WHO started it and on
+        # which URL so the activity log on the job tells the full story
+        # without anyone having to dig in Loki. See Phase-D notes in
+        # LEVIATHAN_POD_ARCHITECTURE.md record-of-work.
+        try:
+            from markupsafe import escape
+            user_name = escape(self.env.user.name or "?")
+            url_safe = escape(self.url or "")
+            self._chatter_post(
+                f"<b>Pipeline started (Run All)</b> by {user_name} "
+                f"&mdash; URL: {url_safe}"
+            )
+        except Exception:
+            # _chatter_post already swallows; this outer try is for the
+            # escape import in case markupsafe isn't installed (it is —
+            # Odoo ships with it — but defensive). Never break action_run.
+            pass
         self._trigger_extraction()
 
     def action_stage_extract(self):
@@ -1214,6 +1724,22 @@ class LeviathanJob(models.Model):
 
         if self.state == "not_assigned" or not self.user_id:
             self.write({"user_id": self.env.uid, "state": "draft"})
+
+        # If extraction data already exists (e.g. a batch-completed task
+        # auto-released to not_assigned, or a released task), do NOT silently
+        # re-extract and destroy the existing PRD — open the rerun wizard so
+        # the tasker chooses re-extract vs regenerate. Mirrors action_run.
+        if self._has_extraction_data and not self.env.context.get("force_extract"):
+            wizard = self.env["leviathan.rerun.wizard"].create({"job_id": self.id})
+            return {
+                "type": "ir.actions.act_window",
+                "name": "Extraction Data Exists",
+                "res_model": "leviathan.rerun.wizard",
+                "res_id": wizard.id,
+                "view_mode": "form",
+                "views": [(False, "form")],
+                "target": "new",
+            }
 
         max_jobs = int(
             self.env["ir.config_parameter"]
@@ -1282,6 +1808,17 @@ class LeviathanJob(models.Model):
         })
         _logger.info("[leviathan][job=%s] cancelled by %s", self.name, self.env.user.name)
         self._notify_state_change("draft")
+        # Chatter: clear record of cancellation so a tasker re-opening
+        # the job later understands the state didn't transition by
+        # accident.
+        try:
+            from markupsafe import escape
+            self._chatter_post(
+                f"<b>Pipeline cancelled</b> by "
+                f"{escape(self.env.user.name or '?')}"
+            )
+        except Exception:
+            pass
 
     def action_stage_generate(self):
         """Staged manual run: generate the PRD, then park at 'generated'."""
@@ -1380,12 +1917,26 @@ class LeviathanJob(models.Model):
             )
         skipped = self - eligible
 
+        # Phase-2 batch-size guard (LEVIATHAN_POD_ARCHITECTURE.md §6.7).
+        # One worker pod runs `_PRD_POOL_SIZE` (default 40) concurrently;
+        # the queue absorbs the rest. The cap stops a runaway selection
+        # from filling the queue beyond what's operationally healthy.
         ICP = self.env["ir.config_parameter"].sudo()
+        batch_max = int(ICP.get_param("leviathan.batch_max_size", "500"))
+        if batch_max > 0 and len(eligible) > batch_max:
+            raise UserError(
+                f"Batch too large: {len(eligible)} selected, max is {batch_max}.\n"
+                f"One worker pod runs {_PRD_POOL_SIZE} jobs concurrently — the "
+                f"queue absorbs the rest. Split into smaller batches if you "
+                f"need a hard cap, or raise leviathan.batch_max_size in Settings."
+            )
+
         config = {
             "function_name": ICP.get_param("leviathan.lambda_function_name"),
             "region": ICP.get_param("leviathan.lambda_region") or "ap-south-1",
             "access_key_id": ICP.get_param("leviathan.extraction_access_key_id") or "",
             "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key") or "",
+            "local_url": ICP.get_param("leviathan.lambda_local_url") or "",
             "batch_concurrency": int(
                 ICP.get_param("leviathan.batch_concurrency") or _BATCH_FANOUT_POOL_SIZE
             ),
@@ -1397,10 +1948,11 @@ class LeviathanJob(models.Model):
         to_generate = eligible.filtered(lambda r: r.prd_prompt)
         to_extract = eligible - to_generate
 
-        if to_extract and not config["function_name"]:
+        if to_extract and not config["function_name"] and not config["local_url"]:
             raise UserError(
                 "Lambda function name not configured "
-                "(Settings -> Leviathan -> Lambda Function)."
+                "(Settings -> Leviathan -> Lambda Function), and no "
+                "leviathan.lambda_local_url is set for local dev either."
             )
 
         now = fields.Datetime.now()
@@ -1418,21 +1970,33 @@ class LeviathanJob(models.Model):
 
         # --- Path A: already extracted -> straight to PRD generation ---
         if to_generate:
-            to_generate.write(dict(_common, state="generating"))
+            to_generate.write(dict(
+                _common, state="generating",
+                **self._prd_queue_producer_vals(),    # Phase-2 producer fields (§11)
+            ))
             gen_ids = to_generate.ids
             _logger.info(
                 "[leviathan] batch: %d job(s) already extracted -> PRD generation: %s",
                 len(gen_ids), to_generate.mapped("name"),
             )
 
-            def _deferred_generate():
-                for rid in gen_ids:
-                    _submit_bg(
-                        f"prd-gen[job={rid}]",
-                        self._run_prd_generation_bg, db_name, rid,
-                    )
+            # Phase-2: skip _submit_bg when the queue is enabled — the drainer
+            # picks each row up within ~1 min. The state-write above includes
+            # auto_continue=True + prd_queued_at, so the rows are claim-ready.
+            if not self._prd_queue_enabled():
+                def _deferred_generate():
+                    for rid in gen_ids:
+                        _submit_bg(
+                            f"prd-gen[job={rid}]",
+                            self._run_prd_generation_bg, db_name, rid,
+                        )
 
-            self.env.cr.postcommit.add(_deferred_generate)
+                self.env.cr.postcommit.add(_deferred_generate)
+            else:
+                _logger.info(
+                    "[leviathan] batch Path A: queue enabled — %d row(s) "
+                    "left for drainer (no _submit_bg)", len(gen_ids),
+                )
 
         # --- Path B: no extraction data -> Lambda fan-out ---
         if to_extract:
@@ -1487,8 +2051,12 @@ class LeviathanJob(models.Model):
         from ..services.extraction_service import trigger_extraction
 
         ok_ids: list[int] = []
+        ok_request_ids: dict[int, str] = {}  # record_id -> Lambda RequestId
         failed: dict[int, str] = {}
-        max_workers = min(config["batch_concurrency"], len(record_ids)) or 1
+        # P1-3: cap the fan-out at 30 threads. Async lambda:Invoke takes
+        # <200 ms, so 30 threads issue 500 invokes in ~4 s — a 250-thread
+        # pool was a needless thread-exhaustion contributor.
+        max_workers = min(config["batch_concurrency"], len(record_ids), 30) or 1
 
         def _invoke_one(record_id: int) -> tuple[int, dict]:
             url = record_urls.get(record_id, "")
@@ -1500,6 +2068,7 @@ class LeviathanJob(models.Model):
                 region=config["region"],
                 access_key_id=config["access_key_id"],
                 secret_access_key=config["secret_access_key"],
+                local_url=config.get("local_url", ""),
             )
             return record_id, result
 
@@ -1520,12 +2089,44 @@ class LeviathanJob(models.Model):
                     continue
                 if result.get("success"):
                     ok_ids.append(record_id)
+                    # Capture per-job request_id so the Logs tab can later
+                    # filter CloudWatch events down to this exact invocation.
+                    # Collected here, persisted in bulk below to avoid 500
+                    # serial cursor opens for a 500-job batch.
+                    rid_str = result.get("request_id") or ""
+                    if rid_str:
+                        ok_request_ids[record_id] = rid_str
                 else:
                     failed[record_id] = result.get("error", "Unknown error")[:500]
 
         _logger.info(
             "Batch fan-out done: %d invoked OK, %d failed", len(ok_ids), len(failed),
         )
+
+        # Bulk-persist lambda_request_id + current_phase for every job whose
+        # invoke succeeded. One transaction for the whole batch — at 500 jobs
+        # this is ~5 ms vs ~5 s with per-row writes. Best-effort: if this
+        # block fails the jobs still progress (they just lose the CloudWatch
+        # button until the watchdog or a retry re-stamps the id).
+        if ok_request_ids:
+            try:
+                with Registry(db_name).cursor() as cr:
+                    env = api.Environment(cr, SUPERUSER_ID, {})
+                    for rid, request_id in ok_request_ids.items():
+                        rec = env[self._name].browse(rid)
+                        if rec.exists():
+                            rec.write({
+                                "lambda_request_id": request_id,
+                                "current_phase": "extracting.running",
+                            })
+                    cr.commit()
+            except Exception:
+                _logger.exception(
+                    "[leviathan] failed to persist %d lambda request_ids "
+                    "after batch fan-out (jobs still progress; Logs tab "
+                    "loses CloudWatch button for these rows)",
+                    len(ok_request_ids),
+                )
 
         if failed:
             try:
@@ -1638,24 +2239,17 @@ class LeviathanJob(models.Model):
                 "completed_at": False,
                 "duration_seconds": False,
                 "last_heartbeat": fields.Datetime.now(),
-                # Cleared — the bg worker will set this when it actually
-                # picks the job up. Until then the watchdog must not see
-                # this row as "actually started".
-                "started_processing_at": False,
+                # Phase-2 producer fields (§11). started_processing_at=False
+                # makes the row claim-ready; prd_failure_count=0 gives a
+                # fresh count for a user-initiated Retry.
+                **self._prd_queue_producer_vals(),
             })
             _logger.info(
                 "[leviathan][job=%s] retry: prd_prompt present — skipping extraction, "
                 "going straight to PRD generation",
                 self.name,
             )
-            db_name = self.env.cr.dbname
-            record_id = self.id
-            self.env.cr.postcommit.add(
-                lambda: _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    self._run_prd_generation_bg, db_name, record_id,
-                )
-            )
+            self._enter_prd_queue_dispatch()    # Phase-2: no-op when queue ON
             return
 
         # No extraction data — reset to draft and re-extract from scratch.
@@ -1715,6 +2309,18 @@ class LeviathanJob(models.Model):
             raise UserError("No failed tasks selected.")
         skipped = self - eligible
 
+        # Phase-2 batch-size guard (LEVIATHAN_POD_ARCHITECTURE.md §6.7).
+        batch_max = int(
+            self.env["ir.config_parameter"].sudo()
+                .get_param("leviathan.batch_max_size", "500")
+        )
+        if batch_max > 0 and len(eligible) > batch_max:
+            raise UserError(
+                f"Retry batch too large: {len(eligible)} selected, max is "
+                f"{batch_max}. Split into smaller batches or raise "
+                f"leviathan.batch_max_size in Settings."
+            )
+
         to_generate = eligible.filtered(lambda r: r.prd_prompt)
         to_extract = eligible - to_generate
 
@@ -1768,19 +2374,29 @@ class LeviathanJob(models.Model):
                 "completed_at": False,
                 "duration_seconds": False,
                 "last_heartbeat": now,
-                "started_processing_at": False,
+                # Phase-2 producer fields (§11).
+                **self._prd_queue_producer_vals(),
             })
             gen_ids.append(rec.id)
 
         if gen_ids:
-            def _deferred_generate():
-                for rid in gen_ids:
-                    _submit_bg(
-                        f"prd-gen[job={rid}]",
-                        self._run_prd_generation_bg, db_name, rid,
-                    )
+            # Phase-2: skip _submit_bg when the queue is enabled — rows
+            # already carry prd_queued_at + auto_continue=True so the
+            # drainer claims them within ~1 min.
+            if not self._prd_queue_enabled():
+                def _deferred_generate():
+                    for rid in gen_ids:
+                        _submit_bg(
+                            f"prd-gen[job={rid}]",
+                            self._run_prd_generation_bg, db_name, rid,
+                        )
 
-            self.env.cr.postcommit.add(_deferred_generate)
+                self.env.cr.postcommit.add(_deferred_generate)
+            else:
+                _logger.info(
+                    "[leviathan] retry-failed-batch Path A: queue enabled "
+                    "— %d row(s) left for drainer", len(gen_ids),
+                )
 
         # --- Path B: no prd_prompt → full pipeline (Lambda extraction first) ---
         if to_extract:
@@ -1907,21 +2523,12 @@ class LeviathanJob(models.Model):
                 "started_at": fields.Datetime.now(),
                 "completed_at": False,
                 "last_heartbeat": fields.Datetime.now(),
-                # Cleared — the bg worker resets this when it actually
-                # picks up. Otherwise stale value from the previous run
-                # confuses the watchdog (looks "running" before the new
-                # worker has touched the row).
-                "started_processing_at": False,
+                # Phase-2 producer fields (§11) — started_processing_at=False
+                # makes the row claim-ready and prd_failure_count=0 gives a
+                # fresh count on this user-initiated rerun.
+                **self._prd_queue_producer_vals(),
             })
-            db_name = self.env.cr.dbname
-            record_id = self.id
-
-            self.env.cr.postcommit.add(
-                lambda: _submit_bg(
-                    f"prd-gen[job={record_id}]",
-                    self._run_prd_generation_bg, db_name, record_id,
-                )
-            )
+            self._enter_prd_queue_dispatch()    # Phase-2: no-op when queue ON
 
     def action_rerun_with_extract(self):
         """Rerun with full re-extraction."""
@@ -1972,10 +2579,9 @@ class LeviathanJob(models.Model):
             "started_at": fields.Datetime.now(),
             "completed_at": False,
             "last_heartbeat": fields.Datetime.now(),
-            # Cleared — the bg worker will set this on pickup. Otherwise
-            # the watchdog sees the row as "actually running" from the
-            # previous run before the new worker has touched it.
-            "started_processing_at": False,
+            # Phase-2 producer fields (§11). started_processing_at=False
+            # makes the row claim-ready; prd_failure_count=0 = fresh count.
+            **self._prd_queue_producer_vals(),
         })
 
         if self.prd_prompt:
@@ -1986,15 +2592,7 @@ class LeviathanJob(models.Model):
                 + qc_feedback
             )
 
-        db_name = self.env.cr.dbname
-        record_id = self.id
-
-        self.env.cr.postcommit.add(
-            lambda: _submit_bg(
-                f"prd-gen[job={record_id}]",
-                self._run_prd_generation_bg, db_name, record_id,
-            )
-        )
+        self._enter_prd_queue_dispatch()    # Phase-2: no-op when queue ON
 
     def action_save_prd_edit(self):
         """Save manual PRD edits from the HTML editor back to prd_text."""
@@ -2018,6 +2616,176 @@ class LeviathanJob(models.Model):
         text = re.sub(r'\n{3,}', '\n\n', text)
         self.prd_text = text.strip()
 
+    # ------------------------------------------------------------------
+    # CloudWatch log fetch (admin button on the Logs tab)
+    # ------------------------------------------------------------------
+
+    def _fetch_lambda_logs_one(self, job, logs_client, log_group):
+        """Pull CloudWatch events for ONE job into `leviathan_job_log`.
+
+        Filters the log group by the captured `lambda_request_id` (each
+        invocation's events all share that token). Watermark pagination
+        via `last_lambda_log_ts` so a re-click only fetches new events.
+
+        Best-effort: a missing log group, a permissions error, or any
+        API exception is logged and swallowed — the UI shows whatever
+        rows were already ingested.
+        """
+        request_id = (job.lambda_request_id or "").strip()
+        if not request_id:
+            return
+        # CloudWatch `filter_log_events` without `startTime` scans only a
+        # narrow recent window and returns 0 events for older RequestIds.
+        # Always pass a startTime so matching events land on the first
+        # page within our 5×200 pagination cap.
+        if job.last_lambda_log_ts:
+            start_ms = int(job.last_lambda_log_ts.timestamp() * 1000) + 1
+        elif job.started_at:
+            start_ms = int(job.started_at.timestamp() * 1000) - 60_000
+        else:
+            import time as _time
+            # 7-day lookback for first fetch on a job missing started_at.
+            # CloudWatch retention defaults to 30 days; this is well within.
+            start_ms = int(_time.time() * 1000) - 7 * 86400 * 1000
+
+        events = []
+        next_token = None
+        page_limit = 5  # 5 × 200 = up to 1000 events per refresh click
+        for _ in range(page_limit):
+            kwargs = {
+                "logGroupName": log_group,
+                "filterPattern": f'"{request_id}"',
+                "limit": 200,
+                "startTime": start_ms,
+            }
+            if next_token:
+                kwargs["nextToken"] = next_token
+            try:
+                resp = logs_client.filter_log_events(**kwargs)
+            except logs_client.exceptions.ResourceNotFoundException:
+                # Log group doesn't exist (Lambda never ran in this region,
+                # or the log group was deleted). Silent — there's nothing
+                # actionable for the tasker.
+                return
+            except Exception:
+                _logger.exception(
+                    "[leviathan][job=%s] filter_log_events failed", job.id,
+                )
+                return
+            events.extend(resp.get("events", []))
+            next_token = resp.get("nextToken")
+            if not next_token:
+                break
+        if not events:
+            return
+
+        Log = self.env["leviathan.job.log"].sudo()
+        latest_ms = 0
+        rows = []
+        # F-LOW-4: ``datetime.utcfromtimestamp`` / ``datetime.utcnow``
+        # are deprecated in 3.12 (DeprecationWarning will become an
+        # error in a future Python release). Use timezone-aware
+        # ``fromtimestamp(ts, tz=timezone.utc)`` then strip tzinfo to
+        # keep Odoo's naive-UTC storage convention.
+        from datetime import datetime as _dt, timezone as _tz
+        def _utc_naive_from_ms(ms):
+            return (
+                _dt.fromtimestamp(ms / 1000.0, tz=_tz.utc).replace(tzinfo=None)
+                if ms else
+                _dt.now(_tz.utc).replace(tzinfo=None)
+            )
+        for ev in events:
+            ts_ms = ev.get("timestamp") or 0
+            if ts_ms > latest_ms:
+                latest_ms = ts_ms
+            ts = _utc_naive_from_ms(ts_ms)
+            msg = (ev.get("message") or "").rstrip("\n")
+            # Crude level classification — CloudWatch doesn't carry
+            # structured level metadata, so we sniff the message body.
+            # Good enough for the form-view colouring; if the Lambda
+            # adopts JSON logging later this should switch to a real
+            # parse.
+            level = "INFO"
+            if "ERROR" in msg or "Traceback" in msg:
+                level = "ERROR"
+            elif "WARN" in msg or "WARNING" in msg:
+                level = "WARNING"
+            rows.append({
+                "job_id": job.id,
+                "timestamp": ts,
+                "source": "lambda",
+                "level": level,
+                "message": msg[:16384],
+            })
+        if rows:
+            Log.create(rows)
+        if latest_ms:
+            new_watermark = _utc_naive_from_ms(latest_ms)
+            job.sudo().write({"last_lambda_log_ts": new_watermark})
+
+    def action_refresh_lambda_logs(self):
+        """Admin-only button on the Logs tab: pull CloudWatch events for
+        this job into `leviathan_job_log` so the Logs list refreshes with
+        Lambda-side logs alongside the Odoo / Worker rows.
+
+        Restricted to admins because (a) it touches AWS APIs, (b) the
+        fetch can be slow on a chatty log group. Taskers see the result
+        once the admin clicks — they don't trigger the fetch themselves.
+        """
+        self.ensure_one()
+        if not self.env.user.has_group("leviathan.group_leviathan_admin"):
+            raise AccessError(
+                "Only Leviathan administrators can fetch CloudWatch logs."
+            )
+        if not self.lambda_request_id:
+            return False
+        ICP = self.env["ir.config_parameter"].sudo()
+        function_name = (
+            ICP.get_param("leviathan.lambda_function_name") or ""
+        ).strip()
+        region = (
+            ICP.get_param("leviathan.lambda_region") or "us-east-1"
+        ).strip()
+        access_key_id = (
+            ICP.get_param("leviathan.extraction_access_key_id") or ""
+        ).strip()
+        secret_access_key = (
+            ICP.get_param("leviathan.extraction_secret_access_key") or ""
+        ).strip()
+        if not function_name:
+            raise UserError(
+                "Lambda function name not configured. "
+                "Set leviathan.lambda_function_name in Settings."
+            )
+        try:
+            import boto3
+            from botocore.config import Config as BotoConfig
+        except ImportError:
+            raise UserError(
+                "boto3 is not installed in this Python environment; "
+                "cannot fetch CloudWatch logs."
+            )
+        client_kwargs = {
+            "service_name": "logs",
+            "region_name": region,
+            "config": BotoConfig(
+                connect_timeout=10,
+                read_timeout=30,
+                retries={"max_attempts": 3, "mode": "adaptive"},
+            ),
+        }
+        if access_key_id and secret_access_key:
+            client_kwargs["aws_access_key_id"] = access_key_id
+            client_kwargs["aws_secret_access_key"] = secret_access_key
+        logs_client = boto3.client(**client_kwargs)
+        # Default Lambda log group naming: /aws/lambda/<function-name>.
+        # If the team ever moves to a custom log group, surface that as a
+        # System Parameter rather than reverse-engineering the ARN.
+        self._fetch_lambda_logs_one(
+            self, logs_client, f"/aws/lambda/{function_name}",
+        )
+        return True
+
     def action_rerun_qc(self):
         """Re-run only QC validation (after manual PRD edits)."""
         self.ensure_one()
@@ -2028,10 +2796,18 @@ class LeviathanJob(models.Model):
 
         self.write({
             "state": "scoring",
+            # CRITICAL (LEVIATHAN_POD_ARCHITECTURE.md §5.13, review H-5):
+            # set auto_continue=False so the Phase-2 drainer NEVER claims this
+            # row. Without this, a slow QC rerun could be recovered (stale
+            # heartbeat) into a full PRD regeneration and clobber the
+            # tasker's manually-edited prd_text. The row stays out of the
+            # queue for the duration of the rerun.
+            "auto_continue": False,
             "qc_verdict": False,
             "qc_report": False,
             "error_message": False,
             "last_heartbeat": fields.Datetime.now(),
+            "pipeline_status": "Re-running QC on edited PRD",
         })
 
         db_name = self.env.cr.dbname
@@ -2094,36 +2870,28 @@ class LeviathanJob(models.Model):
             if job_data["site_discovery_json"]:
                 extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
 
-            # Download screenshots for QC vision
+            # QC image attachment: opt-in via the
+            # `leviathan.qc_include_images` System Parameter (default
+            # OFF). When OFF (recommended): QC is text-only and compares
+            # the PRD against the extraction-JSON summary — same as the
+            # historical hardcoded behaviour (the `P0-4` workaround).
+            # When ON: up to `leviathan.prd_max_images` screenshots are
+            # attached as Bedrock image blocks for visual alignment
+            # checks. The flag is a Settings field on the host UI pod;
+            # the worker pod sees it on its next drain tick via the
+            # ormcache clear (see LEVIATHAN_POD_ARCHITECTURE.md §24.3).
             screenshot_blocks = []
-            if job_data["screenshot_keys"] and config["s3_bucket"]:
-                from ..services.s3_service import download_file_from_s3
-                import base64 as b64
-                MAX_SCREENSHOTS = 5
-                MAX_IMG_BYTES = 3_500_000
-                total_bytes = 0
-                for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
-                    try:
-                        img_bytes = download_file_from_s3(
-                            key=key, bucket=config["s3_bucket"],
-                            access_key_id=config["s3_key_id"],
-                            secret_key=config["s3_secret"],
-                            region=config["s3_region"],
-                        )
-                        if len(img_bytes) > MAX_IMG_BYTES:
-                            continue
-                        ext = key.rsplit(".", 1)[-1].lower()
-                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
-                        # Bedrock rejects images with any dimension > 8000 px.
-                        img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
-                        total_bytes += len(img_bytes)
-                        if total_bytes > 20_000_000:
-                            break
-                        screenshot_blocks.append({
-                            "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
-                        })
-                    except Exception:
-                        pass
+            if (ICP.get_param("leviathan.qc_include_images")
+                    in ("1", "True", "true", "yes", "on", True)):
+                screenshot_blocks = _load_screenshot_blocks_from_s3(
+                    screenshot_keys=job_data.get("screenshot_keys") or [],
+                    max_n=int(ICP.get_param("leviathan.prd_max_images") or 4),
+                    s3_bucket=config.get("s3_bucket") or "",
+                    s3_region=config.get("s3_region") or "us-east-1",
+                    s3_access_key_id=config.get("s3_key_id") or "",
+                    s3_secret_access_key=config.get("s3_secret") or "",
+                    log_prefix=f"leviathan][job={record_id}",
+                )
 
             qc_result = run_qc(
                 prd_text=job_data["prd_text"],
@@ -2244,34 +3012,29 @@ class LeviathanJob(models.Model):
                     })
                     cr.commit()
 
+                # PRD-gen image attachment: opt-in via the
+                # `leviathan.prd_include_images` System Parameter (default
+                # OFF, matches the historical text-only behaviour). When
+                # OFF: the Lambda's build_prd_prompt already encoded the
+                # visual extraction as text into `prd_prompt` — sending
+                # images on top is signal-redundant AND raises the
+                # Bedrock 4xx rejection rate sharply (long output +
+                # images is the failure-prone combo). When ON: top-N
+                # screenshots are attached for visual grounding. See
+                # LEVIATHAN_POD_ARCHITECTURE.md §25 and
+                # docs/BATCH_500_TEST_PLAN.md.
                 screenshot_blocks = []
-                if job_data["screenshot_keys"] and config["s3_bucket"]:
-                    from ..services.s3_service import download_file_from_s3
-                    import base64 as b64
-                    MAX_SCREENSHOTS = 5
-                    MAX_IMG_BYTES = 3_500_000
-                    total_bytes = 0
-                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
-                        try:
-                            img_bytes = download_file_from_s3(
-                                key=key, bucket=config["s3_bucket"],
-                                access_key_id=config["s3_key_id"],
-                                secret_key=config["s3_secret"],
-                                region=config["s3_region"],
-                            )
-                            if len(img_bytes) > MAX_IMG_BYTES:
-                                continue
-                            ext = key.rsplit(".", 1)[-1].lower()
-                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
-                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
-                            total_bytes += len(img_bytes)
-                            if total_bytes > 20_000_000:
-                                break
-                            screenshot_blocks.append({
-                                "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
-                            })
-                        except Exception:
-                            pass
+                if (ICP.get_param("leviathan.prd_include_images")
+                        in ("1", "True", "true", "yes", "on", True)):
+                    screenshot_blocks = _load_screenshot_blocks_from_s3(
+                        screenshot_keys=job_data.get("screenshot_keys") or [],
+                        max_n=int(ICP.get_param("leviathan.prd_max_images") or 4),
+                        s3_bucket=config.get("s3_bucket") or "",
+                        s3_region=config.get("s3_region") or "us-east-1",
+                        s3_access_key_id=config.get("s3_key_id") or "",
+                        s3_secret_access_key=config.get("s3_secret") or "",
+                        log_prefix=f"leviathan][job={record_id}",
+                    )
 
                 import re as _re
                 current_category = job_data["category_name"]
@@ -2439,34 +3202,22 @@ class LeviathanJob(models.Model):
                 if job_data["site_discovery_json"]:
                     extraction_artifacts["site_discovery"] = job_data["site_discovery_json"]
 
+                # QC image attachment: same opt-in pattern as the inline
+                # QC site above. Default OFF; ON loads up to N screenshots
+                # via `_load_screenshot_blocks_from_s3`. See §25 of the
+                # architecture doc.
                 screenshot_blocks = []
-                if job_data["screenshot_keys"] and config["s3_bucket"]:
-                    from ..services.s3_service import download_file_from_s3
-                    import base64 as b64
-                    MAX_SCREENSHOTS = 5
-                    MAX_IMG_BYTES = 3_500_000
-                    total_bytes = 0
-                    for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
-                        try:
-                            img_bytes = download_file_from_s3(
-                                key=key, bucket=config["s3_bucket"],
-                                access_key_id=config["s3_key_id"],
-                                secret_key=config["s3_secret"],
-                                region=config["s3_region"],
-                            )
-                            if len(img_bytes) > MAX_IMG_BYTES:
-                                continue
-                            ext = key.rsplit(".", 1)[-1].lower()
-                            fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
-                            img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
-                            total_bytes += len(img_bytes)
-                            if total_bytes > 20_000_000:
-                                break
-                            screenshot_blocks.append({
-                                "image": {"format": fmt, "source": {"bytes": b64.b64encode(img_bytes).decode()}}
-                            })
-                        except Exception:
-                            pass
+                if (ICP.get_param("leviathan.qc_include_images")
+                        in ("1", "True", "true", "yes", "on", True)):
+                    screenshot_blocks = _load_screenshot_blocks_from_s3(
+                        screenshot_keys=job_data.get("screenshot_keys") or [],
+                        max_n=int(ICP.get_param("leviathan.prd_max_images") or 4),
+                        s3_bucket=config.get("s3_bucket") or "",
+                        s3_region=config.get("s3_region") or "us-east-1",
+                        s3_access_key_id=config.get("s3_key_id") or "",
+                        s3_secret_access_key=config.get("s3_secret") or "",
+                        log_prefix=f"leviathan][job={record_id}",
+                    )
 
                 qc_result = run_qc(
                     prd_text=job_data["prd_text"],
@@ -2649,6 +3400,15 @@ class LeviathanJob(models.Model):
             "completed_at": fields.Datetime.now(),
         })
         self._notify_state_change("failed")
+        # Chatter: surface the failure reason inline. Truncated to 300
+        # chars — full stack traces live in the Logs tab.
+        try:
+            from markupsafe import escape
+            self._chatter_post(
+                f"<b>Failed:</b> {escape(str(error_msg)[:300])}"
+            )
+        except Exception:
+            pass
 
     def _is_cancelled(self, db_name, record_id):
         """Check if a task has been cancelled (safe for background threads)."""
@@ -2664,11 +3424,31 @@ class LeviathanJob(models.Model):
             return False
 
     def _get_webhook_url(self):
+        # Resolution: explicit override (Settings → "Webhook URL Override")
+        # wins over the derived ``web.base.url``-based URL. The override
+        # exists for two cases:
+        #   1. Local dev — ``web.base.url`` is ``http://localhost:8069``
+        #      from inside the host Odoo's perspective, but the Lambda
+        #      container needs ``host.docker.internal`` to reach it.
+        #   2. Stage/prod behind a load balancer where ``web.base.url``
+        #      points at the public UI URL, but the Lambda callback
+        #      should hit an internal VPC endpoint.
+        # Vegeta parity (see ``vegeta_webhook_url_override``).
+        ICP = self.env["ir.config_parameter"].sudo()
+        override = (ICP.get_param("leviathan.webhook_url_override") or "").strip()
+        if override:
+            return override.rstrip("/")
+        # Defensive strip: a single accidental leading/trailing space in
+        # the `web.base.url` System Parameter (very easy to introduce via
+        # the UI or a copy-paste) produces a URL httpx rejects with
+        # "missing protocol". That manifests as 5 silent callback retries
+        # in the Lambda, the job hanging in `extracting`, and the
+        # watchdog eventually marking it `failed` 20 min later. Strip
+        # here so the entire pipeline is whitespace-tolerant.
         base_url = (
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param("web.base.url", "http://localhost:8069")
-        )
+            ICP.get_param("web.base.url", "http://localhost:8069")
+            or ""
+        ).strip().rstrip("/")
         return f"{base_url}/api/v1/leviathan/webhook/extraction-complete"
 
     # ------------------------------------------------------------------
@@ -2696,6 +3476,7 @@ class LeviathanJob(models.Model):
                     "region": ICP.get_param("leviathan.lambda_region") or "ap-south-1",
                     "access_key_id": ICP.get_param("leviathan.extraction_access_key_id") or "",
                     "secret_access_key": ICP.get_param("leviathan.extraction_secret_access_key") or "",
+                    "local_url": ICP.get_param("leviathan.lambda_local_url") or "",
                 }
                 job_data = {
                     "url": record.url,
@@ -2711,6 +3492,7 @@ class LeviathanJob(models.Model):
                 region=config["region"],
                 access_key_id=config["access_key_id"],
                 secret_access_key=config["secret_access_key"],
+                local_url=config["local_url"],
             )
 
             if not result.get("success"):
@@ -2731,11 +3513,35 @@ class LeviathanJob(models.Model):
                 # The job now waits in `extracting` for either the Lambda's
                 # "started" ping or its final callback. If neither arrives,
                 # the watchdog handles it.
+                request_id = result.get("request_id", "")
                 _logger.info(
                     "[leviathan][job=%s] extraction Lambda invoke ACCEPTED by "
                     "AWS (request_id=%s) — awaiting callback",
-                    record_id, result.get("request_id", ""),
+                    record_id, request_id,
                 )
+                # Persist the request_id so the Logs tab's CloudWatch fetch
+                # button can filter log-group events down to this exact
+                # invocation. Also stamp current_phase so the tasker sees
+                # "Lambda running" in the Stage Progress widget instead of
+                # just "extracting" with no sub-step.
+                self._write_with_cursor(db_name, record_id, {
+                    "lambda_request_id": request_id,
+                    "current_phase": "extracting.running",
+                })
+                # Chatter: invoke accepted by AWS. RequestId is the
+                # token CloudWatch fetch will need later — surface it
+                # in the activity feed so an admin doesn't need to
+                # cross-reference the Logs tab to find it.
+                try:
+                    from markupsafe import escape
+                    rid_disp = escape(request_id) if request_id else "(none)"
+                    self._post_message_with_cursor(
+                        db_name, record_id,
+                        f"<b>Lambda invoked (async)</b> &mdash; "
+                        f"RequestId {rid_disp}"
+                    )
+                except Exception:
+                    pass
 
         except Exception as exc:
             _logger.exception(
@@ -2754,15 +3560,18 @@ class LeviathanJob(models.Model):
     # Background: PRD Generation
     # ------------------------------------------------------------------
 
-    def _run_prd_generation_bg(self, db_name, record_id):
+    def _run_prd_generation_bg(self, db_name, record_id, claim_count):
         """Background: generate PRD via Bedrock, score, QC.
 
         Wrapped in `_HeartbeatTicker` so `last_heartbeat` pulses every 60s
         for the lifetime of the worker — regardless of where the worker
-        is in its code. Without this wrapper a single Bedrock call sitting
-        in adaptive-retry backoff for 30+ min (real behaviour under
-        throttle) would silently miss the watchdog window even though
-        the worker is alive and the call is making progress.
+        is in its code.
+
+        `claim_count` is the drainer's fence token captured at claim time
+        (see docs/LEVIATHAN_POD_ARCHITECTURE.md §5.4 / §5.10). The worker
+        only ever runs after the drainer has claimed the row; every write
+        is conditional on this value so a recovery-re-claimed run can't be
+        clobbered by a stale worker.
         """
         from ..services.bedrock_service import generate_prd
         from ..services.scoring_service import score_prd
@@ -2771,10 +3580,12 @@ class LeviathanJob(models.Model):
         with _HeartbeatTicker(self, db_name, record_id, interval=60):
             self._run_prd_generation_bg_impl(
                 db_name, record_id, generate_prd, score_prd, upload_prd_to_s3,
+                claim_count=claim_count,
             )
 
     def _run_prd_generation_bg_impl(
         self, db_name, record_id, generate_prd, score_prd, upload_prd_to_s3,
+        claim_count,
     ):
         # Wall-clock anchor for the whole PRD-gen pipeline. Every phase log
         # below reports `+Ns` elapsed from here, so a stuck job's last log
@@ -2788,6 +3599,20 @@ class LeviathanJob(models.Model):
             "[leviathan][job=%s] PRD-GEN worker picked up job (pid=%d)",
             record_id, os.getpid(),
         )
+        # Chatter: tasker-visible breadcrumb that the worker pod has
+        # claimed this row. Includes the pod hostname so during stage
+        # load tests we can see which physical pod handled the job
+        # without cross-referencing Loki.
+        try:
+            from markupsafe import escape as _esc
+            self._post_message_with_cursor(
+                db_name, record_id,
+                f"<b>Worker picked up</b> &mdash; pod "
+                f"{_esc(os.environ.get('HOSTNAME', 'unknown'))}, "
+                f"pid {os.getpid()}"
+            )
+        except Exception:
+            pass
         try:
             # === PHASE 1: Read config and extraction data ===
             _logger.info(
@@ -2812,6 +3637,18 @@ class LeviathanJob(models.Model):
                     "s3_region": ICP.get_param("leviathan.s3_region"),
                     "s3_folder": ICP.get_param("leviathan.s3_folder") or "leviathan",
                     "cdn_url": ICP.get_param("leviathan.s3_cdn_url"),
+                    # Captured here (PHASE 1 cursor scope) so PHASE 2 can
+                    # decide image-attachment policy after this cursor
+                    # closes — reading ICP after the `with` block exits
+                    # raises `psycopg2.InterfaceError: Cursor already
+                    # closed` because the bound env points at the dead cr.
+                    "prd_include_images": (
+                        ICP.get_param("leviathan.prd_include_images")
+                        in ("1", "True", "true", "yes", "on", True)
+                    ),
+                    "prd_max_images": int(
+                        ICP.get_param("leviathan.prd_max_images") or 4
+                    ),
                 }
                 # Category precedence (May 2026 product rule):
                 #   1. If admin/tasker has explicitly set category_id on the
@@ -2867,68 +3704,62 @@ class LeviathanJob(models.Model):
                     })
                     return
 
-                # Worker-pickup mark: this is the moment the bg worker
-                # actually started touching the job. The watchdog uses
-                # `started_processing_at` to distinguish "queued in _POOL,
-                # never touched" from "running and stuck". Without this
-                # mark a job that sat in the queue for 45+ min would be
-                # killed by the watchdog even though no real work was
-                # attempted on it yet.
-                record.write({
-                    "state": "generating",
-                    "started_processing_at": fields.Datetime.now(),
-                    "last_heartbeat": fields.Datetime.now(),
-                })
+                # PHASE 1 fence-verify: the drainer already claimed this row
+                # (set started_processing_at + incremented prd_claim_count).
+                # We re-check the count under a row lock and bail if it has
+                # advanced (= recovery re-claimed, another worker owns us).
+                # See LEVIATHAN_POD_ARCHITECTURE.md §5.10.
+                cr.execute(
+                    "SELECT prd_claim_count, state FROM leviathan_job "
+                    "WHERE id = %s FOR UPDATE",
+                    (record_id,),
+                )
+                row = cr.fetchone()
+                if (not row
+                        or row[0] != claim_count
+                        or row[1] not in ("generating", "scoring", "qc_running")):
+                    cr.commit()
+                    _logger.info(
+                        "[leviathan][job=%s] fence-verify failed at PHASE 1 "
+                        "(have_count=%s state=%s, expected_count=%s) — bail",
+                        record_id,
+                        row[0] if row else None,
+                        row[1] if row else None,
+                        claim_count,
+                    )
+                    return
+                cr.execute(
+                    "UPDATE leviathan_job "
+                    "SET last_heartbeat = now() AT TIME ZONE 'UTC' "
+                    "WHERE id = %s AND prd_claim_count = %s",
+                    (record_id, claim_count),
+                )
                 cr.commit()
 
             # === PHASE 2: PRD generation ===
             _logger.info(
-                "[leviathan][job=%s] PHASE 2 (+%.1fs): downloading screenshots "
-                "+ building Bedrock request (category=%s, prd_prompt=%dB)",
+                "[leviathan][job=%s] PHASE 2 (+%.1fs): building Bedrock request "
+                "(text-only, category=%s, prd_prompt=%dB)",
                 record_id, _elapsed(), job_data["category_name"],
                 len(job_data["prd_prompt"] or ""),
             )
-            # Download screenshots from S3 for vision (shared by PRD gen + QC)
-            # Bedrock limit: 3.75MB per image, 25MB total. Resize to keep fast.
+            # PRD-gen image attachment: opt-in via the
+            # `leviathan.prd_include_images` System Parameter (default
+            # OFF). When OFF: text-only — the Lambda's build_prd_prompt
+            # already encoded the visual extraction as text into
+            # `prd_prompt`. When ON: top-N screenshots from S3 are
+            # attached as Bedrock image blocks. See §25 of the
+            # architecture doc.
             screenshot_blocks = []
-            if job_data["screenshot_keys"] and config["s3_bucket"]:
-                from ..services.s3_service import download_file_from_s3
-                import base64 as b64
-                MAX_SCREENSHOTS = 5
-                MAX_IMG_BYTES = 3_500_000  # 3.5MB (under Bedrock 3.75MB limit)
-                total_bytes = 0
-                for key in job_data["screenshot_keys"][:MAX_SCREENSHOTS]:
-                    try:
-                        img_bytes = download_file_from_s3(
-                            key=key,
-                            bucket=config["s3_bucket"],
-                            access_key_id=config["s3_key_id"],
-                            secret_key=config["s3_secret"],
-                            region=config["s3_region"],
-                        )
-                        if len(img_bytes) > MAX_IMG_BYTES:
-                            _logger.info("Skipping oversized screenshot %s (%d bytes)", key, len(img_bytes))
-                            continue
-                        ext = key.rsplit(".", 1)[-1].lower()
-                        fmt = ext if ext in ("png", "jpeg", "gif", "webp") else "png"
-                        # Bedrock rejects images with any dimension > 8000 px.
-                        img_bytes = _resize_image_for_bedrock(img_bytes, fmt)
-                        total_bytes += len(img_bytes)
-                        if total_bytes > 20_000_000:  # 20MB safety cap
-                            _logger.info("Screenshot total size cap reached, stopping")
-                            break
-                        screenshot_blocks.append({
-                            "image": {
-                                "format": fmt,
-                                "source": {"bytes": b64.b64encode(img_bytes).decode()},
-                            }
-                        })
-                    except Exception as img_exc:
-                        _logger.warning("Failed to download screenshot %s: %s", key, img_exc)
-                _logger.info(
-                    "Attached %d/%d screenshots for LLM (%.1f MB)",
-                    len(screenshot_blocks), len(job_data["screenshot_keys"]),
-                    total_bytes / 1_000_000,
+            if config.get("prd_include_images"):
+                screenshot_blocks = _load_screenshot_blocks_from_s3(
+                    screenshot_keys=job_data.get("screenshot_keys") or [],
+                    max_n=config.get("prd_max_images") or 4,
+                    s3_bucket=config.get("s3_bucket") or "",
+                    s3_region=config.get("s3_region") or "us-east-1",
+                    s3_access_key_id=config.get("s3_key_id") or "",
+                    s3_secret_access_key=config.get("s3_secret") or "",
+                    log_prefix=f"leviathan][job={record_id}",
                 )
 
             # Category precedence applied to the prd_prompt text:
@@ -3021,15 +3852,20 @@ class LeviathanJob(models.Model):
             }
 
             if self._is_cancelled(db_name, record_id):
-                self._write_with_cursor(db_name, record_id, {
-                    "state": "draft", "error_message": "Cancelled during generation",
+                self._write_fenced(db_name, record_id, claim_count, {
+                    "state": "draft",
+                    "error_message": "Cancelled during generation",
                     "completed_at": fields.Datetime.now(),
+                    "pipeline_status": "",
                 })
                 return
 
-            self._write_with_cursor(db_name, record_id, {
+            if not self._write_fenced(db_name, record_id, claim_count, {
                 "last_heartbeat": fields.Datetime.now(),
-            })
+                "pipeline_status": "Generating PRD (Bedrock)",
+                "current_phase": "generating.calling_bedrock",
+            }):
+                return
 
             # Single PRD-generation call — no score-driven retry loop.
             # Transient Bedrock errors are retried inside generate_prd
@@ -3037,8 +3873,8 @@ class LeviathanJob(models.Model):
             # the job failed so the tasker can re-run it from the UI.
             _logger.info(
                 "[leviathan][job=%s] PHASE 2 (+%.1fs): calling Bedrock for PRD "
-                "generation (%d screenshot(s) attached)",
-                record_id, _elapsed(), len(screenshot_blocks),
+                "generation (text-only)",
+                record_id, _elapsed(),
             )
             _bedrock_t0 = time.monotonic()
             best_prd_text = generate_prd(
@@ -3049,12 +3885,39 @@ class LeviathanJob(models.Model):
                 access_key_id=config["bedrock_access_key"],
                 secret_access_key=config["bedrock_secret_key"],
             )
+            _bedrock_dt = time.monotonic() - _bedrock_t0
             _logger.info(
                 "[leviathan][job=%s] PHASE 2 (+%.1fs): Bedrock PRD returned in "
                 "%.1fs — %d chars / ~%d words",
-                record_id, _elapsed(), time.monotonic() - _bedrock_t0,
+                record_id, _elapsed(), _bedrock_dt,
                 len(best_prd_text or ""), len((best_prd_text or "").split()),
             )
+            # Chatter: Bedrock done. The duration is the single most
+            # useful number for diagnosing slow-but-not-stuck jobs;
+            # surfacing it inline means we don't have to grep Loki.
+            try:
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f"<b>Bedrock PRD generated</b> in {_bedrock_dt:.1f}s "
+                    f"&mdash; {len(best_prd_text or '')} chars / "
+                    f"~{len((best_prd_text or '').split())} words"
+                )
+            except Exception:
+                pass
+
+            # Surface the PRD to the UI the moment it exists — the tasker
+            # shouldn't have to wait through scoring + the multi-minute QC
+            # call to read it. The `state` change emits the bus notification
+            # that reloads the form; the PRD tab (invisible="not prd_text")
+            # then appears. Editing stays gated on state == 'done'.
+            if not self._write_fenced(db_name, record_id, claim_count, {
+                "state": "scoring",
+                "prd_text": best_prd_text,
+                "prd_text_html": _markdown_to_html(best_prd_text),
+                "last_heartbeat": fields.Datetime.now(),
+                "pipeline_status": "PRD generated — scoring",
+            }):
+                return
 
             best_score_report = score_prd(
                 prd_text=best_prd_text,
@@ -3067,10 +3930,19 @@ class LeviathanJob(models.Model):
                 record_id, _elapsed(), best_score,
                 best_score_report.get("max_score", 100), best_grade,
             )
-
-            self._write_with_cursor(db_name, record_id, {
-                "llm_attempts": 1,
-            })
+            # Chatter: scoring complete. Score + grade together are
+            # the primary "is this PRD any good" signal a tasker reads
+            # before looking at QC verdict.
+            try:
+                from markupsafe import escape as _esc
+                self._post_message_with_cursor(
+                    db_name, record_id,
+                    f"<b>Scoring complete</b> &mdash; "
+                    f"{best_score}/{best_score_report.get('max_score', 100)}, "
+                    f"grade {_esc(str(best_grade or '?'))}"
+                )
+            except Exception:
+                pass
 
             llm_trace["attempts"].append({
                 "attempt": 1,
@@ -3097,14 +3969,21 @@ class LeviathanJob(models.Model):
             )
 
             # === PHASE 3: QC ===
-            # Pulse the heartbeat on entry. QC can be a multi-minute Bedrock
-            # call; without this pulse the gap from the last PRD-gen attempt
-            # to PHASE 4's final write was fully unmonitored — long QC calls
-            # could trip the watchdog while doing real work.
-            self._write_with_cursor(db_name, record_id, {
-                "state": "scoring",
+            # Enter `qc_running` and publish the score now — the PRD and its
+            # score stay visible (statusbar shows "QC Running") while the
+            # multi-minute QC Bedrock call runs. This write also pulses the
+            # heartbeat so a long QC call can't trip the watchdog mid-work.
+            if not self._write_fenced(db_name, record_id, claim_count, {
+                "state": "qc_running",
+                "llm_attempts": 1,
+                "score": best_score,
+                "grade": best_grade,
+                "score_report_json": best_score_report,
                 "last_heartbeat": fields.Datetime.now(),
-            })
+                "pipeline_status": "Scored — running QC",
+                "current_phase": "scoring.qc_review",
+            }):
+                return
 
             qc_verdict = "not_shippable"
             qc_report = ""
@@ -3143,6 +4022,23 @@ class LeviathanJob(models.Model):
                     qc_result.get("issues_high"), qc_result.get("issues_medium"),
                     qc_result.get("issues_low"),
                 )
+                # Chatter: QC verdict with traffic-light colour so the
+                # tasker can see at a glance whether the PRD passed.
+                # Same colour mapping as the form-view's QC badge.
+                try:
+                    _verdict_color = {
+                        "shippable": "#28a745",       # green
+                        "needs_fixes": "#ffc107",     # amber
+                        "not_shippable": "#dc3545",   # red
+                    }.get(qc_verdict, "#6c757d")
+                    self._post_message_with_cursor(
+                        db_name, record_id,
+                        f'<b>QC verdict:</b> '
+                        f'<span style="color:{_verdict_color};'
+                        f'font-weight:600;">{qc_verdict}</span>'
+                    )
+                except Exception:
+                    pass
             except Exception as qc_exc:
                 _logger.warning(
                     "[leviathan][job=%s] PHASE 3 (+%.1fs): QC FAILED after "
@@ -3158,6 +4054,20 @@ class LeviathanJob(models.Model):
                 "report": qc_report,
             }
 
+            # Mid-stage publish: surface qc_report + qc_verdict the MOMENT QC
+            # returns, before PHASE 4's atomic final write. The tasker sees
+            # the QC verdict immediately instead of waiting for PHASE 4 to
+            # complete. State stays `qc_running` — the bus notification fires
+            # because `pipeline_status` is in vals (§5.11). See §5.15.B.
+            if not self._write_fenced(db_name, record_id, claim_count, {
+                "qc_report": qc_report,
+                "qc_verdict": qc_verdict,
+                "pipeline_status": "QC complete — finalizing",
+                "current_phase": "scoring.qc_complete",
+                "last_heartbeat": fields.Datetime.now(),
+            }):
+                return
+
             # === PHASE 4: Write final results ===
             _logger.info(
                 "[leviathan][job=%s] PHASE 4 (+%.1fs): writing final results",
@@ -3166,6 +4076,27 @@ class LeviathanJob(models.Model):
             with Registry(db_name).cursor() as cr:
                 env = api.Environment(cr, SUPERUSER_ID, {})
                 record = env[self._name].browse(record_id)
+
+                # PHASE 4 fence check — under the SAME cursor as the
+                # subsequent write so the read + write are atomic w.r.t.
+                # a concurrent drainer recovery. If we lost the claim,
+                # bail without touching the row. See §5.4 / §5.10.
+                if claim_count is not None:
+                    cr.execute(
+                        "SELECT prd_claim_count FROM leviathan_job "
+                        "WHERE id = %s FOR UPDATE",
+                        (record_id,),
+                    )
+                    row = cr.fetchone()
+                    if not row or row[0] != claim_count:
+                        cr.commit()
+                        _logger.warning(
+                            "[leviathan][job=%s] fence lost at PHASE 4 "
+                            "(have=%s expected=%s) — another worker owns it; "
+                            "discarding result", record_id,
+                            row[0] if row else None, claim_count,
+                        )
+                        return
 
                 started = record.started_at
                 duration = (
@@ -3192,6 +4123,12 @@ class LeviathanJob(models.Model):
                     "llm_trace_json": llm_trace,
                     "completed_at": fields.Datetime.now(),
                     "duration_seconds": duration,
+                    "pipeline_status": "Done",
+                    # Clear current_phase on terminal state — empty key
+                    # has no _PHASE_LABELS entry, so the sub-step header
+                    # disappears from stage_progress_html. Total/duration
+                    # remains visible via the finished-state branch.
+                    "current_phase": "",
                     # Persist the EFFECTIVE prd_prompt (post-category-substitution
                     # + word-count-contract) back to the record so the
                     # "Extraction Data (sent to LLM)" UI panel matches what
@@ -3245,16 +4182,53 @@ class LeviathanJob(models.Model):
                 record_id, _elapsed(), exc,
             )
             try:
-                fail_vals = {
-                    "state": "failed",
-                    "error_message": str(exc)[:500],
-                    "completed_at": fields.Datetime.now(),
-                }
-                # Persist whatever LLM trace we accumulated before the failure.
-                _trace = locals().get("llm_trace")
-                if _trace:
-                    fail_vals["llm_trace_json"] = _trace
-                self._write_with_cursor(db_name, record_id, fail_vals)
+                if claim_count is None:
+                    # FLAG-OFF: preserve existing Phase-1 behaviour — mark
+                    # the row `failed` immediately. The user can click Retry
+                    # to re-run via the standard recovery path.
+                    fail_vals = {
+                        "state": "failed",
+                        "error_message": str(exc)[:500],
+                        "completed_at": fields.Datetime.now(),
+                        "pipeline_status": f"Failed: {str(exc)[:80]}",
+                        "current_phase": "",
+                    }
+                    _trace = locals().get("llm_trace")
+                    if _trace:
+                        fail_vals["llm_trace_json"] = _trace
+                    self._write_with_cursor(db_name, record_id, fail_vals)
+                else:
+                    # FLAG-ON: bump prd_failure_count and un-claim. Next
+                    # drainer tick will re-claim and retry. When the count
+                    # reaches leviathan.prd_max_attempts, the drainer's step 1
+                    # marks the row failed (poison cap). See §5.7.
+                    with Registry(db_name).cursor() as cr:
+                        cr.execute(
+                            "UPDATE leviathan_job "
+                            "SET prd_failure_count = prd_failure_count + 1, "
+                            "    started_processing_at = NULL, "
+                            "    error_message = %s, "
+                            "    pipeline_status = %s, "
+                            "    last_heartbeat = now() AT TIME ZONE 'UTC' "
+                            "WHERE id = %s AND prd_claim_count = %s",
+                            (str(exc)[:500],
+                             f"Failed (will retry): {str(exc)[:80]}",
+                             record_id, claim_count),
+                        )
+                        won = cr.rowcount > 0
+                        cr.commit()
+                    if won:
+                        _logger.info(
+                            "[leviathan][job=%s] flag-ON failure: bumped "
+                            "prd_failure_count and un-claimed; drainer will "
+                            "retry or poison-cap it next tick", record_id,
+                        )
+                    else:
+                        _logger.info(
+                            "[leviathan][job=%s] fence lost during failure "
+                            "handling — recovery already owns it; nothing to do",
+                            record_id,
+                        )
             except Exception:
                 _logger.error("[leviathan][job=%s] failed to mark as failed", record_id)
 
@@ -3277,12 +4251,17 @@ class LeviathanJob(models.Model):
                         record_id, record.state, vals["state"],
                     )
                 record.write(vals)
-                if "state" in vals:
+                # Notify on state OR pipeline_status — the latter lets the
+                # tasker see mid-phase progress even when state hasn't
+                # transitioned (see LEVIATHAN_POD_ARCHITECTURE.md §5.15).
+                if "state" in vals or "pipeline_status" in vals:
                     try:
                         env["bus.bus"]._sendone(
                             "leviathan_job_updates",
                             "leviathan/job_state",
-                            {"id": record_id, "state": vals["state"]},
+                            {"id": record_id,
+                             "state": vals.get("state"),
+                             "pipeline_status": vals.get("pipeline_status")},
                         )
                     except Exception:
                         pass
@@ -3293,6 +4272,117 @@ class LeviathanJob(models.Model):
                     record_id, sorted(vals.keys()),
                 )
             cr.commit()
+
+    def _post_message_with_cursor(self, db_name, record_id, body_html):
+        """Post a chatter message (mt_note) on a job from a background
+        thread, using a short-lived cursor so it never poisons the
+        caller's transaction.
+
+        ``body_html`` is wrapped in ``markupsafe.Markup`` so Odoo's
+        chatter renders it as HTML (allowing the bold / colour spans we
+        use for verdicts and timings). The CALLER is responsible for
+        escaping any user-supplied substring with ``markupsafe.escape``
+        — pass safe HTML or pre-escaped strings only.
+
+        Best-effort: any exception during message_post is logged at
+        WARNING and swallowed. Chatter posting is informational; a
+        pipeline run must NEVER fail because a chatter write failed.
+        """
+        try:
+            from markupsafe import Markup
+            with Registry(db_name).cursor() as cr:
+                env = api.Environment(cr, SUPERUSER_ID, {})
+                record = env[self._name].browse(record_id)
+                if record.exists():
+                    record.message_post(
+                        body=Markup(body_html),
+                        subtype_xmlid="mail.mt_note",
+                    )
+                    cr.commit()
+        except Exception:
+            _logger.warning(
+                "[leviathan][job=%s] chatter post failed (non-fatal): %s",
+                record_id, body_html[:120], exc_info=True,
+            )
+
+    def _chatter_post(self, body_html):
+        """Foreground-thread chatter wrapper (no cursor management).
+
+        Used inside action methods (action_run, action_cancel, etc.)
+        where ``self`` is a real recordset bound to the request's
+        cursor. The bg-thread variant lives in ``_post_message_with_cursor``.
+
+        Same best-effort semantics — chatter is informational; never let
+        it bubble an exception that would roll back the user's action.
+        """
+        try:
+            from markupsafe import Markup
+            self.ensure_one()
+            self.message_post(
+                body=Markup(body_html),
+                subtype_xmlid="mail.mt_note",
+            )
+        except Exception:
+            _logger.warning(
+                "[leviathan][job=%s] chatter post failed (non-fatal): %s",
+                getattr(self, "id", "?"), body_html[:120], exc_info=True,
+            )
+
+    def _write_fenced(self, db_name, record_id, claim_count, vals):
+        """Fence-checked write for Phase-2 queue workers.
+
+        Writes `vals` only if `prd_claim_count` still equals `claim_count` —
+        i.e. recovery has NOT taken the row away. Returns True if we still
+        own it (caller continues); False if a re-claim happened (caller
+        must bail). See docs/LEVIATHAN_POD_ARCHITECTURE.md §5.4, §5.11.
+
+        When `claim_count is None` (flag-OFF / Phase-1 path), this falls
+        through to `_write_with_cursor` — no fencing, behaviour unchanged.
+        """
+        if claim_count is None:
+            self._write_with_cursor(db_name, record_id, vals)
+            return True
+        with Registry(db_name).cursor() as cr:
+            # Lock the row so the prd_claim_count read + the conditional
+            # write are atomic w.r.t. a concurrent drainer recovery.
+            cr.execute(
+                "SELECT prd_claim_count FROM leviathan_job "
+                "WHERE id = %s FOR UPDATE",
+                (record_id,),
+            )
+            row = cr.fetchone()
+            if not row or row[0] != claim_count:
+                cr.commit()
+                _logger.warning(
+                    "[leviathan][job=%s] fence lost during write "
+                    "(have=%s expected=%s) — bailing without writing %s",
+                    record_id, row[0] if row else None, claim_count,
+                    sorted(vals.keys()),
+                )
+                return False
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            record = env[self._name].browse(record_id)
+            if "state" in vals:
+                _logger.info(
+                    "[leviathan][job=%s] state %s -> %s (fenced write, count=%s)",
+                    record_id, record.state, vals["state"], claim_count,
+                )
+            record.write(vals)
+            cr.commit()
+            # Notify on EITHER a state change OR a pipeline_status update
+            # so mid-phase progress reloads the form (§5.15).
+            if "state" in vals or "pipeline_status" in vals:
+                try:
+                    env["bus.bus"]._sendone(
+                        "leviathan_job_updates",
+                        "leviathan/job_state",
+                        {"id": record_id,
+                         "state": vals.get("state"),
+                         "pipeline_status": vals.get("pipeline_status")},
+                    )
+                except Exception:
+                    pass
+            return True
 
     def _upload_artifacts_bg(self, db_name, record_id, artifacts, s3_config):
         """Background: upload extraction artifacts to S3 and write the
@@ -3385,6 +4475,436 @@ class LeviathanJob(models.Model):
             )
 
     # ------------------------------------------------------------------
+    # Cron: PRD Queue Drainer (Phase-2)
+    # See docs/LEVIATHAN_POD_ARCHITECTURE.md §5.2 — §5.7.
+    # All work is gated on `_prd_queue_enabled()`; when the flag is OFF this
+    # is a no-op and the Phase-1 in-process pool path keeps running unchanged.
+    # ------------------------------------------------------------------
+
+    @api.model
+    def _worker_scaler_load(self):
+        """Authoritative LOAD count for the K8s worker scaler.
+
+        Counts rows that should pressure scale-up: anything in a PRD-side
+        non-terminal state that hasn't been user-cancelled. Mirrors
+        vegeta's ``state='generating' AND cancel_requested=false`` query
+        but widens the state list to Leviathan's actual queue states
+        (``generating``, ``scoring``, ``qc_running``). ``extracting`` is
+        deliberately excluded — extraction runs in Lambda, not in worker
+        pods, so it must not influence pod count.
+        """
+        return self.sudo().search_count([
+            ("state", "in", ("generating", "scoring", "qc_running")),
+            ("cancel_requested", "=", False),
+        ])
+
+    @api.model
+    def _cron_dispatch_prd_jobs(self):
+        """Cron (1 min): scale the worker Deployment to match queue depth.
+
+        Ported from ``vegeta.job._cron_dispatch_prd_jobs`` (v19.0.2.6.0).
+        In ``prd_execution_mode=worker`` this method patches the
+        ``leviathan-prd-worker`` Kubernetes Deployment's replica count
+        based on PRD load. Workers themselves claim jobs via
+        ``FOR UPDATE SKIP LOCKED`` — this cron only adjusts pod count.
+
+        In ``prd_execution_mode=inprocess`` (local single-process dev)
+        this method is a no-op; the in-Odoo ``_cron_prd_queue_drainer``
+        owns the work loop. Kubernetes is not involved.
+
+        Advisory-locked so multiple Odoo backend pods don't all try to
+        scale the Deployment simultaneously — only one Odoo pod's tick
+        actually patches the API each minute.
+        """
+        if not self._prd_queue_enabled():
+            return
+        if self._prd_execution_mode() != "worker":
+            return
+
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(hashtext('leviathan.prd_scaler')::bigint)"
+        )
+        if not self.env.cr.fetchone()[0]:
+            _logger.debug(
+                "[leviathan] PRD scaler: lock held elsewhere, skipping"
+            )
+            return
+        try:
+            from ..services.k8s_scaler import run_worker_deployment_scaler
+            load = self._worker_scaler_load()
+            run_worker_deployment_scaler(self.env, load)
+        finally:
+            self.env.cr.execute(
+                "SELECT pg_advisory_unlock(hashtext('leviathan.prd_scaler')::bigint)"
+            )
+
+    def _cron_prd_queue_drainer(self):
+        """ir.cron entry-point. Applies the *cron-only* gates, then delegates
+        to :meth:`_prd_drain_once` for the actual drain body.
+
+        Runs every 1 minute. The pod-role guard (`LEVIATHAN_ROLE=ui`) lets
+        the worker pod always run it and the UI pod never run it, independent
+        of which pod's cron worker happened to win the ir.cron tick.
+
+        In ``prd_execution_mode=worker`` this method short-circuits so the
+        standalone worker process is the only drainer cluster-wide —
+        prevents double-claim races between the cron-driven and
+        process-driven drainers. The standalone worker bypasses this gate
+        by calling :meth:`_prd_drain_once` directly.
+        """
+        if not self._prd_queue_enabled():
+            return                                            # C6 — Phase-1 unchanged
+        if self._prd_execution_mode() == "worker":
+            return                                            # standalone worker owns the loop
+        if os.environ.get("LEVIATHAN_ROLE", "worker") == "ui":
+            return                                            # pod isolation guard (§6.2)
+        self._prd_drain_once()
+
+    @api.model
+    def _prd_drain_once(self):
+        """One drainer pass (lock + poison-cap + stale-recovery + claim).
+
+        Called from both the ir.cron entry-point (after the cron-only gates
+        in :meth:`_cron_prd_queue_drainer`) AND from the standalone worker
+        process (``custom_addons/leviathan/worker/run_prd.py``). Shared body,
+        one correctness analysis, one PG advisory lock.
+
+        The advisory lock guarantees only one drain pass runs cluster-wide
+        at a time — safe even if a stray cron tick happens to overlap
+        a worker tick during a mode flip.
+        """
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_lock(hashtext('leviathan.prd_drainer')::bigint)"
+        )
+        if not self.env.cr.fetchone()[0]:
+            # Another drainer tick is still running across the cluster.
+            return
+        try:
+            self._prd_queue_apply_live_throttles()
+            self._prd_queue_fail_poison()
+            self._prd_queue_recover_stale()
+            self._prd_queue_claim_and_dispatch()
+        finally:
+            self.env.cr.execute(
+                "SELECT pg_advisory_unlock(hashtext('leviathan.prd_drainer')::bigint)"
+            )
+
+    def _prd_queue_fail_poison(self):
+        """Step 1: mark jobs that have burned through `prd_max_attempts` as
+        `failed` (poison-job cap). prd_failure_count is bumped only on
+        genuine worker exceptions (§5.7) — pod restarts do NOT increment it.
+        """
+        max_failures = int(
+            self.env["ir.config_parameter"].sudo()
+                .get_param("leviathan.prd_max_attempts", "3")
+        )
+        # Build error_message with PostgreSQL ``||`` instead of
+        # ``format('PRD queue: %s ...', n)`` because psycopg2 client-side
+        # parameter substitution counts EVERY ``%s`` in the query string
+        # — including ones inside SQL literals — and explodes with
+        # ``IndexError: tuple index out of range`` when the placeholder
+        # count exceeds the params tuple. ``||`` concatenation sidesteps
+        # the issue entirely and produces an identical message.
+        self.env.cr.execute(
+            """
+            UPDATE leviathan_job
+               SET state = 'failed',
+                   error_message = 'PRD queue: ' || prd_failure_count
+                                   || ' failures (poison cap reached)',
+                   pipeline_status = 'Failed (poison cap reached)',
+                   completed_at  = now() AT TIME ZONE 'UTC'
+             WHERE state = 'generating'
+               AND auto_continue       = true
+               AND started_processing_at IS NULL
+               AND prd_failure_count   >= %s
+            RETURNING id, prd_failure_count
+            """,
+            (max_failures,),
+        )
+        rows = self.env.cr.fetchall()
+        self.env.cr.commit()
+        if rows:
+            _logger.warning(
+                "[leviathan] drainer: poisoned %d job(s) at cap=%d: %s",
+                len(rows), max_failures,
+                [{"id": r[0], "failures": r[1]} for r in rows],
+            )
+
+    def _prd_queue_recover_stale(self):
+        """Step 2: re-queue jobs whose worker is genuinely gone.
+
+        TWO-GATE reconcile — ported from vegeta v19.0.2.5.0 after a real
+        prod incident where the single-gate "heartbeat older than 15 min"
+        check caused a double-Bedrock-spend. The failure mode was:
+        saturated Postgres pool, heartbeat writes silently fail for ~12
+        min, reconciler triggers at 15 min, the *original* worker is
+        still alive and finishes its PRD on Bedrock seconds after the
+        recovered worker also finishes — same job billed twice.
+
+        Two gates:
+
+        * **Short-stale gate** — ``last_heartbeat`` older than
+          ``leviathan.prd_short_stale_minutes`` (default 5) AND
+          ``heartbeat_failure_count`` ≥
+          ``leviathan.prd_heartbeat_failure_threshold`` (default 3).
+          This says: we KNOW the worker has been actively failing to
+          pulse, not just slow. Safe to recover early.
+        * **Unconditional gate** — ``last_heartbeat`` older than
+          ``leviathan.prd_stale_minutes`` (default 15). Backstop for
+          the case where heartbeat writes never raised but never
+          succeeded either (e.g. silent network partition that
+          eventually heals after we already concluded the worker is
+          dead).
+
+        Both gates reset ``started_processing_at = NULL`` so the claim
+        step in the same tick can re-claim them. The fence token
+        (``prd_claim_count``) is NOT touched here — the next claim will
+        increment it, automatically fencing out any zombie worker that
+        somehow resumes (§5.6).
+
+        The two-gate model preserves the "no double-Bedrock-spend"
+        invariant because:
+        - Workers experiencing real failures bump the counter on every
+          missed pulse → they trip the short-stale gate quickly.
+        - Workers experiencing slow-but-not-failing pulses (e.g. an
+          actually-running 12-minute Bedrock call) keep
+          ``heartbeat_failure_count == 0`` → only the 15-min
+          unconditional gate fires, by which point the worker really
+          IS dead.
+        """
+        stale_minutes = int(
+            self.env["ir.config_parameter"].sudo()
+                .get_param("leviathan.prd_stale_minutes", "15")
+        )
+        short_stale_minutes = int(
+            self.env["ir.config_parameter"].sudo()
+                .get_param("leviathan.prd_short_stale_minutes", "5")
+        )
+        hb_failure_threshold = int(
+            self.env["ir.config_parameter"].sudo()
+                .get_param(
+                    "leviathan.prd_heartbeat_failure_threshold", "3"
+                )
+        )
+        self.env.cr.execute(
+            """
+            UPDATE leviathan_job
+               SET started_processing_at = NULL,
+                   state                 = 'generating',
+                   pipeline_status       = 'Recovered — re-queued for PRD worker'
+             WHERE state IN ('generating', 'scoring', 'qc_running')
+               AND auto_continue          = true
+               AND started_processing_at IS NOT NULL
+               AND (
+                    -- Gate A: unconditional stale (full timeout).
+                    last_heartbeat IS NULL
+                 OR last_heartbeat <
+                       (now() AT TIME ZONE 'UTC')
+                       - (%s || ' minutes')::interval
+                    -- Gate B: short-stale AND repeated heartbeat
+                    -- failures observed. Counter is bumped by the
+                    -- heartbeat aggregator's catch path; reset on
+                    -- every successful pulse.
+                 OR (
+                       last_heartbeat <
+                         (now() AT TIME ZONE 'UTC')
+                         - (%s || ' minutes')::interval
+                       AND heartbeat_failure_count >= %s
+                 )
+               )
+            RETURNING id, heartbeat_failure_count,
+                      EXTRACT(EPOCH FROM (
+                          (now() AT TIME ZONE 'UTC') - last_heartbeat
+                      ))::int AS stale_seconds
+            """,
+            (stale_minutes, short_stale_minutes, hb_failure_threshold),
+        )
+        rows = self.env.cr.fetchall()
+        self.env.cr.commit()
+        if rows:
+            _logger.warning(
+                "[leviathan] drainer: recovered %d stale job(s) via "
+                "two-gate reconcile (long_gate=%dmin, "
+                "short_gate=%dmin+failures>=%d): %s",
+                len(rows), stale_minutes, short_stale_minutes,
+                hb_failure_threshold,
+                [
+                    {
+                        "id": r[0],
+                        "hb_failures": r[1],
+                        "stale_secs": r[2],
+                    }
+                    for r in rows
+                ],
+            )
+
+    @api.model
+    def _get_effective_pool_size(self):
+        """Live pool cap. Read from Settings (`leviathan.prd_pool_size`)
+        on every drainer tick, clamped against the boot-time hard ceiling
+        ``_PRD_POOL_SIZE`` (env ``LEVIATHAN_PRD_POOL_SIZE``).
+
+        Why a hard ceiling: the Python ``ThreadPoolExecutor.max_workers``
+        is set at boot time and CANNOT be resized live. Settings can
+        only LOWER the effective cap below the executor's slot count —
+        raising Settings above the boot value would have no effect
+        (claims would happen but submits would queue inside the pool).
+        Operators tuning higher must bump the env var AND restart the
+        worker pod; Settings is the live-tuning knob to *throttle down*
+        without redeploy.
+
+        The Bedrock semaphore (`leviathan.bedrock_max_concurrent`) is
+        also clamped this way — see services/bedrock_service.py.
+
+        Returns the clamped int.
+        """
+        try:
+            settings_val = int(
+                self.env["ir.config_parameter"].sudo()
+                    .get_param("leviathan.prd_pool_size", str(_PRD_POOL_SIZE))
+            )
+        except (TypeError, ValueError):
+            settings_val = _PRD_POOL_SIZE
+        # Never below 1 (caller divides by free; 0 would deadlock the
+        # drainer). Never above the boot-time pool size (the executor
+        # can't accept more anyway).
+        return max(1, min(settings_val, _PRD_POOL_SIZE))
+
+    def _prd_queue_apply_live_throttles(self):
+        """Re-read concurrency Settings on every drainer tick and apply
+        them in-process. Called at the top of ``_prd_drain_once`` so the
+        effective caps update within one poll interval after an operator
+        clicks Save in Settings.
+
+        Two knobs are live-tunable here:
+
+        * ``leviathan.prd_pool_size`` — consulted by
+          :meth:`_get_effective_pool_size` from inside
+          :meth:`_prd_queue_claim_and_dispatch`. No-op work for this
+          method beyond the read.
+        * ``leviathan.bedrock_max_concurrent`` — actively reshapes the
+          process-global semaphore via
+          :func:`bedrock_service._apply_bedrock_live_throttle`.
+
+        Both knobs can only LOWER the effective cap below the boot
+        ceilings (``_PRD_POOL_SIZE`` / ``_BEDROCK_MAX_CONCURRENT``).
+        Raising above the boot value requires a pod restart. Settings UI
+        shows this constraint in the field help text.
+        """
+        try:
+            from ..services.bedrock_service import (
+                _apply_bedrock_live_throttle, _BEDROCK_MAX_CONCURRENT as _hard,
+            )
+            desired = int(
+                self.env["ir.config_parameter"].sudo()
+                    .get_param(
+                        "leviathan.bedrock_max_concurrent", str(_hard)
+                    )
+            )
+            _apply_bedrock_live_throttle(desired)
+        except Exception:
+            # Throttle is purely a brake — failing here is non-fatal,
+            # callers proceed under the boot cap (the safe default).
+            _logger.exception(
+                "[leviathan] live-throttle application failed; "
+                "Bedrock semaphore stays at boot cap"
+            )
+
+    def _prd_queue_claim_and_dispatch(self):
+        """Step 3: atomically claim `free = pool_size - in_flight` queued rows
+        with `FOR UPDATE SKIP LOCKED`, then submit each to the local pool.
+
+        On submit failure (pool broken / rejected) — immediately un-claim so
+        the row is picked up on the next tick instead of waiting 15 min for
+        recovery (§5.3, review L-8). The fence token is the captured
+        `prd_claim_count` from this claim.
+        """
+        # Read the effective pool size LIVE on every tick — Settings is
+        # the source of truth, bounded by the static executor cap. This
+        # is what makes "tune concurrency from the Settings UI" work
+        # without a pod restart for tune-down operations.
+        effective_pool = self._get_effective_pool_size()
+        free = effective_pool - _prd_inflight_count()
+        if free <= 0:
+            _logger.info(
+                "[leviathan] drainer tick: pool full (in_flight=%d / "
+                "effective_pool=%d, hard_cap=%d) — no claims this tick",
+                _prd_inflight_count(), effective_pool, _PRD_POOL_SIZE,
+            )
+            return
+        max_failures = int(
+            self.env["ir.config_parameter"].sudo()
+                .get_param("leviathan.prd_max_attempts", "3")
+        )
+        self.env.cr.execute(
+            """
+            UPDATE leviathan_job
+               SET started_processing_at = now() AT TIME ZONE 'UTC',
+                   last_heartbeat        = now() AT TIME ZONE 'UTC',
+                   prd_claim_count       = prd_claim_count + 1,
+                   pipeline_status       = 'PRD worker assigned'
+             WHERE id IN (
+                 SELECT id FROM leviathan_job
+                  WHERE state = 'generating'
+                    AND auto_continue          = true
+                    AND started_processing_at IS NULL
+                    AND prd_failure_count     <  %s
+                  ORDER BY prd_queued_at NULLS FIRST, id
+                  FOR UPDATE SKIP LOCKED
+                  LIMIT %s
+             )
+            RETURNING id, prd_claim_count
+            """,
+            (max_failures, free),
+        )
+        rows = self.env.cr.fetchall()
+        self.env.cr.commit()
+
+        # Depth metric — single line per tick for Loki/Grafana (§13).
+        self.env.cr.execute(
+            "SELECT count(*) FROM leviathan_job "
+            "WHERE state = 'generating' AND auto_continue = true "
+            "  AND started_processing_at IS NULL"
+        )
+        depth = self.env.cr.fetchone()[0]
+        _logger.info(
+            "[leviathan] drainer tick: claimed=%d free=%d in_flight=%d "
+            "pool=%d depth=%d",
+            len(rows), free, _prd_inflight_count(), _PRD_POOL_SIZE, depth,
+        )
+
+        if not rows:
+            return
+
+        db_name = self.env.cr.dbname
+        for job_id, claim_count in rows:
+            future = _submit_bg(
+                f"prd-gen[job={job_id}](drainer)",
+                self._run_prd_generation_bg, db_name, job_id, claim_count,
+            )
+            if future is None:
+                # Submit failed (admission full / dead pool past self-heal).
+                # Un-claim immediately so the next tick can re-pick it.
+                # Guard with prd_claim_count so we only un-claim our OWN
+                # claim — a concurrent recovery on this row would have
+                # bumped the counter and we'd leave it alone.
+                with Registry(db_name).cursor() as cr:
+                    cr.execute(
+                        "UPDATE leviathan_job "
+                        "SET started_processing_at = NULL, "
+                        "    pipeline_status = 'Queued — pool full, retrying next tick' "
+                        "WHERE id = %s AND prd_claim_count = %s "
+                        "  AND state = 'generating'",
+                        (job_id, claim_count),
+                    )
+                    cr.commit()
+                _logger.warning(
+                    "[leviathan] drainer: un-claimed job=%s "
+                    "(pool rejected submit)",
+                    job_id,
+                )
+
+    # ------------------------------------------------------------------
     # Cron: Watchdog
     # ------------------------------------------------------------------
 
@@ -3456,60 +4976,74 @@ class LeviathanJob(models.Model):
                 auto_retry_max=auto_retry_max,
             )
 
-            # `started_processing_at != False` excludes jobs sitting in the
-            # _POOL queue waiting for a worker — they look stuck (no
-            # heartbeat update) but no work has been attempted on them.
-            # Without this guard, a 150-job batch on a 50-worker pool
-            # false-fails the 20-30 tail jobs that are simply queued.
-            stale_generating = self.search([
-                ("state", "in", ("generating", "scoring", "qc_running")),
-                ("started_processing_at", "!=", False),
-                (
-                    "last_heartbeat",
-                    "<",
-                    fields.Datetime.now() - timedelta(minutes=generating_threshold),
-                ),
-            ])
-            self._watchdog_recover_chunked(
-                stale_generating,
-                reason=(
-                    f"Watchdog: timed out "
-                    f"(no progress for {generating_threshold}+ minutes)"
-                ),
-                log_label=f"generating/scoring >{generating_threshold}min",
-                auto_retry_max=auto_retry_max,
-            )
-
-            # --- ORPHAN DIAGNOSTIC (no recovery, logging only) ---
-            # Jobs in generating/scoring with started_processing_at unset have
-            # NEVER been picked up by a PRD worker — they are sitting in an
-            # in-process ThreadPoolExecutor queue. The recovery query above
-            # deliberately SKIPS them (started_processing_at != False) to
-            # avoid false-failing a legitimate backlog. But that same guard
-            # means a job whose pool process was recycled/killed while it sat
-            # queued is NEVER recovered — it is stuck forever with no log.
-            # Surface them here: anything in this state past the generating
-            # threshold is almost certainly orphaned (a healthy pool drains
-            # its queue in minutes) and needs a manual Retry / reset.
-            orphaned = self.search([
-                ("state", "in", ("generating", "scoring")),
-                ("started_processing_at", "=", False),
-                (
-                    "last_heartbeat",
-                    "<",
-                    fields.Datetime.now() - timedelta(minutes=generating_threshold),
-                ),
-            ])
-            if orphaned:
-                _logger.error(
-                    "[leviathan] watchdog: %d job(s) ORPHANED in generating/"
-                    "scoring with started_processing_at unset for >%dmin — "
-                    "their PRD worker was never reached (pool process likely "
-                    "recycled). The watchdog CANNOT auto-recover these; they "
-                    "need a manual Retry/reset. Job names: %s",
-                    len(orphaned), generating_threshold,
-                    orphaned.mapped("name"),
+            # Phase-2 gate: when the queue is enabled, the drainer
+            # (`_cron_prd_queue_drainer`) owns all PRD-side recovery —
+            # `_prd_queue_recover_stale` (§5.6) covers the stale-heartbeat
+            # case and `_prd_queue_claim_and_dispatch` (§5.3) covers the
+            # orphan case. Skip the watchdog's PRD-side blocks to avoid
+            # double-dispatch. See LEVIATHAN_POD_ARCHITECTURE.md §5.14.
+            if self._prd_queue_enabled():
+                _logger.debug(
+                    "[leviathan] watchdog: PRD-side recovery skipped "
+                    "(queue enabled; drainer owns it)"
                 )
+            else:
+                # `started_processing_at != False` excludes jobs sitting in
+                # the _POOL queue waiting for a worker — they look stuck
+                # (no heartbeat update) but no work has been attempted on
+                # them. Without this guard, a 150-job batch on a 50-worker
+                # pool false-fails the 20-30 tail jobs that are simply queued.
+                stale_generating = self.search([
+                    ("state", "in", ("generating", "scoring", "qc_running")),
+                    ("started_processing_at", "!=", False),
+                    (
+                        "last_heartbeat",
+                        "<",
+                        fields.Datetime.now() - timedelta(minutes=generating_threshold),
+                    ),
+                ])
+                self._watchdog_recover_chunked(
+                    stale_generating,
+                    reason=(
+                        f"Watchdog: timed out "
+                        f"(no progress for {generating_threshold}+ minutes)"
+                    ),
+                    log_label=f"generating/scoring >{generating_threshold}min",
+                    auto_retry_max=auto_retry_max,
+                )
+
+                # --- P1-1 ORPHAN RECOVERY (Phase-1 only) ---
+                # Jobs in generating/scoring with started_processing_at unset
+                # have NEVER been claimed by a PRD worker. With Phase-1 in
+                # effect, re-dispatch them via the in-process pool. (Phase-2
+                # drainer claims these natively — see gate above.)
+                orphan_threshold = int(
+                    ICP.get_param("leviathan.watchdog_orphan_minutes", "8")
+                )
+                orphaned = self.search([
+                    ("state", "in", ("generating", "scoring")),
+                    ("started_processing_at", "=", False),
+                    (
+                        "last_heartbeat",
+                        "<",
+                        fields.Datetime.now() - timedelta(minutes=orphan_threshold),
+                    ),
+                ])
+                if orphaned:
+                    _logger.warning(
+                        "[leviathan] watchdog: re-dispatching %d orphaned job(s) "
+                        "(generating/scoring, never claimed, idle >%dmin): %s",
+                        len(orphaned), orphan_threshold, orphaned.mapped("name"),
+                    )
+                    db_name = self.env.cr.dbname
+                    for job in orphaned:
+                        rid = job.id
+                        self.env.cr.postcommit.add(
+                            lambda rid=rid: _submit_bg(
+                                f"prd-gen[job={rid}](wd-orphan)",
+                                self._run_prd_generation_bg, db_name, rid,
+                            )
+                        )
         finally:
             self.env.cr.execute("SELECT pg_advisory_unlock(hashtext('leviathan.watchdog')::bigint)")
 

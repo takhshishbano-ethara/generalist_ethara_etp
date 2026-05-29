@@ -119,14 +119,14 @@ class TestImportWizard(LeviathanTestCase):
 class TestStartTaskWizard(LeviathanTestCase):
 
     def test_confirm_without_category_picks_any(self):
-        job = self._create_job()
+        job = self._create_job(prd_text="ready prd")
         wiz = self.env["leviathan.start.task.wizard"].create({})
         action = wiz.action_confirm()
         self.assertEqual(action["res_id"], job.id)
 
     def test_confirm_with_category_filters(self):
-        plain = self._create_job(category_id=self.category.id)
-        ct = self._create_job(category_id=self.category_ct.id)
+        plain = self._create_job(category_id=self.category.id, prd_text="ready plain")
+        ct = self._create_job(category_id=self.category_ct.id, prd_text="ready ct")
         wiz = self.env["leviathan.start.task.wizard"].create({
             "category_id": self.category_ct.id,
         })
@@ -137,7 +137,7 @@ class TestStartTaskWizard(LeviathanTestCase):
         already = self._create_job(
             url="https://already.com", user_id=self.tasker.id,
         )
-        free = self._create_job(url="https://free.com")
+        free = self._create_job(url="https://free.com", prd_text="ready free")
         wiz = self.env["leviathan.start.task.wizard"].create({})
         action = wiz.action_confirm()
         self.assertEqual(

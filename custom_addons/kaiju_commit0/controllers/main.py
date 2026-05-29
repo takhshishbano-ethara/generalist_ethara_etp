@@ -263,19 +263,18 @@ class KaijuCallbackController(http.Controller):
                     "run_status": "done",
                     "run_end": odoo_fields.Datetime.now(),
                     "s3_log_prefix": s3_log_prefix,
-                    "pass_rate": data.get("pass_rate", 0.0),
-                    "tests_passed": data.get("tests_passed", 0),
-                    "tests_failed": data.get("tests_failed", 0),
-                    "tests_total": data.get("tests_total", 0),
-                    "duration_seconds": data.get("duration_seconds", 0.0),
-                    "cost_usd": data.get("cost_usd", 0.0),
-                    "tokens_input": data.get("tokens_input", 0),
-                    "tokens_output": data.get("tokens_output", 0),
                     "run_log": self._append_log(
                         run.run_log, "✓ Run pipeline completed successfully."
                     ),
                 }
             )
+            # Fetch metrics from pipeline_results.json in S3 (best-effort)
+            try:
+                run._fetch_pipeline_metrics()
+            except Exception as e:
+                _logger.warning(
+                    "Metrics fetch failed for %s (non-fatal): %s", run.name, e
+                )
         else:
             message = data.get("message", "Pipeline reported failure")
             run.write(
@@ -288,6 +287,13 @@ class KaijuCallbackController(http.Controller):
             )
 
         self._upsert_callback_steps(run, data.get("steps", []), "run_id", status)
+
+        # Also try to fetch metrics on failure (partial results may exist)
+        if status != "success":
+            try:
+                run._fetch_pipeline_metrics()
+            except Exception:
+                pass  # best-effort on failure
 
         _logger.info("Run callback processed: run=%s status=%s", run.name, status)
         return Response(

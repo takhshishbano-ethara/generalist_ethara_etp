@@ -21,7 +21,9 @@ from botocore.exceptions import ClientError, ReadTimeoutError
 _logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_TOKENS = 16000
-DEFAULT_TIMEOUT = 300
+# P1-4: 300 s was below a worst-case PRD call; a slow-but-healthy generation
+# was being failed on the read timeout. 600 s covers the tail.
+DEFAULT_TIMEOUT = 600
 DEFAULT_TEMPERATURE = 0.7
 
 # Cap internal retries to reduce Bedrock load per job. Default 2; admins
@@ -54,10 +56,76 @@ _CLIENT_CACHE: dict[tuple, Any] = {}
 # Default 5 is a SAFE floor — works even at default Bedrock quota. Raise via
 # env once devops confirms the actual TPS quota. Per-process (not per-pid,
 # not per-cluster) — each Odoo worker process has its own semaphore.
+#
+# LIVE-TUNING: ``leviathan.bedrock_max_concurrent`` in Settings can LOWER
+# the effective concurrent count without a restart (via the live-throttle
+# helper :func:`_effective_bedrock_concurrency`). Raising it above the
+# env value at boot has no effect — the semaphore's slot count is fixed
+# at import time. Use the env var to set the absolute ceiling, Settings
+# to throttle below it during incidents.
 _BEDROCK_MAX_CONCURRENT = int(
-    os.environ.get("LEVIATHAN_BEDROCK_MAX_CONCURRENT", "5")
+    os.environ.get("LEVIATHAN_BEDROCK_MAX_CONCURRENT", "22")
 )
 _BEDROCK_SEMAPHORE = threading.Semaphore(_BEDROCK_MAX_CONCURRENT)
+
+# Extra "soft brake" semaphore — acquired in addition to the main one
+# when Settings asks for a lower cap. Each call grabs (hard_ceiling -
+# settings_value) tokens up front, leaving fewer for real callers.
+# Stub for now; the helper below short-circuits when settings == ceiling
+# so there's zero overhead in the common case.
+_BEDROCK_SOFT_BRAKE_LOCK = threading.Lock()
+_BEDROCK_SOFT_BRAKE_RESERVED = 0  # tokens currently held off real callers
+
+
+def _apply_bedrock_live_throttle(desired_max):
+    """Pull or release tokens on the main Bedrock semaphore to match
+    ``desired_max``. Called from the drainer tick so live Settings
+    changes take effect within one poll interval.
+
+    Idempotent: if the soft-brake state already matches ``desired_max``,
+    this returns without touching the semaphore.
+
+    Semaphore values can only be REDUCED below the boot ceiling — the
+    Python `threading.Semaphore` does not expose a way to raise its cap
+    above its construction value. To raise capacity above the boot
+    value, the operator must bump ``LEVIATHAN_BEDROCK_MAX_CONCURRENT``
+    and restart the pod.
+    """
+    if desired_max >= _BEDROCK_MAX_CONCURRENT:
+        # Settings asking for >= boot cap — release any held tokens.
+        desired_max = _BEDROCK_MAX_CONCURRENT
+    desired_max = max(1, desired_max)
+    desired_reserved = _BEDROCK_MAX_CONCURRENT - desired_max
+    with _BEDROCK_SOFT_BRAKE_LOCK:
+        global _BEDROCK_SOFT_BRAKE_RESERVED
+        diff = desired_reserved - _BEDROCK_SOFT_BRAKE_RESERVED
+        if diff > 0:
+            # Acquire `diff` more tokens (non-blocking) to keep them off
+            # real callers. If the semaphore is currently saturated we
+            # only get as many as are free right now — the rest will
+            # eventually be claimed on subsequent ticks as in-flight
+            # calls release.
+            acquired = 0
+            for _ in range(diff):
+                if _BEDROCK_SEMAPHORE.acquire(blocking=False):
+                    acquired += 1
+                else:
+                    break
+            _BEDROCK_SOFT_BRAKE_RESERVED += acquired
+            if acquired < diff:
+                _logger.info(
+                    "[leviathan] bedrock throttle: only acquired %d/%d "
+                    "soft-brake tokens (semaphore saturated; remainder "
+                    "will be claimed on next tick)", acquired, diff,
+                )
+        elif diff < 0:
+            # Release `-diff` tokens back to real callers.
+            release = -diff
+            for _ in range(release):
+                _BEDROCK_SEMAPHORE.release()
+            _BEDROCK_SOFT_BRAKE_RESERVED -= release
+        # diff == 0: nothing to do.
+
 
 _logger.info(
     "[leviathan] Bedrock concurrency cap initialised: max_concurrent=%d "
@@ -341,41 +409,68 @@ def generate_prd(
         max_tokens,
     )
 
-    try:
-        # Hold a concurrency slot during the call so we stay under the
-        # Bedrock TPS quota and adaptive-retry never fires.
-        with _bedrock_slot("bedrock-sigv4-prd"):
-            response = client.converse(
-                modelId=inference_arn,
-                system=[{"text": system_prompt}],
-                messages=bedrock_messages,
-                inferenceConfig={
-                    "maxTokens": max_tokens,
-                    "temperature": temperature,
-                },
+    # P1-4: the SigV4 path now retries read timeouts (previously a single
+    # ReadTimeoutError failed the whole job). Mirrors the bearer path: one
+    # concurrency slot per attempt, released between attempts so other
+    # workers interleave, exponential backoff. ClientError / other errors
+    # are still non-retryable here (boto's adaptive retry already handles
+    # throttling internally).
+    last_timeout = None
+    for attempt in range(_BEDROCK_INNER_RETRIES):
+        try:
+            # Hold a concurrency slot during the call so we stay under the
+            # Bedrock TPS quota and adaptive-retry never fires.
+            with _bedrock_slot("bedrock-sigv4-prd"):
+                response = client.converse(
+                    modelId=inference_arn,
+                    system=[{"text": system_prompt}],
+                    messages=bedrock_messages,
+                    inferenceConfig={
+                        "maxTokens": max_tokens,
+                        "temperature": temperature,
+                    },
+                )
+
+            _logger.info(
+                "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
+                response.get("usage", {}).get("inputTokens", 0),
+                response.get("usage", {}).get("outputTokens", 0),
+                response.get("stopReason", "unknown"),
             )
 
-        _logger.info(
-            "Bedrock response: input_tokens=%d, output_tokens=%d, stop_reason=%s",
-            response.get("usage", {}).get("inputTokens", 0),
-            response.get("usage", {}).get("outputTokens", 0),
-            response.get("stopReason", "unknown"),
-        )
+            return response["output"]["message"]["content"][0]["text"]
 
-        return response["output"]["message"]["content"][0]["text"]
+        except ReadTimeoutError as exc:
+            last_timeout = exc
+            _logger.warning(
+                "Bedrock SigV4 read timeout after %ds (attempt %d/%d): %s",
+                DEFAULT_TIMEOUT, attempt + 1, _BEDROCK_INNER_RETRIES, exc,
+            )
+            if attempt < _BEDROCK_INNER_RETRIES - 1:
+                import time as _time
+                _time.sleep(2 ** attempt)
+                continue
+            _logger.error(
+                "Bedrock API timeout after %ds (%d attempts): %s",
+                DEFAULT_TIMEOUT, _BEDROCK_INNER_RETRIES, exc,
+            )
+            raise RuntimeError(
+                f"Bedrock API timeout after {DEFAULT_TIMEOUT}s "
+                f"({_BEDROCK_INNER_RETRIES} attempts): {exc}"
+            ) from exc
+        except ClientError as exc:
+            error_code = exc.response.get("Error", {}).get("Code", "unknown")
+            error_msg = exc.response.get("Error", {}).get("Message", str(exc))
+            _logger.error("Bedrock API error [%s]: %s", error_code, error_msg)
+            raise RuntimeError(
+                f"Bedrock API error [{error_code}]: {error_msg}"
+            ) from exc
+        except Exception as exc:
+            _logger.error("Bedrock API call failed: %s", exc)
+            raise RuntimeError(f"Bedrock API call failed: {exc}") from exc
 
-    except ReadTimeoutError as exc:
-        _logger.error("Bedrock API timeout after %ds: %s", DEFAULT_TIMEOUT, exc)
-        raise RuntimeError(
-            f"Bedrock API timeout after {DEFAULT_TIMEOUT}s: {exc}"
-        ) from exc
-    except ClientError as exc:
-        error_code = exc.response.get("Error", {}).get("Code", "unknown")
-        error_msg = exc.response.get("Error", {}).get("Message", str(exc))
-        _logger.error("Bedrock API error [%s]: %s", error_code, error_msg)
-        raise RuntimeError(
-            f"Bedrock API error [{error_code}]: {error_msg}"
-        ) from exc
-    except Exception as exc:
-        _logger.error("Bedrock API call failed: %s", exc)
-        raise RuntimeError(f"Bedrock API call failed: {exc}") from exc
+    # Defensive: only reachable if _BEDROCK_INNER_RETRIES < 1 (misconfig).
+    raise RuntimeError(
+        f"Bedrock SigV4: no attempts made (LEVIATHAN_BEDROCK_INNER_RETRIES="
+        f"{_BEDROCK_INNER_RETRIES}); last timeout: {last_timeout}"
+    )

@@ -1,0 +1,159 @@
+# Leviathan local E2E rig.
+#
+# Mirrors the production pod topology on a developer machine, with the
+# explicit goal that the *worker pod* is exercised (not just the
+# in-process drainer). Your Odoo backend + Postgres run on the HOST;
+# only the worker + extraction lambdas + nginx proxy + MinIO live in
+# docker.
+#
+# Topology
+#   host           : Odoo (python odoo-bin) on :8069 + Postgres on :5432
+#   docker         : leviathan-worker        - the new pod under test
+#                    leviathan-nginx         - round-robin proxy on :9000
+#                    leviathan-lambda-{1..5} - extraction lambda (RIE) replicas
+#                    minio                   - S3-compatible storage
+#
+# Why 5 lambda replicas + nginx
+#   The official aws-lambda-runtime-interface-emulator (RIE) embedded
+#   in the lambda image handles ONE invocation at a time. Concurrent
+#   invokes hit ``ReserveFailed: AlreadyReserved`` and the rapidcore
+#   goroutine SEGV-panics the container. Real AWS Lambda doesn't have
+#   this limit; for local concurrency testing we fan out across
+#   several single-worker containers and round-robin via nginx.
+#   See ``nginx.conf`` for details.
+#
+# Usage
+#   cd custom_addons/leviathan/local
+#   cp .env.example .env       # edit DB_PASSWORD / ODOO_DB / etc.
+#   docker compose up --build  # first build pulls Playwright (~2GB)
+#
+# See README.md for the full bring-up + verification checklist.
+
+name: leviathan-local
+
+x-lambda-base: &lambda-base
+  build:
+    context: .
+    additional_contexts:
+      lambda: ../leviathan-extraction-lambda
+    dockerfile: Dockerfile
+  image: leviathan-extraction:local
+  environment:
+    LEVIATHAN_WEBHOOK_TOKEN: ${LEVIATHAN_WEBHOOK_TOKEN:-devsecret}
+    S3_BUCKET: ${S3_BUCKET:-leviathan-local}
+    S3_REGION: ${S3_REGION:-us-east-1}
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-minio}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-miniosecret}
+    AWS_ENDPOINT_URL: ${AWS_ENDPOINT_URL:-http://minio:9000}
+    AWS_REGION: ${S3_REGION:-us-east-1}
+    AWS_LAMBDA_FUNCTION_TIMEOUT: "900"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    - minio
+  restart: unless-stopped
+
+services:
+  # The pod under test. Bundles a headless Odoo registry + the leviathan
+  # addon source via the multi-stage Dockerfile.worker. Connects to the
+  # HOST Postgres via host.docker.internal.
+  leviathan-worker:
+    build:
+      context: ../../..                       # repo root: src/ + custom_addons/
+      dockerfile: custom_addons/leviathan/Dockerfile.worker
+    image: leviathan-prd-worker:local
+    container_name: leviathan-worker
+    environment:
+      ODOO_DB: ${ODOO_DB:-leviathan_local}
+      ODOO_CONF: /opt/odoo/odoo-worker.conf
+      DB_HOST: host.docker.internal
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USER: ${DB_USER:-odoo}
+      DB_PASSWORD: ${DB_PASSWORD:-odoo}
+      LEVIATHAN_ROLE: worker
+      LEVIATHAN_PRD_POOL_SIZE: ${LEVIATHAN_PRD_POOL_SIZE:-5}
+      LEVIATHAN_WORKER_POLL_S: ${LEVIATHAN_WORKER_POLL_S:-3}
+      LEVIATHAN_WORKER_SHUTDOWN_TIMEOUT_S: "120"
+    # Live bind-mount of the addon source for dev iteration. The Dockerfile
+    # COPYs the addon at build time (canonical prod path); this mount
+    # overlays the live files on top so a `docker compose restart
+    # leviathan-worker` picks up edits without rebuilding the image.
+    # Comment this out (or set LEVIATHAN_LIVE_MOUNT=0) to test the baked
+    # image exactly as it will ship to ECR.
+    volumes:
+      - ../../leviathan:/opt/odoo/custom_addons/leviathan:ro
+    # Skeleton odoo.conf for the worker - real DB creds come from env vars.
+    # Inlined here so a fresh dev box doesn't need a second mount.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        cat > /opt/odoo/odoo-worker.conf <<EOF
+        [options]
+        addons_path = /opt/odoo/addons,/opt/odoo/custom_addons
+        db_host = host.docker.internal
+        db_port = 5432
+        db_user = odoo
+        db_password = odoo
+        db_maxconn = 20
+        without_demo = True
+        EOF
+        exec python /opt/odoo/custom_addons/leviathan/worker/run_prd.py
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - minio
+    restart: unless-stopped
+
+  # Extraction lambda replicas. Each is a single-invocation RIE backend;
+  # nginx (below) round-robins across them so Odoo can drive up to 5
+  # concurrent extractions without tripping the RIE concurrency bug.
+  leviathan-lambda-1:
+    <<: *lambda-base
+    container_name: leviathan-lambda-1
+  leviathan-lambda-2:
+    <<: *lambda-base
+    container_name: leviathan-lambda-2
+  leviathan-lambda-3:
+    <<: *lambda-base
+    container_name: leviathan-lambda-3
+  leviathan-lambda-4:
+    <<: *lambda-base
+    container_name: leviathan-lambda-4
+  leviathan-lambda-5:
+    <<: *lambda-base
+    container_name: leviathan-lambda-5
+
+  # Round-robin proxy in front of the lambda fan-out. Exposes the same
+  # ``/2015-03-31/functions/function/invocations`` path Odoo expects;
+  # nothing on the Odoo side has to change to use this fan-out.
+  leviathan-nginx:
+    image: nginx:1.27-alpine
+    container_name: leviathan-nginx
+    ports:
+      - "9000:9000"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - leviathan-lambda-1
+      - leviathan-lambda-2
+      - leviathan-lambda-3
+      - leviathan-lambda-4
+      - leviathan-lambda-5
+    restart: unless-stopped
+
+  # S3-compatible storage. Bind-mounted to ./artifacts so anything the
+  # lambda uploads is visible on the host filesystem immediately.
+  minio:
+    image: minio/minio:latest
+    container_name: leviathan-minio
+    ports:
+      - "9001:9000"                    # S3 API
+      - "9090:9090"                    # web console
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID:-minio}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY:-miniosecret}
+    command: server /data --console-address ":9090"
+    volumes:
+      - ./artifacts:/data
+    restart: unless-stopped

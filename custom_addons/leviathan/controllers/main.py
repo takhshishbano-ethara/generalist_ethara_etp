@@ -5,7 +5,7 @@ import json
 import logging
 import os
 
-from odoo import http, fields
+from odoo import http, fields, SUPERUSER_ID
 from odoo.http import request, Response
 
 _logger = logging.getLogger(__name__)
@@ -171,6 +171,26 @@ class LeviathanController(http.Controller):
                     "[leviathan][job=%s] extraction STARTED ping — "
                     "aws_queue_latency=%.0fs", record.name, _age,
                 )
+                # Chatter: visible "Lambda is now running" so a tasker
+                # watching the job knows the wait between Run All and
+                # extraction-actually-starting is AWS, not us.
+                try:
+                    from markupsafe import Markup
+                    body = (
+                        f"<b>Lambda is now running</b> &mdash; "
+                        f"queue latency {int(_age)}s"
+                        if _age >= 0 else "<b>Lambda is now running</b>"
+                    )
+                    record.with_user(SUPERUSER_ID).message_post(
+                        body=Markup(body),
+                        subtype_xmlid="mail.mt_note",
+                    )
+                except Exception:
+                    _logger.warning(
+                        "[leviathan][job=%s] chatter post (lambda "
+                        "started) failed (non-fatal)",
+                        record.id, exc_info=True,
+                    )
             return Response(
                 json.dumps({"status": "ack"}),
                 status=200,
@@ -304,6 +324,23 @@ class LeviathanController(http.Controller):
             auto = record.auto_continue
             next_state = "generating" if auto else "extracted"
             write_vals["state"] = next_state
+            # Phase-2 PRD-queue producer fields (LEVIATHAN_POD_ARCHITECTURE.md
+            # §11 reference write). Set unconditionally so the row is
+            # claim-ready when the flag is ON. When the flag is OFF these are
+            # harmless data (the existing _submit_bg in _deferred still runs).
+            if auto:
+                write_vals.update({
+                    "auto_continue": True,
+                    "prd_queued_at": fields.Datetime.now(),
+                    "prd_failure_count": 0,
+                    "started_processing_at": False,
+                    "pipeline_status": "Extracted — awaiting PRD worker",
+                })
+            else:
+                write_vals.update({
+                    "auto_continue": False,
+                    "pipeline_status": "Extracted — click Generate to continue",
+                })
             record.write(write_vals)
 
             # Extraction handoff complete. This INFO line is the boundary
@@ -319,6 +356,38 @@ class LeviathanController(http.Controller):
                 len(screenshot_keys or []), len(asset_keys or []),
                 artifacts_pending, next_state, auto,
             )
+            # Chatter: extraction complete. Counts give the tasker a
+            # quick "did we get a real extraction or a thin one" read
+            # without opening the Assets tab. Partial flag + warning
+            # count are surfaced in amber so anything that needs review
+            # stands out.
+            try:
+                from markupsafe import Markup
+                pages_n = (
+                    len((site_discovery or {}).get("pages") or [])
+                    if site_discovery else 0
+                )
+                body = (
+                    f"<b>Extraction complete</b> &mdash; "
+                    f"pages={pages_n}, "
+                    f"screenshots={len(screenshot_keys or [])}, "
+                    f"assets={len(asset_keys or [])}"
+                )
+                if is_partial or warnings:
+                    body += (
+                        f" <span style='color:#ffc107;'>"
+                        f"(partial: {len(warnings)} warning(s))</span>"
+                    )
+                record.with_user(SUPERUSER_ID).message_post(
+                    body=Markup(body),
+                    subtype_xmlid="mail.mt_note",
+                )
+            except Exception:
+                _logger.warning(
+                    "[leviathan][job=%s] chatter post (extraction "
+                    "complete) failed (non-fatal)",
+                    record.id, exc_info=True,
+                )
 
             # Notify browser of state change
             try:
@@ -357,10 +426,21 @@ class LeviathanController(http.Controller):
                 # jobs stop at 'extracted' and are advanced by the Generate
                 # button (action_stage_generate).
                 if auto:
-                    _submit_bg(
-                        f"prd-gen[job={record_id}]",
-                        record._run_prd_generation_bg, db_name, record_id,
-                    )
+                    # Phase-2: when the queue is enabled, do NOT dispatch —
+                    # the drainer picks the row up within ~1 min (the state
+                    # is already 'generating' and prd_queued_at is set). When
+                    # OFF, the in-process pool path runs as before.
+                    if record._prd_queue_enabled():
+                        _logger.info(
+                            "[leviathan][job=%s] webhook: queue enabled — "
+                            "row left for drainer (no _submit_bg)",
+                            record_id,
+                        )
+                    else:
+                        _submit_bg(
+                            f"prd-gen[job={record_id}]",
+                            record._run_prd_generation_bg, db_name, record_id,
+                        )
 
             request.env.cr.postcommit.add(_deferred)
 
