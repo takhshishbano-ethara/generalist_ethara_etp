@@ -257,6 +257,8 @@ def _build_openclaw_config(
         tools_web_search["enabled"] = False
     else:
         tools_web_search["provider"] = web_search_provider
+        if brave_api_key and web_search_provider == "brave":
+            tools_web_search["apiKey"] = brave_api_key
     config_dict["tools"] = {
         "web": {"search": tools_web_search},
         "subagents": {
@@ -276,10 +278,11 @@ def _build_openclaw_config(
                 }
             }
         }
-        # Disable bundled keyless/self-hosted web search plugins so subagent
-        # provider resolution cannot fall back to them (SearXNG, DuckDuckGo,
-        # Ollama all ship in the base image and can hijack auto-detection).
-        for plugin_id in ("searxng", "duckduckgo", "ollama"):
+        for plugin_id in (
+            "minimax", "gemini", "grok", "moonshot", "perplexity",
+            "firecrawl", "exa", "tavily",
+            "duckduckgo", "ollama", "searxng",
+        ):
             entries.setdefault(plugin_id, {})["enabled"] = False
 
     config_dict["agents"] = {
