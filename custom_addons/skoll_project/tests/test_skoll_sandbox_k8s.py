@@ -100,7 +100,7 @@ class TestK8sHelperFunctions(SkollTestCase):
             cfg["plugins"]["entries"]["brave"]["config"]["webSearch"]["apiKey"],
             "BSA-test-key",
         )
-        self.assertNotIn("enabled", cfg["tools"]["web"]["search"])
+        self.assertTrue(cfg["plugins"]["entries"]["brave"]["enabled"])
         self.assertEqual(
             cfg["tools"]["web"]["search"]["apiKey"], "BSA-test-key",
         )

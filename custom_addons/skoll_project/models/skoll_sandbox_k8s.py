@@ -271,6 +271,7 @@ def _build_openclaw_config(
     if web_search_provider == "brave" and brave_api_key:
         entries = config_dict.setdefault("plugins", {}).setdefault("entries", {})
         entries["brave"] = {
+            "enabled": True,
             "config": {
                 "webSearch": {
                     "apiKey": brave_api_key,
