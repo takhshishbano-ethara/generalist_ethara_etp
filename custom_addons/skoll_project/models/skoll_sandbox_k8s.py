@@ -303,17 +303,35 @@ def _build_openclaw_config(
                     }
                 }
             }
+        # Plugin IDs must match the OpenClaw manifest id (NOT the provider id).
+        # Verified live against openclaw:2026.5.12-beta.4 via `openclaw plugins list`:
+        #   provider "grok"   -> plugin id "xai"
+        #   provider "gemini" -> plugin id "google"
+        #   provider "kimi"   -> plugin id "moonshot"
+        # Using a provider id like "grok" causes doctor to report:
+        #   "plugin not found: grok (stale config entry ignored)"
         for plugin_id in (
-            "minimax", "gemini", "grok", "moonshot", "perplexity",
+            "minimax", "google", "xai", "moonshot", "perplexity",
             "firecrawl", "exa", "tavily",
             "duckduckgo", "ollama", "searxng",
         ):
             entries.setdefault(plugin_id, {})["enabled"] = False
 
+    # Memory search embedding provider.
+    # OpenClaw's memory-core defaults to "openai" when memorySearch.provider is
+    # unset or "auto" (see extensions/memory-core/src/memory/embeddings.ts
+    # DEFAULT_MEMORY_EMBEDDING_PROVIDER). The OpenClaw container only has
+    # AWS_BEARER_TOKEN_BEDROCK in its env, not OPENAI_API_KEY, so memory_search
+    # was failing with: 'No API key found for provider "openai"'.
+    # We pin to "bedrock" which uses Amazon Titan Embed Text v2 (default model
+    # amazon.titan-embed-text-v2:0) via the existing Bedrock credentials.
     config_dict["agents"] = {
         "defaults": {
             "model": MODEL_DEFAULTS.get(model_type, "litellm/claude-opus-4.7"),
             "thinkingDefault": "xhigh",
+            "memorySearch": {
+                "provider": "bedrock",
+            },
             "subagents": {
                 "delegationMode": "prefer",
                 "maxSpawnDepth": 2,
@@ -794,7 +812,14 @@ class SkollSandboxK8s(models.AbstractModel):
                     "mkdir -p /data/workspace/memory /data/workspace/skills && "
                     "cp -L /persona-src/* /data/workspace/ 2>/dev/null; "
                     "ls -la /data/workspace/ && "
-                    "chown -R 1000:1000 /data/workspace",
+                    "if [ -d /home/node/.openclaw/npm ] && [ ! -d /data/npm ]; then "
+                    "cp -a /home/node/.openclaw/npm /data/npm && "
+                    "echo 'copied plugin npm dir into data volume'; "
+                    "fi; "
+                    "if [ -d /home/node/.openclaw/plugins ] && [ ! -d /data/plugins ]; then "
+                    "cp -a /home/node/.openclaw/plugins /data/plugins; "
+                    "fi; "
+                    "chown -R 1000:1000 /data/workspace /data/npm /data/plugins 2>/dev/null || true",
                 ],
                 volume_mounts=[
                     client.V1VolumeMount(

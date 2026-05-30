@@ -23,6 +23,9 @@ USER node
 ENV PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
 RUN node /app/node_modules/playwright-core/cli.js install chromium
 
+ENV HOME=/home/node
+RUN node /app/openclaw.mjs plugins install @openclaw/brave-plugin
+
 # Symlink Playwright-installed Chromium to a standard path so OpenClaw can find it.
 # OpenClaw scans /usr/bin/chromium, /usr/bin/chromium-browser, etc.
 USER root

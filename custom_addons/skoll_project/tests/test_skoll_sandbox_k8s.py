@@ -108,13 +108,16 @@ class TestK8sHelperFunctions(SkollTestCase):
         self.assertIn("web_search", subagent_tools["alsoAllow"])
         self.assertIn("web_fetch", subagent_tools["alsoAllow"])
         for plugin_id in (
-            "minimax", "gemini", "grok", "moonshot", "perplexity",
+            "minimax", "google", "xai", "moonshot", "perplexity",
             "firecrawl", "exa", "tavily",
             "duckduckgo", "ollama", "searxng",
         ):
             self.assertFalse(
                 cfg["plugins"]["entries"][plugin_id].get("enabled", True),
             )
+        self.assertEqual(
+            cfg["agents"]["defaults"]["memorySearch"]["provider"], "bedrock",
+        )
 
     def test_build_openclaw_config_disabled(self):
         """Disabled provider sets enabled=False and omits provider key."""
@@ -135,7 +138,7 @@ class TestK8sHelperFunctions(SkollTestCase):
         self.assertIn("plugins", cfg)
         self.assertIn("entries", cfg["plugins"])
         for plugin_id in (
-            "minimax", "gemini", "grok", "moonshot", "perplexity",
+            "minimax", "google", "xai", "moonshot", "perplexity",
             "firecrawl", "exa", "tavily",
             "duckduckgo", "ollama", "searxng",
         ):
