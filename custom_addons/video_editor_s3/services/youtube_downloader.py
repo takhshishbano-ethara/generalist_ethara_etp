@@ -27,6 +27,12 @@ _MIN_HEIGHT = 2160
 _MAX_HEIGHT = 2160
 _MIN_FPS = 50
 _MAX_FPS = 60
+
+YOUTUBE_TIERS = {
+    "1080p": {"min_height": 1080, "max_height": 1080, "min_fps": 24, "max_fps": 60},
+    "1440p": {"min_height": 1440, "max_height": 1440, "min_fps": 24, "max_fps": 60},
+    "2160p": {"min_height": 2160, "max_height": 2160, "min_fps": 24, "max_fps": 60},
+}
 _DISK_HEADROOM = 1.05
 _AUDIO_FALLBACK_BYTES = 200 * 1024 * 1024
 
@@ -639,8 +645,8 @@ def _info_to_metadata(info, fallback_video_id):
     }
 
 
-def probe_and_select(url, *, cookies_path=None, proxy_url=None, cookies_from_browser=None):
-    """Probe once, gate-check 2160p50/60, return (info, chosen_format)."""
+def probe_and_select(url, *, tier=None, cookies_path=None, proxy_url=None, cookies_from_browser=None):
+    """Probe once, gate-check the requested tier (defaults to 2160p50/60 when omitted), return (info, chosen_format)."""
     video_id, normalized = parse_youtube_url(url)
     if not video_id or not normalized:
         raise UserError(_("Not a recognised YouTube URL: %s") % url)
@@ -673,16 +679,22 @@ def probe_and_select(url, *, cookies_path=None, proxy_url=None, cookies_from_bro
             "Configure Settings \u2192 YouTube Ingest \u2192 Cookies File Path or "
             "Cookies From Browser, then retry."
         ) % normalized)
+    if tier and tier in YOUTUBE_TIERS:
+        spec = YOUTUBE_TIERS[tier]
+        gate_label = tier
+        min_h, max_h, min_fps, max_fps = spec["min_height"], spec["max_height"], spec["min_fps"], spec["max_fps"]
+    else:
+        gate_label = "2160p50/60"
+        min_h, max_h, min_fps, max_fps = _MIN_HEIGHT, _MAX_HEIGHT, _MIN_FPS, _MAX_FPS
     candidates = _qualifying_formats(
         formats,
-        min_height=_MIN_HEIGHT, max_height=_MAX_HEIGHT,
-        min_fps=_MIN_FPS, max_fps=_MAX_FPS,
+        min_height=min_h, max_height=max_h,
+        min_fps=min_fps, max_fps=max_fps,
     )
     if not candidates:
         raise UserError(_(
-            "This video doesnt meet the minimum req of 2160p50 or 2160p60 "
-            "(available video-only streams: %s)."
-        ) % _describe_available(formats))
+            "This video does not meet the minimum req of %s (available video-only streams: %s)."
+        ) % (gate_label, _describe_available(formats)))
     return (info, candidates[0])
 
 

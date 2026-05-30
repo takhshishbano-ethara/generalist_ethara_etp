@@ -80,6 +80,11 @@ class VideoEditorProject(models.Model):
     youtube_duration_seconds = fields.Float(string="YouTube Duration (s)", readonly=True)
     youtube_resolution = fields.Char(string="YouTube Resolution", readonly=True)
     youtube_fps = fields.Float(string="YouTube FPS", readonly=True)
+    youtube_tier = fields.Selection(
+        [("1080p", "1080p"), ("1440p", "1440p"), ("2160p", "2160p")],
+        string="YouTube Tier",
+        readonly=True,
+    )
     youtube_ingested_at = fields.Datetime(string="YouTube Ingested At", readonly=True)
 
     prompt = fields.Text(string="Prompt")
@@ -115,6 +120,12 @@ class VideoEditorProject(models.Model):
 
     editing_config = fields.Json(string="Editing Config")
     edited_file_path = fields.Char(string="Edited File")
+    edited_blob = fields.Binary(
+        string="Edited Video Blob",
+        attachment=False,
+        help="Durable copy of the rendered video held in the database between render and export-to-S3 so export survives a wiped/ephemeral local media root. Cleared automatically once the file is uploaded to S3.",
+    )
+    edited_blob_filename = fields.Char(string="Edited Blob Filename")
     preview_file_path = fields.Char(string="Preview File")
     output_s3_url = fields.Char(string="Exported URL", tracking=True)
 
@@ -323,6 +334,23 @@ class VideoEditorProject(models.Model):
             proxy_url=cfg.get("proxy_url"),
             cookies_from_browser=cfg.get("cookies_browser"),
         )
+
+    def _maybe_auto_ingest_youtube(self):
+        for rec in self:
+            if not rec.youtube_url:
+                continue
+            if rec.youtube_ingested_at and rec.s3_source_url:
+                continue
+            if rec.job_ids.filtered(lambda j: j.status in ("queued", "running")):
+                continue
+            video_id, _normalized = youtube_downloader.parse_youtube_url(rec.youtube_url)
+            if not video_id:
+                continue
+            rec._probe_youtube_or_raise()
+            try:
+                rec._kick_job("youtube_ingest", config={"youtube_url": rec.youtube_url})
+            except UserError as exc:
+                _logger.info("auto-ingest skipped for project %s: %s", rec.id, exc)
 
     def _maybe_probe_s3_source(self):
         for rec in self:
