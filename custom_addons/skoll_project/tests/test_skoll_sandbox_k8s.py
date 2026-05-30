@@ -101,6 +101,20 @@ class TestK8sHelperFunctions(SkollTestCase):
             "BSA-test-key",
         )
         self.assertNotIn("enabled", cfg["tools"]["web"]["search"])
+        self.assertEqual(
+            cfg["tools"]["web"]["search"]["apiKey"], "BSA-test-key",
+        )
+        subagent_tools = cfg["tools"]["subagents"]["tools"]
+        self.assertIn("web_search", subagent_tools["alsoAllow"])
+        self.assertIn("web_fetch", subagent_tools["alsoAllow"])
+        for plugin_id in (
+            "minimax", "gemini", "grok", "moonshot", "perplexity",
+            "firecrawl", "exa", "tavily",
+            "duckduckgo", "ollama", "searxng",
+        ):
+            self.assertFalse(
+                cfg["plugins"]["entries"][plugin_id].get("enabled", True),
+            )
 
     def test_build_openclaw_config_duckduckgo(self):
         """DuckDuckGo provider does not require an API key or plugins block."""
@@ -126,6 +140,7 @@ class TestK8sHelperFunctions(SkollTestCase):
         from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
         cfg = _build_openclaw_config("tok", {}, brave_api_key="")
         self.assertEqual(cfg["tools"]["web"]["search"]["provider"], "brave")
+        self.assertNotIn("apiKey", cfg["tools"]["web"]["search"])
         self.assertNotIn("plugins", cfg)
 
 

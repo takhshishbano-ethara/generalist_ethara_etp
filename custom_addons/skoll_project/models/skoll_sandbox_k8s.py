@@ -257,10 +257,20 @@ def _build_openclaw_config(
         tools_web_search["enabled"] = False
     else:
         tools_web_search["provider"] = web_search_provider
-    config_dict["tools"] = {"web": {"search": tools_web_search}}
+        if brave_api_key and web_search_provider == "brave":
+            tools_web_search["apiKey"] = brave_api_key
+    config_dict["tools"] = {
+        "web": {"search": tools_web_search},
+        "subagents": {
+            "tools": {
+                "alsoAllow": ["web_search", "web_fetch"],
+            }
+        },
+    }
 
     if web_search_provider == "brave" and brave_api_key:
-        config_dict.setdefault("plugins", {}).setdefault("entries", {})["brave"] = {
+        entries = config_dict.setdefault("plugins", {}).setdefault("entries", {})
+        entries["brave"] = {
             "config": {
                 "webSearch": {
                     "apiKey": brave_api_key,
@@ -268,6 +278,12 @@ def _build_openclaw_config(
                 }
             }
         }
+        for plugin_id in (
+            "minimax", "gemini", "grok", "moonshot", "perplexity",
+            "firecrawl", "exa", "tavily",
+            "duckduckgo", "ollama", "searxng",
+        ):
+            entries.setdefault(plugin_id, {})["enabled"] = False
 
     config_dict["agents"] = {
         "defaults": {

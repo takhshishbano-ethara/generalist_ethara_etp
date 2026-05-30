@@ -12,6 +12,13 @@
               action="action_video_editor_project"
               sequence="10"/>
 
+    <menuitem id="menu_video_editor_s3_youtube_multi"
+              name="Ingest YouTube (multi-tier)"
+              parent="menu_video_editor_s3_root"
+              action="action_youtube_multi_ingest_wizard"
+              sequence="15"
+              groups="video_editor_s3.group_video_editor_s3_user"/>
+
     <menuitem id="menu_video_editor_s3_jobs"
               name="Jobs"
               parent="menu_video_editor_s3_root"

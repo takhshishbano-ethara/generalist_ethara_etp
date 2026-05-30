@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
 import logging
 import os
@@ -268,8 +269,22 @@ def _run_render(db, uid, job_id, cancel_event, preview=False):
             except (TypeError, ValueError):
                 trim_end = 0.0
             trim_duration = max(trim_end - trim_start, 0.0)
+            try:
+                with open(dst_abs, "rb") as _fh:
+                    edited_blob_b64 = base64.b64encode(_fh.read())
+                edited_blob_name = os.path.basename(dst_abs)
+            except OSError as exc:
+                _logger.warning(
+                    "Render finished but reading %s for DB blob failed (%s); "
+                    "export will rely on local disk only.",
+                    dst_abs, exc,
+                )
+                edited_blob_b64 = False
+                edited_blob_name = False
             project.write({
                 "edited_file_path": rel,
+                "edited_blob": edited_blob_b64,
+                "edited_blob_filename": edited_blob_name,
                 "editing_config": config,
                 "state": "processed",
                 "trim_start_seconds": trim_start,
@@ -316,8 +331,24 @@ def _build_source_input(env, project):
 def _run_export(db, uid, job_id, cancel_event):
     project_id, local_abs, s3_key, cfg = _read_export_context(db, uid, job_id)
     job_executor._check_cancelled(cancel_event)
-    _bump_heartbeat(db, job_id, "uploading to S3")
 
+    if not os.path.exists(local_abs):
+        _bump_heartbeat(db, job_id, "restoring local cache from DB blob")
+        with Registry(db).cursor() as cr:
+            env = api.Environment(cr, uid or SUPERUSER_ID, {})
+            project = env["video.editor.project"].browse(project_id)
+            blob = project.edited_blob
+            if not blob:
+                raise UserError(_(
+                    "Edited video file is missing from local storage (%s) and no "
+                    "database blob is available. Please re-render the project."
+                ) % local_abs)
+            raw_bytes = base64.b64decode(blob)
+        os.makedirs(os.path.dirname(local_abs), exist_ok=True)
+        with open(local_abs, "wb") as fh:
+            fh.write(raw_bytes)
+
+    _bump_heartbeat(db, job_id, "uploading to S3")
     url = s3_storage.upload_file(cfg, local_abs, s3_key)
     job_executor._check_cancelled(cancel_event)
 
@@ -327,6 +358,8 @@ def _run_export(db, uid, job_id, cancel_event):
         project.write({
             "output_s3_url": url,
             "state": "exported",
+            "edited_blob": False,
+            "edited_blob_filename": False,
         })
         job_executor._update_job(cr, job_id, {"output_s3_url": url})
         cr.commit()
@@ -379,6 +412,9 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
         project_id = project.id
         opts = job.config_json or {}
         youtube_url = (opts.get("youtube_url") or project.youtube_url or "").strip()
+        youtube_tier = (opts.get("tier") or project.youtube_tier or "").strip() or None
+        if youtube_tier and youtube_tier not in youtube_downloader.YOUTUBE_TIERS:
+            raise UserError(_("Unknown YouTube tier: %s") % youtube_tier)
         cfg = env["video.editor.s3.settings"].get_s3_config()
         if not s3_storage.is_configured(cfg):
             raise UserError(_("S3 settings are missing — configure bucket and credentials."))
@@ -399,28 +435,60 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             "video_id=%s normalized=%s" % (video_id, normalized))
     job_executor._check_cancelled(cancel_event)
 
-    target_key = "%s/%s.mkv" % (youtube_prefix, video_id)
+    target_key = (
+        "%s/%s_%s.mkv" % (youtube_prefix, video_id, youtube_tier)
+        if youtube_tier
+        else "%s/%s.mkv" % (youtube_prefix, video_id)
+    )
 
     if s3_storage.head_object_exists(cfg, target_key):
         _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_hit",
                 "S3 key already exists: %s" % target_key)
         _bump_heartbeat(db, job_id, "reusing existing S3 object")
-        try:
-            metadata = youtube_downloader.extract_metadata(
-                normalized,
-                cookies_path=yt_cookies_path,
-                proxy_url=yt_proxy,
-                cookies_from_browser=yt_cookies_browser,
-            )
-        except Exception as exc:
-            _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
-            metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0,
-                        "width": 0, "height": 0, "fps": 0.0, "vcodec": ""}
+        chosen_format = None
+        if youtube_tier:
+            try:
+                probe_info, chosen_format = youtube_downloader.probe_and_select(
+                    normalized,
+                    tier=youtube_tier,
+                    cookies_path=yt_cookies_path,
+                    proxy_url=yt_proxy,
+                    cookies_from_browser=yt_cookies_browser,
+                )
+                metadata = {
+                    "title": probe_info.get("title") or "",
+                    "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
+                    "thumbnail": probe_info.get("thumbnail") or "",
+                    "duration_seconds": float(probe_info.get("duration") or 0.0),
+                }
+            except Exception as exc:
+                _logger.warning("youtube tier-aware probe failed during dedup: %s", exc)
+                chosen_format = None
+                metadata = None
+        if chosen_format is None:
+            try:
+                metadata = youtube_downloader.extract_metadata(
+                    normalized,
+                    cookies_path=yt_cookies_path,
+                    proxy_url=yt_proxy,
+                    cookies_from_browser=yt_cookies_browser,
+                )
+            except Exception as exc:
+                _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
+                metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0,
+                            "width": 0, "height": 0, "fps": 0.0, "vcodec": ""}
         s3_url = s3_storage.build_url(cfg["bucket"], cfg["region"], target_key)
-        yt_width = int(metadata.get("width") or 0)
-        yt_height = int(metadata.get("height") or 0)
-        yt_fps = float(metadata.get("fps") or 0.0)
-        yt_vcodec = metadata.get("vcodec") or ""
+        if chosen_format is not None:
+            yt_width = int(chosen_format.get("width") or 0)
+            yt_height = int(chosen_format.get("height") or 0)
+            yt_fps = float(chosen_format.get("fps") or 0.0)
+            vcodec_raw = chosen_format.get("vcodec") or ""
+            yt_vcodec = vcodec_raw.split(".")[0] if vcodec_raw else ""
+        else:
+            yt_width = int(metadata.get("width") or 0)
+            yt_height = int(metadata.get("height") or 0)
+            yt_fps = float(metadata.get("fps") or 0.0)
+            yt_vcodec = metadata.get("vcodec") or ""
         yt_resolution = "%dx%d" % (yt_width, yt_height) if yt_width and yt_height else ""
         with Registry(db).cursor() as cr:
             env = api.Environment(cr, uid or SUPERUSER_ID, {})
@@ -446,6 +514,7 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
                 "youtube_resolution": yt_resolution or "",
                 "youtube_fps": float(yt_fps or 0.0),
+                "youtube_tier": youtube_tier or False,
                 "youtube_ingested_at": fields.Datetime.now(),
             })
             job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
@@ -457,6 +526,7 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
 
     probe_info, chosen_format = youtube_downloader.probe_and_select(
         normalized,
+        tier=youtube_tier,
         cookies_path=yt_cookies_path,
         proxy_url=yt_proxy,
         cookies_from_browser=yt_cookies_browser,
@@ -530,14 +600,20 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "YouTube download produced a file with no video stream "
                 "(probe=%s). Aborting before S3 upload."
             ) % probe)
-        if int(probe.get("height") or 0) < 2160:
+        min_height_floor = (
+            youtube_downloader.YOUTUBE_TIERS[youtube_tier]["min_height"]
+            if youtube_tier
+            else 2160
+        )
+        gate_label = youtube_tier or "2160p50/60"
+        if int(probe.get("height") or 0) < min_height_floor:
             _log_yt(db, uid, job_id, project_id, "error", "youtube_quality_assert",
-                    "Downloaded file height=%s below 2160 floor; refusing upload."
-                    % probe.get("height"))
+                    "Downloaded file height=%s below %s floor; refusing upload."
+                    % (probe.get("height"), min_height_floor))
             raise UserError(_(
                 "Downloaded video is %(h)spx tall but the minimum requirement "
-                "is 2160p50/60. Aborting before S3 upload."
-            ) % {"h": probe.get("height")})
+                "is %(gate)s. Aborting before S3 upload."
+            ) % {"h": probe.get("height"), "gate": gate_label})
 
         if not metadata.get("title"):
             metadata = {
@@ -598,6 +674,7 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
                 "youtube_resolution": yt_resolution or "",
                 "youtube_fps": float(yt_fps or 0.0),
+                "youtube_tier": youtube_tier or False,
                 "youtube_ingested_at": fields.Datetime.now(),
             })
             job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
