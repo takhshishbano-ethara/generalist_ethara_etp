@@ -36,7 +36,8 @@ class YoutubeMultiIngestWizard(models.TransientModel):
         if not tiers:
             raise UserError(_("Pick at least one resolution tier."))
         url = (self.youtube_url or "").strip()
-        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
+        triggering_uid = self.env.user.id
+        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config_for_user(triggering_uid)
         available, formats_desc = youtube_downloader.list_available_tiers(
             url,
             cookies_path=cfg.get("cookies_path") or None,

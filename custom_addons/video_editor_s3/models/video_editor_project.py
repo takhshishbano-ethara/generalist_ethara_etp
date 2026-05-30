@@ -327,7 +327,9 @@ class VideoEditorProject(models.Model):
         self.ensure_one()
         if not self.youtube_url:
             return
-        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
+        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config_for_user(
+            self.env.user.id,
+        )
         youtube_downloader.probe_and_select(
             self.youtube_url,
             cookies_path=cfg.get("cookies_path"),
