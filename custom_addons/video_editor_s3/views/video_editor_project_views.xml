@@ -172,20 +172,20 @@
                                     <button name="action_retry" type="object" icon="fa-refresh" invisible="status not in ('failed','cancelled')"/>
                                 </list>
                             </field>
-                            <separator string="Processing Logs"/>
-                            <field name="processing_log_ids" readonly="1">
-                                <list>
-                                    <field name="create_date"/>
-                                    <field name="level" widget="badge"/>
-                                    <field name="operation"/>
-                                    <field name="duration_ms"/>
-                                    <field name="message"/>
-                                </list>
-                            </field>
-                            <separator string="Editing Config"/>
-                            <field name="editing_config" widget="text"/>
-                            <separator string="Source Metadata"/>
-                            <field name="source_metadata" widget="text"/>
+<!--                            <separator string="Processing Logs"/>-->
+<!--                            <field name="processing_log_ids" readonly="1">-->
+<!--                                <list>-->
+<!--                                    <field name="create_date"/>-->
+<!--                                    <field name="level" widget="badge"/>-->
+<!--                                    <field name="operation"/>-->
+<!--                                    <field name="duration_ms"/>-->
+<!--                                    <field name="message"/>-->
+<!--                                </list>-->
+<!--                            </field>-->
+<!--                            <separator string="Editing Config"/>-->
+<!--                            <field name="editing_config" widget="text"/>-->
+<!--                            <separator string="Source Metadata"/>-->
+<!--                            <field name="source_metadata" widget="text"/>-->
                         </page>
                     </notebook>
                 </sheet>

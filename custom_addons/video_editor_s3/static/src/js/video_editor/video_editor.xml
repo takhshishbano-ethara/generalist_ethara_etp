@@ -54,13 +54,16 @@
                     <EditorToolbar
                         mode="state.mode"
                         config="state.config"
+                        duration="state.duration"
                         disabled="state.rendering"
                         onChangeMode.bind="onChangeMode"
                         onResetSlot.bind="onResetSlot"
                         onToggleMute.bind="onToggleMute"
                         onUpdateFilter.bind="onUpdateFilter"
                         onUpdateRotate.bind="onUpdateRotate"
-                        onUpdateResize.bind="onUpdateResize"/>
+                        onUpdateResize.bind="onUpdateResize"
+                        onTrimChange.bind="onTrimChange"
+                        onUpdateCrop.bind="onUpdateCrop"/>
                 </aside>
 
                 <section class="o_video_editor_s3__stage flex-grow-1 d-flex flex-column">
@@ -89,6 +92,11 @@
                     <div class="o_video_editor_s3__playback border-top p-2 d-flex align-items-center gap-2">
                         <button class="btn btn-light btn-sm" t-on-click="onPlayPause" t-att-disabled="!state.sourceUrl">
                             <i t-att-class="state.playing ? 'fa fa-pause' : 'fa fa-play'"/>
+                        </button>
+                        <button class="btn btn-outline-primary btn-sm" t-on-click="onPlayTrim"
+                                t-att-disabled="!state.sourceUrl or !state.config.trim or state.config.trim.end &lt;= state.config.trim.start"
+                                title="Play trimmed segment">
+                            <i t-att-class="state.playingTrim ? 'fa fa-stop' : 'fa fa-play-circle'"/> Trim
                         </button>
                         <span class="text-muted small" style="min-width:90px;">
                             <t t-esc="(state.currentTime || 0).toFixed(1)"/>s / <t t-esc="(state.duration || 0).toFixed(1)"/>s
@@ -126,17 +134,49 @@
                 <div class="card mb-2">
                     <div class="card-body p-2">
                         <h6 class="card-title">Trim</h6>
-                        <div class="d-flex justify-content-between small">
-                            <label class="text-muted mb-0">Start</label>
-                            <span><t t-esc="formatTime(trimStart)"/> <span class="text-muted">(min:sec)</span></span>
+                        <div class="mb-2">
+                            <label class="text-muted small mb-1 d-block">Start</label>
+                            <div class="d-flex align-items-center gap-1">
+                                <input type="number" class="form-control form-control-sm text-end" style="width:60px" min="0" step="1"
+                                       t-att-disabled="props.disabled"
+                                       t-att-value="startParts.min"
+                                       t-on-change="(ev) => this.onTrimPartChange('start', 'min', ev)"/>
+                                <span class="text-muted small">m</span>
+                                <input type="number" class="form-control form-control-sm text-end" style="width:60px" min="0" step="1"
+                                       t-att-disabled="props.disabled"
+                                       t-att-value="startParts.sec"
+                                       t-on-change="(ev) => this.onTrimPartChange('start', 'sec', ev)"/>
+                                <span class="text-muted small">s</span>
+                                <input type="number" class="form-control form-control-sm text-end" style="width:70px" min="0" step="1"
+                                       t-att-disabled="props.disabled"
+                                       t-att-value="startParts.ms"
+                                       t-on-change="(ev) => this.onTrimPartChange('start', 'ms', ev)"/>
+                                <span class="text-muted small">ms</span>
+                            </div>
                         </div>
-                        <div class="d-flex justify-content-between small">
-                            <label class="text-muted mb-0">End</label>
-                            <span><t t-esc="formatTime(trimEnd)"/> <span class="text-muted">(min:sec)</span></span>
+                        <div class="mb-2">
+                            <label class="text-muted small mb-1 d-block">End</label>
+                            <div class="d-flex align-items-center gap-1">
+                                <input type="number" class="form-control form-control-sm text-end" style="width:60px" min="0" step="1"
+                                       t-att-disabled="props.disabled"
+                                       t-att-value="endParts.min"
+                                       t-on-change="(ev) => this.onTrimPartChange('end', 'min', ev)"/>
+                                <span class="text-muted small">m</span>
+                                <input type="number" class="form-control form-control-sm text-end" style="width:60px" min="0" step="1"
+                                       t-att-disabled="props.disabled"
+                                       t-att-value="endParts.sec"
+                                       t-on-change="(ev) => this.onTrimPartChange('end', 'sec', ev)"/>
+                                <span class="text-muted small">s</span>
+                                <input type="number" class="form-control form-control-sm text-end" style="width:70px" min="0" step="1"
+                                       t-att-disabled="props.disabled"
+                                       t-att-value="endParts.ms"
+                                       t-on-change="(ev) => this.onTrimPartChange('end', 'ms', ev)"/>
+                                <span class="text-muted small">ms</span>
+                            </div>
                         </div>
                         <div class="d-flex justify-content-between small border-top mt-1 pt-1">
                             <label class="text-muted mb-0">Duration</label>
-                            <span><strong><t t-esc="formatTime(trimDuration)"/></strong> <span class="text-muted">(min:sec)</span></span>
+                            <span><strong><t t-esc="formatTime(trimDuration)"/></strong> <span class="text-muted">(mm:ss.mmm)</span></span>
                         </div>
                         <button class="btn btn-outline-secondary btn-sm mt-2 w-100" t-on-click="() => this.onReset('trim')">Reset trim</button>
                     </div>
@@ -147,11 +187,82 @@
                 <div class="card mb-2">
                     <div class="card-body p-2">
                         <h6 class="card-title">Crop</h6>
-                        <p class="small text-muted">Click on the video to add a crop box. Drag handles to resize.</p>
+                        <p class="small text-muted mb-2" t-if="!crop">Click on the video to add a crop box, or set dimensions below.</p>
+                        <t t-if="crop">
+                            <div class="mb-2">
+                                <label class="text-muted small mb-1 d-block">Position (px)</label>
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">X</span>
+                                    <input type="number" class="form-control form-control-sm text-end" style="width:70px"
+                                           min="0" step="1"
+                                           t-att-disabled="props.disabled"
+                                           t-att-value="cropX"
+                                           t-on-change="(ev) => this.onCropDimChange('x', ev)"/>
+                                    <span class="text-muted small ms-2">Y</span>
+                                    <input type="number" class="form-control form-control-sm text-end" style="width:70px"
+                                           min="0" step="1"
+                                           t-att-disabled="props.disabled"
+                                           t-att-value="cropY"
+                                           t-on-change="(ev) => this.onCropDimChange('y', ev)"/>
+                                </div>
+                            </div>
+                            <div class="mb-2">
+                                <label class="text-muted small mb-1 d-block">Size (px)</label>
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">W</span>
+                                    <input type="number" class="form-control form-control-sm text-end" style="width:70px"
+                                           min="2" step="2"
+                                           t-att-disabled="props.disabled"
+                                           t-att-value="cropW"
+                                           t-on-change="(ev) => this.onCropDimChange('w', ev)"/>
+                                    <span class="text-muted small ms-2">H</span>
+                                    <input type="number" class="form-control form-control-sm text-end" style="width:70px"
+                                           min="2" step="2"
+                                           t-att-disabled="props.disabled"
+                                           t-att-value="cropH"
+                                           t-on-change="(ev) => this.onCropDimChange('h', ev)"/>
+                                </div>
+                            </div>
+                        </t>
                         <button class="btn btn-outline-secondary btn-sm w-100" t-on-click="() => this.onReset('crop')">Clear crop</button>
                     </div>
                 </div>
             </t>
+
+            <div class="card mb-2">
+                <div class="card-body p-2">
+                    <h6 class="card-title">Output Resolution</h6>
+                    <select class="form-select form-select-sm mb-2"
+                            t-att-disabled="props.disabled"
+                            t-on-change="onSelectResolution">
+                        <t t-foreach="resolutionPresets" t-as="preset" t-key="preset.key">
+                            <option t-att-value="preset.key"
+                                    t-att-selected="resizePresetKey === preset.key ? 'selected' : null">
+                                <t t-esc="preset.label"/>
+                            </option>
+                        </t>
+                    </select>
+                    <t t-if="resizePresetKey === 'custom'">
+                        <div class="d-flex align-items-center gap-1">
+                            <input type="number" class="form-control form-control-sm text-end" style="width:80px"
+                                   min="2" step="2"
+                                   t-att-disabled="props.disabled"
+                                   t-att-value="resizeWidth"
+                                   t-on-change="(ev) => this.onCustomResize('w', ev)"/>
+                            <span class="text-muted small">×</span>
+                            <input type="number" class="form-control form-control-sm text-end" style="width:80px"
+                                   min="2" step="2"
+                                   t-att-disabled="props.disabled"
+                                   t-att-value="resizeHeight"
+                                   t-on-change="(ev) => this.onCustomResize('h', ev)"/>
+                            <span class="text-muted small">px</span>
+                        </div>
+                    </t>
+                    <p class="small text-muted mt-2 mb-0" t-if="resizePresetKey !== 'original'">
+                        Output: <strong><t t-esc="resizeWidth"/> × <t t-esc="resizeHeight"/></strong> px. Crop (if set) is applied first, then scaled.
+                    </p>
+                </div>
+            </div>
 
             <div class="card mb-2">
                 <div class="card-body p-2">

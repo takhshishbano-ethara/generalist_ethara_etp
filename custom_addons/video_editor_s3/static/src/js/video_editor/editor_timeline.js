@@ -83,9 +83,11 @@ export class EditorTimeline extends Component {
     }
 
     formatTime(seconds) {
-        const s = Math.max(0, Math.floor(seconds || 0));
-        const m = Math.floor(s / 60);
-        const r = s % 60;
-        return `${m}:${r.toString().padStart(2, "0")}`;
+        const total = Math.max(0, seconds || 0);
+        const m = Math.floor(total / 60);
+        const rem = total - m * 60;
+        const s = Math.floor(rem);
+        const ms = Math.round((rem - s) * 1000);
+        return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}.${ms.toString().padStart(3, "0")}`;
     }
 }

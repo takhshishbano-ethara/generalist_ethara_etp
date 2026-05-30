@@ -74,6 +74,7 @@ export class VideoEditor extends Component {
             duration: 0,
             currentTime: 0,
             playing: false,
+            playingTrim: false,
             videoError: null,
             videoDisplayTick: 0,
             sourceKind: "source",
@@ -362,6 +363,44 @@ export class VideoEditor extends Component {
         if (v) v.currentTime = Math.max(0, Math.min(this.state.duration, seconds || 0));
     }
 
+    _stopTrimPreview() {
+        const v = this.videoRef.el;
+        if (v && this._trimStopListener) {
+            v.removeEventListener("timeupdate", this._trimStopListener);
+            v.removeEventListener("pause", this._trimPauseListener);
+        }
+        this._trimStopListener = null;
+        this._trimPauseListener = null;
+        this.state.playingTrim = false;
+    }
+
+    async onPlayTrim() {
+        const v = this.videoRef.el;
+        const trim = this.state.config.trim;
+        if (!v || !trim || trim.end <= trim.start) return;
+        if (this.state.playingTrim) {
+            v.pause();
+            return;
+        }
+        this._stopTrimPreview();
+        v.currentTime = Math.max(0, trim.start);
+        this._trimStopListener = () => {
+            if (v.currentTime >= trim.end) {
+                v.pause();
+            }
+        };
+        this._trimPauseListener = () => this._stopTrimPreview();
+        v.addEventListener("timeupdate", this._trimStopListener);
+        v.addEventListener("pause", this._trimPauseListener);
+        this.state.playingTrim = true;
+        try {
+            await v.play();
+        } catch (err) {
+            this._stopTrimPreview();
+            this.state.videoError = err && err.message ? err.message : String(err);
+        }
+    }
+
     onScrub(ev) {
         this.onSeek(parseFloat(ev.target.value));
     }
@@ -459,6 +498,23 @@ export class VideoEditor extends Component {
     onUpdateFilter(filter) { this.state.config.filter = filter; }
     onUpdateRotate(deg) { this.state.config.rotate = deg; }
     onUpdateResize(preset) { this.state.config.resize = preset; }
+
+    onUpdateCrop(crop) {
+        if (!crop || !crop.w || !crop.h) {
+            this.state.config.crop = null;
+            return;
+        }
+        const v = this.videoRef.el;
+        const maxW = (v && v.videoWidth) || 0;
+        const maxH = (v && v.videoHeight) || 0;
+        let w = Math.max(2, Math.floor(crop.w));
+        let h = Math.max(2, Math.floor(crop.h));
+        let x = Math.max(0, Math.floor(crop.x || 0));
+        let y = Math.max(0, Math.floor(crop.y || 0));
+        if (maxW) { w = Math.min(w, maxW); x = Math.min(x, Math.max(0, maxW - w)); }
+        if (maxH) { h = Math.min(h, maxH); y = Math.min(y, Math.max(0, maxH - h)); }
+        this.state.config.crop = { w, h, x, y };
+    }
 
     async onRender(preview = false) {
         if (!this.state.projectId) {
