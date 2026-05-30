@@ -30,7 +30,6 @@ class SkollConfigSettings(models.TransientModel):
     skoll_web_search_provider = fields.Selection(
         [
             ("brave", "Brave"),
-            ("duckduckgo", "DuckDuckGo"),
             ("disabled", "Disabled"),
         ],
         string="Web Search Provider",

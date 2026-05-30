@@ -291,17 +291,18 @@ def _build_openclaw_config(
         },
     }
 
-    if web_search_provider == "brave" and brave_api_key:
+    if web_search_provider == "brave":
         entries = config_dict.setdefault("plugins", {}).setdefault("entries", {})
-        entries["brave"] = {
-            "enabled": True,
-            "config": {
-                "webSearch": {
-                    "apiKey": brave_api_key,
-                    "mode": "web",
+        if brave_api_key:
+            entries["brave"] = {
+                "enabled": True,
+                "config": {
+                    "webSearch": {
+                        "apiKey": brave_api_key,
+                        "mode": "web",
+                    }
                 }
             }
-        }
         for plugin_id in (
             "minimax", "gemini", "grok", "moonshot", "perplexity",
             "firecrawl", "exa", "tavily",

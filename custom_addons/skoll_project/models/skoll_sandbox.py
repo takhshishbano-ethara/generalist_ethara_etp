@@ -27,7 +27,6 @@ from .skoll import (
     _wrap_trajectory_message,
     generate_task_description_sync,
 )
-from .skoll_sandbox_k8s import _build_openclaw_config
 
 _logger = logging.getLogger(__name__)
 
@@ -291,13 +290,10 @@ class SkollSandbox(models.Model):
     # Turns
     turn_ids = fields.One2many("skoll.turn", "sandbox_id", string="Turns")
 
-    _sql_constraints = [
-        (
-            "unique_task_model",
-            "UNIQUE(skoll_id, model_type)",
-            "Each task can only have one sandbox per model type.",
-        ),
-    ]
+    _unique_task_model = models.Constraint(
+        'UNIQUE(skoll_id, model_type)',
+        "Each task can only have one sandbox per model type.",
+    )
 
     # ------------------------------------------------------------------
     # Computed fields
@@ -2633,6 +2629,7 @@ class SkollSandbox(models.Model):
         )
         brave_api_key = ICP.get_param("skoll.brave_api_key", "").strip()
 
+        from .skoll_sandbox_k8s import _build_openclaw_config
         config = _build_openclaw_config(
             gateway_token,
             env,
