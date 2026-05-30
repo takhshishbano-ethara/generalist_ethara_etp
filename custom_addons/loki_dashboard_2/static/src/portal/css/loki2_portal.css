@@ -119,6 +119,7 @@ body {
   color: var(--ink-2);
   background: var(--bg);
   min-height: 100vh;
+  overflow-x: clip;
 }
 code, .mono {
   font-family: var(--font-mono);
@@ -487,7 +488,10 @@ hr.rule {
   border: var(--hairline);
   background: var(--bg-2);
   padding: 16px;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  width: 100%;
+  max-width: 100%;
   box-shadow: var(--card-shadow);
 }
 .timeline-svg {
