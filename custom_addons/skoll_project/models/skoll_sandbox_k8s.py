@@ -247,9 +247,7 @@ def _build_openclaw_config(
         ],
     }
     # Web search provider is config-driven so we can swap Brave / DuckDuckGo /
-    # disabled from Odoo Settings without rebuilding the OpenClaw image. Stock
-    # ghcr.io/openclaw/openclaw:latest rejects `freshness` for Kimi at runtime
-    # (`unsupported_freshness`), which is why Kimi is no longer the default.
+    # disabled from Odoo Settings without rebuilding the OpenClaw image.
     tools_web_search = {
         "maxResults": 5,
         "timeoutSeconds": 30,
@@ -918,15 +916,6 @@ class SkollSandboxK8s(models.AbstractModel):
                             name=gog_secret_name,
                             key="_GOG_ACCOUNT",
                             optional=True,
-                        ),
-                    ),
-                ),
-                client.V1EnvVar(
-                    name="MOONSHOT_API_KEY",
-                    value_from=client.V1EnvVarSource(
-                        secret_key_ref=client.V1SecretKeySelector(
-                            name=secret_name,
-                            key="MOONSHOT_API_KEY",
                         ),
                     ),
                 ),
