@@ -420,10 +420,14 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             raise UserError(_("S3 settings are missing — configure bucket and credentials."))
         youtube_prefix = env["video.editor.s3.settings"].get_youtube_prefix()
         max_size_bytes = env["video.editor.s3.settings"].get_max_source_size_bytes()
-        yt_ingest_cfg = env["video.editor.s3.settings"].get_youtube_ingest_config()
+        yt_ingest_cfg = env["video.editor.s3.settings"].get_youtube_ingest_config_for_user(uid)
         yt_cookies_browser = yt_ingest_cfg.get("cookies_browser") or ""
         yt_cookies_path = yt_ingest_cfg.get("cookies_path") or ""
         yt_proxy = yt_ingest_cfg.get("proxy_url") or ""
+        _logger.info(
+            "youtube_ingest job=%s uid=%s cookies_owner=%s",
+            job_id, uid, yt_ingest_cfg.get("cookies_owner") or "none",
+        )
 
     _bump_heartbeat(db, job_id, "validating YouTube URL")
     video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)

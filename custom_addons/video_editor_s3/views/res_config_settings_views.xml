@@ -56,17 +56,15 @@
                         </setting>
                     </block>
                     <block title="YouTube Ingest" name="video_editor_s3_youtube">
-                        <setting id="video_editor_s3_yt_cookies_browser" string="Cookies From Browser" help="Auto-import YouTube cookies from an installed browser (chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). Optionally append :PROFILE e.g. 'chrome:Profile 1'. The browser must be installed on the Odoo host and logged in to YouTube.">
-                            <field name="video_editor_s3_yt_cookies_browser" placeholder="chrome"/>
-                        </setting>
-                        <setting id="video_editor_s3_yt_cookies_path" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Recommended for server deployments.">
-                            <field name="video_editor_s3_yt_cookies_path" placeholder="/var/lib/odoo/yt_cookies.txt"/>
+                        <setting id="video_editor_s3_yt_cookies_file_setting" string="Admin Cookies File (Upload)" help="Upload a Netscape-format cookies.txt exported from a logged-in YouTube session. Used as fallback for users who have NOT uploaded their own. Takes precedence over the path field below. Each user can override via Crowley Sourcing → My YouTube Cookies.">
+                            <field name="video_editor_s3_yt_cookies_file" filename="video_editor_s3_yt_cookies_filename"/>
+                            <field name="video_editor_s3_yt_cookies_filename" invisible="1"/>
+                            <div class="text-muted small mt-1" invisible="not video_editor_s3_yt_cookies_uploaded_at_display">
+                                Uploaded: <field name="video_editor_s3_yt_cookies_uploaded_at_display" readonly="1" nolabel="1" class="d-inline-block"/>
+                            </div>
                         </setting>
                         <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
                             <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
-                        </setting>
-                        <setting>
-                            <button name="action_test_youtube_cookies" string="Test YouTube Config" type="object" class="btn-primary"/>
                         </setting>
                     </block>
                     <block title="System Paths" name="video_editor_s3_paths">
