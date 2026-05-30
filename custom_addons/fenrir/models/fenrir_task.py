@@ -93,6 +93,8 @@ class FenrirTask(models.Model):
             rec.status = "rejected"
 
     def action_submit_task(self):
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise UserError("Only managers can submit tasks.")
         for rec in self:
             rec.status = "completed"
             rec.submitted_at = fields.Datetime.now()
