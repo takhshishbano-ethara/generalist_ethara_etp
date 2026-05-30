@@ -101,6 +101,10 @@ class TestK8sHelperFunctions(SkollTestCase):
             "BSA-test-key",
         )
         self.assertNotIn("enabled", cfg["tools"]["web"]["search"])
+        # Subagents must also receive web_search + web_fetch via alsoAllow
+        subagent_tools = cfg["tools"]["subagents"]["tools"]
+        self.assertIn("web_search", subagent_tools["alsoAllow"])
+        self.assertIn("web_fetch", subagent_tools["alsoAllow"])
 
     def test_build_openclaw_config_duckduckgo(self):
         """DuckDuckGo provider does not require an API key or plugins block."""

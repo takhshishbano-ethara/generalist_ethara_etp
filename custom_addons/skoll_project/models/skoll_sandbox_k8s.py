@@ -257,7 +257,14 @@ def _build_openclaw_config(
         tools_web_search["enabled"] = False
     else:
         tools_web_search["provider"] = web_search_provider
-    config_dict["tools"] = {"web": {"search": tools_web_search}}
+    config_dict["tools"] = {
+        "web": {"search": tools_web_search},
+        "subagents": {
+            "tools": {
+                "alsoAllow": ["web_search", "web_fetch"],
+            }
+        },
+    }
 
     if web_search_provider == "brave" and brave_api_key:
         config_dict.setdefault("plugins", {}).setdefault("entries", {})["brave"] = {
