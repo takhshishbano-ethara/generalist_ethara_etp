@@ -49,12 +49,21 @@ _DEFAULT_USER_AGENT = (
 # images are returned and we ship a JPEG to S3).
 _DEFAULT_REMOTE_COMPONENTS = ("ejs:github",)
 
+# Default `web_safari` is SABR-only on datacenter IPs (zero formats). Order
+# is load-bearing: tv_downgraded uses uploaded cookies for auth, then no-token
+# fallbacks, then web last (web needs the bgutil PO-token provider if reached).
+_DEFAULT_YOUTUBE_CLIENTS = ("tv_downgraded", "android_vr", "mweb", "web")
+
 _BOT_CHALLENGE_MARKERS = (
     "sign in to confirm",
     "confirm you're not a bot",
     "confirm you\u2019re not a bot",
     "cookies-from-browser",
     "captcha",
+    "requested format is not available",
+    "requested formats are incompatible",
+    "no video formats found",
+    "only storyboard",
 )
 
 # Split out from bot-challenge because the remediation is different: a 429
@@ -475,6 +484,10 @@ def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None
         "http_headers": {"User-Agent": _DEFAULT_USER_AGENT},
         "geo_bypass": True,
         "remote_components": list(_DEFAULT_REMOTE_COMPONENTS),
+        "extractor_args": {
+            "youtube": {"player_client": list(_DEFAULT_YOUTUBE_CLIENTS)},
+        },
+        "source_address": "0.0.0.0",
     }
     if cookies_path:
         validate_cookies_file(cookies_path)
