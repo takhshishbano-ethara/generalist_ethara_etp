@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_loki_dashboard_2" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.loki_dashboard_2</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Loki Clinical Dashboard" string="Loki Clinical Dashboard" name="loki_dashboard_2">
+                    <block title="Clinical Dashboard Settings">
+                        <setting string="Dashboard Title" help="Title shown on the public clinical dashboard at /loki2.">
+                            <field name="loki_dashboard_2_title" placeholder="Clinical Dashboard"/>
+                        </setting>
+                    </block>
+                    <block title="S3 Asset Storage" help="Heavy WSI tiles and clinical PDFs are served from S3 via signed URLs.">
+                        <setting string="Bucket" help="Bucket name (e.g. production-grtlabs-tag).">
+                            <field name="loki_s3_bucket" placeholder="production-grtlabs-tag"/>
+                        </setting>
+                        <setting string="Region">
+                            <field name="loki_s3_region" placeholder="us-east-1"/>
+                        </setting>
+                        <setting string="Key Prefix" help="Folder under the bucket — keys become &lt;prefix&gt;/wsi/... and &lt;prefix&gt;/docs/...">
+                            <field name="loki_s3_prefix" placeholder="loki_dashboard"/>
+                        </setting>
+                        <setting string="Endpoint URL" help="Leave blank for AWS S3. Set for Cloudflare R2 / MinIO / other S3-compatible.">
+                            <field name="loki_s3_endpoint" placeholder="(blank for AWS)"/>
+                        </setting>
+                        <setting string="WSI URL TTL (seconds)" help="Lifetime of presigned URLs for WSI tiles/manifests.">
+                            <field name="loki_s3_ttl_wsi"/>
+                        </setting>
+                        <setting string="Document URL TTL (seconds)" help="Lifetime of presigned URLs for clinical PDFs.">
+                            <field name="loki_s3_ttl_doc"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

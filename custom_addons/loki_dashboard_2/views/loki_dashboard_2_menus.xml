@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="loki_dashboard_2_url_action" model="ir.actions.act_url">
+        <field name="name">Loki Clinical Dashboard</field>
+        <field name="url">/loki2</field>
+        <field name="target">self</field>
+    </record>
+
+    <menuitem id="loki_dashboard_2_menu_root"
+              name="Loki Clinical Dashboard"
+              action="loki_dashboard_2_url_action"
+              sequence="204"/>
+</odoo>
