@@ -430,7 +430,8 @@
                     <div class="oe_button_box mt-3 text-end"
                          invisible="not id or status != 'approved'">
                         <button name="action_submit_task" type="object"
-                                string="Submit" class="btn-success"/>
+                                string="Submit" class="btn-success"
+                                groups="fenrir.group_fenrir_manager"/>
                     </div>
                 </sheet>
                 <chatter/>
