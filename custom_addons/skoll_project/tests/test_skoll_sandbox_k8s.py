@@ -143,6 +143,42 @@ class TestK8sHelperFunctions(SkollTestCase):
         self.assertNotIn("apiKey", cfg["tools"]["web"]["search"])
         self.assertNotIn("plugins", cfg)
 
+    def test_build_openclaw_config_local_overrides(self):
+        """Local-mode keyword params set browser, litellm, and strip gateway extras."""
+        from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
+        origins = ["http://localhost:9999"]
+        cfg = _build_openclaw_config(
+            "tok", {},
+            brave_api_key="BSA-local",
+            allowed_origins=origins,
+            browser_executable_path="/usr/bin/chromium",
+            litellm_base_url="http://litellm:4000/v1",
+            include_gateway_mode=False,
+            include_rate_limit=False,
+        )
+        self.assertNotIn("mode", cfg["gateway"])
+        self.assertNotIn("rateLimit", cfg["gateway"]["auth"])
+        self.assertEqual(cfg["gateway"]["controlUi"]["allowedOrigins"], origins)
+        self.assertEqual(cfg["browser"]["executablePath"], "/usr/bin/chromium")
+        self.assertEqual(
+            cfg["models"]["providers"]["litellm"]["baseUrl"],
+            "http://litellm:4000/v1",
+        )
+        self.assertEqual(cfg["tools"]["web"]["search"]["provider"], "brave")
+        self.assertTrue(cfg["plugins"]["entries"]["brave"]["enabled"])
+
+    def test_build_openclaw_config_k8s_defaults(self):
+        """Default keyword params produce K8s-style gateway with mode and rateLimit."""
+        from odoo.addons.skoll.models.skoll_sandbox_k8s import _build_openclaw_config
+        cfg = _build_openclaw_config("tok", {})
+        self.assertEqual(cfg["gateway"]["mode"], "local")
+        self.assertIn("rateLimit", cfg["gateway"]["auth"])
+        self.assertNotIn("executablePath", cfg["browser"])
+        self.assertEqual(
+            cfg["models"]["providers"]["litellm"]["baseUrl"],
+            "http://localhost:4000/v1",
+        )
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # 2. deploy_sandbox
@@ -260,8 +296,8 @@ class TestK8sDeploy(SkollTestCase):
     @patch(_K8S_MOD + ".config")
     @patch(_K8S_MOD + ".client")
     @patch(_K8S_MOD + "._load_dotenv", return_value={})
-    def test_deploy_409_conflict_ignored(self, _dotenv, mock_client, _config):
-        """ApiException(status=409) on create → no error (resource exists)."""
+    def test_deploy_409_conflict_handled(self, _dotenv, mock_client, _config):
+        """ApiException(409) on create → patches deployment for rolling restart."""
         exc_409 = _make_api_exception(409)
         mock_core = MagicMock()
         mock_apps = MagicMock()
@@ -270,19 +306,21 @@ class TestK8sDeploy(SkollTestCase):
         mock_client.AppsV1Api.return_value = mock_apps
         mock_client.NetworkingV1Api.return_value = mock_net
 
-        # Patch ApiException reference used in except clauses
         mock_client.rest.ApiException = type(exc_409)
         with patch(_K8S_MOD + ".ApiException", type(exc_409)):
             mock_core.create_namespaced_secret.side_effect = exc_409
             mock_core.create_namespaced_config_map.side_effect = exc_409
             mock_core.create_namespaced_service.side_effect = exc_409
             mock_apps.create_namespaced_deployment.side_effect = exc_409
-            # WS router already exists
             mock_apps.read_namespaced_deployment.return_value = MagicMock()
 
             deployer = self._get_deployer()
-            # Should not raise
             deployer.deploy_sandbox(self.claude_sandbox)
+
+            mock_apps.patch_namespaced_deployment.assert_called_once()
+            call_kw = mock_apps.patch_namespaced_deployment.call_args[1]
+            self.assertEqual(call_kw["namespace"], "skoll")
+            self.assertIn("skoll-sandbox-", call_kw["name"])
 
     @patch(_K8S_MOD + ".K8S_AVAILABLE", True)
     @patch(_K8S_MOD + ".config")

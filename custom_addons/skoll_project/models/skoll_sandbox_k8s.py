@@ -147,7 +147,19 @@ def _build_openclaw_config(
     model_type="claude",
     web_search_provider="brave",
     brave_api_key="",
+    *,
+    allowed_origins=None,
+    browser_executable_path=None,
+    litellm_base_url="http://localhost:4000/v1",
+    include_gateway_mode=True,
+    include_rate_limit=True,
 ):
+    """Build openclaw.json config dict.
+
+    Shared by both K8s and local-Docker deployment paths.  The keyword-only
+    parameters let the local path override gateway, browser and litellm
+    settings without duplicating the web-search / plugin / agent logic.
+    """
     aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
     aws_region = env.get("AWS_REGION", "ap-south-1").strip()
     bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
@@ -155,37 +167,48 @@ def _build_openclaw_config(
     if not litellm_key:
         litellm_key = "sk-skoll-%s" % secrets.token_hex(8)
 
+    if allowed_origins is None:
+        allowed_origins = [
+            "https://projects.ethara.ai",
+            "http://projects.ethara.ai",
+            "http://localhost:18789",
+            "http://127.0.0.1:18789",
+            "http://0.0.0.0:18789",
+        ]
+
+    gateway_auth = {
+        "mode": "token",
+        "token": gateway_token,
+    }
+    if include_rate_limit:
+        gateway_auth["rateLimit"] = {
+            "maxAttempts": 9999,
+            "windowMs": 1000,
+            "lockoutMs": 1000,
+        }
+
+    gateway = {"bind": "lan"}
+    if include_gateway_mode:
+        gateway["mode"] = "local"
+    gateway["auth"] = gateway_auth
+    gateway["trustedProxies"] = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+    gateway["controlUi"] = {
+        "allowedOrigins": allowed_origins,
+        "dangerouslyDisableDeviceAuth": True,
+    }
+
+    browser = {
+        "enabled": True,
+        "headless": True,
+        "noSandbox": True,
+        "defaultProfile": "openclaw",
+    }
+    if browser_executable_path:
+        browser["executablePath"] = browser_executable_path
+
     config_dict = {
-        "gateway": {
-            "mode": "local",
-            "bind": "lan",
-            "auth": {
-                "mode": "token",
-                "token": gateway_token,
-                "rateLimit": {
-                    "maxAttempts": 9999,
-                    "windowMs": 1000,
-                    "lockoutMs": 1000,
-                },
-            },
-            "trustedProxies": ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
-            "controlUi": {
-                "allowedOrigins": [
-                    "https://projects.ethara.ai",
-                    "http://projects.ethara.ai",
-                    "http://localhost:18789",
-                    "http://127.0.0.1:18789",
-                    "http://0.0.0.0:18789",
-                ],
-                "dangerouslyDisableDeviceAuth": True,
-            },
-        },
-        "browser": {
-            "enabled": True,
-            "headless": True,
-            "noSandbox": True,
-            "defaultProfile": "openclaw",
-        },
+        "gateway": gateway,
+        "browser": browser,
         "models": {"providers": {}},
     }
 
@@ -211,7 +234,7 @@ def _build_openclaw_config(
         }
 
     providers["litellm"] = {
-        "baseUrl": "http://localhost:4000/v1",
+        "baseUrl": litellm_base_url,
         "apiKey": litellm_key,
         "auth": "api-key",
         "api": "openai-completions",
@@ -1271,7 +1294,25 @@ class SkollSandboxK8s(models.AbstractModel):
         try:
             apps_v1.create_namespaced_deployment(namespace=NAMESPACE, body=deployment)
         except ApiException as e:
-            if e.status != 409:
+            if e.status == 409:
+                # Deployment already exists — patch its full spec so any
+                # changes to images, env vars, volumes, etc. are applied.
+                # A fresh timestamp annotation on the pod template forces
+                # K8s to create a new ReplicaSet, triggering a rolling
+                # restart even when the rest of the spec is unchanged.
+                import datetime as _dt
+
+                deployment.spec.template.metadata.annotations[
+                    "skoll.ethara.ai/restarted-at"
+                ] = _dt.datetime.utcnow().isoformat()
+                apps_v1.patch_namespaced_deployment(
+                    name=name, namespace=NAMESPACE, body=deployment
+                )
+                _logger.info(
+                    "Patched existing deployment %s — rolling restart triggered",
+                    name,
+                )
+            else:
                 raise
 
     def _create_service(self, core_v1, sandbox_record, labels, name):

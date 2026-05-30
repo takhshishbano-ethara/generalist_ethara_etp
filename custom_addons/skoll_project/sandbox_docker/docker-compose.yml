@@ -12,6 +12,7 @@ services:
       - PERSONA=${PERSONA:-marcus}
       - OPENCLAW_GATEWAY_TOKEN=${OPENCLAW_GATEWAY_TOKEN:-skoll-sandbox}
       - PLAYWRIGHT_BROWSERS_PATH=/home/node/.cache/ms-playwright
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-}
     volumes:
       - ./personas:/sandbox/personas:ro
       - ./data/${PERSONA:-marcus}:/home/node/.openclaw

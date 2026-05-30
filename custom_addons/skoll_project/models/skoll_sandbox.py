@@ -27,6 +27,7 @@ from .skoll import (
     _wrap_trajectory_message,
     generate_task_description_sync,
 )
+from .skoll_sandbox_k8s import _build_openclaw_config
 
 _logger = logging.getLogger(__name__)
 
@@ -2614,13 +2615,6 @@ class SkollSandbox(models.Model):
                 with open(os.path.join(ws_dir, fname), "w") as f:
                     f.write(content)
 
-        aws_bearer = env.get("AWS_BEARER_TOKEN_BEDROCK", "").strip()
-        aws_region = env.get("AWS_REGION", "ap-south-1").strip()
-        bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
-        litellm_key = env.get("LITELLM_MASTER_KEY", "").strip()
-        if not litellm_key:
-            litellm_key = "sk-skoll-%s" % secrets.token_hex(8)
-
         origins = [
             "http://localhost:18789",
             "http://127.0.0.1:18789",
@@ -2632,128 +2626,33 @@ class SkollSandbox(models.Model):
             origins.append("http://localhost:%d" % gateway_port)
             origins.append("http://127.0.0.1:%d" % gateway_port)
 
-        config = {
-            "gateway": {
-                "bind": "lan",
-                "auth": {"mode": "token", "token": gateway_token},
-                "trustedProxies": [
-                    "172.16.0.0/12",
-                    "192.168.0.0/16",
-                    "10.0.0.0/8",
-                ],
-                "controlUi": {
-                    "allowedOrigins": origins,
-                    "dangerouslyDisableDeviceAuth": True,
-                },
-            },
-            "browser": {
-                "enabled": True,
-                "headless": True,
-                "noSandbox": True,
-                "defaultProfile": "openclaw",
-                "executablePath": "/usr/bin/chromium",
-            },
-            "models": {"providers": {}},
-        }
+        ICP = self.env["ir.config_parameter"].sudo()
+        web_search_provider = (
+            ICP.get_param("skoll.web_search_provider", "brave").strip()
+            or "brave"
+        )
+        brave_api_key = ICP.get_param("skoll.brave_api_key", "").strip()
 
-        providers = config["models"]["providers"]
-
-        if aws_bearer and bedrock_arn:
-            providers["skoll-bedrock"] = {
-                "baseUrl": "https://bedrock-runtime.%s.amazonaws.com" % aws_region,
-                "apiKey": aws_bearer,
-                "auth": "api-key",
-                "api": "bedrock-converse-stream",
-                "models": [
-                    {
-                        "id": bedrock_arn,
-                        "name": "claude-inference",
-                        "reasoning": True,
-                        "input": ["text", "image"],
-                        "cost": {
-                            "input": 0,
-                            "output": 0,
-                            "cacheRead": 0,
-                            "cacheWrite": 0,
-                        },
-                        "contextWindow": 200000,
-                        "maxTokens": 128000,
-                    }
-                ],
-            }
-        providers["litellm"] = {
-            "baseUrl": "http://litellm:4000/v1",
-            "apiKey": litellm_key,
-            "auth": "api-key",
-            "api": "openai-completions",
-            "request": {"allowPrivateNetwork": True},
-            "models": [
-                {
-                    "id": "claude-opus-4.7",
-                    "name": "claude-opus-4.7",
-                    "reasoning": True,
-                    "input": ["text", "image"],
-                    "cost": {
-                        "input": 0,
-                        "output": 0,
-                        "cacheRead": 0,
-                        "cacheWrite": 0,
-                    },
-                    "contextWindow": 200000,
-                    "maxTokens": 128000,
-                },
-                {
-                    "id": "kimi-k2.6",
-                    "name": "kimi-k2.6",
-                    "reasoning": True,
-                    "input": ["text", "image"],
-                    "cost": {
-                        "input": 0,
-                        "output": 0,
-                        "cacheRead": 0,
-                        "cacheWrite": 0,
-                    },
-                    "contextWindow": 131072,
-                    "maxTokens": 32768,
-                },
-                {
-                    "id": "quiet_sand",
-                    "name": "quiet_sand",
-                    "reasoning": True,
-                    "input": ["text", "image"],
-                    "cost": {
-                        "input": 0,
-                        "output": 0,
-                        "cacheRead": 0,
-                        "cacheWrite": 0,
-                    },
-                    "contextWindow": 131072,
-                    "maxTokens": 32768,
-                },
-            ],
-        }
-
-        default_model = MODEL_DEFAULTS.get(self.model_type)
-        if default_model:
-            config["agents"] = {
-                "defaults": {
-                    "model": default_model,
-                    "thinkingDefault": "xhigh",
-                    "subagents": {
-                        "delegationMode": "prefer",
-                        "maxSpawnDepth": 2,
-                        "maxConcurrent": 4,
-                        "maxChildrenPerAgent": 5,
-                        "runTimeoutSeconds": 600,
-                    },
-                }
-            }
+        config = _build_openclaw_config(
+            gateway_token,
+            env,
+            self.model_type,
+            web_search_provider=web_search_provider,
+            brave_api_key=brave_api_key,
+            allowed_origins=origins,
+            browser_executable_path="/usr/bin/chromium",
+            litellm_base_url="http://litellm:4000/v1",
+            include_gateway_mode=False,
+            include_rate_limit=False,
+        )
 
         with open(os.path.join(data_dir, "openclaw.json"), "w") as f:
             json.dump(config, f)
 
         litellm_yaml = persona.litellm_config_yaml
         if not litellm_yaml:
+            bedrock_arn = env.get("BEDROCK_MODEL_ARN", "").strip()
+            aws_region = env.get("AWS_REGION", "ap-south-1").strip()
             glm_arn = env.get("GLM_BEDROCK_MODEL_ARN", "").strip()
             glm_region = env.get("GLM_AWS_REGION", "us-east-1").strip()
             litellm_yaml = _DEFAULT_LITELLM_CONFIG.format(
@@ -2932,6 +2831,15 @@ class SkollSandbox(models.Model):
         task_email = self.skoll_id.email
         if task_email:
             env["GOG_ACCOUNT"] = task_email
+
+        brave_api_key = (
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param("skoll.brave_api_key", "")
+            .strip()
+        )
+        if brave_api_key:
+            env["BRAVE_API_KEY"] = brave_api_key
 
         _logger.info(
             "[GogAuth→Docker] _build_compose_env task=%s GOG_ACCOUNT=%s GOG_KEYRING_PASSWORD=%s",
