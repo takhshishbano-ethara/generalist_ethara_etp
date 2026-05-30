@@ -1,0 +1,2899 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-05-30T10:21:52",
+  "source_layout": "flat",
+  "patients": [
+    {
+      "id": "3",
+      "code": "P3",
+      "demographics": {
+        "age_years": 65.0,
+        "gender": "F",
+        "height_cm": 155.4,
+        "weight_kg": 62.0,
+        "bmi": null,
+        "diet": "Veg",
+        "marital_status": "MARRIED",
+        "children_count": 2,
+        "religion": "Muslim",
+        "mother_tongue": "Hindi",
+        "occupation": "Professional"
+      },
+      "cancer_profile": {
+        "symptoms": [
+          "Acute anaemia"
+        ],
+        "risk_factors": [
+          "Smoking: Never smoker",
+          "Alcohol: Never"
+        ],
+        "comorbidities": [
+          "Diabetes Mellitus",
+          "Hypertension"
+        ],
+        "family_history": [],
+        "site": "Large Intestine",
+        "icd_o_3_topo": "C18",
+        "location": "Ascending colon",
+        "icd_o_3_location": "C18.2",
+        "morphology": "Adenocarcinoma, NOS",
+        "icd_o_3_morph": "8140/3",
+        "laterality": "Not a paired Site",
+        "age_at_diagnosis": 63.0
+      },
+      "current_stage": {
+        "edition": "8th",
+        "t": "3",
+        "n": "2b",
+        "m": "0",
+        "stage": "IV",
+        "grade": "G 2",
+        "as_of": null
+      },
+      "latest_performance": {
+        "as_of": "2025-10-10",
+        "label": "Stable Disease (SD)",
+        "recist": "SD"
+      },
+      "status": "alive",
+      "days_since_diagnosis": 2174,
+      "events": [
+        {
+          "date": "2020-06-16",
+          "category": "surgery",
+          "title": "Surgery",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2020-06-16",
+          "category": "surgery",
+          "title": "Laparotomy followed by extended right hemicolectomy",
+          "detail": "Ca ascending colon. \nPost surgical HPR – Moderately differentiated adenocarcinoma with LN metastasis. \nPost surgical staging: pT3 N2 M0.\nAdvice:\nCap. Denvar (200 mg) (1-0-1) x 5 days.\nTab. Reservix (100 mg) (1-0-1) if pain.\nCap. Progut 20 mg (1-0-1) x 7 days.\nT. santox (0-1-0) x 15 days. \nT. Osartil",
+          "ref": "surgery"
+        },
+        {
+          "date": "2020-06-20",
+          "category": "staging_information",
+          "title": "Staging_Information",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2020-06-20",
+          "category": "pathology",
+          "title": "Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2020-06-20",
+          "category": "pathology",
+          "title": "Pathology: Resection",
+          "detail": "Ascending colon",
+          "ref": "pathology"
+        },
+        {
+          "date": "2020-07-11",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2020-07-11",
+          "category": "chemo",
+          "title": "[Oxaliplatin, Capecitabine",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2021-04-21",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-04-21",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "k/c/o Carcinoma of ascending colon. Chemo – 8 cycles completed on 11/03/2021. \nMediastinal blood pool - SUV max 1.5\nNo metabolic e/o recurrent mass at right hemicolectomy area. \nSingle FDG avid nodule at anterior segment of left upper lung. Needs further evaluation and follow up.\nMild splenomegaly w",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-02-23",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-02-23",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "In a case of ca colon with lung metastasis underwent right hemicolectomy and metastatectomy (left upper lung) also treated with chemotherapy, comparing to previous scan, current PET CT shows, \nNo recurrent mass or abnormal FDG uptake at the site of anastomosis. \nNewly developed hypermetabolic soft t",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-03-06",
+          "category": "surgery",
+          "title": "Surgery",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-03-06",
+          "category": "surgery",
+          "title": "Left upper lobectomy",
+          "detail": "Hypertension, ca colon (operated), lung metastasis (lobectomy done), \nh/o generalized weakness. Patient improved clinically after operative management. \nAdvice: \nCap. Cef 3 (400 mg).\nTab. Levoxin (500 mg).\nT. Rabe 20 mg.\nSupp. Volatin 50 mg.\nTab. Lexotanil 3 mg.\nT. neurocare. \nTab. Bextrum silver.\nT",
+          "ref": "surgery"
+        },
+        {
+          "date": "2022-03-11",
+          "category": "pathology",
+          "title": "Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-03-11",
+          "category": "pathology",
+          "title": "Pathology: Resection",
+          "detail": "Upper Lobe",
+          "ref": "pathology"
+        },
+        {
+          "date": "2022-05-12",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-05-12",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-05-12",
+          "category": "molecular",
+          "title": "NGS: PIK3CA",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-12",
+          "category": "molecular",
+          "title": "NGS: APC",
+          "detail": "Nonsense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-12",
+          "category": "molecular",
+          "title": "IHC: PD-L1",
+          "detail": "Positive",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-10-26",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-10-26",
+          "category": "chemo",
+          "title": "Irinotecan, 5FU",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2022-10-27",
+          "category": "immunotherapy",
+          "title": "Immunotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-10-27",
+          "category": "targeted",
+          "title": "Bevacizumab",
+          "detail": "Cycles: 6.0",
+          "ref": "targeted"
+        },
+        {
+          "date": "2023-01-04",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2023-01-04",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "Carcinoma of colon. \nSurgery: Laparotomy F/B extended right hemicolectomy (16.06.2020); VATS metastasectomy in upper lobe of left lung (25.10.2021); Lobectomy in upper lobe of left lung (06.03.2022). FNAC/Biopsy (03.10.2021): CT guided FNAC (chest): containing malignant tumor cell. Histopathology (0",
+          "ref": "imaging"
+        },
+        {
+          "date": "2023-01-24",
+          "category": "colonoscopy",
+          "title": "Colonoscopy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2023-01-24",
+          "category": "imaging",
+          "title": "COLONOSCOPY",
+          "detail": "The ileo-transverse anastomosis is noted at 100 cm from the anal verge. The anastomotic line is healthy. No evidence of any growth recurrence is seen. The mucosa, vascular patternaa in the lumen of the terminal ileum, rest of the colon and rectum appeared healthy.",
+          "ref": "imaging"
+        },
+        {
+          "date": "2023-03-29",
+          "category": "hematology",
+          "title": "Hematology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2023-08-12",
+          "category": "hematology",
+          "title": "Hematology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-05-02",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-05-02",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "In a case of moderately differentiated adenocarcinoma of ascending colon with lung mets, underwent laparotomy followed by extended right hemicolectomy, metastectomy and left upper lobectomy, followed by radio- chemotherapy, compared with previous PET-CT scan done on 14.06.2023, current PET-CT scan s",
+          "ref": "imaging"
+        },
+        {
+          "date": "2024-05-16",
+          "category": "consultation",
+          "title": "Consultation",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-08-19",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-12-21",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-12-21",
+          "category": "clinical_biochemistry",
+          "title": "Clinical_Biochemistry",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-12-21",
+          "category": "hematology",
+          "title": "Hematology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2025-04-28",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2025-04-28",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "IMPRESSION: Known case of carcinoma of colon and metastatic carcinoma of left lung, underwent operation followed by chemotherapy, compared with previous PET-CT scan done on 02.05.2024, current PET-CT scan shows:\nNo evidence of abnormal FDG uptake or recurrent mass in right hemicolectomy site.\nStatus",
+          "ref": "imaging"
+        },
+        {
+          "date": "2025-07-08",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2025-08-26",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2025-08-26",
+          "category": "clinical_biochemistry",
+          "title": "Clinical_Biochemistry",
+          "detail": "",
+          "ref": "events_index"
+        }
+      ],
+      "treatments": {
+        "chemotherapy": [
+          {
+            "drug": "[Oxaliplatin, Capecitabine",
+            "start": "2020-07-11",
+            "end": "2021-02-15",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Diagnosis: ca ascending colon. H/o laparotomy followed by extended right hemicolectomy on 16/06/2020. \nHPE (post surgical): moderately differentiated adenocarcinoma with LN metastasis. \nPost surgical staging: pT13N2M0.\nPlan - Inj. Eloxatin (200 mg) D1, T. Xeloda (500 mg) (3+0+2) D2-D15.\nAdvice:\nT. Xeloda (500 mg) (3+0+2) – 12/07/2020 – 25/07/2020.\nT. Naurif (1 mg ) SOS.\nT. Deflux (10 mg) SSS.\nT. Pantonix (20 mg) SOS.\nT. Neurocare SOS.\nT. Bextrum Gold OSO.\nMicoral gel."
+          },
+          {
+            "drug": "Irinotecan, 5FU",
+            "start": "2022-10-26",
+            "end": "2023-04-05",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Pre medication:\nFolinic acid"
+          }
+        ],
+        "immunotherapy": [],
+        "targeted": [
+          {
+            "drug": "Bevacizumab",
+            "start": "2022-10-27",
+            "end": "2023-03-27",
+            "cycles": 6.0,
+            "dosage": "25mg/ ml --calculated as per BMI",
+            "comments": null
+          }
+        ],
+        "radiation": [],
+        "surgery": [
+          {
+            "procedure": "Laparotomy followed by extended right hemicolectomy",
+            "date": "2020-06-16",
+            "findings": "Ca ascending colon. \nPost surgical HPR – Moderately differentiated adenocarcinoma with LN metastasis. \nPost surgical staging: pT3 N2 M0.\nAdvice:\nCap. Denvar (200 mg) (1-0-1) x 5 days.\nTab. Reservix (100 mg) (1-0-1) if pain.\nCap. Progut 20 mg (1-0-1) x 7 days.\nT. santox (0-1-0) x 15 days. \nT. Osartil 50 mg (1-0-0) continue.\nT. montair (10 mg) (0-0-1) x 10 days. \nNystat oral drop – 10 drops over the tongue – twice daily x 7 days. \nStep  1 – adjuvant chemotherapy with XELOX protocol 8 cycles with caution. Considering covid 19 situation. Or oral chemotherapy with capecitabine 10-12 course. Considering avoidance of covid contamination and immunosuppression."
+          },
+          {
+            "procedure": "Left upper lobectomy",
+            "date": "2022-03-06",
+            "findings": "Hypertension, ca colon (operated), lung metastasis (lobectomy done), \nh/o generalized weakness. Patient improved clinically after operative management. \nAdvice: \nCap. Cef 3 (400 mg).\nTab. Levoxin (500 mg).\nT. Rabe 20 mg.\nSupp. Volatin 50 mg.\nTab. Lexotanil 3 mg.\nT. neurocare. \nTab. Bextrum silver.\nTab. Mucolyt 8 mg. \nT. corabid 5 mg.\nT. napa extend 665 mg."
+          }
+        ]
+      },
+      "stagings": [
+        {
+          "date": null,
+          "system": "AJCC",
+          "edition": "8th",
+          "type": "pTNM",
+          "t": "3",
+          "n": "2b",
+          "m": "0",
+          "metastatic_site": "Lung",
+          "grade": "G 2",
+          "stage": "IV"
+        }
+      ],
+      "pathology": [
+        {
+          "date": "2020-06-20",
+          "type": "Resection",
+          "tissue": "Primary",
+          "location": "Ascending colon",
+          "pt": "3",
+          "pn": "2b",
+          "pm": "x",
+          "grade": "G 2",
+          "morphology": "Adenocarcinoma, NOS"
+        },
+        {
+          "date": "2022-03-11",
+          "type": "Resection",
+          "tissue": "Secondary",
+          "location": "Upper Lobe",
+          "pt": null,
+          "pn": null,
+          "pm": "1",
+          "grade": "G2",
+          "morphology": "Adenocarcinoma, NOS"
+        }
+      ],
+      "molecular": [
+        {
+          "date": "2022-05-12",
+          "category": "NGS",
+          "gene": "PIK3CA",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-05-12",
+          "category": "NGS",
+          "gene": "APC",
+          "variation": "Nonsense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-05-12",
+          "category": "IHC",
+          "marker": "PD-L1",
+          "result": "Positive",
+          "clone": "22C3 Dako",
+          "comments": null
+        }
+      ],
+      "biomarkers": [
+        {
+          "date": "2024-08-19",
+          "test": "CEA",
+          "value": 2.51,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2024-12-21",
+          "test": "CEA",
+          "value": 1.9,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2025-07-08",
+          "test": "CEA",
+          "value": 0.7,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2025-08-26",
+          "test": "CEA",
+          "value": 2.51,
+          "unit": "ng/ml"
+        }
+      ],
+      "labs": [
+        {
+          "date": "2023-03-29",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Hemoglobin",
+          "value": 11.6,
+          "unit": "g/dl"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Hemoglobin",
+          "value": 12.2,
+          "unit": "g/dl"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Total  WBC/leukocyte count",
+          "value": 4.1,
+          "unit": "x10^3/ul"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Platelet count",
+          "value": 2.2,
+          "unit": "x10^3/ul"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Hematocrit",
+          "value": 38,
+          "unit": "%"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Total RBC count",
+          "value": 4.85,
+          "unit": "millions/cmm"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 65,
+          "unit": "%"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 28,
+          "unit": "%"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 3,
+          "unit": "%"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 6,
+          "unit": "%"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 0,
+          "unit": "%"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 78.4,
+          "unit": "fl"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 25.2,
+          "unit": "pg"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 32.1,
+          "unit": "g/dl"
+        },
+        {
+          "date": "2023-08-12",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 15,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Hemoglobin",
+          "value": 11.8,
+          "unit": "g/dl"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Total  WBC/leukocyte count",
+          "value": 3.4,
+          "unit": "xX10e9/L"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Platelet count",
+          "value": 151,
+          "unit": "xX10e9/L"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Hematocrit",
+          "value": 36.7,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "Total RBC count",
+          "value": 4.5,
+          "unit": "X10e12/L"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 70,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 22,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 0,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 4,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "WBC/Leukocyte differential count",
+          "value": 0,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 81.6,
+          "unit": "fl"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 26.2,
+          "unit": "pg"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 32.2,
+          "unit": "g/dl"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "Complete Blood Count",
+          "parameter": "RBC indices",
+          "value": 14.2,
+          "unit": "%"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Hematology",
+          "test": "ESR",
+          "parameter": "ESR",
+          "value": 29,
+          "unit": "mm/Hr"
+        },
+        {
+          "date": "2024-12-21",
+          "panel": "Clinical BioChemistry",
+          "test": "Renal function test",
+          "parameter": "Serum Creatinine",
+          "value": 0.78,
+          "unit": "mg/dl"
+        },
+        {
+          "date": "2025-08-26",
+          "panel": "Clinical BioChemistry",
+          "test": "Liver function test",
+          "parameter": "ALT",
+          "value": 19,
+          "unit": "U/L"
+        },
+        {
+          "date": "2025-08-26",
+          "panel": "Clinical BioChemistry",
+          "test": "Renal function test",
+          "parameter": "Serum Creatinine",
+          "value": 0.98,
+          "unit": "mg/dl"
+        },
+        {
+          "date": "2025-08-26",
+          "panel": "Clinical BioChemistry",
+          "test": "Lipid profile",
+          "parameter": "HDL",
+          "value": 54,
+          "unit": "mg/dl"
+        },
+        {
+          "date": "2025-08-26",
+          "panel": "Clinical BioChemistry",
+          "test": "Lipid profile",
+          "parameter": "LDL",
+          "value": 95,
+          "unit": "mg/dl"
+        },
+        {
+          "date": "2025-08-26",
+          "panel": "Clinical BioChemistry",
+          "test": "Lipid profile",
+          "parameter": "Total cholestrol",
+          "value": 167,
+          "unit": "mg/dl"
+        },
+        {
+          "date": "2025-08-26",
+          "panel": "Clinical BioChemistry",
+          "test": "Lipid profile",
+          "parameter": "Triglycerides",
+          "value": 90,
+          "unit": "mg/dl"
+        }
+      ],
+      "imaging": [
+        {
+          "date": "2021-04-21",
+          "modality": "PET_CT",
+          "impression": "k/c/o Carcinoma of ascending colon. Chemo – 8 cycles completed on 11/03/2021. \nMediastinal blood pool - SUV max 1.5\nNo metabolic e/o recurrent mass at right hemicolectomy area. \nSingle FDG avid nodule at anterior segment of left upper lung. Needs further evaluation and follow up.\nMild splenomegaly without any focal lesion.  \nk/c/o Carcinoma of ascending colon. Chemo – 8 cycles completed on 11/03/2021. \nMediastinal blood pool - SUV max 1.5\nNo metabolic e/o recurrent mass at right hemicolectomy area. \nSingle FDG avid nodule at anterior segment of left upper lung. Needs further evaluation and follow up.\nMild splenomegaly without any focal lesion."
+        },
+        {
+          "date": "2022-02-23",
+          "modality": "PET_CT",
+          "impression": "In a case of ca colon with lung metastasis underwent right hemicolectomy and metastatectomy (left upper lung) also treated with chemotherapy, comparing to previous scan, current PET CT shows, \nNo recurrent mass or abnormal FDG uptake at the site of anastomosis. \nNewly developed hypermetabolic soft tissue mass in left upper lobe – suggest metastasis – needs cytopathological confirmation. \nNo ascites. \nNo significant abdominal lymphadenopathy. \nNo other suspicious lesion or abnormal FDG uptake elsewhere in the body surveyed.  \nIn a case of ca colon with lung metastasis underwent right hemicolectomy and metastatectomy (left upper lung) also treated with chemotherapy, comparing to previous scan, current PET CT shows, \nNo recurrent mass or abnormal FDG uptake at the site of anastomosis. \nNewly developed hypermetabolic soft tissue mass in left upper lobe – suggest metastasis – needs cytopathological confirmation. \nNo ascites. \nNo significant abdominal lymphadenopathy. \nNo other suspicious lesion or abnormal FDG uptake elsewhere in the body surveyed."
+        },
+        {
+          "date": "2023-01-04",
+          "modality": "PET_CT",
+          "impression": "Carcinoma of colon. \nSurgery: Laparotomy F/B extended right hemicolectomy (16.06.2020); VATS metastasectomy in upper lobe of left lung (25.10.2021); Lobectomy in upper lobe of left lung (06.03.2022). FNAC/Biopsy (03.10.2021): CT guided FNAC (chest): containing malignant tumor cell. Histopathology (06.03.2022): Left upper lobe tumor: moderately differentiated adenocarcinoma of GI origin; soft tissue: adenocarcinoma, moderately differentiated. (25.10.2021): Left upper lobe lung specimen: Metastatic adenocarcinoma of GI origin. (16.10.2020): Right hemicolectomy specimen: Moderately differentiated adenocarcinoma, pT3N2bMx. Chemotherapy: 20 cycles, completed on 20.11.2022.\nCurrent PET-CT scan shows: \nFDG avid area (SUVmax: 12.1; about 44 x 18 x 60 mm) at the site of anastomosis - needs colonoscopic evaluation. \nSmall low FDG avid area (SUVmax: 2.3; size: 14 x 10 mm) in left lung at the site of operation; might be due to post operative changes. \nNo other suspicious mass or abnormal FDG uptake elsewhere in the body surveyed."
+        },
+        {
+          "date": "2023-01-24",
+          "modality": "COLONOSCOPY",
+          "impression": "The ileo-transverse anastomosis is noted at 100 cm from the anal verge. The anastomotic line is healthy. No evidence of any growth recurrence is seen. The mucosa, vascular patternaa in the lumen of the terminal ileum, rest of the colon and rectum appeared healthy."
+        },
+        {
+          "date": "2024-05-02",
+          "modality": "PET_CT",
+          "impression": "In a case of moderately differentiated adenocarcinoma of ascending colon with lung mets, underwent laparotomy followed by extended right hemicolectomy, metastectomy and left upper lobectomy, followed by radio- chemotherapy, compared with previous PET-CT scan done on 14.06.2023, current PET-CT scan shows: \nNo definite evidence of recurrent mass or abnormal FDG uptake at the site of hemicolectomy. \nEvidence of left upper lobectomy with ipsilateral shifting and volume shrinkage, consolidation is evident at the left upper part with mild FDG uptake (SUVmax:4.8)-could be benign aetiology. \nLeft sided mild pleural thickening at the upper part, no focal or diffuse FDG uptake. 4. Complete morphometabolic regression of left paraaortic lymph node at the level of the aortic arch. \nMild hepatomegaly without any focal lesion or abnormal FDG uptake. \nMarked degenerative change in the spine along with osteopenia, no abnormal focal or diffuse FDG uptake in the spine. \nPersisting mild diffuse FDG uptake (SUVmax: 6.3) in the posterior wall of the left ventricle-needs further evaluation & clinical correlation to exclude ischaemic heart disease. \nMild FDG uptake (SUVmax: 5.1) in the left shoulder joint capsule-capsulitis. \nNo other suspicious new lesion or appreciable abnormal FDG uptake elsewhere in the body surveyed. \nOverall impression: Good chemotherapeutic response."
+        },
+        {
+          "date": "2025-04-28",
+          "modality": "PET_CT",
+          "impression": "IMPRESSION: Known case of carcinoma of colon and metastatic carcinoma of left lung, underwent operation followed by chemotherapy, compared with previous PET-CT scan done on 02.05.2024, current PET-CT scan shows:\nNo evidence of abnormal FDG uptake or recurrent mass in right hemicolectomy site.\nStatus post upper lobectomy of left lung; no definite FDG avid mass lesion in preserved portion of left lung; however, mild metabolic regression of previously seen fibrosis with mild FDG uptake might be post-operative change.\nMild left sided pleural thickening.\nNo other suspicious mass or abnormal FDG uptake elsewhere in the body surveyed"
+        }
+      ],
+      "performance_history": [
+        {
+          "date": "2020-07-10",
+          "label": "Complete response",
+          "recist": "CR",
+          "criteria": "Recist Criteria"
+        },
+        {
+          "date": "2024-05-02",
+          "label": "Stable Disease (SD)",
+          "recist": "SD",
+          "criteria": "Recist Criteria"
+        },
+        {
+          "date": "2025-10-10",
+          "label": "Stable Disease (SD)",
+          "recist": "SD",
+          "criteria": "Recist Criteria"
+        }
+      ],
+      "consultations": [
+        {
+          "date": "2024-05-16",
+          "comments": "Ca Colon, lung mets post CTRT.",
+          "advice": "Cap Fibroz 10 mg.\nTab M-Kast 10 mg"
+        }
+      ],
+      "wsi_slides": [
+        {
+          "slide": "WSI_3.1.svs",
+          "dzi_path": "/loki2/asset/wsi/3/WSI_3.1.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_3.1.svs"
+        },
+        {
+          "slide": "WSI_3.2.svs",
+          "dzi_path": "/loki2/asset/wsi/3/WSI_3.2.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_3.2.svs"
+        }
+      ],
+      "documents": [
+        {
+          "category": "overview",
+          "subcategory": null,
+          "filename": "Clinical Data_3.pdf",
+          "title": "Clinical Data_3",
+          "url": "/loki2/asset/doc/3/overview/Clinical_Data_3.pdf"
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "code": "P4",
+      "demographics": {
+        "age_years": 59.0,
+        "gender": "M",
+        "height_cm": 164.0,
+        "weight_kg": 68.0,
+        "bmi": null,
+        "diet": "Vegetarian",
+        "marital_status": "MARRIED",
+        "children_count": 3,
+        "religion": "Hindu",
+        "occupation": "Professional"
+      },
+      "cancer_profile": {
+        "symptoms": [
+          "stomach pain"
+        ],
+        "risk_factors": [
+          "Smoking: Former  smoker",
+          "Alcohol: Past"
+        ],
+        "comorbidities": [
+          "Hypertension"
+        ],
+        "family_history": [],
+        "site": "Large Intestine",
+        "icd_o_3_topo": "C18",
+        "location": "Transverse colon",
+        "icd_o_3_location": "C18.4",
+        "morphology": "Mucinous adenocarcinoma",
+        "icd_o_3_morph": "8480/3",
+        "laterality": "Not a paired Site",
+        "age_at_diagnosis": 59.0
+      },
+      "current_stage": {
+        "edition": "8",
+        "t": "4a",
+        "n": "2b",
+        "m": "1",
+        "stage": "IV",
+        "grade": "G 3",
+        "as_of": "2021-09-11"
+      },
+      "latest_performance": {
+        "as_of": "2023-01-01",
+        "label": "Stable disease",
+        "recist": "SD"
+      },
+      "status": "unknown",
+      "days_since_diagnosis": 1760,
+      "events": [
+        {
+          "date": "2021-08-04",
+          "category": "usg",
+          "title": "Usg",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-04",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-04",
+          "category": "imaging",
+          "title": "USG",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-09",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-10",
+          "category": "mri",
+          "title": "Mri",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-10",
+          "category": "imaging",
+          "title": "MRI",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-17",
+          "category": "pathology",
+          "title": "Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-17",
+          "category": "pathology",
+          "title": "Pathology: Biopsy",
+          "detail": "",
+          "ref": "pathology"
+        },
+        {
+          "date": "2021-08-21",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-21",
+          "category": "usg",
+          "title": "Usg",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-21",
+          "category": "colonoscopy",
+          "title": "Colonoscopy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-21",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-21",
+          "category": "imaging",
+          "title": "USG",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-21",
+          "category": "imaging",
+          "title": "COLONOSCOPY",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-27",
+          "category": "pathology",
+          "title": "Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-27",
+          "category": "pathology",
+          "title": "Pathology: Biopsy",
+          "detail": "Hepatic flexure of colon",
+          "ref": "pathology"
+        },
+        {
+          "date": "2021-08-28",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-28",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-30",
+          "category": "x_ray",
+          "title": "X_Ray",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-30",
+          "category": "imaging",
+          "title": "X_RAY",
+          "detail": "",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-08-31",
+          "category": "surgery",
+          "title": "Surgery",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-08-31",
+          "category": "surgery",
+          "title": "RIght hemicolectomy + wide local excision of liver nodule",
+          "detail": "RIght hemicolectomy + wide local excision of liver nodule",
+          "ref": "surgery"
+        },
+        {
+          "date": "2021-09-11",
+          "category": "staging_information",
+          "title": "Staging_Information",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-09-11",
+          "category": "pathology",
+          "title": "Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-09-11",
+          "category": "pathology",
+          "title": "Pathology: Resection",
+          "detail": "Overlapping lesion of colon",
+          "ref": "pathology"
+        },
+        {
+          "date": "2021-09-20",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-09-20",
+          "category": "echo",
+          "title": "Echo",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-09-20",
+          "category": "imaging",
+          "title": "ECHO",
+          "detail": "[Colon pT4a N2b M1\nNormal Study]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-09-30",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-09-30",
+          "category": "surgery",
+          "title": "Surgery",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-09-30",
+          "category": "surgery",
+          "title": "Extended Right Hemicolectomy",
+          "detail": "Carcinoma mid Transverse colon, Hypertension, Benign Prostate Hyperplasia\nPatient presented with a history of altered bowel habits from 2 months associated with abdominal pain, loss of weight and loss of appetite.\nOperative Findings:\nLiver - small nodule 5 mm in left lobe .\nHard mass felt in the mid",
+          "ref": "surgery"
+        },
+        {
+          "date": "2021-09-30",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "PSMA avid enhancing lesion involving left peripheral and transitional zones (28x21mm). Non PSMA avid few hypodense lesions in segment VIII of right lobe of liver to rule out mets.",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-10-01",
+          "category": "mri",
+          "title": "Mri",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-01",
+          "category": "imaging",
+          "title": "MRI",
+          "detail": "[null]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-10-07",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-07",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-07",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "Case of carcinoma mid transverse colon with hepatic metastases: Post-operated (September 2021)\nPost extended right hemicolectomy and hepatic metastatectomy with ileo-transverse anastomosis status. No abnormal FDG uptake/FDG avid wall thickening or lesion at post-operative/anastomotic site to suggest",
+          "ref": "imaging"
+        },
+        {
+          "date": "2021-10-11",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-11",
+          "category": "molecular",
+          "title": "PCR: DPD",
+          "detail": "Detected",
+          "ref": "molecular"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "chemo",
+          "title": "Tab Capecitabine",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "chemo",
+          "title": "Oxaliplatin",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "molecular",
+          "title": "NGS: KRAS",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2021-10-22",
+          "category": "molecular",
+          "title": "NGS: BRAF",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2021-11-01",
+          "category": "immunotherapy",
+          "title": "Immunotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-11-01",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2021-11-01",
+          "category": "chemo",
+          "title": "FOLFIRI",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2021-11-01",
+          "category": "targeted",
+          "title": "Bevacizumab",
+          "detail": "Cycles: ?",
+          "ref": "targeted"
+        },
+        {
+          "date": "2022-01-16",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-01-17",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-01-19",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-01-19",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[null]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-01-25",
+          "category": "clinical_biochemistry",
+          "title": "Clinical_Biochemistry",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-01-28",
+          "category": "pathology",
+          "title": "Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-01-28",
+          "category": "pathology",
+          "title": "Pathology: Cytology",
+          "detail": "",
+          "ref": "pathology"
+        },
+        {
+          "date": "2022-02-01",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-02-01",
+          "category": "chemo",
+          "title": "Irinotecan, Capecitabine",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2022-02-04",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-02-04",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "Known case of adenocarcinoma transverse colon with liver metastasis pT4aN2bM1. Post right hemicolectomy 31st August 2021. Post 4 cycles of CAPOX-December 2021. Post 1 cycle of Irinotecan and Capecitabine-1/2/2022. For follow up. \nPost right hemicolectomy status with no definite focal lesion at the a",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-02-19",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-02-19",
+          "category": "molecular",
+          "title": "IHC: PD-L1",
+          "detail": "Negative",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: KRAS",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: BRAF",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: TP53",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: TERT",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: ARID1A",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: FANCE",
+          "detail": "Frameshift",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: DPYD",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: LRP5",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-03-19",
+          "category": "molecular",
+          "title": "NGS: SEPT9",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-04-04",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-04-22",
+          "category": "immunotherapy",
+          "title": "Immunotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-04-22",
+          "category": "immunotherapy",
+          "title": "Immunotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-04-22",
+          "category": "targeted",
+          "title": "Trametinib",
+          "detail": "Cycles: ?",
+          "ref": "targeted"
+        },
+        {
+          "date": "2022-04-22",
+          "category": "targeted",
+          "title": "Panitumumab",
+          "detail": "Cycles: ?",
+          "ref": "targeted"
+        }
+      ],
+      "treatments": {
+        "chemotherapy": [
+          {
+            "drug": "Tab Capecitabine",
+            "start": "2021-10-22",
+            "end": "2022-01-04",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Ca mid transverse colon (pT4aN2bM1). On adjuvant CapeOx\n℅ Anorexia.\nInstigated initially for pain and vomiting\nECOG - 1\nInj Filgrastim - 300mcg\n03/12/2021 - Cycle 3 D1 postponed today due to low ANC\nCycle 3 given low dose of O x 210 mg\n28/12/2021 - Cycle 4 D1 postponed today due to low ANC\nMedications given during chemotherapy :\nInj Dexamethasone (8 mg), Inj Palonosetron (0.25 mg)\nAdvice :\nInj Dexamethasone - 8 mg, Syp Cremaffin\nTo continue and follow up with urology as advised by them for management of concurrent prostatic neoplasm."
+          },
+          {
+            "drug": "Oxaliplatin",
+            "start": "2021-10-22",
+            "end": "2022-01-04",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Ca mid transverse colon (pT4aN2bM1). On adjuvant CapeOx\n℅ Anorexia.\nInstigated initially for pain and vomiting\nECOG - 1\nInj Filgrastim - 300mcg\n03/12/2021 - Cycle 3 D1 postponed today due to low ANC\nCycle 3 given low dose of O x 210 mg\n28/12/2021 - Cycle 4 D1 postponed today due to low ANC\nMedications given during chemotherapy :\nInj Dexamethasone (8 mg), Inj Palonosetron (0.25 mg)\nAdvice :\nInj Dexamethasone - 8 mg, Syp Cremaffin\nTo continue and follow up with urology as advised by them for management of concurrent prostatic neoplasm."
+          },
+          {
+            "drug": "FOLFIRI",
+            "start": "2021-11-01",
+            "end": "2021-12-13",
+            "cycles": null,
+            "dosage": null,
+            "comments": "3 cycles"
+          },
+          {
+            "drug": "Irinotecan, Capecitabine",
+            "start": "2022-02-01",
+            "end": "2022-05-01",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Tab. Ondasetron-8mg\nInj. Dexamethasone-12mg\nInj. Atropine-300mcg"
+          }
+        ],
+        "immunotherapy": [],
+        "targeted": [
+          {
+            "drug": "Bevacizumab",
+            "start": "2021-11-01",
+            "end": "2021-12-13",
+            "cycles": null,
+            "dosage": null,
+            "comments": "3 cycles"
+          },
+          {
+            "drug": "Trametinib",
+            "start": "2022-04-22",
+            "end": "2022-10-22",
+            "cycles": null,
+            "dosage": null,
+            "comments": "tolerated well"
+          },
+          {
+            "drug": "Panitumumab",
+            "start": "2022-04-22",
+            "end": "2022-10-22",
+            "cycles": null,
+            "dosage": null,
+            "comments": "10 cycles"
+          }
+        ],
+        "radiation": [],
+        "surgery": [
+          {
+            "procedure": "RIght hemicolectomy + wide local excision of liver nodule",
+            "date": "2021-08-31",
+            "findings": "RIght hemicolectomy + wide local excision of liver nodule"
+          },
+          {
+            "procedure": "Extended Right Hemicolectomy",
+            "date": "2021-09-30",
+            "findings": "Carcinoma mid Transverse colon, Hypertension, Benign Prostate Hyperplasia\nPatient presented with a history of altered bowel habits from 2 months associated with abdominal pain, loss of weight and loss of appetite.\nOperative Findings:\nLiver - small nodule 5 mm in left lobe .\nHard mass felt in the mid transverse colon.\nAdvice:\nTab Pantocid (40 mg0, Tab Dolo (650 mg), Tab Zincovit, Tab Limcee, Cap Lumia 60K, Tab Telma AM (40 mg), Tab Veltam."
+          }
+        ]
+      },
+      "stagings": [
+        {
+          "date": "2021-09-11",
+          "system": "AJCC",
+          "edition": "8",
+          "type": "pTNM",
+          "t": "4a",
+          "n": "2b",
+          "m": "1",
+          "metastatic_site": "Liver",
+          "grade": "G 3",
+          "stage": "IV"
+        }
+      ],
+      "pathology": [
+        {
+          "date": "2021-08-17",
+          "type": "Biopsy",
+          "tissue": null,
+          "location": null,
+          "pt": null,
+          "pn": null,
+          "pm": null,
+          "grade": null,
+          "morphology": null
+        },
+        {
+          "date": "2021-08-27",
+          "type": "Biopsy",
+          "tissue": "Primary",
+          "location": "Hepatic flexure of colon",
+          "pt": null,
+          "pn": null,
+          "pm": null,
+          "grade": "G 3",
+          "morphology": "Adenocarcinoma, NOS"
+        },
+        {
+          "date": "2021-09-11",
+          "type": "Resection",
+          "tissue": "Primary",
+          "location": "Overlapping lesion of colon",
+          "pt": "4a",
+          "pn": "2b",
+          "pm": "1",
+          "grade": "G 3",
+          "morphology": "Mucinous adenocarcinoma"
+        },
+        {
+          "date": "2022-01-28",
+          "type": "Cytology",
+          "tissue": null,
+          "location": null,
+          "pt": null,
+          "pn": null,
+          "pm": null,
+          "grade": null,
+          "morphology": null
+        }
+      ],
+      "molecular": [
+        {
+          "date": "2021-10-11",
+          "category": "PCR",
+          "marker": "DPD",
+          "result": "Detected",
+          "comments": null
+        },
+        {
+          "date": "2021-10-22",
+          "category": "NGS",
+          "gene": "KRAS",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "null",
+          "comments": null
+        },
+        {
+          "date": "2021-10-22",
+          "category": "NGS",
+          "gene": "BRAF",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "null",
+          "comments": null
+        },
+        {
+          "date": "2022-02-19",
+          "category": "IHC",
+          "marker": "PD-L1",
+          "result": "Negative",
+          "clone": "22C3 Dako",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "KRAS",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "BRAF",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "TP53",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "TERT",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "ARID1A",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "FANCE",
+          "variation": "Frameshift",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "DPYD",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "LRP5",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-03-19",
+          "category": "NGS",
+          "gene": "SEPT9",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        }
+      ],
+      "biomarkers": [
+        {
+          "date": "2021-08-04",
+          "test": "Prostate Specific Antigen(PSA)",
+          "value": 56.212,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2021-08-09",
+          "test": "Prostate Specific Antigen(PSA)",
+          "value": 89.19,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2021-09-20",
+          "test": "Prostate Specific Antigen(PSA)",
+          "value": 92.14,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2021-09-20",
+          "test": "CEA",
+          "value": 1.06,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2021-10-07",
+          "test": "AFP",
+          "value": 4.06,
+          "unit": "U/ml"
+        },
+        {
+          "date": "2022-01-16",
+          "test": "CEA",
+          "value": 7.44,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2022-01-17",
+          "test": "CEA",
+          "value": 7.52,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2022-04-04",
+          "test": "CEA",
+          "value": 5.9,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2022-04-04",
+          "test": "PSA",
+          "value": 45.55,
+          "unit": "ng/ml"
+        },
+        {
+          "date": "2022-04-04",
+          "test": "CA19-9",
+          "value": 288.0,
+          "unit": "U/ml"
+        }
+      ],
+      "labs": [
+        {
+          "date": "2022-01-25",
+          "panel": "Clinical BioChemistry",
+          "test": "Liver function test",
+          "parameter": "Serum total protein",
+          "value": 5.2,
+          "unit": "gm%"
+        },
+        {
+          "date": "2022-01-25",
+          "panel": "Clinical BioChemistry",
+          "test": "Tumor lysis syndrome",
+          "parameter": "LDH",
+          "value": 251,
+          "unit": "U/L"
+        }
+      ],
+      "imaging": [
+        {
+          "date": "2021-08-04",
+          "modality": "USG",
+          "impression": null
+        },
+        {
+          "date": "2021-08-10",
+          "modality": "MRI",
+          "impression": null
+        },
+        {
+          "date": "2021-08-21",
+          "modality": "CT",
+          "impression": null
+        },
+        {
+          "date": "2021-08-21",
+          "modality": "USG",
+          "impression": null
+        },
+        {
+          "date": "2021-08-21",
+          "modality": "COLONOSCOPY",
+          "impression": null
+        },
+        {
+          "date": "2021-08-28",
+          "modality": "CT",
+          "impression": null
+        },
+        {
+          "date": "2021-08-30",
+          "modality": "X_RAY",
+          "impression": null
+        },
+        {
+          "date": "2021-09-20",
+          "modality": "ECHO",
+          "impression": "[Colon pT4a N2b M1\nNormal Study]"
+        },
+        {
+          "date": "2021-09-30",
+          "modality": "PET_CT",
+          "impression": "PSMA avid enhancing lesion involving left peripheral and transitional zones (28x21mm). Non PSMA avid few hypodense lesions in segment VIII of right lobe of liver to rule out mets."
+        },
+        {
+          "date": "2021-10-01",
+          "modality": "MRI",
+          "impression": "[null]"
+        },
+        {
+          "date": "2021-10-07",
+          "modality": "PET_CT",
+          "impression": "Case of carcinoma mid transverse colon with hepatic metastases: Post-operated (September 2021)\nPost extended right hemicolectomy and hepatic metastatectomy with ileo-transverse anastomosis status. No abnormal FDG uptake/FDG avid wall thickening or lesion at post-operative/anastomotic site to suggest metabolically active local residual/recurrent disease (suggested tumor marker correlation).\nDiffuse hypermetabolism in left lobe of liver with no significant corresponding CT changes as described above-likely post-surgical changes.\nMetabolically active subcm right paratracheal, AP window, subcarina;, bilateral hilar and right cardionephric and aortocaval lymph nodes as described above-likely reactive, suggested close follow up.\nNo metabolically active malignant disease elsewhere in the present whole body scan."
+        },
+        {
+          "date": "2022-01-19",
+          "modality": "CT",
+          "impression": "[null]"
+        },
+        {
+          "date": "2022-02-04",
+          "modality": "PET_CT",
+          "impression": "Known case of adenocarcinoma transverse colon with liver metastasis pT4aN2bM1. Post right hemicolectomy 31st August 2021. Post 4 cycles of CAPOX-December 2021. Post 1 cycle of Irinotecan and Capecitabine-1/2/2022. For follow up. \nPost right hemicolectomy status with no definite focal lesion at the anastomotic site. \nDiffuse peritoneal thickening and omental nodularity with mild ascites and retroperitoneal lymph nodes showing increased FDG uptake. \nPost hepatic metastatectomy status with ill-defined hypodense surface nodularity along the left lobe of liver showing patchy increased FDG uptake-likely surface deposits. \nNo demonstrable metabolically active disease elsewhere in the whole body survey."
+        }
+      ],
+      "performance_history": [
+        {
+          "date": "2022-02-04",
+          "label": "Progressive Disease (PD)",
+          "recist": "PD",
+          "criteria": "['Recist Criteria', 'iRecist Criteria']"
+        },
+        {
+          "date": "2023-01-01",
+          "label": "Stable disease",
+          "recist": "SD",
+          "criteria": "Recist Criteria"
+        }
+      ],
+      "consultations": [],
+      "wsi_slides": [
+        {
+          "slide": "WSI_4.1.svs",
+          "dzi_path": "/loki2/asset/wsi/4/WSI_4.1.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.1.svs"
+        },
+        {
+          "slide": "WSI_4.2.svs",
+          "dzi_path": "/loki2/asset/wsi/4/WSI_4.2.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.2.svs"
+        },
+        {
+          "slide": "WSI_4.3.svs",
+          "dzi_path": "/loki2/asset/wsi/4/WSI_4.3.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.3.svs"
+        },
+        {
+          "slide": "WSI_4.4.svs",
+          "dzi_path": "/loki2/asset/wsi/4/WSI_4.4.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.4.svs"
+        }
+      ],
+      "documents": [
+        {
+          "category": "overview",
+          "subcategory": null,
+          "filename": "Clinical Data _4.pdf",
+          "title": "Clinical Data _4",
+          "url": "/loki2/asset/doc/4/overview/Clinical_Data_4.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": null,
+          "filename": "DS 1.pdf",
+          "title": "DS 1",
+          "url": "/loki2/asset/doc/4/discharge_summary/DS_1.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": null,
+          "filename": "DS 2.pdf",
+          "title": "DS 2",
+          "url": "/loki2/asset/doc/4/discharge_summary/DS_2.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": null,
+          "filename": "DS 3.pdf",
+          "title": "DS 3",
+          "url": "/loki2/asset/doc/4/discharge_summary/DS_3.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": null,
+          "filename": "DS 4.pdf",
+          "title": "DS 4",
+          "url": "/loki2/asset/doc/4/discharge_summary/DS_4.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": null,
+          "filename": "DS 5.pdf",
+          "title": "DS 5",
+          "url": "/loki2/asset/doc/4/discharge_summary/DS_5.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": null,
+          "filename": "DS 6.pdf",
+          "title": "DS 6",
+          "url": "/loki2/asset/doc/4/discharge_summary/DS_6.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "chemo",
+          "filename": "DS CHEMO 1.pdf",
+          "title": "DS CHEMO 1",
+          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_1.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "chemo",
+          "filename": "DS CHEMO 2.pdf",
+          "title": "DS CHEMO 2",
+          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_2.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "chemo",
+          "filename": "DS CHEMO 3.pdf",
+          "title": "DS CHEMO 3",
+          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_3.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "chemo",
+          "filename": "DS CHEMO 4.pdf",
+          "title": "DS CHEMO 4",
+          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_4.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "surgery",
+          "filename": "DS SURGERY 1.pdf",
+          "title": "DS SURGERY 1",
+          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_1.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "surgery",
+          "filename": "DS SURGERY 2.pdf",
+          "title": "DS SURGERY 2",
+          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_2.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "surgery",
+          "filename": "DS SURGERY 3.pdf",
+          "title": "DS SURGERY 3",
+          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_3.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "surgery",
+          "filename": "DS SURGERY 4.pdf",
+          "title": "DS SURGERY 4",
+          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_4.pdf"
+        },
+        {
+          "category": "discharge_summary",
+          "subcategory": "surgery",
+          "filename": "DS SURGERY 5.pdf",
+          "title": "DS SURGERY 5",
+          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_5.pdf"
+        },
+        {
+          "category": "endoscopy",
+          "subcategory": null,
+          "filename": "ENDOSCOPY (COLONOSCOPY).pdf",
+          "title": "ENDOSCOPY (COLONOSCOPY)",
+          "url": "/loki2/asset/doc/4/endoscopy/ENDOSCOPY_COLONOSCOPY_.pdf"
+        },
+        {
+          "category": "hematology",
+          "subcategory": null,
+          "filename": "HAEMATOLOGY CBC.pdf",
+          "title": "HAEMATOLOGY CBC",
+          "url": "/loki2/asset/doc/4/hematology/HAEMATOLOGY_CBC.pdf"
+        },
+        {
+          "category": "pathology",
+          "subcategory": null,
+          "filename": "HISTOPATHOLOGY (BIOPSY) 1.pdf",
+          "title": "HISTOPATHOLOGY (BIOPSY) 1",
+          "url": "/loki2/asset/doc/4/pathology/HISTOPATHOLOGY_BIOPSY_1.pdf"
+        },
+        {
+          "category": "pathology",
+          "subcategory": null,
+          "filename": "HISTOPATHOLOGY 2.pdf",
+          "title": "HISTOPATHOLOGY 2",
+          "url": "/loki2/asset/doc/4/pathology/HISTOPATHOLOGY_2.pdf"
+        },
+        {
+          "category": "pathology",
+          "subcategory": null,
+          "filename": "HISTOPATHOLOGY LIVER NODULE,BIOPSY & SENTINAL LYMPHNODE 3.pdf",
+          "title": "HISTOPATHOLOGY LIVER NODULE,BIOPSY & SENTINAL LYMPHNODE 3",
+          "url": "/loki2/asset/doc/4/pathology/HISTOPATHOLOGY_LIVER_NODULE_BIOPSY_SENTINAL_LYMPHNODE_3.pdf"
+        },
+        {
+          "category": "molecular",
+          "subcategory": null,
+          "filename": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 1.pdf",
+          "title": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 1",
+          "url": "/loki2/asset/doc/4/molecular/MOLECULAR_MARKERS_MSI_KRAS_NRAS_BRAF_1.pdf"
+        },
+        {
+          "category": "molecular",
+          "subcategory": null,
+          "filename": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 2.pdf",
+          "title": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 2",
+          "url": "/loki2/asset/doc/4/molecular/MOLECULAR_MARKERS_MSI_KRAS_NRAS_BRAF_2.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "ct",
+          "filename": "RADIOLOGY (CT-SCAN) 2.pdf",
+          "title": "RADIOLOGY (CT-SCAN) 2",
+          "url": "/loki2/asset/doc/4/imaging/ct/RADIOLOGY_CT-SCAN_2.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "ct",
+          "filename": "RADIOLOGY (CT-SCAN) 6.pdf",
+          "title": "RADIOLOGY (CT-SCAN) 6",
+          "url": "/loki2/asset/doc/4/imaging/ct/RADIOLOGY_CT-SCAN_6.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "mri",
+          "filename": "RADIOLOGY (MRI-SCAN) 1.pdf",
+          "title": "RADIOLOGY (MRI-SCAN) 1",
+          "url": "/loki2/asset/doc/4/imaging/mri/RADIOLOGY_MRI-SCAN_1.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "mri",
+          "filename": "RADIOLOGY (MRI-SCAN) 5.pdf",
+          "title": "RADIOLOGY (MRI-SCAN) 5",
+          "url": "/loki2/asset/doc/4/imaging/mri/RADIOLOGY_MRI-SCAN_5.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "pet_ct",
+          "filename": "RADIOLOGY (PET CT-SCAN) 3.pdf",
+          "title": "RADIOLOGY (PET CT-SCAN) 3",
+          "url": "/loki2/asset/doc/4/imaging/pet_ct/RADIOLOGY_PET_CT-SCAN_3.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "pet_ct",
+          "filename": "RADIOLOGY (PET-CT SCAN) 04.pdf",
+          "title": "RADIOLOGY (PET-CT SCAN) 04",
+          "url": "/loki2/asset/doc/4/imaging/pet_ct/RADIOLOGY_PET-CT_SCAN_04.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "usg",
+          "filename": "RADIOLOGY (USG) 1.pdf",
+          "title": "RADIOLOGY (USG) 1",
+          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_1.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "usg",
+          "filename": "RADIOLOGY (USG) 2 (2).pdf",
+          "title": "RADIOLOGY (USG) 2 (2)",
+          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_2_2_.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "usg",
+          "filename": "RADIOLOGY (USG) 2.pdf",
+          "title": "RADIOLOGY (USG) 2",
+          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_2.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "usg",
+          "filename": "RADIOLOGY (USG) 3.pdf",
+          "title": "RADIOLOGY (USG) 3",
+          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_3.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "usg",
+          "filename": "RADIOLOGY (USG) 4.pdf",
+          "title": "RADIOLOGY (USG) 4",
+          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_4.pdf"
+        },
+        {
+          "category": "imaging",
+          "subcategory": "xray",
+          "filename": "RADIOLOGY (X-RAY) 5.pdf",
+          "title": "RADIOLOGY (X-RAY) 5",
+          "url": "/loki2/asset/doc/4/imaging/xray/RADIOLOGY_X-RAY_5.pdf"
+        }
+      ]
+    },
+    {
+      "id": "7_GB",
+      "code": "P7-GB",
+      "demographics": {
+        "age_years": 77.0,
+        "gender": "M",
+        "height_cm": 155.0,
+        "weight_kg": 92.0,
+        "bmi": null,
+        "diet": "Vegetarian",
+        "marital_status": "MARRIED",
+        "children_count": 2,
+        "religion": "Hindu",
+        "occupation": "Unemployed"
+      },
+      "cancer_profile": {
+        "symptoms": [
+          "Loose Motions",
+          "Hypertension",
+          "Weight Loss"
+        ],
+        "risk_factors": [
+          "Smoking: Never smoker",
+          "Alcohol: Past"
+        ],
+        "comorbidities": [
+          "Hypertension"
+        ],
+        "family_history": [
+          {
+            "relationship": "Mother",
+            "cancer_type": "Uterus",
+            "age_at_diagnosis": null
+          }
+        ],
+        "site": "Liver and intrahepatic bile ducts",
+        "icd_o_3_topo": "C22",
+        "location": "Intrahepatic bile duct",
+        "icd_o_3_location": "C22.1",
+        "morphology": "Cholangiocarcinoma",
+        "icd_o_3_morph": "8160/3",
+        "laterality": "Not a paired Site",
+        "age_at_diagnosis": 69.0
+      },
+      "current_stage": {
+        "edition": null,
+        "t": "yX --not assesable",
+        "n": "y1",
+        "m": "y1",
+        "stage": null,
+        "grade": null,
+        "as_of": "2022-12-20"
+      },
+      "latest_performance": {
+        "as_of": "2025-08-31",
+        "label": "Progressive Disease (PD)",
+        "recist": "PD"
+      },
+      "status": "alive",
+      "days_since_diagnosis": 4133,
+      "events": [
+        {
+          "date": "2015-02-04",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2015-02-04",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "Abnormal increased focal FDG tracer uptake noted in heterogeneously enhancing large ill-defined lesion in the right lobe of the liver with capsular retraction.\nAbnormal increased focal FDG tracer uptake noted in enlarged enhancing retrocaval lymph node at D12 level, displacing the infra hepatic IVC ",
+          "ref": "imaging"
+        },
+        {
+          "date": "2015-03-01",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2015-03-01",
+          "category": "chemo",
+          "title": "Oxaliplatin, Gemcitabine",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2015-03-12",
+          "category": "staging_information",
+          "title": "Staging_Information",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2015-03-12",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2015-07-20",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2015-07-20",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[CT abdomen showed post surgery and chemotherapy follow up CT study shows, No recurrent lesion in the surgical bed.Minimal ascites\nNo significant retroperitoneal adenopathy.\nNo hepatic metastases.\nCompared to the previous CT dated 15.04.2015, there is no significant interval change.]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2016-01-11",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2016-01-11",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[null]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2016-08-08",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2016-08-08",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[CT whole abdomen with triphasic protocol showed post right hepatectomy statis\nNo evidence of any recurrent disease in the abdomen\n]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2017-08-15",
+          "category": "x_ray",
+          "title": "X_Ray",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2017-08-15",
+          "category": "imaging",
+          "title": "X_RAY",
+          "detail": "[X-ray chest showed well defined ratio-opaque densities noted in the region of right scapula – suggested clinical correlation]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2017-08-16",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2017-08-16",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[CT whole abdomen with triphasic protocol showed post right hepatectomy status.\nNo evidence of any recurrent disease in the abdomen.\nOn compared with previous CT dated 08/08/2016 – there is no interval changes.]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2018-08-27",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2018-08-27",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[USG abdomen showed no significant abnormality detected at present study.]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2019-08-19",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2019-08-19",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[CT abdomen showed ill defined hypodense lesion in the segment IVA of liver – suggestive of recurrence.\nProminent periportal node.]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2019-12-01",
+          "category": "chemotherapy",
+          "title": "Chemotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2019-12-01",
+          "category": "chemo",
+          "title": "Gemcitabine, Cisplatin",
+          "detail": "Cycles: ?",
+          "ref": "chemotherapy"
+        },
+        {
+          "date": "2020-03-10",
+          "category": "usg",
+          "title": "Usg",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2020-03-10",
+          "category": "imaging",
+          "title": "USG",
+          "detail": "[USG abdomen showed post cholecystectomy and partial hepatectomy status.\nResidual liver shows no obvious lesions.\n]",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-04-14",
+          "category": "serum_biomarker",
+          "title": "Serum_Biomarker",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-04-15",
+          "category": "pet_ct",
+          "title": "Pet_Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-04-15",
+          "category": "imaging",
+          "title": "PET_CT",
+          "detail": "PET CT Whole body showed intensely hypermetabolic hypodense lesion posterolateral aspect of segment III of liver-recurrence.\nMetabolically active mass like consolidation measuring 43x16mm in the posterior segment of the right lung upper lobe along the major fissure – likely metastasis in the current",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-04-23",
+          "category": "ct",
+          "title": "Ct",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-04-23",
+          "category": "imaging",
+          "title": "CT",
+          "detail": "[Follow up the case of intrahepatic cholangiocarcinoma, status post right hepatectomy, segment IV resection with partial resection of segment III and Roux-en-Y hepaticojejunostomy reveals\nAn ill-defined hypodense hyphenating lesion along the inferior aspect of segment III of the liver closely applie",
+          "ref": "imaging"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: PD-L1",
+          "detail": "Negative",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: Napsin A",
+          "detail": "Negative",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: CK",
+          "detail": "Positive",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: CK7",
+          "detail": "Positive",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: CK20",
+          "detail": "Negative",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: TTF1",
+          "detail": "Negative",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: CK19",
+          "detail": "Positive",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: CDX",
+          "detail": "Negative",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-05-10",
+          "category": "molecular",
+          "title": "IHC: CEA",
+          "detail": "Positive",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-06-17",
+          "category": "molecular_pathology",
+          "title": "Molecular_Pathology",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2022-06-17",
+          "category": "molecular",
+          "title": "NGS: BRCA2",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-06-17",
+          "category": "molecular",
+          "title": "NGS: ERCC3",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-06-17",
+          "category": "molecular",
+          "title": "NGS: DPYD",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-06-17",
+          "category": "molecular",
+          "title": "NGS: SLC19A1",
+          "detail": "Missense",
+          "ref": "molecular"
+        },
+        {
+          "date": "2022-12-20",
+          "category": "staging_information",
+          "title": "Staging_Information",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2023-03-02",
+          "category": "radiation",
+          "title": "Radiation",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2023-03-02",
+          "category": "radiation",
+          "title": "Radiation",
+          "detail": "",
+          "ref": "radiation"
+        },
+        {
+          "date": "2023-05-23",
+          "category": "immunotherapy",
+          "title": "Immunotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2023-05-23",
+          "category": "immuno",
+          "title": "Durvalumab",
+          "detail": "Cycles: ?",
+          "ref": "immunotherapy"
+        },
+        {
+          "date": "2024-02-01",
+          "category": "immunotherapy",
+          "title": "Immunotherapy",
+          "detail": "",
+          "ref": "events_index"
+        },
+        {
+          "date": "2024-02-01",
+          "category": "targeted",
+          "title": "Denosumab",
+          "detail": "Cycles: ?",
+          "ref": "targeted"
+        }
+      ],
+      "treatments": {
+        "chemotherapy": [
+          {
+            "drug": "Oxaliplatin, Gemcitabine",
+            "start": "2015-03-01",
+            "end": "2015-10-18",
+            "cycles": null,
+            "dosage": null,
+            "comments": "12 cycles"
+          },
+          {
+            "drug": "Gemcitabine, Cisplatin",
+            "start": "2019-12-01",
+            "end": "2020-03-22",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Advice on discharge :\nCap.Aprecap – 80mg,\nT. Emeset – 8mg,\nT.Pan – 40mg,\nCap.Oncolife Plus 0-1-0,\nT.Dolo 650mg,\nCap.Redotil 100mg,\nSyp.Duphalac."
+          }
+        ],
+        "immunotherapy": [
+          {
+            "drug": "Durvalumab",
+            "start": "2023-05-23",
+            "end": "2024-12-05",
+            "cycles": null,
+            "dose_mg": null,
+            "comments": "28 cycles"
+          }
+        ],
+        "targeted": [
+          {
+            "drug": "Denosumab",
+            "start": "2024-02-01",
+            "end": "2024-12-05",
+            "cycles": null,
+            "dosage": null,
+            "comments": "Tolerated well"
+          }
+        ],
+        "radiation": [
+          {
+            "type": null,
+            "date": "2023-03-02",
+            "fractions": null,
+            "dose": "5 fractions",
+            "comments": null
+          }
+        ],
+        "surgery": []
+      },
+      "stagings": [
+        {
+          "date": "2015-03-12",
+          "system": null,
+          "edition": null,
+          "type": "pTNM",
+          "t": "2",
+          "n": "1",
+          "m": null,
+          "metastatic_site": null,
+          "grade": null,
+          "stage": "II"
+        },
+        {
+          "date": "2022-12-20",
+          "system": null,
+          "edition": null,
+          "type": "ycTNM",
+          "t": "yX --not assesable",
+          "n": "y1",
+          "m": "y1",
+          "metastatic_site": null,
+          "grade": null,
+          "stage": null
+        }
+      ],
+      "pathology": [],
+      "molecular": [
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "PD-L1",
+          "result": "Negative",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "Napsin A",
+          "result": "Negative",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "CK",
+          "result": "Positive",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "CK7",
+          "result": "Positive",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "CK20",
+          "result": "Negative",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "TTF1",
+          "result": "Negative",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "CK19",
+          "result": "Positive",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "CDX",
+          "result": "Negative",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-05-10",
+          "category": "IHC",
+          "marker": "CEA",
+          "result": "Positive",
+          "clone": null,
+          "comments": null
+        },
+        {
+          "date": "2022-06-17",
+          "category": "NGS",
+          "gene": "BRCA2",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-06-17",
+          "category": "NGS",
+          "gene": "ERCC3",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-06-17",
+          "category": "NGS",
+          "gene": "DPYD",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        },
+        {
+          "date": "2022-06-17",
+          "category": "NGS",
+          "gene": "SLC19A1",
+          "variation": "Missense",
+          "result": null,
+          "clone": null,
+          "assay": "Target Absolute",
+          "comments": null
+        }
+      ],
+      "biomarkers": [
+        {
+          "date": "2015-03-12",
+          "test": "CA19-9",
+          "value": 935.0,
+          "unit": "U/L"
+        },
+        {
+          "date": "2022-04-14",
+          "test": "CA19-9",
+          "value": 1136.18,
+          "unit": "U/ml"
+        }
+      ],
+      "labs": [],
+      "imaging": [
+        {
+          "date": "2015-02-04",
+          "modality": "PET_CT",
+          "impression": "Abnormal increased focal FDG tracer uptake noted in heterogeneously enhancing large ill-defined lesion in the right lobe of the liver with capsular retraction.\nAbnormal increased focal FDG tracer uptake noted in enlarged enhancing retrocaval lymph node at D12 level, displacing the infra hepatic IVC anteriorly.\nAbnormal increased focal FDG tracer uptake noted in prominent right level IV supraclavicular lymph nodes."
+        },
+        {
+          "date": "2015-07-20",
+          "modality": "CT",
+          "impression": "[CT abdomen showed post surgery and chemotherapy follow up CT study shows, No recurrent lesion in the surgical bed.Minimal ascites\nNo significant retroperitoneal adenopathy.\nNo hepatic metastases.\nCompared to the previous CT dated 15.04.2015, there is no significant interval change.]"
+        },
+        {
+          "date": "2016-01-11",
+          "modality": "CT",
+          "impression": "[null]"
+        },
+        {
+          "date": "2016-08-08",
+          "modality": "CT",
+          "impression": "[CT whole abdomen with triphasic protocol showed post right hepatectomy statis\nNo evidence of any recurrent disease in the abdomen\n]"
+        },
+        {
+          "date": "2017-08-15",
+          "modality": "X_RAY",
+          "impression": "[X-ray chest showed well defined ratio-opaque densities noted in the region of right scapula – suggested clinical correlation]"
+        },
+        {
+          "date": "2017-08-16",
+          "modality": "CT",
+          "impression": "[CT whole abdomen with triphasic protocol showed post right hepatectomy status.\nNo evidence of any recurrent disease in the abdomen.\nOn compared with previous CT dated 08/08/2016 – there is no interval changes.]"
+        },
+        {
+          "date": "2018-08-27",
+          "modality": "CT",
+          "impression": "[USG abdomen showed no significant abnormality detected at present study.]"
+        },
+        {
+          "date": "2019-08-19",
+          "modality": "CT",
+          "impression": "[CT abdomen showed ill defined hypodense lesion in the segment IVA of liver – suggestive of recurrence.\nProminent periportal node.]"
+        },
+        {
+          "date": "2020-03-10",
+          "modality": "USG",
+          "impression": "[USG abdomen showed post cholecystectomy and partial hepatectomy status.\nResidual liver shows no obvious lesions.\n]"
+        },
+        {
+          "date": "2022-04-15",
+          "modality": "PET_CT",
+          "impression": "PET CT Whole body showed intensely hypermetabolic hypodense lesion posterolateral aspect of segment III of liver-recurrence.\nMetabolically active mass like consolidation measuring 43x16mm in the posterior segment of the right lung upper lobe along the major fissure – likely metastasis in the current clinical context.\nNo evidence of metastasis elsewhere."
+        },
+        {
+          "date": "2022-04-23",
+          "modality": "CT",
+          "impression": "[Follow up the case of intrahepatic cholangiocarcinoma, status post right hepatectomy, segment IV resection with partial resection of segment III and Roux-en-Y hepaticojejunostomy reveals\nAn ill-defined hypodense hyphenating lesion along the inferior aspect of segment III of the liver closely applied to the adjacent lesser curvature of the distal body of the stomach without  any obvious infiltration – represent recurrent intrahepatic cholangiocarcinoma.\nFocal lobulated lesion in posterior segment of upper lobe of right lung – likely represents a metastasis.]"
+        }
+      ],
+      "performance_history": [
+        {
+          "date": "2019-01-01",
+          "label": "Progressive Disease (PD)",
+          "recist": "PD",
+          "criteria": "Recist Criteria"
+        },
+        {
+          "date": "2022-07-27",
+          "label": "Partial Response (iPR)",
+          "recist": "iPR",
+          "criteria": "iRecist Criteria"
+        },
+        {
+          "date": "2023-02-20",
+          "label": "Progressive Disease (PD)",
+          "recist": "PD",
+          "criteria": "Recist Criteria"
+        }
+      ],
+      "consultations": [],
+      "wsi_slides": [
+        {
+          "slide": "WSI_7.1.svs",
+          "dzi_path": "/loki2/asset/wsi/7_GB/WSI_7.1.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_7.1.svs"
+        },
+        {
+          "slide": "WSI_7.2.svs",
+          "dzi_path": "/loki2/asset/wsi/7_GB/WSI_7.2.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_7.2.svs"
+        },
+        {
+          "slide": "WSI_7.3.svs",
+          "dzi_path": "/loki2/asset/wsi/7_GB/WSI_7.3.dzi",
+          "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_7.3.svs"
+        }
+      ],
+      "documents": [
+        {
+          "category": "overview",
+          "subcategory": null,
+          "filename": "Clinical Data_7- GB.pdf",
+          "title": "Clinical Data_7- GB",
+          "url": "/loki2/asset/doc/7_GB/overview/Clinical_Data_7-_GB.pdf"
+        }
+      ]
+    }
+  ]
+}

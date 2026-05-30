@@ -645,6 +645,39 @@ def _info_to_metadata(info, fallback_video_id):
     }
 
 
+def list_available_tiers(url, *, cookies_path=None, proxy_url=None, cookies_from_browser=None):
+    video_id, normalized = parse_youtube_url(url)
+    if not video_id or not normalized:
+        raise UserError(_("Not a recognised YouTube URL: %s") % url)
+    yt_dlp = _ensure_yt_dlp()
+    opts = _common_opts(
+        cookies_path=cookies_path,
+        proxy_url=proxy_url,
+        cookies_from_browser=cookies_from_browser,
+    )
+    opts["skip_download"] = True
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(normalized, download=False)
+    except yt_dlp.utils.DownloadError as exc:
+        if _looks_like_rate_limit(exc):
+            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+        if _looks_like_bot_challenge(exc):
+            _invalidate_cookie_cache()
+            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+        raise UserError(_("Could not read YouTube metadata: %s") % _strip_ansi(str(exc))) from exc
+    formats = info.get("formats") or []
+    available = []
+    for tier_key, spec in YOUTUBE_TIERS.items():
+        if _qualifying_formats(
+            formats,
+            min_height=spec["min_height"], max_height=spec["max_height"],
+            min_fps=spec["min_fps"], max_fps=spec["max_fps"],
+        ):
+            available.append(tier_key)
+    return available, _describe_available(formats)
+
+
 def probe_and_select(url, *, tier=None, cookies_path=None, proxy_url=None, cookies_from_browser=None):
     """Probe once, gate-check the requested tier (defaults to 2160p50/60 when omitted), return (info, chosen_format)."""
     video_id, normalized = parse_youtube_url(url)

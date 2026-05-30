@@ -445,22 +445,50 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
         _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_hit",
                 "S3 key already exists: %s" % target_key)
         _bump_heartbeat(db, job_id, "reusing existing S3 object")
-        try:
-            metadata = youtube_downloader.extract_metadata(
-                normalized,
-                cookies_path=yt_cookies_path,
-                proxy_url=yt_proxy,
-                cookies_from_browser=yt_cookies_browser,
-            )
-        except Exception as exc:
-            _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
-            metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0,
-                        "width": 0, "height": 0, "fps": 0.0, "vcodec": ""}
+        chosen_format = None
+        if youtube_tier:
+            try:
+                probe_info, chosen_format = youtube_downloader.probe_and_select(
+                    normalized,
+                    tier=youtube_tier,
+                    cookies_path=yt_cookies_path,
+                    proxy_url=yt_proxy,
+                    cookies_from_browser=yt_cookies_browser,
+                )
+                metadata = {
+                    "title": probe_info.get("title") or "",
+                    "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
+                    "thumbnail": probe_info.get("thumbnail") or "",
+                    "duration_seconds": float(probe_info.get("duration") or 0.0),
+                }
+            except Exception as exc:
+                _logger.warning("youtube tier-aware probe failed during dedup: %s", exc)
+                chosen_format = None
+                metadata = None
+        if chosen_format is None:
+            try:
+                metadata = youtube_downloader.extract_metadata(
+                    normalized,
+                    cookies_path=yt_cookies_path,
+                    proxy_url=yt_proxy,
+                    cookies_from_browser=yt_cookies_browser,
+                )
+            except Exception as exc:
+                _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
+                metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0,
+                            "width": 0, "height": 0, "fps": 0.0, "vcodec": ""}
         s3_url = s3_storage.build_url(cfg["bucket"], cfg["region"], target_key)
-        yt_width = int(metadata.get("width") or 0)
-        yt_height = int(metadata.get("height") or 0)
-        yt_fps = float(metadata.get("fps") or 0.0)
-        yt_vcodec = metadata.get("vcodec") or ""
+        if chosen_format is not None:
+            yt_width = int(chosen_format.get("width") or 0)
+            yt_height = int(chosen_format.get("height") or 0)
+            yt_fps = float(chosen_format.get("fps") or 0.0)
+            vcodec_raw = chosen_format.get("vcodec") or ""
+            yt_vcodec = vcodec_raw.split(".")[0] if vcodec_raw else ""
+        else:
+            yt_width = int(metadata.get("width") or 0)
+            yt_height = int(metadata.get("height") or 0)
+            yt_fps = float(metadata.get("fps") or 0.0)
+            yt_vcodec = metadata.get("vcodec") or ""
         yt_resolution = "%dx%d" % (yt_width, yt_height) if yt_width and yt_height else ""
         with Registry(db).cursor() as cr:
             env = api.Environment(cr, uid or SUPERUSER_ID, {})

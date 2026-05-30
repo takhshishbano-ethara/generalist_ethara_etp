@@ -36,11 +36,29 @@ class YoutubeMultiIngestWizard(models.TransientModel):
         if not tiers:
             raise UserError(_("Pick at least one resolution tier."))
         url = (self.youtube_url or "").strip()
+        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
+        available, formats_desc = youtube_downloader.list_available_tiers(
+            url,
+            cookies_path=cfg.get("cookies_path") or None,
+            proxy_url=cfg.get("proxy_url") or None,
+            cookies_from_browser=cfg.get("cookies_browser") or None,
+        )
+        chosen = [t for t in tiers if t in available]
+        skipped = [t for t in tiers if t not in available]
+        if not chosen:
+            raise UserError(_(
+                "None of the selected tiers (%(picked)s) are available for this video.\n"
+                "Available tiers: %(avail)s.\n\nStreams reported by YouTube:\n%(streams)s"
+            ) % {
+                "picked": ", ".join(tiers),
+                "avail": ", ".join(available) if available else "none",
+                "streams": formats_desc,
+            })
         Project = self.env["video.editor.project"]
         created_ids = []
-        for tier in tiers:
+        for tier in chosen:
             project = Project.create({
-                # "name": "YouTube %s [%s]" % (url[:80], tier),
+                "name": "YouTube %s [%s]" % (url[:80], tier),
                 "youtube_url": url,
                 "youtube_tier": tier,
             })
@@ -53,4 +71,18 @@ class YoutubeMultiIngestWizard(models.TransientModel):
             "domain": [("id", "in", created_ids)],
             "context": {},
         })
+        if skipped:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Some tiers skipped"),
+                    "message": _("Skipped (not in source): %(skipped)s. Queued: %(chosen)s.") % {
+                        "skipped": ", ".join(skipped), "chosen": ", ".join(chosen),
+                    },
+                    "type": "warning",
+                    "sticky": True,
+                    "next": action,
+                },
+            }
         return action
