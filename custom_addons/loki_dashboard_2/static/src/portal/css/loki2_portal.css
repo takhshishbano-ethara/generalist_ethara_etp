@@ -539,7 +539,7 @@ hr.rule {
 }
 
 .tt-tooltip {
-  position: absolute;
+  position: fixed;
   pointer-events: none;
   padding: 8px 12px;
   background: var(--ink);
@@ -548,11 +548,17 @@ hr.rule {
   font-size: 11px;
   letter-spacing: 0.04em;
   line-height: 1.5;
-  white-space: nowrap;
+  max-width: min(360px, calc(100vw - 24px));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   box-shadow: var(--shadow-l);
   z-index: 80;
   opacity: 0;
   transition: opacity var(--dur-xfast) var(--ease-ui);
+}
+.tt-tooltip .tt-body {
+  white-space: pre-wrap;
 }
 .tt-tooltip.is-visible { opacity: 1; }
 .tt-tooltip .tt-title { color: var(--accent-bright); font-weight: 600; }

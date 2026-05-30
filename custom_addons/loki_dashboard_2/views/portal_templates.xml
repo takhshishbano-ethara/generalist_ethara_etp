@@ -10,7 +10,7 @@
       <link rel="preconnect" href="https://fonts.googleapis.com"/>
       <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
       <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:ital,wght@0,400;0,500;0,600;1,400;1,500&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap"/>
-      <link rel="stylesheet" href="/loki_dashboard_2/static/src/portal/css/loki2_portal.css?v=3"/>
+      <link rel="stylesheet" href="/loki_dashboard_2/static/src/portal/css/loki2_portal.css?v=5"/>
       <script>
         (function(){
           var t;
@@ -22,7 +22,7 @@
       </script>
       <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
       <script src="/loki_dashboard_2/static/src/portal/vendor/openseadragon/openseadragon.min.js"></script>
-      <script src="/loki_dashboard_2/static/src/portal/js/loki2_portal.js?v=4" defer="defer"></script>
+      <script src="/loki_dashboard_2/static/src/portal/js/loki2_portal.js?v=6" defer="defer"></script>
     </head>
     <body>
 

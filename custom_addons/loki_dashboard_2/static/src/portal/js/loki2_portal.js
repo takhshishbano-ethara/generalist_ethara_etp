@@ -21,8 +21,10 @@
         pathology: "--cat-pathology",
         molecular: "--cat-molecular",
         biomarker: "--cat-biomarker",
-        stage_change: "--cat-other",
+        labs: "--cat-biomarker",
+        staging: "--cat-pathology",
         consultation: "--cat-other",
+        stage_change: "--cat-other",
         other: "--cat-other",
     };
 
@@ -36,8 +38,36 @@
         "pathology",
         "molecular",
         "biomarker",
+        "labs",
+        "staging",
+        "consultation",
         "other",
     ];
+
+    // Map raw categories from patients.json onto a CAT_ORDER bucket.
+    var CAT_ALIAS = {
+        chemotherapy: "chemo",
+        immunotherapy: "immuno",
+        pet_ct: "imaging",
+        ct: "imaging",
+        mri: "imaging",
+        usg: "imaging",
+        x_ray: "imaging",
+        colonoscopy: "imaging",
+        echo: "imaging",
+        endoscopy: "imaging",
+        serum_biomarker: "biomarker",
+        molecular_pathology: "molecular",
+        clinical_biochemistry: "labs",
+        hematology: "labs",
+        staging_information: "staging",
+    };
+
+    function normalizeCat(cat) {
+        if (!cat) return "other";
+        if (CAT_ORDER.indexOf(cat) >= 0) return cat;
+        return CAT_ALIAS[cat] || "other";
+    }
 
     /* ---------- helpers ---------- */
     function esc(s) {
@@ -81,7 +111,8 @@
     }
 
     function catColor(cat) {
-        var v = CAT_VAR[cat] || CAT_VAR.other;
+        var key = CAT_VAR[cat] ? cat : (CAT_ALIAS && CAT_ALIAS[cat]) || "other";
+        var v = CAT_VAR[key] || CAT_VAR.other;
         return "var(" + v + ")";
     }
 
@@ -174,9 +205,26 @@
         tt.innerHTML =
             '<div class="tt-title">' + esc(title) + "</div>" +
             (body ? '<div class="tt-body">' + esc(body) + "</div>" : "");
-        tt.style.left = x + 14 + "px";
-        tt.style.top = y + 14 + "px";
+        // place at cursor first so the browser can measure final size
+        tt.style.left = "0px";
+        tt.style.top = "0px";
         tt.classList.add("is-visible");
+        var pad = 12;
+        var gap = 14;
+        var vw = window.innerWidth;
+        var vh = window.innerHeight;
+        var w = tt.offsetWidth;
+        var h = tt.offsetHeight;
+        // if the right-side placement would overflow, flip to the left of the cursor
+        var left = x + gap;
+        if (left + w + pad > vw) left = Math.max(pad, x - gap - w);
+        // clamp to viewport (handles tiny screens / very wide tooltips)
+        if (left + w + pad > vw) left = Math.max(pad, vw - w - pad);
+        var top = y + gap;
+        if (top + h + pad > vh) top = Math.max(pad, y - gap - h);
+        if (top + h + pad > vh) top = Math.max(pad, vh - h - pad);
+        tt.style.left = left + "px";
+        tt.style.top = top + "px";
     }
     function hideTooltip() {
         var tt = document.getElementById("tt-tooltip");
@@ -320,7 +368,7 @@
             return ((dd - minD) / (maxD - minD)) * (W - 80) + 60;
         }
         function bandY(cat) {
-            var key = CAT_ORDER.indexOf(cat) >= 0 ? cat : "other";
+            var key = normalizeCat(cat);
             return topPad + CAT_ORDER.indexOf(key) * bandH + bandH / 2;
         }
 
