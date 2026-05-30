@@ -34,6 +34,9 @@ _NEW_DOC_PREFIX = "/loki2/asset/doc/"
 _OLD_WSI_PREFIX = "/loki_dashboard_2/static/src/wsi/dzi/"
 _OLD_DOCS_PREFIX = "/loki_dashboard_2/static/docs/"
 
+_DIRECT_WSI_PREFIX_TPL = "https://{bucket}.s3.amazonaws.com/{prefix}/wsi/patients/"
+_DIRECT_DOC_PREFIX_TPL = "https://{bucket}.s3.amazonaws.com/{prefix}/docs/patients/"
+
 
 def _to_new_wsi(pid: str, old: str) -> str:
     # /loki_dashboard_2/static/src/wsi/dzi/<pid>/<basename>.dzi  →  /loki2/asset/wsi/<pid>/<basename>.dzi
@@ -85,7 +88,41 @@ def _to_legacy_doc(pid: str, old: str) -> str:
     return f"{_OLD_DOCS_PREFIX}{pid}/{rest}"
 
 
-def transform(payload, revert: bool, pid_filter=None):
+def _to_direct_wsi(pid: str, old: str, bucket: str, prefix: str) -> str:
+    """Map any known form to https://<bucket>.s3.amazonaws.com/<prefix>/wsi/patients/<pid>/<rest>"""
+    direct_prefix = _DIRECT_WSI_PREFIX_TPL.format(bucket=bucket, prefix=prefix.strip("/"))
+    if old.startswith(direct_prefix):
+        return old
+    rest = None
+    if old.startswith(_NEW_WSI_PREFIX):
+        tail = old[len(_NEW_WSI_PREFIX):]
+        _, _, rest = tail.partition("/")
+    elif old.startswith(_OLD_WSI_PREFIX):
+        tail = old[len(_OLD_WSI_PREFIX):]
+        _, _, rest = tail.partition("/")
+    if not rest:
+        return old
+    return f"{direct_prefix}{pid}/{rest}"
+
+
+def _to_direct_doc(pid: str, old: str, bucket: str, prefix: str) -> str:
+    direct_prefix = _DIRECT_DOC_PREFIX_TPL.format(bucket=bucket, prefix=prefix.strip("/"))
+    if old.startswith(direct_prefix):
+        return old
+    rest = None
+    if old.startswith(_NEW_DOC_PREFIX):
+        tail = old[len(_NEW_DOC_PREFIX):]
+        _, _, rest = tail.partition("/")
+    elif old.startswith(_OLD_DOCS_PREFIX):
+        tail = old[len(_OLD_DOCS_PREFIX):]
+        _, _, rest = tail.partition("/")
+    if not rest:
+        return old
+    return f"{direct_prefix}{pid}/{rest}"
+
+
+def transform(payload, revert: bool, pid_filter=None, direct=None):
+    """direct: None for controller mode, or {"bucket": ..., "prefix": ...} for direct S3 URLs."""
     changes = []
     for p in payload.get("patients", []):
         pid = str(p.get("id") or p.get("code") or "").strip()
@@ -95,13 +132,23 @@ def transform(payload, revert: bool, pid_filter=None):
             continue
         for slide in p.get("wsi_slides") or []:
             old = slide.get("dzi_path") or ""
-            new = _to_legacy_wsi(pid, old) if revert else _to_new_wsi(pid, old)
+            if direct:
+                new = _to_direct_wsi(pid, old, direct["bucket"], direct["prefix"])
+            elif revert:
+                new = _to_legacy_wsi(pid, old)
+            else:
+                new = _to_new_wsi(pid, old)
             if new != old:
                 changes.append((pid, "dzi_path", old, new))
                 slide["dzi_path"] = new
         for doc in p.get("documents") or []:
             old = doc.get("url") or ""
-            new = _to_legacy_doc(pid, old) if revert else _to_new_doc(pid, old)
+            if direct:
+                new = _to_direct_doc(pid, old, direct["bucket"], direct["prefix"])
+            elif revert:
+                new = _to_legacy_doc(pid, old)
+            else:
+                new = _to_new_doc(pid, old)
             if new != old:
                 changes.append((pid, "doc.url", old, new))
                 doc["url"] = new
@@ -114,12 +161,19 @@ def main(argv=None):
     ap.add_argument("--dry-run", action="store_true", help="Print planned changes, don't write.")
     ap.add_argument("--revert", action="store_true", help="Reverse: new form → legacy form.")
     ap.add_argument("--pid", default=None, help="Only rewrite this patient id (others untouched).")
+    ap.add_argument("--direct", action="store_true",
+                    help="Use direct S3 URLs (https://<bucket>.s3.amazonaws.com/...) instead of /loki2/asset/ controller routes.")
+    ap.add_argument("--bucket", default="production-grtlabs-tag",
+                    help="S3 bucket name (used with --direct).")
+    ap.add_argument("--prefix", default="loki_dashboard",
+                    help="S3 key prefix (used with --direct).")
     args = ap.parse_args(argv)
 
     with open(args.path, "r", encoding="utf-8") as fh:
         payload = json.load(fh)
 
-    changes = transform(payload, revert=args.revert, pid_filter=args.pid)
+    direct_cfg = {"bucket": args.bucket, "prefix": args.prefix} if args.direct else None
+    changes = transform(payload, revert=args.revert, pid_filter=args.pid, direct=direct_cfg)
 
     if not changes:
         print("No changes — patients.json already in the target form.")

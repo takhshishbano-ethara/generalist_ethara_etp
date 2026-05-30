@@ -851,12 +851,12 @@
       "wsi_slides": [
         {
           "slide": "WSI_3.1.svs",
-          "dzi_path": "/loki2/asset/wsi/3/WSI_3.1.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/3/WSI_3.1.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_3.1.svs"
         },
         {
           "slide": "WSI_3.2.svs",
-          "dzi_path": "/loki2/asset/wsi/3/WSI_3.2.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/3/WSI_3.2.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_3.2.svs"
         }
       ],
@@ -866,7 +866,7 @@
           "subcategory": null,
           "filename": "Clinical Data_3.pdf",
           "title": "Clinical Data_3",
-          "url": "/loki2/asset/doc/3/overview/Clinical_Data_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/3/overview/Clinical_Data_3.pdf"
         }
       ]
     },
@@ -1898,22 +1898,22 @@
       "wsi_slides": [
         {
           "slide": "WSI_4.1.svs",
-          "dzi_path": "/loki2/asset/wsi/4/WSI_4.1.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/4/WSI_4.1.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.1.svs"
         },
         {
           "slide": "WSI_4.2.svs",
-          "dzi_path": "/loki2/asset/wsi/4/WSI_4.2.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/4/WSI_4.2.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.2.svs"
         },
         {
           "slide": "WSI_4.3.svs",
-          "dzi_path": "/loki2/asset/wsi/4/WSI_4.3.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/4/WSI_4.3.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.3.svs"
         },
         {
           "slide": "WSI_4.4.svs",
-          "dzi_path": "/loki2/asset/wsi/4/WSI_4.4.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/4/WSI_4.4.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_4.4.svs"
         }
       ],
@@ -1923,245 +1923,245 @@
           "subcategory": null,
           "filename": "Clinical Data _4.pdf",
           "title": "Clinical Data _4",
-          "url": "/loki2/asset/doc/4/overview/Clinical_Data_4.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/overview/Clinical_Data_4.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": null,
           "filename": "DS 1.pdf",
           "title": "DS 1",
-          "url": "/loki2/asset/doc/4/discharge_summary/DS_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/DS_1.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": null,
           "filename": "DS 2.pdf",
           "title": "DS 2",
-          "url": "/loki2/asset/doc/4/discharge_summary/DS_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/DS_2.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": null,
           "filename": "DS 3.pdf",
           "title": "DS 3",
-          "url": "/loki2/asset/doc/4/discharge_summary/DS_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/DS_3.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": null,
           "filename": "DS 4.pdf",
           "title": "DS 4",
-          "url": "/loki2/asset/doc/4/discharge_summary/DS_4.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/DS_4.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": null,
           "filename": "DS 5.pdf",
           "title": "DS 5",
-          "url": "/loki2/asset/doc/4/discharge_summary/DS_5.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/DS_5.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": null,
           "filename": "DS 6.pdf",
           "title": "DS 6",
-          "url": "/loki2/asset/doc/4/discharge_summary/DS_6.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/DS_6.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "chemo",
           "filename": "DS CHEMO 1.pdf",
           "title": "DS CHEMO 1",
-          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/chemo/DS_CHEMO_1.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "chemo",
           "filename": "DS CHEMO 2.pdf",
           "title": "DS CHEMO 2",
-          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/chemo/DS_CHEMO_2.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "chemo",
           "filename": "DS CHEMO 3.pdf",
           "title": "DS CHEMO 3",
-          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/chemo/DS_CHEMO_3.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "chemo",
           "filename": "DS CHEMO 4.pdf",
           "title": "DS CHEMO 4",
-          "url": "/loki2/asset/doc/4/discharge_summary/chemo/DS_CHEMO_4.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/chemo/DS_CHEMO_4.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "surgery",
           "filename": "DS SURGERY 1.pdf",
           "title": "DS SURGERY 1",
-          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/surgery/DS_SURGERY_1.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "surgery",
           "filename": "DS SURGERY 2.pdf",
           "title": "DS SURGERY 2",
-          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/surgery/DS_SURGERY_2.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "surgery",
           "filename": "DS SURGERY 3.pdf",
           "title": "DS SURGERY 3",
-          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/surgery/DS_SURGERY_3.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "surgery",
           "filename": "DS SURGERY 4.pdf",
           "title": "DS SURGERY 4",
-          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_4.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/surgery/DS_SURGERY_4.pdf"
         },
         {
           "category": "discharge_summary",
           "subcategory": "surgery",
           "filename": "DS SURGERY 5.pdf",
           "title": "DS SURGERY 5",
-          "url": "/loki2/asset/doc/4/discharge_summary/surgery/DS_SURGERY_5.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/discharge_summary/surgery/DS_SURGERY_5.pdf"
         },
         {
           "category": "endoscopy",
           "subcategory": null,
           "filename": "ENDOSCOPY (COLONOSCOPY).pdf",
           "title": "ENDOSCOPY (COLONOSCOPY)",
-          "url": "/loki2/asset/doc/4/endoscopy/ENDOSCOPY_COLONOSCOPY_.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/endoscopy/ENDOSCOPY_COLONOSCOPY_.pdf"
         },
         {
           "category": "hematology",
           "subcategory": null,
           "filename": "HAEMATOLOGY CBC.pdf",
           "title": "HAEMATOLOGY CBC",
-          "url": "/loki2/asset/doc/4/hematology/HAEMATOLOGY_CBC.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/hematology/HAEMATOLOGY_CBC.pdf"
         },
         {
           "category": "pathology",
           "subcategory": null,
           "filename": "HISTOPATHOLOGY (BIOPSY) 1.pdf",
           "title": "HISTOPATHOLOGY (BIOPSY) 1",
-          "url": "/loki2/asset/doc/4/pathology/HISTOPATHOLOGY_BIOPSY_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/pathology/HISTOPATHOLOGY_BIOPSY_1.pdf"
         },
         {
           "category": "pathology",
           "subcategory": null,
           "filename": "HISTOPATHOLOGY 2.pdf",
           "title": "HISTOPATHOLOGY 2",
-          "url": "/loki2/asset/doc/4/pathology/HISTOPATHOLOGY_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/pathology/HISTOPATHOLOGY_2.pdf"
         },
         {
           "category": "pathology",
           "subcategory": null,
           "filename": "HISTOPATHOLOGY LIVER NODULE,BIOPSY & SENTINAL LYMPHNODE 3.pdf",
           "title": "HISTOPATHOLOGY LIVER NODULE,BIOPSY & SENTINAL LYMPHNODE 3",
-          "url": "/loki2/asset/doc/4/pathology/HISTOPATHOLOGY_LIVER_NODULE_BIOPSY_SENTINAL_LYMPHNODE_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/pathology/HISTOPATHOLOGY_LIVER_NODULE_BIOPSY_SENTINAL_LYMPHNODE_3.pdf"
         },
         {
           "category": "molecular",
           "subcategory": null,
           "filename": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 1.pdf",
           "title": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 1",
-          "url": "/loki2/asset/doc/4/molecular/MOLECULAR_MARKERS_MSI_KRAS_NRAS_BRAF_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/molecular/MOLECULAR_MARKERS_MSI_KRAS_NRAS_BRAF_1.pdf"
         },
         {
           "category": "molecular",
           "subcategory": null,
           "filename": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 2.pdf",
           "title": "MOLECULAR MARKERS (MSI,KRAS,NRAS & BRAF) 2",
-          "url": "/loki2/asset/doc/4/molecular/MOLECULAR_MARKERS_MSI_KRAS_NRAS_BRAF_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/molecular/MOLECULAR_MARKERS_MSI_KRAS_NRAS_BRAF_2.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "ct",
           "filename": "RADIOLOGY (CT-SCAN) 2.pdf",
           "title": "RADIOLOGY (CT-SCAN) 2",
-          "url": "/loki2/asset/doc/4/imaging/ct/RADIOLOGY_CT-SCAN_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/ct/RADIOLOGY_CT-SCAN_2.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "ct",
           "filename": "RADIOLOGY (CT-SCAN) 6.pdf",
           "title": "RADIOLOGY (CT-SCAN) 6",
-          "url": "/loki2/asset/doc/4/imaging/ct/RADIOLOGY_CT-SCAN_6.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/ct/RADIOLOGY_CT-SCAN_6.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "mri",
           "filename": "RADIOLOGY (MRI-SCAN) 1.pdf",
           "title": "RADIOLOGY (MRI-SCAN) 1",
-          "url": "/loki2/asset/doc/4/imaging/mri/RADIOLOGY_MRI-SCAN_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/mri/RADIOLOGY_MRI-SCAN_1.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "mri",
           "filename": "RADIOLOGY (MRI-SCAN) 5.pdf",
           "title": "RADIOLOGY (MRI-SCAN) 5",
-          "url": "/loki2/asset/doc/4/imaging/mri/RADIOLOGY_MRI-SCAN_5.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/mri/RADIOLOGY_MRI-SCAN_5.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "pet_ct",
           "filename": "RADIOLOGY (PET CT-SCAN) 3.pdf",
           "title": "RADIOLOGY (PET CT-SCAN) 3",
-          "url": "/loki2/asset/doc/4/imaging/pet_ct/RADIOLOGY_PET_CT-SCAN_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/pet_ct/RADIOLOGY_PET_CT-SCAN_3.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "pet_ct",
           "filename": "RADIOLOGY (PET-CT SCAN) 04.pdf",
           "title": "RADIOLOGY (PET-CT SCAN) 04",
-          "url": "/loki2/asset/doc/4/imaging/pet_ct/RADIOLOGY_PET-CT_SCAN_04.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/pet_ct/RADIOLOGY_PET-CT_SCAN_04.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "usg",
           "filename": "RADIOLOGY (USG) 1.pdf",
           "title": "RADIOLOGY (USG) 1",
-          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_1.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/usg/RADIOLOGY_USG_1.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "usg",
           "filename": "RADIOLOGY (USG) 2 (2).pdf",
           "title": "RADIOLOGY (USG) 2 (2)",
-          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_2_2_.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/usg/RADIOLOGY_USG_2_2_.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "usg",
           "filename": "RADIOLOGY (USG) 2.pdf",
           "title": "RADIOLOGY (USG) 2",
-          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_2.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/usg/RADIOLOGY_USG_2.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "usg",
           "filename": "RADIOLOGY (USG) 3.pdf",
           "title": "RADIOLOGY (USG) 3",
-          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_3.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/usg/RADIOLOGY_USG_3.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "usg",
           "filename": "RADIOLOGY (USG) 4.pdf",
           "title": "RADIOLOGY (USG) 4",
-          "url": "/loki2/asset/doc/4/imaging/usg/RADIOLOGY_USG_4.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/usg/RADIOLOGY_USG_4.pdf"
         },
         {
           "category": "imaging",
           "subcategory": "xray",
           "filename": "RADIOLOGY (X-RAY) 5.pdf",
           "title": "RADIOLOGY (X-RAY) 5",
-          "url": "/loki2/asset/doc/4/imaging/xray/RADIOLOGY_X-RAY_5.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/4/imaging/xray/RADIOLOGY_X-RAY_5.pdf"
         }
       ]
     },
@@ -2871,17 +2871,17 @@
       "wsi_slides": [
         {
           "slide": "WSI_7.1.svs",
-          "dzi_path": "/loki2/asset/wsi/7_GB/WSI_7.1.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/7_GB/WSI_7.1.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_7.1.svs"
         },
         {
           "slide": "WSI_7.2.svs",
-          "dzi_path": "/loki2/asset/wsi/7_GB/WSI_7.2.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/7_GB/WSI_7.2.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_7.2.svs"
         },
         {
           "slide": "WSI_7.3.svs",
-          "dzi_path": "/loki2/asset/wsi/7_GB/WSI_7.3.dzi",
+          "dzi_path": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/wsi/patients/7_GB/WSI_7.3.dzi",
           "source": "/Users/apple/Documents/Clinical_Data/Data/WSI_7.3.svs"
         }
       ],
@@ -2891,7 +2891,7 @@
           "subcategory": null,
           "filename": "Clinical Data_7- GB.pdf",
           "title": "Clinical Data_7- GB",
-          "url": "/loki2/asset/doc/7_GB/overview/Clinical_Data_7-_GB.pdf"
+          "url": "https://production-grtlabs-tag.s3.amazonaws.com/loki_dashboard/docs/patients/7_GB/overview/Clinical_Data_7-_GB.pdf"
         }
       ]
     }
