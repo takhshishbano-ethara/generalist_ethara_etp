@@ -58,6 +58,15 @@ RUN curl -fsSL "https://github.com/steipete/gogcli/releases/download/v${GOG_VERS
     | tar -xz -C /usr/local/bin gog \
     && chmod +x /usr/local/bin/gog
 
+# Apply Skoll-owned hotfix patches to the OpenClaw plugin/SDK tree baked into
+# this image. Runs as root (still set from the steps above) so it can write
+# /app/dist; the SDK lives in the base-image layer, so this does not need to
+# follow the brave-plugin install. apply.sh is idempotent and safe against
+# unaffected images (see patches/README.md).
+COPY patches/ /opt/skoll-openclaw-patches/
+RUN chmod +x /opt/skoll-openclaw-patches/apply.sh \
+    && /opt/skoll-openclaw-patches/apply.sh
+
 USER node
 WORKDIR /app
 
