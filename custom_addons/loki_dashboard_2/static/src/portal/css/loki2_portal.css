@@ -723,15 +723,29 @@ hr.rule {
 /* ---------- pathology + molecular grid ------------------ */
 .pathmol-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 18px;
 }
-@media (max-width: 900px) { .pathmol-grid { grid-template-columns: 1fr; } }
 .pathmol-card {
   border: var(--hairline);
   background: var(--bg-2);
   padding: 18px;
   box-shadow: var(--card-shadow);
+  min-width: 0;
+  overflow: hidden;
+}
+.pathmol-card .clinical-table-wrap,
+.pathmol-card .mol-group {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.pathmol-card .clinical-table {
+  table-layout: auto;
+  word-break: break-word;
+}
+.pathmol-card .clinical-table td {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 .pathmol-card h3 {
   font-family: var(--font-mono);
