@@ -643,8 +643,8 @@ litellm_settings:
   modify_params: true
   telemetry: false
   num_retries: 1
-  request_timeout: 900
-  stream_timeout: 60
+  request_timeout: 1200
+  stream_timeout: 1200
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
