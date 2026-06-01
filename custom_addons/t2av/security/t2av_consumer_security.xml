@@ -10,7 +10,7 @@
         <record id="user_t2av_consumer_bot" model="res.users">
             <field name="name">T2AV Pipeline Consumer Bot</field>
             <field name="login">t2av_consumer_bot</field>
-            <field name="email">t2av-bot@localhost</field>
+            <field name="email">t2av-bot@ethara.ai</field>
             <field name="active" eval="True"/>
             <field name="share" eval="False"/>
             <field name="group_ids" eval="[(6, 0, [ref('group_t2av_consumer')])]"/>
