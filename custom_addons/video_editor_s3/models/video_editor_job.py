@@ -257,7 +257,7 @@ def _run_render(db, uid, job_id, cancel_event, preview=False):
                 raise UserError(_("Lambda pipeline is enabled but function name, region, or callback URL is unset."))
             from ..services import lambda_invoker
             ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-            out_key = "%s/project_%d/render_%s.mp4" % (export_prefix, project_id, ts)
+            out_key = "%s/render_%s_%d.mp4" % (export_prefix, ts, job_id)
             payload = {
                 "op": "render",
                 "job_id": job_id,
@@ -428,7 +428,7 @@ def _read_export_context(db, uid, job_id):
         if not s3_key:
             prefix = env["video.editor.s3.settings"].get_default_export_prefix()
             ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
-            s3_key = "%s/project_%d/%s.mp4" % (prefix, project.id, ts)
+            s3_key = "%s/%s_%d.mp4" % (prefix, ts, project.id)
         return project.id, local_abs, s3_key, cfg
 
 
