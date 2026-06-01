@@ -12,15 +12,20 @@ RUN_WORKFLOW_TEMPLATE = "kaiju-run-pipeline"
 # Maps Odoo model_name selection values to pipeline model_short directory names.
 # Must match PRESET_SHORT in eks/pipeline/init_run.py and run_stage.py.
 MODEL_SHORT = {
+    # NOTE: values MUST match run_stage.MODEL_PRESETS[*]["model_short"] in the
+    # EKS pipeline repo — the Argo pipeline writes pipeline_results.json into
+    # s3://.../logs_{model_short}/run_N/  and Odoo reads from the same path.
+    # Drift = silent 0% pass_rate on the form view.
     "opus": "opus4.6",
-    "sonnet": "sonnet4",
-    "haiku": "haiku3.5",
+    "sonnet": "sonnet",
+    "haiku": "haiku",
     "kimi": "kimi-k2.5",
     "glm5": "glm-5",
     "minimax": "minimax-m2.5",
     "nova_premier": "nova-premier",
     "nova_lite": "nova-2-lite",
     "gpt54": "gpt-5.4",
+    "gemini": "gemini-2.5-flash",
 }
 
 
@@ -47,6 +52,7 @@ class KaijuCommit0Run(models.Model):
             ("nova_premier", "Nova Premier"),
             ("nova_lite", "Nova Lite"),
             ("gpt54", "GPT-5.4"),
+            ("gemini", "Gemini 2.5 Flash (free, dev/test only)"),
         ],
         string="Model",
         required=True,
@@ -162,6 +168,7 @@ class KaijuCommit0Run(models.Model):
     tokens_input = fields.Integer(string="Input Tokens", readonly=True)
     tokens_output = fields.Integer(string="Output Tokens", readonly=True)
 
+
     # ── Related (for display) ────────────────────────────────────────────────
 
     repo_name = fields.Char(related="build_id.repo_name", store=False)
@@ -244,6 +251,7 @@ class KaijuCommit0Run(models.Model):
         for rec in self:
             rec.step_count = len(rec.step_ids)
 
+
     # ── CRUD ─────────────────────────────────────────────────────────────────
 
     @api.model_create_multi
@@ -258,7 +266,7 @@ class KaijuCommit0Run(models.Model):
     # ── Actions ──────────────────────────────────────────────────────────────
 
     def action_run(self):
-        """Submit run workflow to Argo Server (stages + eval + finalize)."""
+        """Submit run workflow to Argo Server."""
         self.ensure_one()
         build = self.build_id
         if not build.image_uri:
@@ -270,7 +278,6 @@ class KaijuCommit0Run(models.Model):
 
         argo = self.env["kaiju.argo.client"]
         repo_short = (build.repo_name or "unknown").split("/")[-1]
-
         callback_url = self._get_run_callback_url()
 
         # Map Odoo selection keys to pipeline preset names
@@ -278,19 +285,19 @@ class KaijuCommit0Run(models.Model):
             "nova_premier": "nova-premier",
             "nova_lite": "nova-lite",
         }
-
         model_preset = model_preset_map.get(self.model_name, self.model_name)
+
+        num_samples = max(1, self.num_samples or 1)
 
         parameters = {
             "repo_name": build.repo_name,
             "language": build.language,
             "branch_name": "commit0_combined",
             "model_preset": model_preset,
-            "num_samples": str(self.num_samples),
+            "num_samples": str(num_samples),
+            "sample_index": "0",
             "max_iteration": str(self.max_iteration),
             "use_spec_info": "true" if self.use_spec_info else "false",
-            "odoo_job_id": str(self.id),
-            "callback_url": callback_url,
             "skip_to_stage": str(self.skip_to_stage or 1),
             "inactivity_timeout": str(self.inactivity_timeout or 900),
             "stage_timeout": str(self.stage_timeout or 0),
@@ -298,60 +305,39 @@ class KaijuCommit0Run(models.Model):
             "eval_timeout": str(self.eval_timeout or 3600),
             "max_test_output_length": str(self.max_test_output_length or 15000),
             "no_stage3_lint": "true" if self.no_stage3_lint else "false",
+            "odoo_job_id": str(self.id),
+            "callback_url": callback_url,
         }
 
-        # Submit workflow(s) — for pass@k, submit N workflows with sample_index=0..N-1
-        num_samples = max(1, self.num_samples or 1)
-        workflow_names = []
-
-        for sample_idx in range(num_samples):
-            sample_params = dict(parameters)
-            sample_params["sample_index"] = str(sample_idx)
-
-            try:
-                wf_name = argo.submit_workflow(
-                    RUN_WORKFLOW_TEMPLATE,
-                    sample_params,
-                    labels={
-                        "kaiju/run-id": self.name,
-                        "kaiju/repo": repo_short,
-                        "kaiju/sample-index": str(sample_idx),
-                    },
-                )
-                workflow_names.append(wf_name)
-            except RuntimeError as e:
-                _logger.error(
-                    "Failed to submit run workflow sample %d for %s: %s",
-                    sample_idx, self.name, e,
-                )
-                if not workflow_names:
-                    raise UserError(f"Failed to submit run workflow: {e}") from e
-                _logger.warning(
-                    "Partial submission: %d/%d samples submitted for %s",
-                    len(workflow_names), num_samples, self.name,
-                )
-                break
-
-        wf_display = ", ".join(workflow_names)
-        log_msg = (
-            f"Submitted {len(workflow_names)} workflow(s): {wf_display}\n"
-            f"Waiting for pipeline..."
-        )
+        try:
+            wf_name = argo.submit_workflow(
+                RUN_WORKFLOW_TEMPLATE,
+                parameters,
+                labels={
+                    "kaiju/run-id": self.name,
+                    "kaiju/repo": repo_short,
+                },
+            )
+        except RuntimeError as e:
+            _logger.error(
+                "Failed to submit run workflow for %s: %s", self.name, e
+            )
+            raise UserError(f"Failed to submit run workflow: {e}") from e
 
         self.write(
             {
                 "run_status": "running",
                 "run_start": fields.Datetime.now(),
-                "workflow_name": workflow_names[0] if workflow_names else "",
-                "run_log": log_msg,
+                "workflow_name": wf_name,
+                "run_log": f"Submitted workflow: {wf_name}\nWaiting for pipeline...",
             }
         )
 
     def _get_run_callback_url(self):
-        ICP = self.env["ir.config_parameter"].sudo()
-        base_url = ICP.get_param(
+        """Build the absolute URL that the Argo step-log-callback POSTs to."""
+        base_url = self.env["ir.config_parameter"].sudo().get_param(
             "kaiju.odoo_internal_url", "http://odoo-web.odoo.svc:8069"
-        )
+        ).rstrip("/")
         return f"{base_url}/kaiju/callback/run"
 
     def action_abort(self):
