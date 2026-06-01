@@ -299,7 +299,7 @@
                                 <list>
                                     <field name="name" string="Run ID"/>
                                     <field name="model_name" string="Model"/>
-                                    <field name="num_samples" string="Samples"/>
+                                    <field name="num_samples" string="Samples" optional="hide"/>
                                     <field name="run_status" widget="badge" string="Status"
                                            decoration-info="run_status == 'pending'"
                                            decoration-warning="run_status == 'running'"

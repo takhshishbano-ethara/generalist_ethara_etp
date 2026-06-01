@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
-                <app data-string="Crowly Sourcing" string="Crowly Sourcing" name="video_editor_s3" groups="video_editor_s3.group_video_editor_s3_manager">
+                <app data-string="Crowley Sourcing" string="Crowley Sourcing" name="video_editor_s3" groups="video_editor_s3.group_video_editor_s3_manager">
                     <block title="Amazon S3 Credentials" name="video_editor_s3_credentials">
                         <setting id="video_editor_s3_aws_bucket" string="S3 Bucket" help="Default S3 bucket for export operations.">
                             <field name="video_editor_s3_aws_bucket" placeholder="my-video-bucket"/>
@@ -36,6 +36,15 @@
                         </setting>
                         <setting id="video_editor_s3_max_concurrent_jobs" string="Max Concurrent Jobs" help="Process pool capacity. Restart Odoo workers after changing.">
                             <field name="video_editor_s3_max_concurrent_jobs"/>
+                        </setting>
+                        <setting id="video_editor_s3_trim_min_seconds" string="Trim Min Duration (s)" help="Minimum allowed duration of the exported trim video, in seconds.">
+                            <field name="video_editor_s3_trim_min_seconds"/>
+                        </setting>
+                        <setting id="video_editor_s3_trim_max_seconds" string="Trim Max Duration (s)" help="Maximum allowed duration of the exported trim video, in seconds.">
+                            <field name="video_editor_s3_trim_max_seconds"/>
+                        </setting>
+                        <setting id="video_editor_s3_prompt_max_words" string="Prompt Max Words" help="Maximum allowed number of words in the project prompt.">
+                            <field name="video_editor_s3_prompt_max_words"/>
                         </setting>
                     </block>
                     <block title="Kimi K2.5 Prompt QC" name="video_editor_s3_bedrock">
@@ -103,7 +112,7 @@
     </record>
 
     <record id="action_video_editor_s3_settings" model="ir.actions.act_window">
-        <field name="name">Crowly Sourcing Settings</field>
+        <field name="name">Crowley Sourcing Settings</field>
         <field name="res_model">res.config.settings</field>
         <field name="view_mode">form</field>
         <field name="target">current</field>

@@ -27,10 +27,12 @@
             <field name="value">http://odoo-web.odoo.svc:8069</field>
         </record>
 
-        <record id="kaiju_config_webhook_token" model="ir.config_parameter">
-            <field name="key">kaiju.webhook_token</field>
-            <field name="value">CHANGE-ME-generate-a-secure-token</field>
-        </record>
+        <!-- kaiju.webhook_token: Shared Bearer token for /kaiju/callback/* routes.
+             MUST be configured before the controller will accept any callback.
+             Set via Settings → Technical → System Parameters or AWS Secrets Manager.
+             Pipeline side must inject the same value as ODOO_WEBHOOK_TOKEN env in
+             the kaiju-pipeline-config Kubernetes Secret.
+             Default intentionally omitted so unauthenticated callbacks 401 by default. -->
 
         <!-- AWS credentials for S3 metadata fetch (leave blank to use EC2/IRSA instance profile) -->
         <record id="kaiju_config_aws_region" model="ir.config_parameter">

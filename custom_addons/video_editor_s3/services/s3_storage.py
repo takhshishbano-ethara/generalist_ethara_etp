@@ -259,7 +259,7 @@ def head_object_exists(s3_config: dict, s3_key: str) -> bool:
 
 class S3SettingsResolver(models.AbstractModel):
     _name = "video.editor.s3.settings"
-    _description = "Crowly Sourcing Configuration Resolver"
+    _description = "Crowley Sourcing Configuration Resolver"
 
     @api.model
     def get_s3_config(self) -> dict:
@@ -336,3 +336,30 @@ class S3SettingsResolver(models.AbstractModel):
             "cookies_path": (ICP.get_param("video_editor_s3.yt_cookies_path") or "").strip(),
             "proxy_url": (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip(),
         }
+
+    @api.model
+    def get_trim_min_seconds(self) -> float:
+        ICP = self.env["ir.config_parameter"].sudo()
+        raw = ICP.get_param("video_editor_s3.trim_min_seconds") or "8.0"
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return 8.0
+
+    @api.model
+    def get_trim_max_seconds(self) -> float:
+        ICP = self.env["ir.config_parameter"].sudo()
+        raw = ICP.get_param("video_editor_s3.trim_max_seconds") or "16.0"
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return 16.0
+
+    @api.model
+    def get_prompt_max_words(self) -> int:
+        ICP = self.env["ir.config_parameter"].sudo()
+        raw = ICP.get_param("video_editor_s3.prompt_max_words") or "150"
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return 150

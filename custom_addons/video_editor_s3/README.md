@@ -1,4 +1,4 @@
-# Crowly Sourcing
+# Crowley Sourcing
 
 Server-side video editor for Odoo 19 that ingests source video from an Amazon S3 URL, edits it
 in a browser-based OWL UI (trim, crop, rotate, resize, mute, filters), processes the result with
@@ -82,11 +82,11 @@ The two modules share no models. They can be installed together.
 | Binary | `ffprobe` | same search order |
 
 Both binaries can be pinned via system parameters
-`video_editor_s3.ffmpeg_path` and `video_editor_s3.ffprobe_path` (Settings → Crowly Sourcing).
+`video_editor_s3.ffmpeg_path` and `video_editor_s3.ffprobe_path` (Settings → Crowley Sourcing).
 
 ## Settings
 
-Settings → General Settings → "Crowly Sourcing" section (manager group only):
+Settings → General Settings → "Crowley Sourcing" section (manager group only):
 
 | Field | ICP key | Default |
 |---|---|---|
@@ -232,7 +232,7 @@ If the bot-challenge still fires, follow yt-dlp's recommended flow ([Extractors 
    rotate the cookies behind your back.
 6. Upload the file to the Odoo host (e.g. `/var/lib/odoo/yt_cookies.txt`), make it
    readable by the Odoo OS user (`chmod 644`), and set
-   **Settings → Crowly Sourcing → YouTube Ingest → Cookies File Path** to the
+   **Settings → Crowley Sourcing → YouTube Ingest → Cookies File Path** to the
    absolute path.
 
 This incognito + cookies.txt flow is the **recommended fix for production**. The
@@ -268,7 +268,7 @@ dependency for the QC path. Retries cover HTTP 408/425/429/5xx and network error
 exponential backoff (default 3 attempts).
 
 The seed prompt (which tells Kimi K2.5 how to score) is configurable. Upload a `.md` or
-`.txt` file (UTF-8, max 100 KB) under **Settings → Crowly Sourcing → Prompt QC Seed**,
+`.txt` file (UTF-8, max 100 KB) under **Settings → Crowley Sourcing → Prompt QC Seed**,
 or leave it blank to use the bundled default at `data/qc_seed_prompt.md`, which scores
 0–100 on Clarity / Specificity / Coherence / Feasibility / Safety, classifies expert
 level as novice / intermediate / advanced / expert, and only passes when the score is
