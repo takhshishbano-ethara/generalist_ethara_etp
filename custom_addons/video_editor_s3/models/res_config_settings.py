@@ -12,6 +12,14 @@ _LLM_SEED_FILENAME_PARAM = "video_editor_s3.llm_qc_seed_filename"
 _LLM_SEED_FILE_MAX_BYTES = 100 * 1024
 _LLM_SEED_ALLOWED_EXTS = (".md", ".txt")
 
+_YT_COOKIES_FILE_PARAM = "video_editor_s3.yt_cookies_file"
+_YT_COOKIES_FILENAME_PARAM = "video_editor_s3.yt_cookies_filename"
+_YT_COOKIES_FILE_MAX_BYTES = 1024 * 1024
+_YT_COOKIES_NETSCAPE_HEADERS = (
+    "# Netscape HTTP Cookie File",
+    "# HTTP Cookie File",
+)
+
 
 class ResConfigSettings(models.TransientModel):
     _inherit = "res.config.settings"
@@ -26,12 +34,27 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="video_editor_s3.aws_region",
     )
     video_editor_s3_aws_access_key = fields.Char(
-        string="AWS Access Key",
+        string="AWS Access Key (Lambda)",
         config_parameter="video_editor_s3.aws_access_key",
+        help="Identity used to invoke the Lambda render pipeline. Not used for direct S3 uploads.",
     )
     video_editor_s3_aws_secret_key = fields.Char(
-        string="AWS Secret Key",
+        string="AWS Secret Key (Lambda)",
         config_parameter="video_editor_s3.aws_secret_key",
+    )
+    video_editor_s3_s3_access_key = fields.Char(
+        string="S3 Access Key (Odoo)",
+        config_parameter="video_editor_s3.s3_access_key",
+        help=(
+            "Identity used by Odoo for direct S3 operations (YouTube ingest upload, "
+            "render output upload, dedup HeadObject). Must have s3:PutObject, "
+            "s3:GetObject, s3:ListBucket on the bucket. If empty, falls back to "
+            "the Lambda credentials above."
+        ),
+    )
+    video_editor_s3_s3_secret_key = fields.Char(
+        string="S3 Secret Key (Odoo)",
+        config_parameter="video_editor_s3.s3_secret_key",
     )
     video_editor_s3_export_prefix = fields.Char(
         string="Export Key Prefix",
@@ -40,7 +63,7 @@ class ResConfigSettings(models.TransientModel):
     )
     video_editor_s3_youtube_prefix = fields.Char(
         string="YouTube Key Prefix",
-        default="video_editor_s3/youtube",
+        default="video_editor_s3",
         config_parameter="video_editor_s3.youtube_prefix",
     )
     video_editor_s3_max_source_size_mb = fields.Integer(
@@ -131,8 +154,24 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="video_editor_s3.yt_cookies_path",
         help=(
             "Absolute path to a Netscape-format cookies.txt exported from a logged-in "
-            "YouTube session. Suitable for server deployments. Leave empty to skip."
+            "YouTube session. Suitable for server deployments. Leave empty to skip. "
+            "Ignored when 'YouTube Cookies File' upload is set."
         ),
+    )
+    video_editor_s3_yt_cookies_file = fields.Binary(
+        string="YouTube Cookies File",
+        help=(
+            "Upload a Netscape-format cookies.txt exported from a logged-in YouTube "
+            "session (UTF-8, max 1 MB, first line must start with "
+            "'# Netscape HTTP Cookie File' or '# HTTP Cookie File'). When set, this "
+            "overrides 'YouTube Cookies File Path' - the file is materialised to a "
+            "temporary location per ingest job and removed when the job ends. "
+            "Clear the file to revert to the path-based or no-cookies configuration."
+        ),
+    )
+    video_editor_s3_yt_cookies_filename = fields.Char(
+        string="YouTube Cookies Filename",
+        config_parameter="video_editor_s3.yt_cookies_filename",
     )
     video_editor_s3_yt_proxy_url = fields.Char(
         string="YouTube Proxy URL",
@@ -146,7 +185,7 @@ class ResConfigSettings(models.TransientModel):
     video_editor_s3_use_lambda = fields.Boolean(
         string="Run heavy jobs on AWS Lambda",
         config_parameter="video_editor_s3.use_lambda",
-        help="When enabled, YouTube ingest (and later render) jobs are dispatched to AWS Lambda instead of the local Odoo worker.",
+        help="When enabled, render jobs are dispatched to AWS Lambda instead of the local Odoo worker. YouTube ingest always runs locally on Odoo.",
     )
     video_editor_s3_lambda_function_name = fields.Char(
         string="Lambda Function Name",
@@ -174,10 +213,13 @@ class ResConfigSettings(models.TransientModel):
         ICP = self.env["ir.config_parameter"].sudo()
         b64 = ICP.get_param(_LLM_SEED_FILE_PARAM) or ""
         res["video_editor_s3_llm_qc_seed_file"] = b64.encode("ascii") if b64 else False
+        yt_b64 = ICP.get_param(_YT_COOKIES_FILE_PARAM) or ""
+        res["video_editor_s3_yt_cookies_file"] = yt_b64.encode("ascii") if yt_b64 else False
         return res
 
     def set_values(self):
         self._validate_llm_qc_seed_file()
+        self._validate_youtube_cookies_file()
         ICP = self.env["ir.config_parameter"].sudo()
         raw = self.video_editor_s3_llm_qc_seed_file
         if raw:
@@ -185,6 +227,12 @@ class ResConfigSettings(models.TransientModel):
             ICP.set_param(_LLM_SEED_FILE_PARAM, b64)
         else:
             ICP.set_param(_LLM_SEED_FILE_PARAM, "")
+        yt_raw = self.video_editor_s3_yt_cookies_file
+        if yt_raw:
+            yt_b64 = yt_raw.decode("ascii") if isinstance(yt_raw, bytes) else yt_raw
+            ICP.set_param(_YT_COOKIES_FILE_PARAM, yt_b64)
+        else:
+            ICP.set_param(_YT_COOKIES_FILE_PARAM, "")
         return super().set_values()
 
     def action_download_llm_qc_seed(self):
@@ -221,9 +269,39 @@ class ResConfigSettings(models.TransientModel):
                 "LLM QC seed file must be .md or .txt (got %s)."
             ) % fn)
 
+    def _validate_youtube_cookies_file(self):
+        raw_b64 = self.video_editor_s3_yt_cookies_file
+        if not raw_b64:
+            return
+        try:
+            content = base64.b64decode(raw_b64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise ValidationError(_(
+                "YouTube cookies file is corrupted (base64 decode failed): %s"
+            ) % exc) from exc
+        if len(content) > _YT_COOKIES_FILE_MAX_BYTES:
+            raise ValidationError(_(
+                "YouTube cookies file is too large (max %d KB, got %d KB)."
+            ) % (_YT_COOKIES_FILE_MAX_BYTES // 1024, len(content) // 1024 + 1))
+        if not content.strip():
+            raise ValidationError(_("YouTube cookies file is empty."))
+        try:
+            text = content.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValidationError(_(
+                "YouTube cookies file must be valid UTF-8 text: %s"
+            ) % exc) from exc
+        first_line = text.lstrip().splitlines()[0] if text.strip() else ""
+        if not any(first_line.startswith(h) for h in _YT_COOKIES_NETSCAPE_HEADERS):
+            raise ValidationError(_(
+                "YouTube cookies file is not in Netscape format. First line must "
+                "start with '# Netscape HTTP Cookie File' or '# HTTP Cookie File'. "
+                "Got: %s"
+            ) % (first_line[:120] or "(empty)"))
+
     def action_test_s3_connection(self):
         self.ensure_one()
-        cfg = self.env["video.editor.s3.settings"].get_s3_config()
+        cfg = self.env["video.editor.s3.settings"].get_local_s3_config()
         if not cfg.get("bucket"):
             raise UserError(_("Bucket name is required."))
         try:
@@ -245,12 +323,15 @@ class ResConfigSettings(models.TransientModel):
         self.ensure_one()
         cfg = self.env["video.editor.s3.settings"].get_youtube_ingest_config()
         cookies_path = (cfg.get("cookies_path") or "").strip()
+        cookies_blob = (cfg.get("cookies_blob_b64") or "").strip()
         proxy_url = (cfg.get("proxy_url") or "").strip()
-        if not cookies_path and not proxy_url:
+        if not cookies_path and not cookies_blob and not proxy_url:
             raise UserError(_(
-                "Nothing to test - set Cookies File Path or Proxy URL first."
+                "Nothing to test - upload a Cookies File, set Cookies File Path, or set Proxy URL first."
             ))
-        if cookies_path:
+        if cookies_blob:
+            self._validate_youtube_cookies_file()
+        elif cookies_path:
             youtube_downloader.validate_cookies_file(cookies_path)
         if proxy_url:
             youtube_downloader.validate_proxy_url(proxy_url)
@@ -260,7 +341,7 @@ class ResConfigSettings(models.TransientModel):
             "params": {
                 "type": "success",
                 "title": _("YouTube ingest configuration OK"),
-                "message": _("Cookies file and/or proxy URL passed validation."),
+                "message": _("Cookies (upload/path) and/or proxy URL passed validation."),
                 "sticky": False,
             },
         }

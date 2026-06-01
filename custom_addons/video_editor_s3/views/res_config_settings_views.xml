@@ -14,11 +14,17 @@
                         <setting id="video_editor_s3_aws_region" string="AWS Region">
                             <field name="video_editor_s3_aws_region" placeholder="ap-south-1"/>
                         </setting>
-                        <setting id="video_editor_s3_aws_access_key" string="Access Key">
+                        <setting id="video_editor_s3_aws_access_key" string="Access Key (Lambda)" help="Identity used to invoke the Lambda render pipeline. Not used for direct S3 uploads.">
                             <field name="video_editor_s3_aws_access_key" password="True"/>
                         </setting>
-                        <setting id="video_editor_s3_aws_secret_key" string="Secret Key">
+                        <setting id="video_editor_s3_aws_secret_key" string="Secret Key (Lambda)">
                             <field name="video_editor_s3_aws_secret_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_s3_access_key" string="Access Key (S3 / Odoo)" help="Identity used by Odoo for direct S3 operations (YouTube ingest upload, dedup HeadObject). Must have s3:PutObject, s3:GetObject, s3:ListBucket on the bucket. If empty, falls back to the Lambda credentials above.">
+                            <field name="video_editor_s3_s3_access_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_s3_secret_key" string="Secret Key (S3 / Odoo)">
+                            <field name="video_editor_s3_s3_secret_key" password="True"/>
                         </setting>
                         <setting id="video_editor_s3_export_prefix" string="Export Key Prefix" help="S3 key prefix prepended to all rendered exports.">
                             <field name="video_editor_s3_export_prefix"/>
@@ -67,15 +73,19 @@
                         <setting id="video_editor_s3_yt_cookies_browser" string="Cookies From Browser" help="Auto-import YouTube cookies from an installed browser (chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). Optionally append :PROFILE e.g. 'chrome:Profile 1'. The browser must be installed on the Odoo host and logged in to YouTube.">
                             <field name="video_editor_s3_yt_cookies_browser" placeholder="chrome"/>
                         </setting>
-                        <setting id="video_editor_s3_yt_cookies_path" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Recommended for server deployments.">
+                        <setting id="video_editor_s3_yt_cookies_path" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Ignored when 'Cookies File' upload is set.">
                             <field name="video_editor_s3_yt_cookies_path" placeholder="/var/lib/odoo/yt_cookies.txt"/>
+                        </setting>
+                        <setting id="video_editor_s3_yt_cookies_file_setting" string="Cookies File" help="Upload a Netscape-format cookies.txt (max 1 MB, UTF-8, first line '# Netscape HTTP Cookie File' or '# HTTP Cookie File'). When set, this overrides 'Cookies File Path' - the file is written to a temporary location per ingest job and removed when the job ends. Clear the file to revert to the path-based configuration.">
+                            <field name="video_editor_s3_yt_cookies_file" filename="video_editor_s3_yt_cookies_filename"/>
+                            <field name="video_editor_s3_yt_cookies_filename" invisible="1"/>
                         </setting>
                         <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
                             <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
                         </setting>
                     </block>
                     <block title="AWS Lambda Pipeline" name="video_editor_s3_lambda">
-                        <setting id="video_editor_s3_use_lambda" string="Run heavy jobs on AWS Lambda" help="When ON, YouTube ingest and render jobs dispatch to AWS Lambda instead of running in the local Odoo worker. Leave OFF on dev machines without AWS credentials.">
+                        <setting id="video_editor_s3_use_lambda" string="Run heavy jobs on AWS Lambda" help="When ON, render jobs dispatch to AWS Lambda instead of running in the local Odoo worker. YouTube ingest always runs locally on Odoo. Leave OFF on dev machines without AWS credentials.">
                             <field name="video_editor_s3_use_lambda"/>
                         </setting>
                         <setting id="video_editor_s3_lambda_function_name" string="Lambda Function Name" help="e.g. video-pipeline-dev — must match the SAM-deployed function name.">
