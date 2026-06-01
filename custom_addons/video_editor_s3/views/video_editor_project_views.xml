@@ -151,7 +151,7 @@
                                                 confirm="This will mark the QC as PASSED while preserving the reviewer's original verdict. The override and your user are recorded in the chatter and form. Continue?"
                                                 invisible="not llm_evaluated_at or llm_qc_force_passed or llm_qc_result == 'pass'"/>
                                     </div>
-                                    <field name="llm_failure_reason" nolabel="1" readonly="1" placeholder="No failure reason recorded."/>
+                                    <field name="llm_failure_reason" nolabel="1" readonly="1" widget="text" class="w-100 d-block" placeholder="No failure reason recorded."/>
                                 </div>
 
                                 <div class="border-start border-primary border-4 bg-light p-3" invisible="not llm_fixed_prompt">
@@ -163,7 +163,7 @@
                                                 confirm="This will overwrite the project's Prompt with the reviewer's suggested fix. You can then click Retry QC to re-evaluate. Continue?"
                                                 invisible="not llm_fixed_prompt"/>
                                     </div>
-                                    <field name="llm_fixed_prompt" nolabel="1" readonly="1" placeholder="No corrected prompt suggested."/>
+                                    <field name="llm_fixed_prompt" nolabel="1" readonly="1" widget="text" class="w-100 d-block" placeholder="No corrected prompt suggested."/>
                                 </div>
                             </group>
                         </page>

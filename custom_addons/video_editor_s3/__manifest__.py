@@ -44,6 +44,7 @@ intentionally independent so each can evolve on its own schedule.
         "views/video_editor_job_views.xml",
         "views/video_editor_action.xml",
         "wizards/youtube_multi_ingest_wizard_views.xml",
+        "wizards/llm_qc_force_pass_wizard_views.xml",
         "views/menus.xml",
     ],
     "post_init_hook": "post_init_hook",

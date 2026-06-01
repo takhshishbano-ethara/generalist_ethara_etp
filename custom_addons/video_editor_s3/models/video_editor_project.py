@@ -692,6 +692,15 @@ class VideoEditorProject(models.Model):
         if self.llm_qc_force_passed:
             raise UserError(_("This project's LLM QC is already force-passed."))
         reason = (self.env.context.get("default_llm_qc_force_pass_reason") or "").strip()
+        if not reason:
+            return {
+                "type": "ir.actions.act_window",
+                "name": _("Force Pass LLM QC"),
+                "res_model": "video.editor.llm.qc.force.pass.wizard",
+                "view_mode": "form",
+                "target": "new",
+                "context": {"default_project_id": self.id},
+            }
         now = fields.Datetime.now()
         self.write({
             "llm_qc_force_passed": True,
@@ -759,15 +768,12 @@ class VideoEditorProject(models.Model):
     def create(self, vals_list):
         records = super().create(vals_list)
         records._maybe_probe_s3_source()
-        records._maybe_run_llm_qc()
         return records
 
     def write(self, vals):
         res = super().write(vals)
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
-        if "prompt" in vals:
-            self._maybe_run_llm_qc()
         return res
 
     def unlink(self):
