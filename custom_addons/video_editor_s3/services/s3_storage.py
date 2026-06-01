@@ -300,21 +300,23 @@ class S3SettingsResolver(models.AbstractModel):
         return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3/youtube").strip("/")
 
     @api.model
-    def get_bedrock_config(self) -> dict:
+    def get_llm_qc_config(self) -> dict:
         ICP = self.env["ir.config_parameter"].sudo()
         return {
-            "region": (ICP.get_param("video_editor_s3.bedrock_region") or "us-east-1").strip(),
-            "model_id": (ICP.get_param("video_editor_s3.bedrock_model_id") or "").strip(),
-            "api_key": (ICP.get_param("video_editor_s3.bedrock_api_key") or "").strip(),
+            "api_key": (ICP.get_param("video_editor_s3.openrouter_api_key") or "").strip(),
+            "model_id": (
+                ICP.get_param("video_editor_s3.llm_qc_model_id")
+                or "openrouter/google/gemini-3.1-pro-preview"
+            ).strip(),
         }
 
     @api.model
-    def get_qc_seed_prompt(self) -> str:
+    def get_llm_qc_seed_prompt(self) -> str:
         import base64
         from . import llm_qc
         ICP = self.env["ir.config_parameter"].sudo()
 
-        b64 = (ICP.get_param("video_editor_s3.qc_seed_file") or "").strip()
+        b64 = (ICP.get_param("video_editor_s3.llm_qc_seed_file") or "").strip()
         if b64:
             try:
                 text = base64.b64decode(b64).decode("utf-8").strip()
@@ -322,7 +324,7 @@ class S3SettingsResolver(models.AbstractModel):
                     return text
             except (ValueError, UnicodeDecodeError) as exc:
                 _logger.warning(
-                    "Stored QC seed file is invalid (%s) — falling back to bundled default.",
+                    "Stored LLM QC seed file is invalid (%s) - falling back to bundled default.",
                     exc,
                 )
 

@@ -12,6 +12,8 @@ from odoo import SUPERUSER_ID, _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.modules.registry import Registry
 
+import requests
+
 from ..services import job_executor, llm_qc, s3_storage, youtube_downloader
 from ..services.job_executor import JobCancelled
 
@@ -22,7 +24,7 @@ JOB_TYPES = [
     ("preview", "Render preview"),
     ("export", "Export to S3"),
     ("youtube_ingest", "YouTube Ingest"),
-    ("prompt_qc", "Prompt QC"),
+    ("llm_qc", "LLM QC"),
     ("s3_probe", "Probe S3 source"),
 ]
 
@@ -174,8 +176,8 @@ def _run_job(db, uid, job_id):
             _run_export(db, uid, job_id, cancel_event)
         elif job_type == "youtube_ingest":
             _run_youtube_ingest(db, uid, job_id, cancel_event)
-        elif job_type == "prompt_qc":
-            _run_prompt_qc(db, uid, job_id, cancel_event)
+        elif job_type == "llm_qc":
+            _run_llm_qc(db, uid, job_id, cancel_event)
         elif job_type == "s3_probe":
             _run_s3_probe(db, uid, job_id, cancel_event)
         else:
@@ -797,7 +799,21 @@ def _run_s3_probe(db, uid, job_id, cancel_event):
         cr.commit()
 
 
-def _run_prompt_qc(db, uid, job_id, cancel_event):
+def _verdict_to_field(v):
+    v = (v or "").upper()
+    if v == "PASS":
+        return "pass"
+    if v == "FAIL":
+        return "fail"
+    if v == "FLAG":
+        return "flag"
+    return False
+
+
+def _run_llm_qc(db, uid, job_id, cancel_event):
+    job_executor._check_cancelled(cancel_event)
+    _bump_heartbeat(db, job_id, "preparing LLM QC")
+
     with Registry(db).cursor() as cr:
         env = api.Environment(cr, uid or SUPERUSER_ID, {})
         job = env["video.editor.job"].browse(job_id)
@@ -805,63 +821,126 @@ def _run_prompt_qc(db, uid, job_id, cancel_event):
             raise UserError(_("Job %s no longer exists.") % job_id)
         project = job.project_id
         project_id = project.id
-        opts = job.config_json or {}
-        prompt = (opts.get("prompt") or project.prompt or "").strip()
-        if not prompt:
-            raise UserError(_("Prompt is empty — nothing to evaluate."))
-        bedrock_cfg = env["video.editor.s3.settings"].get_bedrock_config()
-        seed_prompt = env["video.editor.s3.settings"].get_qc_seed_prompt()
 
-    if not bedrock_cfg.get("api_key"):
-        _log_yt(db, uid, job_id, project_id, "error", "prompt_qc_failed",
-                "Kimi K2.5 API key missing — configure under Settings > Crowley Sourcing > Kimi K2.5 Prompt QC.")
-        raise UserError(_("Kimi K2.5 API key missing — configure under Settings > Crowley Sourcing > Kimi K2.5 Prompt QC."))
-    if not bedrock_cfg.get("model_id"):
-        raise UserError(_("Kimi K2.5 model ID/ARN missing — configure under Settings > Crowley Sourcing > Kimi K2.5 Prompt QC."))
+        item_id = str(project.id)
+        category = project.category or ""
+        sub_category = project.sub_category or ""
+        topic = getattr(project, "topic_name", "") or getattr(project, "topic", "") or ""
+        prompt_text = (project.prompt or "").strip()
+        style = project.style or ""
 
-    _bump_heartbeat(db, job_id, "evaluating prompt via Kimi K2.5")
-    _log_yt(db, uid, job_id, project_id, "info", "prompt_qc_start",
-            "kimi_k2.5 model=%s region=%s prompt_chars=%d" % (
-                bedrock_cfg.get("model_id"),
-                bedrock_cfg.get("region"),
-                len(prompt),
+        meta = project.source_metadata or {}
+        resolution = (meta.get("resolution") or project.resolution or "").strip()
+        try:
+            duration_seconds = float(meta.get("duration") or project.duration_seconds or 0.0)
+        except (TypeError, ValueError):
+            duration_seconds = 0.0
+        try:
+            fps = float(meta.get("fps") or project.source_fps or 0.0)
+        except (TypeError, ValueError):
+            fps = 0.0
+
+        settings = env["video.editor.s3.settings"]
+        llm_cfg = settings.get_llm_qc_config()
+        seed_prompt = settings.get_llm_qc_seed_prompt()
+
+        trimmed_url = None
+        raw_url = (project.output_s3_url or "").strip()
+        if not raw_url:
+            raise UserError(_(
+                "No trimmed S3 URL on this project. Render and export the "
+                "trimmed clip to S3 before running LLM QC."
+            ))
+        if raw_url.startswith("s3://"):
+            bucket, key = s3_storage.parse_s3_url(raw_url)
+            cfg = env["video.editor.s3.settings"].get_s3_config()
+            if bucket and key and cfg.get("access_key") and cfg.get("secret_key"):
+                trimmed_url = s3_storage.generate_presigned_url(
+                    {**cfg, "bucket": bucket}, key, expires_in=7200,
+                )
+        elif raw_url.startswith(("http://", "https://")):
+            trimmed_url = raw_url
+        if not trimmed_url:
+            raise UserError(_(
+                "Could not resolve trimmed S3 URL for LLM QC: %s"
+            ) % raw_url[:160])
+
+    if not prompt_text:
+        raise UserError(_("Prompt is empty - write a prompt before running LLM QC."))
+    if not llm_cfg.get("api_key"):
+        _log_yt(db, uid, job_id, project_id, "error", "llm_qc_failed",
+                "OpenRouter API key missing - configure under Settings > Crowly Sourcing > LLM QC.")
+        raise UserError(_("OpenRouter API key missing - configure under Settings > Crowly Sourcing > LLM QC."))
+
+    job_executor._check_cancelled(cancel_event)
+    _bump_heartbeat(db, job_id, "downloading trimmed video from S3")
+
+    video_bytes = None
+    video_filename = "video.mp4"
+    try:
+        resp = requests.get(trimmed_url, stream=True, timeout=(15, 600))
+        resp.raise_for_status()
+        video_bytes = resp.content
+    except requests.RequestException as exc:
+        raise UserError(_(
+            "Failed to download trimmed video from S3 for LLM QC: %s"
+        ) % exc) from exc
+    from urllib.parse import urlparse
+    path = urlparse(trimmed_url).path
+    if path:
+        video_filename = os.path.basename(path) or video_filename
+
+    if not video_bytes:
+        raise UserError(_("Could not obtain trimmed video bytes from S3 for LLM QC."))
+
+    job_executor._check_cancelled(cancel_event)
+    _bump_heartbeat(db, job_id, "calling LLM QC reviewer")
+    _log_yt(db, uid, job_id, project_id, "info", "llm_qc_start",
+            "model=%s prompt_chars=%d video_bytes=%d category=%s style=%s" % (
+                llm_cfg.get("model_id"), len(prompt_text), len(video_bytes),
+                category, style,
             ))
 
     try:
-        result = llm_qc.evaluate_prompt(
-            prompt=prompt,
+        result = llm_qc.evaluate_llm_qc(
+            item_id=item_id,
+            category=category,
+            sub_category=sub_category,
+            description="",
+            topic=topic,
+            prompt=prompt_text,
+            resolution=resolution,
+            duration_seconds=duration_seconds,
+            style=style,
+            fps=fps,
+            video_bytes=video_bytes,
+            video_filename=video_filename,
             seed_prompt=seed_prompt,
-            api_key=bedrock_cfg["api_key"],
-            region=bedrock_cfg.get("region") or llm_qc.DEFAULT_REGION,
-            model_id=bedrock_cfg.get("model_id") or llm_qc.DEFAULT_MODEL_ID,
+            openrouter_api_key=llm_cfg["api_key"],
+            model_id=llm_cfg.get("model_id") or llm_qc.DEFAULT_MODEL_ID,
+            max_attempts=3,
+            max_tokens=32000,
         )
     except JobCancelled:
         raise
     except Exception as exc:
-        _log_yt(db, uid, job_id, project_id, "error", "prompt_qc_failed",
+        _log_yt(db, uid, job_id, project_id, "error", "llm_qc_failed",
                 "%s" % str(exc)[:2000])
         raise
 
-    _log_yt(db, uid, job_id, project_id, "info", "prompt_qc_done",
-            "score=%s quality=%s expert_level=%s" % (
-                result.get("score"),
-                result.get("quality"),
-                result.get("expert_level"),
+    _log_yt(db, uid, job_id, project_id, "info", "llm_qc_done",
+            "qc_result=%s failure_reason=%s" % (
+                result.get("qc_result"),
+                (result.get("failure_reason") or "")[:200],
             ))
 
-    raw_json = (result.get("raw_json") or "")[:8000]
     with Registry(db).cursor() as cr:
         env = api.Environment(cr, uid or SUPERUSER_ID, {})
         project = env["video.editor.project"].browse(project_id)
         project.write({
-            "qc_score": float(result.get("score") or 0.0),
-            "qc_expert_level": (result.get("expert_level") or "")[:64],
-            "qc_quality": result.get("quality") if result.get("quality") in ("pass", "fail") else "fail",
-            "qc_reason": result.get("reason") or "",
-            "qc_issues": result.get("issues") or "",
-            "qc_corrected_prompt": result.get("corrected_prompt") or "",
-            "qc_evaluated_prompt": prompt,
-            "qc_evaluated_at": fields.Datetime.now(),
+            "llm_qc_result": _verdict_to_field(result.get("qc_result")),
+            "llm_failure_reason": result.get("failure_reason") or "",
+            "llm_fixed_prompt": result.get("fixed_prompt") or "",
+            "llm_evaluated_at": fields.Datetime.now(),
         })
-        job_executor._update_job(cr, job_id, {"output_path": raw_json})
         cr.commit()

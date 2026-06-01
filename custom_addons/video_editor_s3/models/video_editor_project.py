@@ -294,18 +294,34 @@ class VideoEditorProject(models.Model):
 
     prompt = fields.Text(string="Prompt")
 
-    qc_score = fields.Float(string="QC Score", readonly=True)
-    qc_expert_level = fields.Char(string="QC Expert Level", readonly=True)
-    qc_quality = fields.Selection(
-        [("pass", "Pass"), ("fail", "Fail")],
-        string="QC Quality",
+    llm_qc_result = fields.Selection(
+        [("pass", "Pass"), ("fail", "Fail"), ("flag", "Flag")],
+        string="LLM QC Result",
         readonly=True,
     )
-    qc_reason = fields.Text(string="QC Reason", readonly=True)
-    qc_issues = fields.Text(string="QC Issues", readonly=True)
-    qc_evaluated_prompt = fields.Text(string="Evaluated Prompt", readonly=True)
-    qc_corrected_prompt = fields.Text(string="Corrected Prompt", readonly=True)
-    qc_evaluated_at = fields.Datetime(string="QC Evaluated At", readonly=True)
+    llm_failure_reason = fields.Text(string="T2AV Failure Reason", readonly=True)
+    llm_fixed_prompt = fields.Text(string="T2AV Fixed Prompt", readonly=True)
+    llm_evaluated_at = fields.Datetime(string="T2AV Evaluated At", readonly=True)
+
+    llm_qc_force_passed = fields.Boolean(
+        string="LLM QC Force Passed",
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help="Manually forced to PASS via the Force Pass button. The original "
+             "reviewer verdict in LLM QC Result is preserved. Audit info is "
+             "captured in the by/at/reason fields below and posted to the "
+             "project chatter.",
+    )
+    llm_qc_force_passed_by = fields.Many2one(
+        "res.users", string="Force-Passed By", readonly=True, copy=False, tracking=True,
+    )
+    llm_qc_force_passed_at = fields.Datetime(
+        string="Force-Passed At", readonly=True, copy=False, tracking=True,
+    )
+    llm_qc_force_pass_reason = fields.Char(
+        string="Force-Pass Reason", readonly=True, copy=False, tracking=True,
+    )
 
     category = fields.Selection(
         CATEGORIES,
@@ -636,14 +652,106 @@ class VideoEditorProject(models.Model):
             except UserError as exc:
                 _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
 
-    def _maybe_run_prompt_qc(self):
+    def action_run_llm_qc(self):
+        self.ensure_one()
+        if not self.output_s3_url:
+            raise UserError(_(
+                "Render and export the trimmed clip to S3 before running LLM QC. "
+                "LLM QC reviews the trimmed video, not the source."
+            ))
+        if not self.prompt:
+            raise UserError(_("Write a prompt before running LLM QC."))
+        if not self.category:
+            raise UserError(_("Pick a category before running LLM QC."))
+        if not self.style:
+            raise UserError(_("Pick a style before running LLM QC."))
+        job = self._kick_job("llm_qc")
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("LLM QC queued"),
+                "message": _(
+                    "Job #%s is reviewing this row against the T2AV spec. "
+                    "Refresh the form when the job finishes - results will "
+                    "appear in the LLM QC section."
+                ) % job.id,
+                "type": "info",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_force_pass_llm_qc(self):
+        self.ensure_one()
+        if not self.llm_evaluated_at:
+            raise UserError(_(
+                "Run LLM QC first. Force Pass overrides a real verdict; it is "
+                "not a substitute for running QC."
+            ))
+        if self.llm_qc_force_passed:
+            raise UserError(_("This project's LLM QC is already force-passed."))
+        reason = (self.env.context.get("default_llm_qc_force_pass_reason") or "").strip()
+        now = fields.Datetime.now()
+        self.write({
+            "llm_qc_force_passed": True,
+            "llm_qc_force_passed_by": self.env.user.id,
+            "llm_qc_force_passed_at": now,
+            "llm_qc_force_pass_reason": reason,
+        })
+        original = dict(self._fields["llm_qc_result"].selection).get(
+            self.llm_qc_result, self.llm_qc_result or "(no verdict)"
+        )
+        self.message_post(
+            body=_(
+                "<b>LLM QC force-passed</b> by %(user)s. "
+                "Original reviewer verdict: <b>%(original)s</b>. "
+                "Reason: %(reason)s"
+            ) % {
+                "user": self.env.user.display_name,
+                "original": original,
+                "reason": reason or _("(none provided)"),
+            },
+            message_type="comment",
+            subtype_xmlid="mail.mt_note",
+        )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("LLM QC force-passed"),
+                "message": _("Override recorded on the project chatter."),
+                "type": "warning",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_apply_fixed_prompt(self):
+        self.ensure_one()
+        if not self.llm_fixed_prompt:
+            raise UserError(_("No fixed prompt is set."))
+        self.write({"prompt": self.llm_fixed_prompt})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Fixed prompt applied"),
+                "message": _("Re-run LLM QC to verify the new prompt."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def _maybe_run_llm_qc(self):
         for rec in self:
             if not rec.prompt:
                 continue
             if rec.job_ids.filtered(lambda j: j.job_type == "prompt_qc" and j.status in ("queued", "running")):
                 continue
             try:
-                rec._kick_job("prompt_qc", config={"prompt": rec.prompt})
+                rec._kick_job("llm_qc")
             except UserError as exc:
                 _logger.info("prompt_qc skipped for project %s: %s", rec.id, exc)
 
@@ -651,7 +759,7 @@ class VideoEditorProject(models.Model):
     def create(self, vals_list):
         records = super().create(vals_list)
         records._maybe_probe_s3_source()
-        records._maybe_run_prompt_qc()
+        records._maybe_run_llm_qc()
         return records
 
     def write(self, vals):
@@ -659,7 +767,7 @@ class VideoEditorProject(models.Model):
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
         if "prompt" in vals:
-            self._maybe_run_prompt_qc()
+            self._maybe_run_llm_qc()
         return res
 
     def unlink(self):

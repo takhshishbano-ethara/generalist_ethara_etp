@@ -1,13 +1,52 @@
 # -*- coding: utf-8 -*-
+import base64
 import json
 import logging
 import os
 
-from odoo import http
+from odoo import _, http
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
 
 from ..services import s3_storage
+
+_ADDON_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_LLM_SEED_DEFAULT_PATH = os.path.join(_ADDON_DIR, "data", "llm_qc_seed.md")
+
+
+class _VideoEditorS3SeedDownload(http.Controller):
+
+    @http.route(
+        "/video_editor_s3/llm_qc_seed/download",
+        type="http", auth="user", methods=["GET"],
+    )
+    def download_llm_qc_seed(self):
+        icp = request.env["ir.config_parameter"].sudo()
+        b64 = (icp.get_param("video_editor_s3.llm_qc_seed_file") or "").strip()
+        if b64:
+            filename = (icp.get_param("video_editor_s3.llm_qc_seed_filename")
+                        or "").strip() or "llm_qc_seed.md"
+            try:
+                content = base64.b64decode(b64)
+            except (ValueError, TypeError) as exc:
+                raise UserError(_("Stored LLM QC seed file is corrupted: %s") % exc)
+        else:
+            filename = "llm_qc_seed_default.md"
+            try:
+                with open(_LLM_SEED_DEFAULT_PATH, "rb") as fh:
+                    content = fh.read()
+            except OSError as exc:
+                raise UserError(_(
+                    "Bundled default LLM QC seed not found at %s (%s)"
+                ) % (_LLM_SEED_DEFAULT_PATH, exc))
+        return request.make_response(
+            content,
+            headers=[
+                ("Content-Type", "text/markdown; charset=utf-8"),
+                ("Content-Disposition", 'attachment; filename="%s"' % filename),
+                ("Content-Length", str(len(content))),
+            ],
+        )
 
 try:
     from werkzeug.utils import send_file as _werkzeug_send_file
