@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_prompt_qc_run_form" model="ir.ui.view">
+        <field name="name">prompt.qc.run.form</field>
+        <field name="model">prompt.qc.run</field>
+        <field name="arch" type="xml">
+            <form string="Prompt QC">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,running,streaming,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="rubric_file" widget="binary"
+                                   filename="rubric_filename"
+                                   readonly="state in ('queued','running','streaming')"
+                                   string="Rubric (.json)"/>
+                            <field name="rubric_filename" invisible="1"/>
+                            <div class="text-muted" colspan="2">
+                                <i class="fa fa-info-circle me-1"/>The judge's system prompt is
+                                configured globally in <b>Settings → Prompt QC</b> and applied to every run.
+                            </div>
+                        </group>
+                        <group>
+                            <field name="model_label" readonly="1" invisible="not model_label"/>
+                            <field name="input_tokens" readonly="1" invisible="state != 'done'"/>
+                            <field name="output_tokens" readonly="1" invisible="state != 'done'"/>
+                            <field name="duration" readonly="1" invisible="state in ('draft',)"/>
+                        </group>
+                    </group>
+                    <separator string="User Prompt (subject being evaluated)"/>
+                    <field name="user_prompt" nolabel="1" widget="prompt_qc_markdown"
+                           readonly="state in ('queued','running','streaming')"
+                           placeholder="Paste the prompt to be evaluated…"/>
+
+                    <separator string="QC Result"/>
+                    <field name="response" nolabel="1" widget="prompt_qc_result"/>
+
+                    <separator string="Error" invisible="state != 'failed'"/>
+                    <field name="error_message" nolabel="1" readonly="1"
+                           invisible="state != 'failed'"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_prompt_qc_run_list" model="ir.ui.view">
+        <field name="name">prompt.qc.run.list</field>
+        <field name="model">prompt.qc.run</field>
+        <field name="arch" type="xml">
+            <list string="Prompt QC Runs" js_class="prompt_qc_run_list">
+                <field name="name"/>
+                <field name="create_uid"/>
+                <field name="create_date"/>
+                <field name="state" widget="badge"
+                       decoration-muted="state == 'queued'"
+                       decoration-info="state in ('running','streaming')"
+                       decoration-warning="state == 'draft'"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'failed'"/>
+                <field name="input_tokens" optional="hide"/>
+                <field name="output_tokens" optional="hide"/>
+                <field name="duration" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_prompt_qc_run_search" model="ir.ui.view">
+        <field name="name">prompt.qc.run.search</field>
+        <field name="model">prompt.qc.run</field>
+        <field name="arch" type="xml">
+            <search string="Prompt QC Runs">
+                <field name="name"/>
+                <field name="user_prompt"/>
+                <filter name="filter_done" string="Done" domain="[('state', '=', 'done')]"/>
+                <filter name="filter_failed" string="Failed" domain="[('state', '=', 'failed')]"/>
+                <filter name="filter_my" string="My Runs" domain="[('create_uid', '=', uid)]"/>
+                <group name="group_by">
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_prompt_qc_run" model="ir.actions.act_window">
+        <field name="name">QC Runs</field>
+        <field name="res_model">prompt.qc.run</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_prompt_qc_run_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a Prompt QC run</p>
+            <p>Paste a user prompt, upload a .md judge prompt and (optionally) a .json rubric, then Start QC to stream the verdict.</p>
+        </field>
+    </record>
+
+</odoo>

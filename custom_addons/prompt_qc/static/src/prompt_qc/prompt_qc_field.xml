@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="prompt_qc.QcResultField">
+        <div class="o_field_prompt_qc_result o_field_widget">
+
+            <!-- Action bar -->
+            <div class="prompt-qc-action-bar">
+                <t t-if="state.running">
+                    <span class="prompt-qc-running">
+                        <i class="fa fa-spinner fa-spin"/> Running QC…
+                    </span>
+                    <button class="btn btn-secondary btn-sm prompt-qc-stop-btn"
+                            t-on-click="onStop" title="Stop QC">
+                        <i class="fa fa-stop"/> Stop
+                    </button>
+                </t>
+                <t t-else="">
+                    <button class="btn btn-primary btn-sm prompt-qc-start-btn"
+                            t-att-disabled="!canStart"
+                            t-on-click="onStart"
+                            title="Run the LLM judge on this prompt">
+                        <i class="fa fa-play-circle"/> <t t-esc="startLabel"/>
+                    </button>
+                    <span t-if="!hasInputs" class="text-muted ms-2">
+                        Enter a user prompt first.
+                    </span>
+                </t>
+            </div>
+
+            <!-- Live streaming preview (no blinking cursor; spinner above signals progress) -->
+            <t t-if="state.running and state.streamText">
+                <pre class="prompt-qc-streaming"><t t-esc="state.streamText"/></pre>
+            </t>
+
+            <!-- Persisted result -->
+            <t t-elif="state.persisted">
+                <pre class="prompt-qc-result"><t t-esc="state.persisted"/></pre>
+            </t>
+
+            <!-- Empty state -->
+            <t t-elif="!state.running">
+                <div class="prompt-qc-empty text-muted">
+                    <i class="fa fa-balance-scale"/> Click <b>Start QC</b> to stream the judge verdict.
+                </div>
+            </t>
+        </div>
+    </t>
+
+</templates>
