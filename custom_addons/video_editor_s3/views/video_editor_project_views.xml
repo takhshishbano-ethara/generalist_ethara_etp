@@ -68,7 +68,7 @@
         <field name="arch" type="xml">
             <form string="Video Project" js_class="video_editor_s3_project_form">
                 <header>
-                    <button name="action_ingest_youtube" type="object" string="Process Video" class="btn-primary" invisible="not youtube_url or s3_source_url or active_job_id"/>
+                    <button name="action_ingest_youtube" type="object" string="Process Video" class="btn-primary"/>
                     <button name="action_open_editor" type="object" string="Open Editor" class="btn-primary" invisible="not s3_source_url"/>
                     <button name="action_run_llm_qc" type="object" string="Run LLM QC" invisible="not output_s3_url or not prompt or not category or not style"/>
                     <button name="action_export" type="object" string="Export to S3" invisible="not edited_file_path or state in ('exporting', 'exported')"/>
@@ -94,6 +94,9 @@
                         </group>
                         <group>
                             <field name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."/>
+                            <field name="youtube_tier" invisible="not youtube_url"/>
+                            <field name="youtube_start_time" placeholder="00:06:50:000 (optional)" invisible="not youtube_url"/>
+                            <field name="youtube_end_time" placeholder="00:07:03:000 (optional)" invisible="not youtube_url"/>
                             <field name="s3_source_url" widget="video_url_preview" options="{'stream_kind': 'source'}" placeholder="s3://bucket/path/to/video.mp4 or https URL"/>
                             <field name="output_s3_url" widget="video_url_preview" readonly="0"/>
                             <field name="assigned_to" widget="many2one_avatar_user"/>

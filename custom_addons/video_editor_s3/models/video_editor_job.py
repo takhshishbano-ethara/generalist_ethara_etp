@@ -459,6 +459,15 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
         youtube_tier = (opts.get("tier") or project.youtube_tier or "").strip() or None
         if youtube_tier and youtube_tier not in youtube_downloader.YOUTUBE_TIERS:
             raise UserError(_("Unknown YouTube tier: %s") % youtube_tier)
+        try:
+            start_seconds = float(opts.get("start_seconds") or 0.0)
+        except (TypeError, ValueError):
+            start_seconds = 0.0
+        try:
+            end_seconds = float(opts.get("end_seconds") or 0.0)
+        except (TypeError, ValueError):
+            end_seconds = 0.0
+        is_clip = start_seconds > 0.0 or end_seconds > 0.0
         cfg = env["video.editor.s3.settings"].get_s3_config()
         if not s3_storage.is_configured(cfg):
             raise UserError(_("S3 settings are missing — configure bucket and credentials."))
@@ -475,6 +484,11 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
         lambda_callback_base = (icp.get_param("video_editor_s3.lambda_callback_base_url") or "").rstrip("/")
 
     if use_lambda:
+        if is_clip:
+            raise UserError(_(
+                "Clip mode (start/end time) is not supported via Lambda. "
+                "Clear the start/end times or disable the Lambda pipeline in Settings."
+            ))
         if not lambda_function_name or not lambda_region or not lambda_callback_base:
             raise UserError(_("Lambda pipeline is enabled but function name, region, or callback URL is unset in Settings."))
         from ..services import lambda_invoker
@@ -519,18 +533,25 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             "video_id=%s normalized=%s" % (video_id, normalized))
     job_executor._check_cancelled(cancel_event)
 
-    target_key = (
-        "%s/%s_%s.mkv" % (youtube_prefix, video_id, youtube_tier)
-        if youtube_tier
-        else "%s/%s.mkv" % (youtube_prefix, video_id)
-    )
+    if is_clip:
+        end_label = "%d" % int(end_seconds) if end_seconds > 0.0 else "end"
+        target_key = "%s/%s_%s_%d-%s.mp4" % (
+            youtube_prefix, video_id, youtube_tier or "2160p",
+            int(start_seconds), end_label,
+        )
+    else:
+        target_key = (
+            "%s/%s_%s.mkv" % (youtube_prefix, video_id, youtube_tier)
+            if youtube_tier
+            else "%s/%s.mkv" % (youtube_prefix, video_id)
+        )
 
     if s3_storage.head_object_exists(cfg, target_key):
         _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_hit",
                 "S3 key already exists: %s" % target_key)
         _bump_heartbeat(db, job_id, "reusing existing S3 object")
         chosen_format = None
-        if youtube_tier:
+        if youtube_tier and not is_clip:
             try:
                 probe_info, chosen_format = youtube_downloader.probe_and_select(
                     normalized,
@@ -608,29 +629,42 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
     _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_miss",
             "S3 key not present, downloading: %s" % target_key)
 
-    probe_info, chosen_format = youtube_downloader.probe_and_select(
-        normalized,
-        tier=youtube_tier,
-        cookies_path=yt_cookies_path,
-        proxy_url=yt_proxy,
-        cookies_from_browser=yt_cookies_browser,
-    )
-    metadata = {
-        "video_id": probe_info.get("id") or video_id,
-        "title": probe_info.get("title") or "",
-        "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
-        "thumbnail": probe_info.get("thumbnail") or "",
-        "duration_seconds": float(probe_info.get("duration") or 0.0),
-    }
-    _log_yt(db, uid, job_id, project_id, "info", "youtube_metadata",
-            "title=%s channel=%s duration=%s chosen=%sp%s/%s" % (
-                (metadata.get("title") or "")[:200],
-                (metadata.get("channel") or "")[:100],
-                metadata.get("duration_seconds"),
-                chosen_format.get("height"),
-                chosen_format.get("fps"),
-                chosen_format.get("format_id"),
-            ))
+    if is_clip:
+        probe_info = {}
+        chosen_format = {}
+        metadata = {
+            "video_id": video_id,
+            "title": "",
+            "channel": "",
+            "thumbnail": "",
+            "duration_seconds": 0.0,
+        }
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_clip_mode",
+                "skip probe; tier=%s start=%s end=%s" % (youtube_tier or "2160p", start_seconds, end_seconds))
+    else:
+        probe_info, chosen_format = youtube_downloader.probe_and_select(
+            normalized,
+            tier=youtube_tier,
+            cookies_path=yt_cookies_path,
+            proxy_url=yt_proxy,
+            cookies_from_browser=yt_cookies_browser,
+        )
+        metadata = {
+            "video_id": probe_info.get("id") or video_id,
+            "title": probe_info.get("title") or "",
+            "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
+            "thumbnail": probe_info.get("thumbnail") or "",
+            "duration_seconds": float(probe_info.get("duration") or 0.0),
+        }
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_metadata",
+                "title=%s channel=%s duration=%s chosen=%sp%s/%s" % (
+                    (metadata.get("title") or "")[:200],
+                    (metadata.get("channel") or "")[:100],
+                    metadata.get("duration_seconds"),
+                    chosen_format.get("height"),
+                    chosen_format.get("fps"),
+                    chosen_format.get("format_id"),
+                ))
 
     job_executor._check_cancelled(cancel_event)
     tempdir = tempfile.mkdtemp(prefix="video_editor_s3_yt_")
@@ -649,19 +683,36 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
 
     try:
         try:
-            abs_path, info, _chosen = youtube_downloader.download_to_tempdir(
-                normalized,
-                tempdir,
-                info=probe_info,
-                chosen_format=chosen_format,
-                max_size_bytes=max_size_bytes,
-                progress_cb=progress_cb,
-                cancel_event=cancel_event,
-                cancel_exception=JobCancelled,
-                cookies_path=yt_cookies_path,
-                proxy_url=yt_proxy,
-                cookies_from_browser=yt_cookies_browser,
-            )
+            if is_clip:
+                abs_path, info = youtube_downloader.download_clip_to_tempdir(
+                    normalized,
+                    tempdir,
+                    tier=youtube_tier or "2160p",
+                    start_seconds=start_seconds,
+                    end_seconds=end_seconds,
+                    max_size_bytes=max_size_bytes,
+                    progress_cb=progress_cb,
+                    cancel_event=cancel_event,
+                    cancel_exception=JobCancelled,
+                    cookies_path=yt_cookies_path,
+                    proxy_url=yt_proxy,
+                    cookies_from_browser=yt_cookies_browser,
+                )
+                _chosen = None
+            else:
+                abs_path, info, _chosen = youtube_downloader.download_to_tempdir(
+                    normalized,
+                    tempdir,
+                    info=probe_info,
+                    chosen_format=chosen_format,
+                    max_size_bytes=max_size_bytes,
+                    progress_cb=progress_cb,
+                    cancel_event=cancel_event,
+                    cancel_exception=JobCancelled,
+                    cookies_path=yt_cookies_path,
+                    proxy_url=yt_proxy,
+                    cookies_from_browser=yt_cookies_browser,
+                )
         except JobCancelled:
             _log_yt(db, uid, job_id, project_id, "warning", "youtube_ingest_cancelled",
                     "Download cancelled before completion.")
@@ -684,20 +735,21 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "YouTube download produced a file with no video stream "
                 "(probe=%s). Aborting before S3 upload."
             ) % probe)
-        min_height_floor = (
-            youtube_downloader.YOUTUBE_TIERS[youtube_tier]["min_height"]
-            if youtube_tier
-            else 2160
-        )
-        gate_label = youtube_tier or "2160p50/60"
-        if int(probe.get("height") or 0) < min_height_floor:
-            _log_yt(db, uid, job_id, project_id, "error", "youtube_quality_assert",
-                    "Downloaded file height=%s below %s floor; refusing upload."
-                    % (probe.get("height"), min_height_floor))
-            raise UserError(_(
-                "Downloaded video is %(h)spx tall but the minimum requirement "
-                "is %(gate)s. Aborting before S3 upload."
-            ) % {"h": probe.get("height"), "gate": gate_label})
+        if not is_clip:
+            min_height_floor = (
+                youtube_downloader.YOUTUBE_TIERS[youtube_tier]["min_height"]
+                if youtube_tier
+                else 2160
+            )
+            gate_label = youtube_tier or "2160p50/60"
+            if int(probe.get("height") or 0) < min_height_floor:
+                _log_yt(db, uid, job_id, project_id, "error", "youtube_quality_assert",
+                        "Downloaded file height=%s below %s floor; refusing upload."
+                        % (probe.get("height"), min_height_floor))
+                raise UserError(_(
+                    "Downloaded video is %(h)spx tall but the minimum requirement "
+                    "is %(gate)s. Aborting before S3 upload."
+                ) % {"h": probe.get("height"), "gate": gate_label})
 
         if not metadata.get("title"):
             metadata = {

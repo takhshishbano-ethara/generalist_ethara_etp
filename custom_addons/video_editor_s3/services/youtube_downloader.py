@@ -870,3 +870,81 @@ def download_to_tempdir(
     if not final_path:
         raise UserError(_("yt-dlp did not report a downloaded file path."))
     return (final_path, info, chosen_format)
+
+
+def download_clip_to_tempdir(
+    url,
+    target_dir,
+    *,
+    tier,
+    start_seconds=0.0,
+    end_seconds=0.0,
+    max_size_bytes=None,
+    progress_cb=None,
+    cancel_event=None,
+    cancel_exception=None,
+    cookies_path=None,
+    proxy_url=None,
+    cookies_from_browser=None,
+):
+    """Download a (optionally trimmed) YouTube clip as .mp4 — returns (path, info).
+
+    ``force_keyframes_at_cuts=True`` is set so a trim that lands on a
+    non-keyframe does not produce garbled first frames.
+    """
+    video_id, normalized = parse_youtube_url(url)
+    if not video_id:
+        raise UserError(_("Not a recognised YouTube URL: %s") % url)
+    if tier not in YOUTUBE_TIERS:
+        raise UserError(_("Unknown YouTube tier: %s") % tier)
+    height = YOUTUBE_TIERS[tier]["max_height"]
+
+    yt_dlp = _ensure_yt_dlp()
+    cancel_exc = cancel_exception or InterruptedError
+    outtmpl = "%s/%%(id)s.%%(ext)s" % target_dir.rstrip("/")
+    format_spec = "bv*[height=%d]+ba/b[height=%d]" % (height, height)
+    opts = _common_opts(
+        cookies_path=cookies_path,
+        proxy_url=proxy_url,
+        cookies_from_browser=cookies_from_browser,
+    )
+    opts.update({
+        "format": format_spec,
+        "outtmpl": outtmpl,
+        "merge_output_format": "mp4",
+        "restrictfilenames": True,
+        "nooverwrites": True,
+        "continuedl": True,
+        "progress_hooks": [_make_progress_hook(progress_cb, cancel_event, cancel_exc)],
+    })
+    if start_seconds > 0.0 or end_seconds > 0.0:
+        from yt_dlp.utils import download_range_func
+        end_val = end_seconds if end_seconds > 0.0 else float("inf")
+        opts["download_ranges"] = download_range_func(None, [(start_seconds, end_val)])
+        opts["force_keyframes_at_cuts"] = True
+    opts["postprocessors"] = [
+        {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
+    ]
+    if max_size_bytes:
+        opts["max_filesize"] = int(max_size_bytes)
+
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(normalized, download=True)
+    except yt_dlp.utils.DownloadError as exc:
+        if _looks_like_rate_limit(exc):
+            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+        if _looks_like_bot_challenge(exc):
+            _invalidate_cookie_cache()
+            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+        raise UserError(_("YouTube clip download failed: %s") % _strip_ansi(str(exc))) from exc
+
+    final_path = None
+    requested = info.get("requested_downloads") or []
+    if requested:
+        final_path = requested[0].get("filepath")
+    if not final_path:
+        final_path = info.get("filepath") or info.get("_filename")
+    if not final_path:
+        raise UserError(_("yt-dlp did not report a downloaded file path."))
+    return (final_path, info)
