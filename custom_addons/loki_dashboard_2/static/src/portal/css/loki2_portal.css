@@ -1151,11 +1151,16 @@ hr.rule {
 .foot-inner a:hover { color: var(--ink); border-color: var(--accent); }
 
 /* ---------- theme toggle -------------------------------- */
+.mast-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
 .theme-toggle {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 50;
+  position: relative;
+  flex-shrink: 0;
   width: 40px;
   height: 40px;
   display: inline-flex;
