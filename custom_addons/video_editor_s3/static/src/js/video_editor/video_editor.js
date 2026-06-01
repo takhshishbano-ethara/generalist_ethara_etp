@@ -594,22 +594,6 @@ export class VideoEditor extends Component {
             clearBreadcrumbs: true,
         });
     }
-
-    formatTime(seconds) {
-        const total = Math.max(0, seconds || 0);
-        const h = Math.floor(total / 3600);
-        const m = Math.floor((total - h * 3600) / 60);
-        const rem = total - h * 3600 - m * 60;
-        const s = Math.floor(rem);
-        const ms = Math.round((rem - s) * 1000);
-        const msStr = ms.toString().padStart(3, "0");
-        const sStr = s.toString().padStart(2, "0");
-        if (h > 0) {
-            const mStr = m.toString().padStart(2, "0");
-            return `${h}:${mStr}:${sStr}.${msStr}`;
-        }
-        return `${m}:${sStr}.${msStr}`;
-    }
 }
 
 registry.category("actions").add("video_editor_s3.video_editor", VideoEditor);

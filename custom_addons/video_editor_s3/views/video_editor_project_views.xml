@@ -4,7 +4,7 @@
         <field name="name">video.editor.project.list</field>
         <field name="model">video.editor.project</field>
         <field name="arch" type="xml">
-            <list string="Video Projects" decoration-info="state == 'draft'" decoration-warning="state in ('processing','exporting')" decoration-success="state == 'exported'" decoration-danger="state == 'error'">
+            <list string="Video Projects" decoration-info="state == 'draft'" decoration-warning="state in ('processing','exporting') or llm_qc_force_passed" decoration-success="state == 'exported'" decoration-danger="state == 'error'">
                 <field name="name"/>
                 <field name="s3_source_url"/>
                 <field name="resolution"/>
@@ -12,6 +12,15 @@
                 <field name="duration_seconds" widget="float_time"/>
                 <field name="source_size_mb" widget="float"/>
                 <field name="state" widget="badge"/>
+                <field name="llm_qc_result" widget="badge" string="QC"
+                       decoration-success="llm_qc_result == 'pass'"
+                       decoration-danger="llm_qc_result == 'fail'"
+                       decoration-warning="llm_qc_result == 'flag'"
+                       optional="show"/>
+                <field name="llm_qc_force_passed" widget="boolean_toggle" readonly="1"
+                       string="Force Passed" optional="show"/>
+                <field name="llm_qc_force_passed_by" string="Force-Passed By" optional="hide"/>
+                <field name="llm_qc_force_passed_at" string="Force-Passed At" optional="hide"/>
                 <field name="assigned_to" widget="many2one_avatar_user"/>
                 <field name="active_job_id" optional="hide"/>
             </list>
@@ -61,6 +70,7 @@
                 <header>
                     <button name="action_ingest_youtube" type="object" string="Process Video" class="btn-primary" invisible="not youtube_url or s3_source_url or active_job_id"/>
                     <button name="action_open_editor" type="object" string="Open Editor" class="btn-primary" invisible="not s3_source_url"/>
+                    <button name="action_run_llm_qc" type="object" string="Run LLM QC" invisible="not output_s3_url or not prompt or not category or not style"/>
                     <button name="action_export" type="object" string="Export to S3" invisible="not edited_file_path or state in ('exporting', 'exported')"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,processed,exported"/>
                 </header>
@@ -75,50 +85,86 @@
                         <h1><field name="name" placeholder="Project name"/></h1>
                     </div>
                     <group>
-                        <group name="primary">
+                        <group>
+                            <field name="project_name"/>
+                            <field name="category"/>
+                            <field name="sub_category"/>
+                            <field name="topic_name" required="1"/>
+                            <field name="style"/>
+                        </group>
+                        <group>
                             <field name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."/>
                             <field name="s3_source_url" widget="video_url_preview" options="{'stream_kind': 'source'}" placeholder="s3://bucket/path/to/video.mp4 or https URL"/>
-                        </group>
-                        <group name="primary_right">
                             <field name="output_s3_url" widget="video_url_preview" readonly="0"/>
-<!--                            <field name="resolution" readonly="1" invisible="not resolution"/>-->
-<!--                            <field name="source_fps" readonly="1" invisible="not source_fps"/>-->
                             <field name="assigned_to" widget="many2one_avatar_user"/>
                         </group>
                     </group>
                     <notebook>
                         <page string="General Information" name="general">
-                            <group string="Project Details">
-                                <group>
-                                    <field name="project_name"/>
-                                    <field name="category"/>
-                                    <field name="style"/>
-                                </group>
-                            </group>
                             <group string="Prompt">
                                 <field name="prompt" placeholder="Prompt..."/>
                             </group>
-                            <group string="Prompt QC" invisible="not qc_evaluated_at">
-                                <group string="Verdict">
-                                    <field name="qc_quality" widget="badge" decoration-success="qc_quality == 'pass'" decoration-danger="qc_quality == 'fail'" readonly="0"/>
-                                    <field name="qc_score" readonly="0"/>
-                                    <field name="qc_expert_level" string="Accuracy Level" readonly="0"/>
-                                </group>
-                                <group string="Run">
-                                    <field name="qc_evaluated_at" readonly="0"/>
-                                </group>
-                                <group string="Error Reason" colspan="2">
-                                    <field name="qc_reason" string="Error Reason" readonly="0" placeholder="No reason provided."/>
-                                </group>
-                                <group string="Corrected Prompt" colspan="2">
-                                    <field name="qc_corrected_prompt" string="Corrected Prompt" readonly="0" placeholder="No corrected prompt suggested."/>
-                                </group>
-                                <group string="Issues" colspan="2">
-                                    <field name="qc_issues" string="Issues" readonly="0" placeholder="No issues."/>
-                                </group>
-                                <group string="Evaluated Prompt" colspan="2">
-                                    <field name="qc_evaluated_prompt" string="Evaluated Prompt" readonly="0"/>
-                                </group>
+                            <group string="LLM QC" col="1" invisible="not llm_evaluated_at">
+                                <field name="llm_qc_force_passed" invisible="1"/>
+                                <field name="llm_fixed_prompt" invisible="1"/>
+                                <field name="llm_failure_reason" invisible="1"/>
+
+                                <div class="alert alert-warning d-flex align-items-start mb-3" role="alert" invisible="not llm_qc_force_passed">
+                                    <i class="fa fa-shield fa-2x me-3 text-warning"/>
+                                    <div class="flex-grow-1">
+                                        <h6 class="alert-heading mb-2"><strong>QC was force-passed</strong></h6>
+                                        <div class="row g-2 small">
+                                            <div class="col-md-4"><span class="text-muted">By:</span> <field name="llm_qc_force_passed_by" readonly="1" nolabel="1"/></div>
+                                            <div class="col-md-4"><span class="text-muted">On:</span> <field name="llm_qc_force_passed_at" readonly="1" nolabel="1"/></div>
+                                            <div class="col-md-4"><span class="text-muted">Reason:</span> <field name="llm_qc_force_pass_reason" readonly="1" nolabel="1" placeholder="(none provided)"/></div>
+                                        </div>
+                                        <div class="mt-2 text-muted small">The reviewer's original verdict is preserved below.</div>
+                                    </div>
+                                </div>
+
+                                <div class="d-flex align-items-center justify-content-between bg-light border rounded p-3 mb-3">
+                                    <div>
+                                        <div class="text-muted small text-uppercase fw-bold">Verdict</div>
+                                        <div class="mt-1 fs-5">
+                                            <field name="llm_qc_result" widget="badge"
+                                                   decoration-success="llm_qc_result == 'pass'"
+                                                   decoration-danger="llm_qc_result == 'fail'"
+                                                   decoration-warning="llm_qc_result == 'flag'"
+                                                   readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                    <div class="text-end">
+                                        <div class="text-muted small text-uppercase fw-bold">Evaluated</div>
+                                        <div class="mt-1"><field name="llm_evaluated_at" readonly="1" nolabel="1"/></div>
+                                    </div>
+                                </div>
+
+                                <div class="border-start border-danger border-4 bg-light p-3 mb-3" invisible="not llm_failure_reason">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <i class="fa fa-exclamation-triangle text-danger me-2"/>
+                                        <strong class="text-danger">Failure Reason</strong>
+                                        <button name="action_run_llm_qc" type="object" string="Retry QC" icon="fa-refresh"
+                                                class="btn btn-sm btn-secondary ms-auto me-2"
+                                                invisible="not llm_evaluated_at or llm_qc_force_passed or llm_qc_result == 'pass'"/>
+                                        <button name="action_force_pass_llm_qc" type="object" string="Force Pass" icon="fa-shield"
+                                                class="btn btn-sm btn-warning"
+                                                confirm="This will mark the QC as PASSED while preserving the reviewer's original verdict. The override and your user are recorded in the chatter and form. Continue?"
+                                                invisible="not llm_evaluated_at or llm_qc_force_passed or llm_qc_result == 'pass'"/>
+                                    </div>
+                                    <field name="llm_failure_reason" nolabel="1" readonly="1" widget="text" class="w-100 d-block" placeholder="No failure reason recorded."/>
+                                </div>
+
+                                <div class="border-start border-primary border-4 bg-light p-3" invisible="not llm_fixed_prompt">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <i class="fa fa-magic text-primary me-2"/>
+                                        <strong class="text-primary">Suggested Fix</strong>
+                                        <button name="action_apply_fixed_prompt" type="object" string="Apply &amp; Retry" icon="fa-check"
+                                                class="btn btn-sm btn-primary ms-auto"
+                                                confirm="This will overwrite the project's Prompt with the reviewer's suggested fix. You can then click Retry QC to re-evaluate. Continue?"
+                                                invisible="not llm_fixed_prompt"/>
+                                    </div>
+                                    <field name="llm_fixed_prompt" nolabel="1" readonly="1" widget="text" class="w-100 d-block" placeholder="No corrected prompt suggested."/>
+                                </div>
                             </group>
                         </page>
                         <page string="Extra Information" name="extra">
@@ -208,9 +254,17 @@
                 <filter string="Exported" name="state_exported" domain="[('state','=','exported')]"/>
                 <filter string="Failed" name="state_error" domain="[('state','=','error')]"/>
                 <separator/>
+                <filter string="QC Pass" name="qc_pass" domain="[('llm_qc_result','=','pass')]"/>
+                <filter string="QC Fail" name="qc_fail" domain="[('llm_qc_result','=','fail')]"/>
+                <filter string="QC Flag" name="qc_flag" domain="[('llm_qc_result','=','flag')]"/>
+                <filter string="Force Passed" name="qc_force_passed" domain="[('llm_qc_force_passed','=',True)]"/>
+                <filter string="QC Fail (not force-passed)" name="qc_fail_not_forced" domain="[('llm_qc_result','=','fail'),('llm_qc_force_passed','=',False)]"/>
+                <separator/>
                 <filter string="Assigned to me" name="my_projects" domain="[('assigned_to','=',uid)]"/>
                 <separator/>
                 <filter string="State" name="group_state" context="{'group_by':'state'}"/>
+                <filter string="QC Result" name="group_qc_result" context="{'group_by':'llm_qc_result'}"/>
+                <filter string="Force Passed" name="group_force_passed" context="{'group_by':'llm_qc_force_passed'}"/>
                 <filter string="Assignee" name="group_assignee" context="{'group_by':'assigned_to'}"/>
             </search>
         </field>

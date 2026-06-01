@@ -20,10 +20,212 @@ PROJECT_STATES = [
     ("error", "Error"),
 ]
 
+CATEGORIES = [
+    ("animals_wildlife", "Animals & Wildlife"),
+    ("animated_styles", "Animated Styles"),
+    ("animated_text", "Animated Text"),
+    ("av_sync_sound_effects", "AV-Sync Sound Effects"),
+    ("camera_motion", "Camera Motion"),
+    ("explainer_educational", "Explainer & Educational"),
+    ("fantasy_surreal", "Fantasy & Surreal"),
+    ("fine_grained_motion", "Fine-Grained Motion"),
+    ("high_motion_action", "High-Motion Action"),
+    ("human_activities", "Human Activities"),
+    ("multi_speaker_dialogue", "Multi-Speaker Dialogue"),
+    ("music_performance", "Music Performance"),
+    ("narrative_cinematic", "Narrative & Cinematic"),
+    ("natural_patterns", "Natural Patterns"),
+    ("nature_weather", "Nature & Weather"),
+    ("person_emoting", "Person Emoting"),
+    ("speech_styles", "Speech Styles"),
+    ("urban_scenes", "Urban Scenes"),
+    ("vehicles_machines", "Vehicles & Machines"),
+]
+
+SUB_CATEGORIES_BY_CATEGORY = {
+    "animals_wildlife": [
+        ("birds_song", "Birds & Song"),
+        ("domestic_pets", "Domestic Pets"),
+        ("insects_small", "Insects & Small Creatures"),
+        ("pet_interaction", "Pet Interaction"),
+        ("predator_prey", "Predator & Prey"),
+        ("underwater_marine", "Underwater & Marine"),
+    ],
+    "animated_styles": [
+        ("2d_cartoon", "2D Cartoon"),
+        ("3d_cgi", "3D CGI"),
+        ("anime_manga", "Anime / Manga"),
+        ("artistic_animation", "Artistic Animation"),
+        ("motion_graphics", "Motion Graphics"),
+        ("pixel_retro", "Pixel / Retro"),
+        ("stop_motion", "Stop Motion"),
+    ],
+    "animated_text": [
+        ("cinematic_titles", "Cinematic Titles"),
+        ("kinetic_typography", "Kinetic Typography"),
+        ("logo_brand_animation", "Logo / Brand Animation"),
+        ("subtitle_caption_styles", "Subtitle / Caption Styles"),
+        ("text_with_backgrounds", "Text with Backgrounds"),
+    ],
+    "av_sync_sound_effects": [
+        ("asmr_ambient", "ASMR / Ambient"),
+        ("cooking_kitchen", "Cooking / Kitchen"),
+        ("environmental_ambient", "Environmental Ambient"),
+        ("explicit_audio_tags", "Explicit Audio Tags"),
+        ("footsteps_movement", "Footsteps / Movement"),
+        ("impact_collision", "Impact / Collision"),
+        ("mechanical_tool", "Mechanical / Tool"),
+        ("organic_nature", "Organic / Nature"),
+    ],
+    "camera_motion": [
+        ("crane_aerial", "Crane / Aerial"),
+        ("dolly_tracking", "Dolly / Tracking"),
+        ("drone_aerial", "Drone Aerial"),
+        ("fpv_immersive", "FPV Immersive"),
+        ("handheld_pov", "Handheld POV"),
+        ("pan_tilt", "Pan / Tilt"),
+        ("pov_subjective", "POV / Subjective"),
+        ("zoom_focus", "Zoom / Focus"),
+    ],
+    "explainer_educational": [
+        ("animated_concept", "Animated Concept"),
+        ("animated_data_story", "Animated Data Story"),
+        ("animated_nature_science", "Animated Nature & Science"),
+        ("animated_process", "Animated Process"),
+        ("diy_tutorial", "DIY Tutorial"),
+        ("science_physics", "Science / Physics"),
+        ("whiteboard_lecture", "Whiteboard / Lecture"),
+    ],
+    "fantasy_surreal": [
+        ("fantasy_worlds", "Fantasy Worlds"),
+        ("fluid_physics_sim", "Fluid Physics Sim"),
+        ("game_movie_parody", "Game / Movie Parody"),
+        ("scale_miniature", "Scale / Miniature"),
+        ("surreal_dreamlike", "Surreal / Dreamlike"),
+    ],
+    "fine_grained_motion": [
+        ("cooking_prep", "Cooking Prep"),
+        ("craft_assembly", "Craft Assembly"),
+        ("musical_fingers", "Musical Fingers"),
+        ("sewing_textile", "Sewing / Textile"),
+        ("writing_drawing", "Writing / Drawing"),
+    ],
+    "high_motion_action": [
+        ("combat_sports", "Combat Sports"),
+        ("dance_choreography", "Dance / Choreography"),
+        ("extreme_sports", "Extreme Sports"),
+        ("gymnastics_acrobatics", "Gymnastics / Acrobatics"),
+        ("martial_arts_fighting", "Martial Arts / Fighting"),
+        ("racing_speed", "Racing / Speed"),
+        ("racket_individual", "Racket / Individual"),
+        ("sports_gameplay", "Sports Gameplay"),
+        ("team_field_sports", "Team / Field Sports"),
+        ("track_field", "Track & Field"),
+        ("vehicle_chase", "Vehicle Chase"),
+        ("water_sports", "Water Sports"),
+        ("winter_sports", "Winter Sports"),
+    ],
+    "human_activities": [
+        ("celebrations_events", "Celebrations / Events"),
+        ("child_family", "Child / Family"),
+        ("commuting_errands", "Commuting / Errands"),
+        ("construction_trades", "Construction / Trades"),
+        ("cooking_food_prep", "Cooking / Food Prep"),
+        ("eating_dining", "Eating / Dining"),
+        ("fishing_boating", "Fishing / Boating"),
+        ("fitness_gym", "Fitness / Gym"),
+        ("gaming_tabletop", "Gaming / Tabletop"),
+        ("gardening_outdoor_work", "Gardening / Outdoor Work"),
+        ("haircuts_styling", "Haircuts / Styling"),
+        ("household_chores", "Household Chores"),
+        ("makeup_skincare", "Makeup / Skincare"),
+        ("medical_healthcare", "Medical / Healthcare"),
+        ("morning_routine", "Morning Routine"),
+        ("motorcycle_bicycle", "Motorcycle / Bicycle"),
+        ("nail_art", "Nail Art"),
+        ("religious_spiritual", "Religious / Spiritual"),
+        ("shopping_browsing", "Shopping / Browsing"),
+        ("smartphone_device", "Smartphone / Device"),
+        ("social_interactions", "Social Interactions"),
+        ("tattoo_piercing", "Tattoo / Piercing"),
+        ("theme_park_rides", "Theme Park / Rides"),
+    ],
+    "multi_speaker_dialogue": [
+        ("accents_dialects", "Accents / Dialects"),
+        ("comedy_performance", "Comedy Performance"),
+        ("conversation_two_people", "Conversation (Two People)"),
+        ("dialogue_with_sfx", "Dialogue with SFX"),
+        ("emotional_monologue", "Emotional Monologue"),
+        ("group_discussion", "Group Discussion"),
+        ("narration_voiceover", "Narration / Voiceover"),
+        ("news_professional", "News / Professional"),
+        ("object_character_speech", "Object / Character Speech"),
+        ("professional_service", "Professional Service"),
+        ("speaking_contexts", "Speaking Contexts"),
+    ],
+    "music_performance": [
+        ("concert_live", "Concert / Live"),
+        ("ensemble_band", "Ensemble / Band"),
+        ("singing_vocals", "Singing / Vocals"),
+        ("solo_instrument", "Solo Instrument"),
+    ],
+    "narrative_cinematic": [
+        ("comedy_slapstick", "Comedy / Slapstick"),
+        ("dramatic_tension", "Dramatic Tension"),
+        ("epic_cinematic", "Epic Cinematic"),
+    ],
+    "natural_patterns": [
+        ("earth_sand_stone", "Earth / Sand / Stone"),
+        ("fire_smoke", "Fire / Smoke"),
+        ("ice_frost_snow", "Ice / Frost / Snow"),
+        ("light_electricity", "Light / Electricity"),
+        ("organic_living", "Organic / Living"),
+        ("water_liquid", "Water / Liquid"),
+    ],
+    "nature_weather": [
+        ("seasons_transitions", "Seasons / Transitions"),
+        ("storms_extreme", "Storms / Extreme"),
+        ("water_features", "Water Features"),
+    ],
+    "person_emoting": [
+        ("anger_frustration", "Anger / Frustration"),
+        ("complex_mixed", "Complex / Mixed"),
+        ("disgust_discomfort", "Disgust / Discomfort"),
+        ("fear_surprise", "Fear / Surprise"),
+        ("joy_excitement", "Joy / Excitement"),
+        ("sadness_grief", "Sadness / Grief"),
+    ],
+    "speech_styles": [
+        ("emotional_tone", "Emotional Tone"),
+        ("pauses_intonation", "Pauses / Intonation"),
+        ("shout_scream", "Shout / Scream"),
+        ("singing_vocal", "Singing / Vocal"),
+        ("speed_variation", "Speed Variation"),
+        ("whisper_asmr", "Whisper / ASMR"),
+    ],
+    "urban_scenes": [
+        ("nightlife_entertainment", "Nightlife / Entertainment"),
+        ("street_life", "Street Life"),
+        ("traffic_vehicles", "Traffic / Vehicles"),
+    ],
+    "vehicles_machines": [
+        ("aircraft_flight", "Aircraft / Flight"),
+        ("cars_driving", "Cars / Driving"),
+        ("industrial_machinery", "Industrial Machinery"),
+        ("trains_transit", "Trains / Transit"),
+    ],
+}
+
+SUB_CATEGORIES = [
+    (val, "%s · %s" % (cat_label, sub_label))
+    for cat_key, cat_label in CATEGORIES
+    for val, sub_label in SUB_CATEGORIES_BY_CATEGORY.get(cat_key, [])
+]
+
 
 class VideoEditorProject(models.Model):
     _name = "video.editor.project"
-    _description = "Crowly Sourcing project"
+    _description = "Crowley Sourcing project"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "id desc"
 
@@ -35,6 +237,9 @@ class VideoEditorProject(models.Model):
     )
     project_name = fields.Char(
         string="Project Name",
+    )
+    topic_name = fields.Char(
+        string="Topic",
     )
     s3_source_url = fields.Char(
         string="Source S3 URL",
@@ -89,23 +294,52 @@ class VideoEditorProject(models.Model):
 
     prompt = fields.Text(string="Prompt")
 
-    qc_score = fields.Float(string="QC Score", readonly=True)
-    qc_expert_level = fields.Char(string="QC Expert Level", readonly=True)
-    qc_quality = fields.Selection(
-        [("pass", "Pass"), ("fail", "Fail")],
-        string="QC Quality",
+    llm_qc_result = fields.Selection(
+        [("pass", "Pass"), ("fail", "Fail"), ("flag", "Flag")],
+        string="LLM QC Result",
         readonly=True,
     )
-    qc_reason = fields.Text(string="QC Reason", readonly=True)
-    qc_issues = fields.Text(string="QC Issues", readonly=True)
-    qc_evaluated_prompt = fields.Text(string="Evaluated Prompt", readonly=True)
-    qc_corrected_prompt = fields.Text(string="Corrected Prompt", readonly=True)
-    qc_evaluated_at = fields.Datetime(string="QC Evaluated At", readonly=True)
+    llm_failure_reason = fields.Text(string="T2AV Failure Reason", readonly=True)
+    llm_fixed_prompt = fields.Text(string="T2AV Fixed Prompt", readonly=True)
+    llm_evaluated_at = fields.Datetime(string="T2AV Evaluated At", readonly=True)
+
+    llm_qc_force_passed = fields.Boolean(
+        string="LLM QC Force Passed",
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help="Manually forced to PASS via the Force Pass button. The original "
+             "reviewer verdict in LLM QC Result is preserved. Audit info is "
+             "captured in the by/at/reason fields below and posted to the "
+             "project chatter.",
+    )
+    llm_qc_force_passed_by = fields.Many2one(
+        "res.users", string="Force-Passed By", readonly=True, copy=False, tracking=True,
+    )
+    llm_qc_force_passed_at = fields.Datetime(
+        string="Force-Passed At", readonly=True, copy=False, tracking=True,
+    )
+    llm_qc_force_pass_reason = fields.Char(
+        string="Force-Pass Reason", readonly=True, copy=False, tracking=True,
+    )
 
     category = fields.Selection(
-        [("sports", "Sports")],
+        CATEGORIES,
         string="Category",
     )
+    sub_category = fields.Selection(
+        SUB_CATEGORIES,
+        string="Sub-Category",
+    )
+
+    @api.onchange("category")
+    def _onchange_category(self):
+        for rec in self:
+            if not rec.sub_category:
+                continue
+            allowed = {val for val, _label in SUB_CATEGORIES_BY_CATEGORY.get(rec.category or "", [])}
+            if rec.sub_category not in allowed:
+                rec.sub_category = False
     style = fields.Selection(
         [
             ("casual", "Casual"),
@@ -127,7 +361,7 @@ class VideoEditorProject(models.Model):
     )
     edited_blob_filename = fields.Char(string="Edited Blob Filename")
     preview_file_path = fields.Char(string="Preview File")
-    output_s3_url = fields.Char(string="Exported URL", tracking=True)
+    output_s3_url = fields.Char(string="Trimmed S3 URL", tracking=True)
 
     trim_start_seconds = fields.Float(string="Trim Start (s)", readonly=True)
     trim_end_seconds = fields.Float(string="Trim End (s)", readonly=True)
@@ -237,6 +471,31 @@ class VideoEditorProject(models.Model):
                 raise ValidationError(_(
                     "Invalid YouTube URL. Expected youtube.com/watch?v=…, youtu.be/…, shorts, embed, or /v/ form."))
 
+    @api.constrains("prompt")
+    def _check_prompt_word_limit(self):
+        max_words = self.env["video.editor.s3.settings"].get_prompt_max_words()
+        for rec in self:
+            text = (rec.prompt or "").strip()
+            if not text:
+                continue
+            word_count = len(text.split())
+            if word_count > max_words:
+                raise ValidationError(_(
+                    "Prompt is too long: %(current)d words. Maximum allowed: %(max)d words."
+                ) % {"current": word_count, "max": max_words})
+
+    @api.onchange("prompt")
+    def _onchange_prompt_word_limit(self):
+        max_words = self.env["video.editor.s3.settings"].get_prompt_max_words()
+        text = (self.prompt or "").strip()
+        if not text:
+            return
+        word_count = len(text.split())
+        if word_count > max_words:
+            raise UserError(_(
+                "Prompt is too long: %(current)d words. Maximum allowed: %(max)d words."
+            ) % {"current": word_count, "max": max_words})
+
     def _kick_job(self, job_type, *, config=None):
         self.ensure_one()
         active = self.job_ids.filtered(lambda j: j.status in ("queued", "running"))
@@ -257,10 +516,35 @@ class VideoEditorProject(models.Model):
         self.env.cr.postcommit.add(_submit)
         return job
 
+    def _check_trim_duration_in_range(self, config):
+        settings = self.env["video.editor.s3.settings"]
+        trim_min = settings.get_trim_min_seconds()
+        trim_max = settings.get_trim_max_seconds()
+        trim = (config or {}).get("trim") or {}
+        try:
+            trim_start = float(trim.get("start") or 0.0)
+        except (TypeError, ValueError):
+            trim_start = 0.0
+        try:
+            trim_end = float(trim.get("end") or 0.0)
+        except (TypeError, ValueError):
+            trim_end = 0.0
+        trim_duration = max(trim_end - trim_start, 0.0)
+        if trim_duration <= 0.0:
+            trim_duration = float(self.duration_seconds or 0.0)
+        if trim_duration <= 0.0:
+            raise UserError(_("Cannot determine trim duration. Set a trim range before rendering."))
+        if trim_duration < trim_min - 1e-4 or trim_duration > trim_max + 1e-4:
+            raise UserError(_(
+                "Trimmed video duration must be between %(min).1f and %(max).1f seconds. "
+                "Current selection: %(current).2f seconds."
+            ) % {"min": trim_min, "max": trim_max, "current": trim_duration})
+
     def action_render(self, config=None):
         self.ensure_one()
         if not self.s3_source_url:
             raise UserError(_("Set a source S3 URL first."))
+        self._check_trim_duration_in_range(config)
         self.write({"state": "processing"})
         return self._kick_job("render", config=config)
 
@@ -327,9 +611,7 @@ class VideoEditorProject(models.Model):
         self.ensure_one()
         if not self.youtube_url:
             return
-        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config_for_user(
-            self.env.user.id,
-        )
+        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
         youtube_downloader.probe_and_select(
             self.youtube_url,
             cookies_path=cfg.get("cookies_path"),
@@ -370,14 +652,115 @@ class VideoEditorProject(models.Model):
             except UserError as exc:
                 _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
 
-    def _maybe_run_prompt_qc(self):
+    def action_run_llm_qc(self):
+        self.ensure_one()
+        if not self.output_s3_url:
+            raise UserError(_(
+                "Render and export the trimmed clip to S3 before running LLM QC. "
+                "LLM QC reviews the trimmed video, not the source."
+            ))
+        if not self.prompt:
+            raise UserError(_("Write a prompt before running LLM QC."))
+        if not self.category:
+            raise UserError(_("Pick a category before running LLM QC."))
+        if not self.style:
+            raise UserError(_("Pick a style before running LLM QC."))
+        job = self._kick_job("llm_qc")
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("LLM QC queued"),
+                "message": _(
+                    "Job #%s is reviewing this row against the T2AV spec. "
+                    "Refresh the form when the job finishes - results will "
+                    "appear in the LLM QC section."
+                ) % job.id,
+                "type": "info",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_force_pass_llm_qc(self):
+        self.ensure_one()
+        if not self.llm_evaluated_at:
+            raise UserError(_(
+                "Run LLM QC first. Force Pass overrides a real verdict; it is "
+                "not a substitute for running QC."
+            ))
+        if self.llm_qc_force_passed:
+            raise UserError(_("This project's LLM QC is already force-passed."))
+        reason = (self.env.context.get("default_llm_qc_force_pass_reason") or "").strip()
+        if not reason:
+            return {
+                "type": "ir.actions.act_window",
+                "name": _("Force Pass LLM QC"),
+                "res_model": "video.editor.llm.qc.force.pass.wizard",
+                "view_mode": "form",
+                "target": "new",
+                "context": {"default_project_id": self.id},
+            }
+        now = fields.Datetime.now()
+        self.write({
+            "llm_qc_force_passed": True,
+            "llm_qc_force_passed_by": self.env.user.id,
+            "llm_qc_force_passed_at": now,
+            "llm_qc_force_pass_reason": reason,
+        })
+        original = dict(self._fields["llm_qc_result"].selection).get(
+            self.llm_qc_result, self.llm_qc_result or "(no verdict)"
+        )
+        self.message_post(
+            body=_(
+                "<b>LLM QC force-passed</b> by %(user)s. "
+                "Original reviewer verdict: <b>%(original)s</b>. "
+                "Reason: %(reason)s"
+            ) % {
+                "user": self.env.user.display_name,
+                "original": original,
+                "reason": reason or _("(none provided)"),
+            },
+            message_type="comment",
+            subtype_xmlid="mail.mt_note",
+        )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("LLM QC force-passed"),
+                "message": _("Override recorded on the project chatter."),
+                "type": "warning",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_apply_fixed_prompt(self):
+        self.ensure_one()
+        if not self.llm_fixed_prompt:
+            raise UserError(_("No fixed prompt is set."))
+        self.write({"prompt": self.llm_fixed_prompt})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Fixed prompt applied"),
+                "message": _("Re-run LLM QC to verify the new prompt."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def _maybe_run_llm_qc(self):
         for rec in self:
             if not rec.prompt:
                 continue
             if rec.job_ids.filtered(lambda j: j.job_type == "prompt_qc" and j.status in ("queued", "running")):
                 continue
             try:
-                rec._kick_job("prompt_qc", config={"prompt": rec.prompt})
+                rec._kick_job("llm_qc")
             except UserError as exc:
                 _logger.info("prompt_qc skipped for project %s: %s", rec.id, exc)
 
@@ -385,15 +768,12 @@ class VideoEditorProject(models.Model):
     def create(self, vals_list):
         records = super().create(vals_list)
         records._maybe_probe_s3_source()
-        records._maybe_run_prompt_qc()
         return records
 
     def write(self, vals):
         res = super().write(vals)
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
-        if "prompt" in vals:
-            self._maybe_run_prompt_qc()
         return res
 
     def unlink(self):

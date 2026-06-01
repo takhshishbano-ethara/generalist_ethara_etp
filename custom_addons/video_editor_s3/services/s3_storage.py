@@ -4,7 +4,7 @@ import os
 import time
 from urllib.parse import urlparse
 
-from odoo import _, api, fields, models
+from odoo import _, api, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -259,7 +259,7 @@ def head_object_exists(s3_config: dict, s3_key: str) -> bool:
 
 class S3SettingsResolver(models.AbstractModel):
     _name = "video.editor.s3.settings"
-    _description = "Crowly Sourcing Configuration Resolver"
+    _description = "Crowley Sourcing Configuration Resolver"
 
     @api.model
     def get_s3_config(self) -> dict:
@@ -300,21 +300,23 @@ class S3SettingsResolver(models.AbstractModel):
         return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3/youtube").strip("/")
 
     @api.model
-    def get_bedrock_config(self) -> dict:
+    def get_llm_qc_config(self) -> dict:
         ICP = self.env["ir.config_parameter"].sudo()
         return {
-            "region": (ICP.get_param("video_editor_s3.bedrock_region") or "us-east-1").strip(),
-            "model_id": (ICP.get_param("video_editor_s3.bedrock_model_id") or "").strip(),
-            "api_key": (ICP.get_param("video_editor_s3.bedrock_api_key") or "").strip(),
+            "api_key": (ICP.get_param("video_editor_s3.openrouter_api_key") or "").strip(),
+            "model_id": (
+                ICP.get_param("video_editor_s3.llm_qc_model_id")
+                or "openrouter/google/gemini-3.1-pro-preview"
+            ).strip(),
         }
 
     @api.model
-    def get_qc_seed_prompt(self) -> str:
+    def get_llm_qc_seed_prompt(self) -> str:
         import base64
         from . import llm_qc
         ICP = self.env["ir.config_parameter"].sudo()
 
-        b64 = (ICP.get_param("video_editor_s3.qc_seed_file") or "").strip()
+        b64 = (ICP.get_param("video_editor_s3.llm_qc_seed_file") or "").strip()
         if b64:
             try:
                 text = base64.b64decode(b64).decode("utf-8").strip()
@@ -322,7 +324,7 @@ class S3SettingsResolver(models.AbstractModel):
                     return text
             except (ValueError, UnicodeDecodeError) as exc:
                 _logger.warning(
-                    "Stored QC seed file is invalid (%s) — falling back to bundled default.",
+                    "Stored LLM QC seed file is invalid (%s) - falling back to bundled default.",
                     exc,
                 )
 
@@ -338,48 +340,28 @@ class S3SettingsResolver(models.AbstractModel):
         }
 
     @api.model
-    def _materialize_admin_cookies_file(self) -> str:
-        from . import youtube_downloader
+    def get_trim_min_seconds(self) -> float:
         ICP = self.env["ir.config_parameter"].sudo()
-        b64 = (ICP.get_param("video_editor_s3.yt_cookies_file_b64") or "").strip()
-        if not b64:
-            return ""
-        uploaded_at_raw = (ICP.get_param("video_editor_s3.yt_cookies_file_uploaded_at") or "").strip()
-        upload_epoch = 0.0
-        if uploaded_at_raw:
-            try:
-                dt = fields.Datetime.from_string(uploaded_at_raw)
-                if dt:
-                    upload_epoch = dt.timestamp()
-            except (TypeError, ValueError):
-                upload_epoch = 0.0
-        dbname = (self.env.cr.dbname or "default").strip() or "default"
-        slot = "db/%s/admin_cookies" % dbname
-        path = youtube_downloader.materialize_cookies_blob(
-            slot, b64, upload_epoch,
-        )
-        return path or ""
+        raw = ICP.get_param("video_editor_s3.trim_min_seconds") or "8.0"
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return 8.0
 
     @api.model
-    def get_youtube_ingest_config_for_user(self, user_id=None) -> dict:
+    def get_trim_max_seconds(self) -> float:
         ICP = self.env["ir.config_parameter"].sudo()
-        proxy_url = (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip()
-        resolved_path = ""
-        owner = "none"
-        if user_id:
-            UserCookies = self.env["video.editor.user.cookies"].sudo()
-            per_user = UserCookies.get_materialized_path_for_user(int(user_id))
-            if per_user:
-                resolved_path = per_user
-                owner = "user:%d" % int(user_id)
-        if not resolved_path:
-            admin_file_path = self._materialize_admin_cookies_file()
-            if admin_file_path:
-                resolved_path = admin_file_path
-                owner = "admin_file"
-        return {
-            "cookies_browser": "",
-            "cookies_path": resolved_path,
-            "proxy_url": proxy_url,
-            "cookies_owner": owner,
-        }
+        raw = ICP.get_param("video_editor_s3.trim_max_seconds") or "16.0"
+        try:
+            return max(0.0, float(raw))
+        except (TypeError, ValueError):
+            return 16.0
+
+    @api.model
+    def get_prompt_max_words(self) -> int:
+        ICP = self.env["ir.config_parameter"].sudo()
+        raw = ICP.get_param("video_editor_s3.prompt_max_words") or "150"
+        try:
+            return max(1, int(raw))
+        except (TypeError, ValueError):
+            return 150

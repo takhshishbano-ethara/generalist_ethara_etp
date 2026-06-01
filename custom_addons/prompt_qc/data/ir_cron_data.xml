@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <!--
+        Safety-net dispatcher. The bulk endpoint kicks the dispatcher immediately via a
+        postcommit hook, so under normal operation queued runs start within a second. This cron
+        is the backstop: it drains any 'queued' runs left behind by a lost kick (e.g. a process
+        restart between commit and kick), bounded by the configured concurrency N.
+    -->
+    <record id="cron_prompt_qc_dispatch" model="ir.cron">
+        <field name="name">Prompt QC: Dispatch Queue</field>
+        <field name="model_id" ref="model_prompt_qc_run"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_dispatch_queue()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+    <!--
+        Timeout guard. Any run stuck in 'running' past prompt_qc.run_timeout_minutes (default
+        15) is forced to 'failed', so a run can never sit forever, e.g. after a worker thread or
+        the whole process died mid-call without persisting. Freed slots are re-dispatched.
+    -->
+    <record id="cron_prompt_qc_reap" model="ir.cron">
+        <field name="name">Prompt QC: Reap Stuck Runs</field>
+        <field name="model_id" ref="model_prompt_qc_run"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_reap_stuck_runs()</field>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
+</odoo>

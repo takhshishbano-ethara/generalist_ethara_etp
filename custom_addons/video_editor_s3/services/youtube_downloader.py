@@ -49,21 +49,12 @@ _DEFAULT_USER_AGENT = (
 # images are returned and we ship a JPEG to S3).
 _DEFAULT_REMOTE_COMPONENTS = ("ejs:github",)
 
-# Default `web_safari` is SABR-only on datacenter IPs (zero formats). Order
-# is load-bearing: tv_downgraded uses uploaded cookies for auth, then no-token
-# fallbacks, then web last (web needs the bgutil PO-token provider if reached).
-_DEFAULT_YOUTUBE_CLIENTS = ("tv_downgraded", "android_vr", "mweb", "web")
-
 _BOT_CHALLENGE_MARKERS = (
     "sign in to confirm",
     "confirm you're not a bot",
     "confirm you\u2019re not a bot",
     "cookies-from-browser",
     "captcha",
-    "requested format is not available",
-    "requested formats are incompatible",
-    "no video formats found",
-    "only storyboard",
 )
 
 # Split out from bot-challenge because the remediation is different: a 429
@@ -342,77 +333,6 @@ def _invalidate_cookie_cache():
         _logger.warning("Could not invalidate cookie cache %s: %s", path, exc)
 
 
-def _slot_to_path(slot_key):
-    safe = (slot_key or "").strip().strip("/").replace("..", "_")
-    if not safe:
-        raise ValueError("Empty cookies slot_key.")
-    return os.path.join(_cookie_cache_dir(), "%s.txt" % safe)
-
-
-def materialize_cookies_blob(slot_key, b64, uploaded_at_epoch):
-    import base64 as _b64
-    path = _slot_to_path(slot_key)
-    try:
-        st = os.stat(path)
-        if st.st_size > 0 and st.st_mtime >= float(uploaded_at_epoch or 0.0):
-            return path
-    except OSError:
-        pass
-    parent = os.path.dirname(path)
-    try:
-        os.makedirs(parent, mode=0o700, exist_ok=True)
-    except OSError as exc:
-        _logger.warning("Could not create cookies dir %s: %s", parent, exc)
-        return None
-    if isinstance(b64, str):
-        b64_bytes = b64.encode("ascii")
-    elif isinstance(b64, (bytes, bytearray)):
-        b64_bytes = bytes(b64)
-    else:
-        _logger.warning("materialize_cookies_blob: unsupported payload type %s", type(b64))
-        return None
-    try:
-        content = _b64.b64decode(b64_bytes)
-    except (ValueError, TypeError) as exc:
-        _logger.warning("materialize_cookies_blob: bad base64 for %s: %s", slot_key, exc)
-        return None
-    if not content:
-        _logger.warning("materialize_cookies_blob: empty content for %s", slot_key)
-        return None
-    tmp_path = "%s.tmp.%d" % (path, os.getpid())
-    try:
-        with open(tmp_path, "wb") as fh:
-            fh.write(content)
-        try:
-            os.chmod(tmp_path, 0o600)
-        except OSError:
-            pass
-        os.replace(tmp_path, path)
-    except OSError as exc:
-        _logger.warning("Could not write cookies file %s: %s", path, exc)
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        return None
-    _logger.info("Cookies materialized: slot=%s path=%s", slot_key, path)
-    return path
-
-
-def unlink_cookies_blob(slot_key):
-    try:
-        path = _slot_to_path(slot_key)
-    except ValueError:
-        return
-    try:
-        os.unlink(path)
-        _logger.info("Cookies file removed: slot=%s path=%s", slot_key, path)
-    except FileNotFoundError:
-        pass
-    except OSError as exc:
-        _logger.warning("Could not remove cookies file %s: %s", path, exc)
-
-
 def validate_cookies_file(path):
     if not os.path.isfile(path):
         raise UserError(_(
@@ -420,7 +340,7 @@ def validate_cookies_file(path):
             "Export a Netscape-format cookies.txt from a logged-in YouTube "
             "session (use the 'Get cookies.txt LOCALLY' extension for "
             "Chrome / Edge, or 'cookies.txt' for Firefox), upload it to the "
-            "Odoo host, then set Settings \u2192 Crowly Sourcing \u2192 "
+            "Odoo host, then set Settings \u2192 Crowley Sourcing \u2192 "
             "YouTube Ingest \u2192 Cookies File Path to the absolute path."
         ) % path)
     if not os.access(path, os.R_OK):
@@ -484,10 +404,6 @@ def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None
         "http_headers": {"User-Agent": _DEFAULT_USER_AGENT},
         "geo_bypass": True,
         "remote_components": list(_DEFAULT_REMOTE_COMPONENTS),
-        "extractor_args": {
-            "youtube": {"player_client": list(_DEFAULT_YOUTUBE_CLIENTS)},
-        },
-        "source_address": "0.0.0.0",
     }
     if cookies_path:
         validate_cookies_file(cookies_path)
@@ -559,30 +475,24 @@ def _bot_challenge_message(url, *, opts=None):
         "%(browser)s\n"
         "%(cookiefile)s\n"
         "%(proxy)s\n\n"
-        "Recommended fix — upload your own cookies (works per-user):\n"
+        "Recommended fix (most reliable, works on servers):\n"
         "  1. Open a NEW private/incognito window in your browser.\n"
         "  2. Log in to YouTube in that window.\n"
         "  3. Visit https://www.youtube.com/robots.txt in the same incognito tab.\n"
-        "  4. Export youtube.com cookies via the 'Get cookies.txt LOCALLY' "
-        "extension (Chrome/Edge) or 'cookies.txt' (Firefox) to a Netscape-format "
-        ".txt file.\n"
-        "  5. CLOSE the incognito window — this freezes the session so YouTube "
-        "does not rotate the cookies.\n"
-        "  6. Upload the file via Crowley Sourcing → My YouTube Cookies (each "
-        "user/tasker uploads their own). Re-run the job and your cookies will "
-        "be used instead of any global/admin cookies.\n\n"
-        "Admin-wide alternative:\n"
-        "  • Settings → Crowly Sourcing → YouTube Ingest → upload the file in "
-        "the 'Admin Cookies File' field, or set 'Cookies File Path' to an "
-        "absolute path on the Odoo host (readable by OS user %(user)s).\n\n"
-        "Local-development alternative:\n"
-        "  • Sign in to YouTube in Chrome / Firefox / Edge / Brave on this host. "
-        "The downloader will auto-pick the first installed browser. Note: "
-        "YouTube rotates live-session cookies, so this can stop working without "
-        "warning — prefer the per-user upload flow above for anything "
-        "production or shared across users.\n\n"
-        "If the Odoo host's IP is itself blocked, also set Settings → YouTube "
-        "Ingest → YouTube Proxy URL to a residential HTTP / SOCKS5 proxy."
+        "  4. Export youtube.com cookies via 'Get cookies.txt LOCALLY' (Chrome) or "
+        "'cookies.txt' (Firefox) extension to a Netscape-format file.\n"
+        "  5. CLOSE the incognito window — this freezes the session so YouTube does "
+        "not rotate the cookies.\n"
+        "  6. Upload the file to the Odoo host (e.g. /var/lib/odoo/yt_cookies.txt), "
+        "make it readable by the Odoo OS user (%(user)s), and set Settings → "
+        "Crowley Sourcing → YouTube Ingest → Cookies File Path to that absolute path.\n\n"
+        "Alternative for local development only:\n"
+        "  • Sign in to YouTube in Chrome / Firefox / Edge / Brave on this host. The "
+        "downloader will auto-pick the first installed browser. Note: YouTube rotates "
+        "live-session cookies, so this can stop working without warning — prefer the "
+        "incognito + cookies.txt flow above for anything production.\n\n"
+        "If the Odoo host's IP is itself blocked, also set Settings → YouTube Ingest → "
+        "YouTube Proxy URL to a residential HTTP / SOCKS5 proxy."
     ) % {
         "url": url,
         "user": os_user,
@@ -612,10 +522,10 @@ def _rate_limit_message(url, *, opts=None):
         "Remediation:\n"
         "  1. Wait 10–30 minutes before retrying — the limit resets on its own.\n"
         "  2. If retries keep failing, the Odoo host's IP itself is throttled. "
-        "Set Settings → Crowly Sourcing → YouTube Ingest → "
+        "Set Settings → Crowley Sourcing → YouTube Ingest → "
         "Proxy URL to a residential HTTP / SOCKS5 proxy and retry.\n"
         "  3. Reduce concurrency of bulk ingests via Settings → "
-        "Crowly Sourcing → Processing Limits → Max Concurrent Jobs."
+        "Crowley Sourcing → Processing Limits → Max Concurrent Jobs."
     ) % {"url": url, "proxy": proxy_line}
 
 

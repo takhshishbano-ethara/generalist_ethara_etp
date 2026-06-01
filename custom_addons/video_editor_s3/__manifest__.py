@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Crowley Sourcing",
-    "version": "19.0.1.0.20",
+    "version": "19.0.1.0.23",
     "summary": "Import S3 videos, edit (trim/crop/rotate/resize/filters) via FFmpeg, "
                "render asynchronously and export back to S3.",
     "description": """
@@ -31,7 +31,7 @@ intentionally independent so each can evolve on its own schedule.
         "web",
     ],
     "external_dependencies": {
-        "python": ["boto3", "requests", "yt_dlp"],
+        "python": ["boto3", "requests", "yt_dlp", "litellm"],
         "bin": ["ffmpeg", "ffprobe"],
     },
     "data": [
@@ -44,7 +44,7 @@ intentionally independent so each can evolve on its own schedule.
         "views/video_editor_job_views.xml",
         "views/video_editor_action.xml",
         "wizards/youtube_multi_ingest_wizard_views.xml",
-        "views/video_editor_user_cookies_views.xml",
+        "wizards/llm_qc_force_pass_wizard_views.xml",
         "views/menus.xml",
     ],
     "post_init_hook": "post_init_hook",

@@ -6,7 +6,7 @@
         <field name="inherit_id" ref="base.res_config_settings_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
-                <app data-string="Crowly Sourcing" string="Crowly Sourcing" name="video_editor_s3" groups="video_editor_s3.group_video_editor_s3_manager">
+                <app data-string="Crowley Sourcing" string="Crowley Sourcing" name="video_editor_s3" groups="video_editor_s3.group_video_editor_s3_manager">
                     <block title="Amazon S3 Credentials" name="video_editor_s3_credentials">
                         <setting id="video_editor_s3_aws_bucket" string="S3 Bucket" help="Default S3 bucket for export operations.">
                             <field name="video_editor_s3_aws_bucket" placeholder="my-video-bucket"/>
@@ -37,34 +37,61 @@
                         <setting id="video_editor_s3_max_concurrent_jobs" string="Max Concurrent Jobs" help="Process pool capacity. Restart Odoo workers after changing.">
                             <field name="video_editor_s3_max_concurrent_jobs"/>
                         </setting>
-                    </block>
-                    <block title="Kimi K2.5 Prompt QC" name="video_editor_s3_bedrock">
-                        <setting id="video_editor_s3_bedrock_region" string="Bedrock Region" help="AWS region hosting the Kimi K2.5 deployment. Supported: us-east-1, us-west-2, ap-south-1, ap-northeast-1, ap-southeast-2, ap-southeast-3, ap-southeast-4, eu-north-1, eu-west-2, sa-east-1.">
-                            <field name="video_editor_s3_bedrock_region" placeholder="us-east-1"/>
+                        <setting id="video_editor_s3_trim_min_seconds" string="Trim Min Duration (s)" help="Minimum allowed duration of the exported trim video, in seconds.">
+                            <field name="video_editor_s3_trim_min_seconds"/>
                         </setting>
-                        <setting id="video_editor_s3_bedrock_model_id" string="Kimi Model ID / ARN" help="Bedrock foundation-model ID (e.g. 'moonshotai.kimi-k2.5') or a Bedrock Marketplace endpoint ARN. URL-encoded into the Converse API path.">
-                            <field name="video_editor_s3_bedrock_model_id" placeholder="moonshotai.kimi-k2.5"/>
+                        <setting id="video_editor_s3_trim_max_seconds" string="Trim Max Duration (s)" help="Maximum allowed duration of the exported trim video, in seconds.">
+                            <field name="video_editor_s3_trim_max_seconds"/>
                         </setting>
-                        <setting id="video_editor_s3_bedrock_api_key" string="Bedrock API Key" help="Long-term Bedrock API key from the AWS console. Sent as the 'Authorization: Bearer ...' header on Kimi K2.5 Converse calls.">
-                            <field name="video_editor_s3_bedrock_api_key" password="True"/>
+                        <setting id="video_editor_s3_prompt_max_words" string="Prompt Max Words" help="Maximum allowed number of words in the project prompt.">
+                            <field name="video_editor_s3_prompt_max_words"/>
                         </setting>
                     </block>
-                    <block title="Prompt QC Seed" name="video_editor_s3_qc_seed">
-                        <setting id="video_editor_s3_qc_seed_file_setting" string="QC Seed Prompt File" help="Upload a .md or .txt file (UTF-8, max 100 KB) to override the bundled default QC seed prompt. Clear the file to revert to the bundled default.">
-                            <field name="video_editor_s3_qc_seed_file" filename="video_editor_s3_qc_seed_filename"/>
-                            <field name="video_editor_s3_qc_seed_filename" invisible="1"/>
+                    <block title="LLM QC (OpenRouter Gemini)" name="video_editor_s3_llm_qc">
+                        <setting id="video_editor_s3_openrouter_api_key" string="OpenRouter API Key" help="API key from openrouter.ai (sk-or-...). Used by the LLM QC reviewer to call multimodal models like google/gemini-3.1-pro-preview through LiteLLM.">
+                            <field name="video_editor_s3_openrouter_api_key" password="True"/>
+                        </setting>
+                        <setting id="video_editor_s3_llm_qc_model_id" string="LLM QC Model ID" help="Fully-qualified OpenRouter model id. Default 'openrouter/google/gemini-3.1-pro-preview'. Any LiteLLM-compatible multimodal model that accepts video_url content parts will work.">
+                            <field name="video_editor_s3_llm_qc_model_id" placeholder="openrouter/google/gemini-3.1-pro-preview"/>
+                        </setting>
+                        <setting id="video_editor_s3_llm_qc_seed_file_setting" string="LLM QC Seed Prompt File" help="Upload a .md or .txt file (UTF-8, max 100 KB) overriding the bundled T2AV reviewer seed at data/llm_qc_seed.md. Clear the file to revert to the bundled default.">
+                            <field name="video_editor_s3_llm_qc_seed_file" filename="video_editor_s3_llm_qc_seed_filename"/>
+                            <field name="video_editor_s3_llm_qc_seed_filename" invisible="1"/>
+                            <div class="mt-2">
+                                <button name="action_download_llm_qc_seed" type="object" string="Download Current Seed" class="btn btn-sm btn-secondary" icon="fa-download"/>
+                                <span class="text-muted small ms-2">Downloads the uploaded override if present, otherwise the bundled default.</span>
+                            </div>
                         </setting>
                     </block>
                     <block title="YouTube Ingest" name="video_editor_s3_youtube">
-                        <setting id="video_editor_s3_yt_cookies_file_setting" string="Admin Cookies File (Upload)" help="Upload a Netscape-format cookies.txt exported from a logged-in YouTube session. Used as fallback for users who have NOT uploaded their own. Takes precedence over the path field below. Each user can override via Crowley Sourcing → My YouTube Cookies.">
-                            <field name="video_editor_s3_yt_cookies_file" filename="video_editor_s3_yt_cookies_filename"/>
-                            <field name="video_editor_s3_yt_cookies_filename" invisible="1"/>
-                            <div class="text-muted small mt-1" invisible="not video_editor_s3_yt_cookies_uploaded_at_display">
-                                Uploaded: <field name="video_editor_s3_yt_cookies_uploaded_at_display" readonly="1" nolabel="1" class="d-inline-block"/>
-                            </div>
+                        <setting id="video_editor_s3_yt_cookies_browser" string="Cookies From Browser" help="Auto-import YouTube cookies from an installed browser (chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). Optionally append :PROFILE e.g. 'chrome:Profile 1'. The browser must be installed on the Odoo host and logged in to YouTube.">
+                            <field name="video_editor_s3_yt_cookies_browser" placeholder="chrome"/>
+                        </setting>
+                        <setting id="video_editor_s3_yt_cookies_path" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Recommended for server deployments.">
+                            <field name="video_editor_s3_yt_cookies_path" placeholder="/var/lib/odoo/yt_cookies.txt"/>
                         </setting>
                         <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
                             <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
+                        </setting>
+                    </block>
+                    <block title="AWS Lambda Pipeline" name="video_editor_s3_lambda">
+                        <setting id="video_editor_s3_use_lambda" string="Run heavy jobs on AWS Lambda" help="When ON, YouTube ingest and render jobs dispatch to AWS Lambda instead of running in the local Odoo worker. Leave OFF on dev machines without AWS credentials.">
+                            <field name="video_editor_s3_use_lambda"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_function_name" string="Lambda Function Name" help="e.g. video-pipeline-dev — must match the SAM-deployed function name.">
+                            <field name="video_editor_s3_lambda_function_name" placeholder="video-pipeline-dev"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_region" string="Lambda Region" help="AWS region where the Lambda function lives.">
+                            <field name="video_editor_s3_lambda_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_callback_base_url" string="Callback Base URL" help="Public HTTPS URL of this Odoo instance reachable from AWS. Lambda appends /video_editor_s3/callback/&lt;op&gt; to it.">
+                            <field name="video_editor_s3_lambda_callback_base_url" placeholder="https://your-odoo.example.com"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_webhook_token" string="Webhook HMAC Token" help="Same secret value stored in AWS Secrets Manager (WebhookTokenSecretArn). Used to verify the X-Video-Pipeline-Token header on incoming callbacks.">
+                            <field name="video_editor_s3_lambda_webhook_token" password="True" placeholder="64-hex random string"/>
+                        </setting>
+                        <setting>
+                            <button name="action_test_youtube_cookies" string="Test YouTube Config" type="object" class="btn-primary"/>
                         </setting>
                     </block>
                     <block title="System Paths" name="video_editor_s3_paths">
@@ -84,7 +111,7 @@
     </record>
 
     <record id="action_video_editor_s3_settings" model="ir.actions.act_window">
-        <field name="name">Crowly Sourcing Settings</field>
+        <field name="name">Crowley Sourcing Settings</field>
         <field name="res_model">res.config.settings</field>
         <field name="view_mode">form</field>
         <field name="target">current</field>

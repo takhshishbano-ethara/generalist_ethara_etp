@@ -22,7 +22,7 @@ ffprobe -version
 If Odoo runs from a venv with stripped PATH and `shutil.which("ffmpeg")` returns None,
 either symlink the binary into one of the search paths (`/opt/homebrew/bin`,
 `/usr/local/bin`, `/opt/local/bin`, `/usr/bin`, `/bin`) or set the absolute path
-in Settings → Crowly Sourcing → "FFmpeg binary path".
+in Settings → Crowley Sourcing → "FFmpeg binary path".
 
 ## 2. Python dependencies
 
@@ -55,11 +55,11 @@ pip install boto3>=1.28.0 requests yt-dlp
 ./odoo-bin -d <db> -i video_editor_s3 --stop-after-init
 ```
 
-Or from the Apps UI: Apps → Update Apps List → search "Crowly Sourcing" → Install.
+Or from the Apps UI: Apps → Update Apps List → search "Crowley Sourcing" → Install.
 
 ## 4. Configure AWS credentials
 
-Settings → General Settings → "Crowly Sourcing" section (manager group required):
+Settings → General Settings → "Crowley Sourcing" section (manager group required):
 
 1. Paste **Access Key**, **Secret Key**, **Bucket**, **Region** (default `ap-south-1`).
 2. Optional: change **Export Prefix** (default `video_editor_s3/exports`).
@@ -101,7 +101,7 @@ createdb -O odoo video_editor_s3_verify
 
 ## 6. Open the editor
 
-1. Apps menu → **Crowly Sourcing** → **Projects** → **New**.
+1. Apps menu → **Crowley Sourcing** → **Projects** → **New**.
 2. Paste an S3 URL into `s3_source_url` (accepts `s3://bucket/key` or
    `https://bucket.s3.<region>.amazonaws.com/key`) and Save.
 3. Click **Open Editor**. The OWL editor opens and streams directly from S3 via a
@@ -117,7 +117,7 @@ createdb -O odoo video_editor_s3_verify
 
 ## 7. Ingest a YouTube video
 
-1. Apps menu → **Crowly Sourcing** → **Projects** → **New**.
+1. Apps menu → **Crowley Sourcing** → **Projects** → **New**.
 2. Paste a YouTube URL into `youtube_url` (formats supported:
    `https://www.youtube.com/watch?v=...`, `https://youtu.be/...`,
    `https://www.youtube.com/shorts/...`, `https://www.youtube.com/embed/...`,
@@ -162,7 +162,7 @@ the prompt is created or edited.
 
    Use a separate principal from the S3 one if you want different blast radii.
 
-3. Settings → General Settings → **Crowly Sourcing** → **Bedrock Prompt QC**:
+3. Settings → General Settings → **Crowley Sourcing** → **Bedrock Prompt QC**:
    - Paste the **Access Key** and **Secret Key** (both `password='True'`-masked).
    - Override **Region** or **Model ID** if needed.
 

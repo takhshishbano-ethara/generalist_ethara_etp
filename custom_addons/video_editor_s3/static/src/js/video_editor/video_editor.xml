@@ -98,14 +98,12 @@
                                 title="Play trimmed segment">
                             <i t-att-class="state.playingTrim ? 'fa fa-stop' : 'fa fa-play-circle'"/> Trim
                         </button>
-                        <span class="text-muted small font-monospace" style="min-width:160px;">
-                            <t t-esc="formatTime(state.currentTime)"/> / <t t-esc="formatTime(state.duration)"/>
+                        <span class="text-muted small" style="min-width:90px;">
+                            <t t-esc="(state.currentTime || 0).toFixed(1)"/>s / <t t-esc="(state.duration || 0).toFixed(1)"/>s
                         </span>
                         <input type="range" class="form-range" min="0" t-att-max="state.duration || 0" step="0.01"
                                t-att-value="state.currentTime" t-on-input="onScrub"/>
-                        <button class="btn btn-outline-light btn-sm" t-on-click="onClearCrop" t-if="state.mode === 'crop' and state.config.crop" title="Clear crop">
-                            <i class="fa fa-times me-1"/>Clear crop
-                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" t-on-click="onClearCrop" t-if="state.mode === 'crop' and state.config.crop">Clear crop</button>
                     </div>
 
                     <div class="o_video_editor_s3__timeline border-top p-2">

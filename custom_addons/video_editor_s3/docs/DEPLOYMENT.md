@@ -173,4 +173,4 @@ print('Project', p.id, 'job kicked')
 PY
 ```
 
-Watch the job advance via Apps → Crowly Sourcing → Jobs.
+Watch the job advance via Apps → Crowley Sourcing → Jobs.
