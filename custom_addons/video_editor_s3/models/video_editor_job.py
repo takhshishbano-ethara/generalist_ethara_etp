@@ -554,7 +554,8 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             env = api.Environment(cr, uid or SUPERUSER_ID, {})
             project = env["video.editor.project"].browse(project_id)
             project.write({
-                "s3_source_url": s3_url,
+                "s3_source_url": False if is_clip else s3_url,
+                "output_s3_url": s3_url if is_clip else project.output_s3_url,
                 "source_metadata": {
                     "duration": float(metadata.get("duration_seconds") or 0.0),
                     "size_bytes": 0,
@@ -745,7 +746,8 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             env = api.Environment(cr, uid or SUPERUSER_ID, {})
             project = env["video.editor.project"].browse(project_id)
             project.write({
-                "s3_source_url": s3_url,
+                "s3_source_url": False if is_clip else s3_url,
+                "output_s3_url": s3_url if is_clip else project.output_s3_url,
                 "source_metadata": {
                     "duration": float(metadata.get("duration_seconds") or 0.0),
                     "size_bytes": os.path.getsize(abs_path),
