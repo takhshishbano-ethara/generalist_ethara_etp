@@ -54,6 +54,8 @@ class VideoEditorJob(models.Model):
     progress_text = fields.Char(string="Progress")
     last_heartbeat = fields.Datetime(string="Heartbeat")
     error_message = fields.Text(string="Error")
+    lambda_request_id = fields.Char(string="Lambda Request ID", index=True, readonly=True)
+    last_lambda_log_ts = fields.Datetime(string="Last Lambda Log At", readonly=True)
     started_at = fields.Datetime(string="Started")
     finished_at = fields.Datetime(string="Finished")
     duration_ms = fields.Integer(string="Duration (ms)", compute="_compute_duration_ms", store=True)
@@ -237,6 +239,46 @@ def _bump_heartbeat(db, job_id, text=None):
 def _run_render(db, uid, job_id, cancel_event, preview=False):
     project_id, src_abs, dst_abs, config = _read_render_context(db, uid, job_id, preview)
     job_executor._check_cancelled(cancel_event)
+
+    if not preview:
+        with Registry(db).cursor() as cr:
+            env = api.Environment(cr, uid or SUPERUSER_ID, {})
+            icp = env["ir.config_parameter"].sudo()
+            use_lambda = (icp.get_param("video_editor_s3.use_lambda") or "").lower() in ("1", "true", "t", "yes")
+            lambda_function_name = icp.get_param("video_editor_s3.lambda_function_name") or ""
+            lambda_region = icp.get_param("video_editor_s3.lambda_region") or ""
+            lambda_callback_base = (icp.get_param("video_editor_s3.lambda_callback_base_url") or "").rstrip("/")
+            s3cfg = env["video.editor.s3.settings"].get_s3_config()
+            export_prefix = env["video.editor.s3.settings"].get_default_export_prefix()
+        if use_lambda:
+            if not lambda_function_name or not lambda_region or not lambda_callback_base:
+                raise UserError(_("Lambda pipeline is enabled but function name, region, or callback URL is unset."))
+            from ..services import lambda_invoker
+            ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+            out_key = "%s/project_%d/render_%s.mp4" % (export_prefix, project_id, ts)
+            payload = {
+                "op": "render",
+                "job_id": job_id,
+                "source_url": src_abs,
+                "s3_bucket": s3cfg.get("bucket") or "",
+                "s3_key": out_key,
+                "config": config,
+                "callback_url": "%s/video_editor_s3/callback/render" % lambda_callback_base,
+            }
+            _bump_heartbeat(db, job_id, "dispatched render to AWS Lambda")
+            try:
+                api_request_id = lambda_invoker.invoke_async(
+                    lambda_function_name, lambda_region, payload,
+                    access_key=s3cfg.get("access_key"),
+                    secret_key=s3cfg.get("secret_key"),
+                )
+            except Exception as exc:
+                raise UserError(_("Lambda render invoke failed: %s") % exc) from exc
+            with Registry(db).cursor() as cr:
+                job_executor._update_job(cr, job_id, {"progress_text": "lambda render dispatched (api_req=%s)" % api_request_id})
+                cr.commit()
+            raise job_executor.LambdaDispatched()
+
     _bump_heartbeat(db, job_id, "rendering preview" if preview else "rendering")
 
     with Registry(db).cursor() as cr:
@@ -420,14 +462,50 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             raise UserError(_("S3 settings are missing — configure bucket and credentials."))
         youtube_prefix = env["video.editor.s3.settings"].get_youtube_prefix()
         max_size_bytes = env["video.editor.s3.settings"].get_max_source_size_bytes()
-        yt_ingest_cfg = env["video.editor.s3.settings"].get_youtube_ingest_config_for_user(uid)
+        yt_ingest_cfg = env["video.editor.s3.settings"].get_youtube_ingest_config()
         yt_cookies_browser = yt_ingest_cfg.get("cookies_browser") or ""
         yt_cookies_path = yt_ingest_cfg.get("cookies_path") or ""
         yt_proxy = yt_ingest_cfg.get("proxy_url") or ""
-        _logger.info(
-            "youtube_ingest job=%s uid=%s cookies_owner=%s",
-            job_id, uid, yt_ingest_cfg.get("cookies_owner") or "none",
+        icp = env["ir.config_parameter"].sudo()
+        use_lambda = (icp.get_param("video_editor_s3.use_lambda") or "").lower() in ("1", "true", "t", "yes")
+        lambda_function_name = icp.get_param("video_editor_s3.lambda_function_name") or ""
+        lambda_region = icp.get_param("video_editor_s3.lambda_region") or ""
+        lambda_callback_base = (icp.get_param("video_editor_s3.lambda_callback_base_url") or "").rstrip("/")
+
+    if use_lambda:
+        if not lambda_function_name or not lambda_region or not lambda_callback_base:
+            raise UserError(_("Lambda pipeline is enabled but function name, region, or callback URL is unset in Settings."))
+        from ..services import lambda_invoker
+        video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)
+        if not video_id or not normalized:
+            raise UserError(_("Invalid YouTube URL: %s") % youtube_url[:200])
+        target_key = (
+            "%s/%s_%s.mkv" % (youtube_prefix, video_id, youtube_tier)
+            if youtube_tier
+            else "%s/%s.mkv" % (youtube_prefix, video_id)
         )
+        payload = {
+            "op": "youtube_ingest",
+            "job_id": job_id,
+            "youtube_url": normalized,
+            "tier": youtube_tier or "",
+            "s3_bucket": cfg.get("bucket") or "",
+            "s3_key": target_key,
+            "callback_url": "%s/video_editor_s3/callback/youtube_ingest" % lambda_callback_base,
+        }
+        _bump_heartbeat(db, job_id, "dispatched to AWS Lambda")
+        try:
+            api_request_id = lambda_invoker.invoke_async(
+                lambda_function_name, lambda_region, payload,
+                access_key=cfg.get("access_key"),
+                secret_key=cfg.get("secret_key"),
+            )
+        except Exception as exc:
+            raise UserError(_("Lambda invoke failed: %s") % exc) from exc
+        with Registry(db).cursor() as cr:
+            job_executor._update_job(cr, job_id, {"progress_text": "lambda dispatched (api_req=%s)" % api_request_id})
+            cr.commit()
+        raise job_executor.LambdaDispatched()
 
     _bump_heartbeat(db, job_id, "validating YouTube URL")
     video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)

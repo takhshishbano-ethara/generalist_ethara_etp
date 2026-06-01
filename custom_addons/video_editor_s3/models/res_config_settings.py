@@ -2,7 +2,7 @@
 import base64
 import binascii
 
-from odoo import _, api, fields, models
+from odoo import _, fields, models
 from odoo.exceptions import UserError, ValidationError
 
 from ..services import s3_storage, youtube_downloader
@@ -11,12 +11,6 @@ _QC_SEED_FILE_PARAM = "video_editor_s3.qc_seed_file"
 _QC_SEED_FILENAME_PARAM = "video_editor_s3.qc_seed_filename"
 _QC_SEED_FILE_MAX_BYTES = 100 * 1024
 _QC_SEED_ALLOWED_EXTS = (".md", ".txt")
-
-_YT_COOKIES_FILE_PARAM = "video_editor_s3.yt_cookies_file_b64"
-_YT_COOKIES_FILENAME_PARAM = "video_editor_s3.yt_cookies_filename"
-_YT_COOKIES_UPLOADED_AT_PARAM = "video_editor_s3.yt_cookies_file_uploaded_at"
-_YT_COOKIES_FILE_MAX_BYTES = 512 * 1024
-_YT_COOKIES_ALLOWED_EXTS = (".txt",)
 
 
 class ResConfigSettings(models.TransientModel):
@@ -109,26 +103,27 @@ class ResConfigSettings(models.TransientModel):
         string="QC Seed Prompt Filename",
         config_parameter="video_editor_s3.qc_seed_filename",
     )
-    video_editor_s3_yt_cookies_file = fields.Binary(
-        string="Admin Cookies File (Upload)",
+    video_editor_s3_yt_cookies_browser = fields.Char(
+        string="YouTube Cookies From Browser",
+        config_parameter="video_editor_s3.yt_cookies_browser",
         help=(
-            "Upload a Netscape-format cookies.txt to be used as a fallback for "
-            "all users who have not uploaded their own. Takes precedence over "
-            "the 'Cookies File Path' field. Each user can override with their "
-            "own file via Crowley Sourcing → My YouTube Cookies."
+            "Browser to auto-import YouTube cookies from "
+            "(chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). "
+            "Optionally append :PROFILE — e.g. 'chrome:Profile 1'. "
+            "The browser must be installed on the Odoo host and signed in to YouTube. "
+            "Recommended for local dev; for server deployments use the Cookies File Path instead."
         ),
     )
-    video_editor_s3_yt_cookies_filename = fields.Char(
-        string="Admin Cookies Filename",
-        config_parameter="video_editor_s3.yt_cookies_filename",
-    )
-    video_editor_s3_yt_cookies_uploaded_at = fields.Datetime(
-        string="Admin Cookies Uploaded At",
-        readonly=True,
-    )
-    video_editor_s3_yt_cookies_uploaded_at_display = fields.Char(
-        string="Admin Cookies Uploaded",
-        compute="_compute_video_editor_s3_yt_cookies_uploaded_at_display",
+    video_editor_s3_yt_cookies_path = fields.Char(
+        string="YouTube Cookies File Path",
+        config_parameter="video_editor_s3.yt_cookies_path",
+        help=(
+            "Absolute path to a Netscape-format cookies.txt exported from a logged-in "
+            "YouTube session (use the 'Get cookies.txt LOCALLY' Chrome/Edge extension "
+            "or 'cookies.txt' Firefox extension). Suitable for server deployments. "
+            "Leave empty to skip; if both this and Cookies From Browser are set, "
+            "both are passed to yt-dlp."
+        ),
     )
     video_editor_s3_yt_proxy_url = fields.Char(
         string="YouTube Proxy URL",
@@ -140,30 +135,41 @@ class ResConfigSettings(models.TransientModel):
         ),
     )
 
+    video_editor_s3_use_lambda = fields.Boolean(
+        string="Run heavy jobs on AWS Lambda",
+        config_parameter="video_editor_s3.use_lambda",
+        help="When enabled, YouTube ingest (and later render) jobs are dispatched to AWS Lambda instead of the local Odoo worker. Leave OFF on dev machines without AWS credentials.",
+    )
+    video_editor_s3_lambda_function_name = fields.Char(
+        string="Lambda Function Name",
+        config_parameter="video_editor_s3.lambda_function_name",
+        help="e.g. video-pipeline-dev — must match the SAM-deployed function name.",
+    )
+    video_editor_s3_lambda_region = fields.Char(
+        string="Lambda Region",
+        config_parameter="video_editor_s3.lambda_region",
+        help="AWS region where the Lambda function lives, e.g. ap-south-1.",
+    )
+    video_editor_s3_lambda_callback_base_url = fields.Char(
+        string="Lambda Callback Base URL",
+        config_parameter="video_editor_s3.lambda_callback_base_url",
+        help="Public Odoo base URL that Lambda will POST callbacks to, e.g. https://ethara-stage.example.com. Lambda appends /video_editor_s3/callback/<op>.",
+    )
+    video_editor_s3_lambda_webhook_token = fields.Char(
+        string="Lambda Webhook HMAC Token",
+        config_parameter="video_editor_s3.lambda_webhook_token",
+        help="The same secret value stored in AWS Secrets Manager under WebhookTokenSecretArn. Used to verify the X-Video-Pipeline-Token header on callbacks.",
+    )
+
     def get_values(self):
         res = super().get_values()
         ICP = self.env["ir.config_parameter"].sudo()
         b64 = ICP.get_param(_QC_SEED_FILE_PARAM) or ""
         res["video_editor_s3_qc_seed_file"] = b64.encode("ascii") if b64 else False
-        cookies_b64 = ICP.get_param(_YT_COOKIES_FILE_PARAM) or ""
-        res["video_editor_s3_yt_cookies_file"] = (
-            cookies_b64.encode("ascii") if cookies_b64 else False
-        )
-        uploaded_at_raw = (ICP.get_param(_YT_COOKIES_UPLOADED_AT_PARAM) or "").strip()
-        if uploaded_at_raw:
-            try:
-                res["video_editor_s3_yt_cookies_uploaded_at"] = (
-                    fields.Datetime.from_string(uploaded_at_raw)
-                )
-            except (TypeError, ValueError):
-                res["video_editor_s3_yt_cookies_uploaded_at"] = False
-        else:
-            res["video_editor_s3_yt_cookies_uploaded_at"] = False
         return res
 
     def set_values(self):
         self._validate_qc_seed_file()
-        self._validate_yt_cookies_file()
         ICP = self.env["ir.config_parameter"].sudo()
         raw = self.video_editor_s3_qc_seed_file
         if raw:
@@ -171,70 +177,7 @@ class ResConfigSettings(models.TransientModel):
             ICP.set_param(_QC_SEED_FILE_PARAM, b64)
         else:
             ICP.set_param(_QC_SEED_FILE_PARAM, "")
-        cookies_raw = self.video_editor_s3_yt_cookies_file
-        prev_b64 = (ICP.get_param(_YT_COOKIES_FILE_PARAM) or "").strip()
-        if cookies_raw:
-            b64 = cookies_raw.decode("ascii") if isinstance(cookies_raw, bytes) else cookies_raw
-            ICP.set_param(_YT_COOKIES_FILE_PARAM, b64)
-            if b64 != prev_b64:
-                ICP.set_param(
-                    _YT_COOKIES_UPLOADED_AT_PARAM,
-                    fields.Datetime.to_string(fields.Datetime.now()),
-                )
-        else:
-            ICP.set_param(_YT_COOKIES_FILE_PARAM, "")
-            ICP.set_param(_YT_COOKIES_UPLOADED_AT_PARAM, "")
-            try:
-                dbname = (self.env.cr.dbname or "default").strip() or "default"
-                youtube_downloader.unlink_cookies_blob("db/%s/admin_cookies" % dbname)
-            except Exception:
-                pass
         return super().set_values()
-
-    @api.depends("video_editor_s3_yt_cookies_uploaded_at")
-    def _compute_video_editor_s3_yt_cookies_uploaded_at_display(self):
-        for rec in self:
-            dt = rec.video_editor_s3_yt_cookies_uploaded_at
-            rec.video_editor_s3_yt_cookies_uploaded_at_display = (
-                fields.Datetime.to_string(dt) if dt else ""
-            )
-
-    def _validate_yt_cookies_file(self):
-        raw_b64 = self.video_editor_s3_yt_cookies_file
-        if not raw_b64:
-            return
-        try:
-            content = base64.b64decode(raw_b64, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ValidationError(_(
-                "Admin cookies file is corrupted (base64 decode failed): %s"
-            ) % exc) from exc
-        if len(content) > _YT_COOKIES_FILE_MAX_BYTES:
-            raise ValidationError(_(
-                "Admin cookies file is too large (max %(max)d KB, got %(got)d KB)."
-            ) % {
-                "max": _YT_COOKIES_FILE_MAX_BYTES // 1024,
-                "got": len(content) // 1024 + 1,
-            })
-        try:
-            text = content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValidationError(_(
-                "Admin cookies file must be UTF-8 text in Netscape format: %s"
-            ) % exc) from exc
-        first_line = (text.splitlines()[0].strip().lower() if text.strip() else "")
-        if not any(m in first_line for m in youtube_downloader._NETSCAPE_HEADER_MARKERS):
-            raise ValidationError(_(
-                "Admin cookies file is not in Netscape format — the first line "
-                "must start with '# Netscape HTTP Cookie File'. Re-export it "
-                "with the 'Get cookies.txt LOCALLY' (Chrome/Edge) or "
-                "'cookies.txt' (Firefox) extension."
-            ))
-        fn = (self.video_editor_s3_yt_cookies_filename or "").lower()
-        if fn and not fn.endswith(_YT_COOKIES_ALLOWED_EXTS):
-            raise ValidationError(_(
-                "Admin cookies file must be a .txt file (got %s)."
-            ) % fn)
 
     def _validate_qc_seed_file(self):
         raw_b64 = self.video_editor_s3_qc_seed_file
@@ -282,4 +225,26 @@ class ResConfigSettings(models.TransientModel):
             },
         }
 
-
+    def action_test_youtube_cookies(self):
+        self.ensure_one()
+        cfg = self.env["video.editor.s3.settings"].get_youtube_ingest_config()
+        cookies_path = (cfg.get("cookies_path") or "").strip()
+        proxy_url = (cfg.get("proxy_url") or "").strip()
+        if not cookies_path and not proxy_url:
+            raise UserError(_(
+                "Nothing to test — set Cookies File Path or Proxy URL first."
+            ))
+        if cookies_path:
+            youtube_downloader.validate_cookies_file(cookies_path)
+        if proxy_url:
+            youtube_downloader.validate_proxy_url(proxy_url)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": "success",
+                "title": _("YouTube ingest configuration OK"),
+                "message": _("Cookies file and/or proxy URL passed validation."),
+                "sticky": False,
+            },
+        }

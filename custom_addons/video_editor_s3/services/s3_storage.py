@@ -4,7 +4,7 @@ import os
 import time
 from urllib.parse import urlparse
 
-from odoo import _, api, fields, models
+from odoo import _, api, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -335,51 +335,4 @@ class S3SettingsResolver(models.AbstractModel):
             "cookies_browser": (ICP.get_param("video_editor_s3.yt_cookies_browser") or "").strip(),
             "cookies_path": (ICP.get_param("video_editor_s3.yt_cookies_path") or "").strip(),
             "proxy_url": (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip(),
-        }
-
-    @api.model
-    def _materialize_admin_cookies_file(self) -> str:
-        from . import youtube_downloader
-        ICP = self.env["ir.config_parameter"].sudo()
-        b64 = (ICP.get_param("video_editor_s3.yt_cookies_file_b64") or "").strip()
-        if not b64:
-            return ""
-        uploaded_at_raw = (ICP.get_param("video_editor_s3.yt_cookies_file_uploaded_at") or "").strip()
-        upload_epoch = 0.0
-        if uploaded_at_raw:
-            try:
-                dt = fields.Datetime.from_string(uploaded_at_raw)
-                if dt:
-                    upload_epoch = dt.timestamp()
-            except (TypeError, ValueError):
-                upload_epoch = 0.0
-        dbname = (self.env.cr.dbname or "default").strip() or "default"
-        slot = "db/%s/admin_cookies" % dbname
-        path = youtube_downloader.materialize_cookies_blob(
-            slot, b64, upload_epoch,
-        )
-        return path or ""
-
-    @api.model
-    def get_youtube_ingest_config_for_user(self, user_id=None) -> dict:
-        ICP = self.env["ir.config_parameter"].sudo()
-        proxy_url = (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip()
-        resolved_path = ""
-        owner = "none"
-        if user_id:
-            UserCookies = self.env["video.editor.user.cookies"].sudo()
-            per_user = UserCookies.get_materialized_path_for_user(int(user_id))
-            if per_user:
-                resolved_path = per_user
-                owner = "user:%d" % int(user_id)
-        if not resolved_path:
-            admin_file_path = self._materialize_admin_cookies_file()
-            if admin_file_path:
-                resolved_path = admin_file_path
-                owner = "admin_file"
-        return {
-            "cookies_browser": "",
-            "cookies_path": resolved_path,
-            "proxy_url": proxy_url,
-            "cookies_owner": owner,
         }

@@ -59,22 +59,4 @@
         <field name="groups" eval="[(4, ref('group_video_editor_s3_manager'))]"/>
     </record>
 
-    <record id="rule_user_cookies_own" model="ir.rule">
-        <field name="name">Crowly Sourcing Cookies: users see only own row</field>
-        <field name="model_id" ref="model_video_editor_user_cookies"/>
-        <field name="domain_force">[('user_id', '=', user.id)]</field>
-        <field name="groups" eval="[(4, ref('group_video_editor_s3_user'))]"/>
-        <field name="perm_read" eval="True"/>
-        <field name="perm_write" eval="True"/>
-        <field name="perm_create" eval="True"/>
-        <field name="perm_unlink" eval="True"/>
-    </record>
-
-    <record id="rule_user_cookies_manager_all" model="ir.rule">
-        <field name="name">Crowly Sourcing Cookies: managers see all</field>
-        <field name="model_id" ref="model_video_editor_user_cookies"/>
-        <field name="domain_force">[(1, '=', 1)]</field>
-        <field name="groups" eval="[(4, ref('group_video_editor_s3_manager'))]"/>
-    </record>
-
 </odoo>

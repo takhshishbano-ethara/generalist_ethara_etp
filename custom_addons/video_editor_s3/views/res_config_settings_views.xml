@@ -56,15 +56,34 @@
                         </setting>
                     </block>
                     <block title="YouTube Ingest" name="video_editor_s3_youtube">
-                        <setting id="video_editor_s3_yt_cookies_file_setting" string="Admin Cookies File (Upload)" help="Upload a Netscape-format cookies.txt exported from a logged-in YouTube session. Used as fallback for users who have NOT uploaded their own. Takes precedence over the path field below. Each user can override via Crowley Sourcing → My YouTube Cookies.">
-                            <field name="video_editor_s3_yt_cookies_file" filename="video_editor_s3_yt_cookies_filename"/>
-                            <field name="video_editor_s3_yt_cookies_filename" invisible="1"/>
-                            <div class="text-muted small mt-1" invisible="not video_editor_s3_yt_cookies_uploaded_at_display">
-                                Uploaded: <field name="video_editor_s3_yt_cookies_uploaded_at_display" readonly="1" nolabel="1" class="d-inline-block"/>
-                            </div>
+                        <setting id="video_editor_s3_yt_cookies_browser" string="Cookies From Browser" help="Auto-import YouTube cookies from an installed browser (chrome, firefox, edge, brave, safari, opera, vivaldi, chromium, whale). Optionally append :PROFILE e.g. 'chrome:Profile 1'. The browser must be installed on the Odoo host and logged in to YouTube.">
+                            <field name="video_editor_s3_yt_cookies_browser" placeholder="chrome"/>
+                        </setting>
+                        <setting id="video_editor_s3_yt_cookies_path" string="Cookies File Path" help="Absolute path to a Netscape-format cookies.txt exported from a logged-in YouTube session. Recommended for server deployments.">
+                            <field name="video_editor_s3_yt_cookies_path" placeholder="/var/lib/odoo/yt_cookies.txt"/>
                         </setting>
                         <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
                             <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
+                        </setting>
+                    </block>
+                    <block title="AWS Lambda Pipeline" name="video_editor_s3_lambda">
+                        <setting id="video_editor_s3_use_lambda" string="Run heavy jobs on AWS Lambda" help="When ON, YouTube ingest and render jobs dispatch to AWS Lambda instead of running in the local Odoo worker. Leave OFF on dev machines without AWS credentials.">
+                            <field name="video_editor_s3_use_lambda"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_function_name" string="Lambda Function Name" help="e.g. video-pipeline-dev — must match the SAM-deployed function name.">
+                            <field name="video_editor_s3_lambda_function_name" placeholder="video-pipeline-dev"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_region" string="Lambda Region" help="AWS region where the Lambda function lives.">
+                            <field name="video_editor_s3_lambda_region" placeholder="ap-south-1"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_callback_base_url" string="Callback Base URL" help="Public HTTPS URL of this Odoo instance reachable from AWS. Lambda appends /video_editor_s3/callback/&lt;op&gt; to it.">
+                            <field name="video_editor_s3_lambda_callback_base_url" placeholder="https://your-odoo.example.com"/>
+                        </setting>
+                        <setting id="video_editor_s3_lambda_webhook_token" string="Webhook HMAC Token" help="Same secret value stored in AWS Secrets Manager (WebhookTokenSecretArn). Used to verify the X-Video-Pipeline-Token header on incoming callbacks.">
+                            <field name="video_editor_s3_lambda_webhook_token" password="True" placeholder="64-hex random string"/>
+                        </setting>
+                        <setting>
+                            <button name="action_test_youtube_cookies" string="Test YouTube Config" type="object" class="btn-primary"/>
                         </setting>
                     </block>
                     <block title="System Paths" name="video_editor_s3_paths">

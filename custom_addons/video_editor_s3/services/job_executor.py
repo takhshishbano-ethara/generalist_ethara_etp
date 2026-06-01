@@ -42,6 +42,10 @@ class JobCancelled(Exception):
     pass
 
 
+class LambdaDispatched(Exception):
+    pass
+
+
 def _register_cancel_event(job_id):
     event = threading.Event()
     with _cancel_lock:
@@ -119,6 +123,8 @@ def _safe_worker(fn):
         try:
             try:
                 return fn(db, uid, job_id, *args, **kwargs)
+            except LambdaDispatched:
+                _logger.info("video_editor_s3 job %s dispatched to lambda; callback will set status", job_id)
             except JobCancelled:
                 _logger.info("video_editor_s3 job %s cancelled", job_id)
                 _mark_status(db, job_id, "cancelled", error=None)

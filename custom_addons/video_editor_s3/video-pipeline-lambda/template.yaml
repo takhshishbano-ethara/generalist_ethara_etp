@@ -1,0 +1,76 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Crowley Sourcing video pipeline — YouTube ingest + render (mirrors leviathan-extraction-lambda layout)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, stage, prod]
+  S3Bucket:
+    Type: String
+    Default: ethara-text-to-video
+  S3Region:
+    Type: String
+    Default: ap-south-1
+  WebhookTokenSecretArn:
+    Type: String
+    Description: Secrets Manager ARN holding the HMAC token Odoo and Lambda share for callback auth
+  YoutubeCookiesSecretArn:
+    Type: String
+    Description: Secrets Manager ARN holding the Netscape-format YouTube cookies.txt body
+  ReservedConcurrency:
+    Type: Number
+    Default: 250
+
+Globals:
+  Function:
+    PackageType: Image
+    MemorySize: 10240
+    EphemeralStorage:
+      Size: 10240
+    Timeout: 900
+    Architectures: [x86_64]
+    AutoPublishAlias: live
+    Environment:
+      Variables:
+        S3_BUCKET: !Ref S3Bucket
+        S3_REGION: !Ref S3Region
+        WEBHOOK_TOKEN_SECRET_ARN: !Ref WebhookTokenSecretArn
+        YOUTUBE_COOKIES_SECRET_ARN: !Ref YoutubeCookiesSecretArn
+
+Resources:
+  VideoPipelineFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub video-pipeline-${Environment}
+      Description: !Sub "Crowley Sourcing video pipeline (${Environment})"
+      ReservedConcurrentExecutions: !Ref ReservedConcurrency
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref S3Bucket
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref WebhookTokenSecretArn
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref YoutubeCookiesSecretArn
+    Metadata:
+      Dockerfile: Dockerfile
+      DockerContext: .
+      DockerTag: !Ref Environment
+
+  VideoPipelineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/video-pipeline-${Environment}
+      RetentionInDays: 30
+
+Outputs:
+  FunctionName:
+    Description: Lambda function name (set this in Odoo Settings → Crowley Sourcing → Lambda Function Name)
+    Value: !Ref VideoPipelineFunction
+  FunctionAlias:
+    Description: Live alias ARN (always points at the freshly-published version after deploy)
+    Value: !Ref VideoPipelineFunction.Alias
+  Region:
+    Description: Function region (set in Odoo Settings → Crowley Sourcing → Lambda Region)
+    Value: !Ref S3Region
