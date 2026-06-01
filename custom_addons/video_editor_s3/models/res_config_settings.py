@@ -181,6 +181,17 @@ class ResConfigSettings(models.TransientModel):
             "e.g. http://user:pass@host:8080 or socks5://host:1080."
         ),
     )
+    video_editor_s3_local_extractor_url = fields.Char(
+        string="Local Extractor URL",
+        config_parameter="video_editor_s3.local_extractor_url",
+        help=(
+            "Base URL of the standalone YouTube extractor HTTP server "
+            "(scripts/local_youtube_extractor.py) running on a residential "
+            "network and exposed via Tailscale or 'cloudflared tunnel', "
+            "e.g. http://127.0.0.1:8081 or https://<random>.trycloudflare.com. "
+            "Required for the 'Download YouTube' project button."
+        ),
+    )
 
     video_editor_s3_use_lambda = fields.Boolean(
         string="Run heavy jobs on AWS Lambda",
@@ -220,6 +231,7 @@ class ResConfigSettings(models.TransientModel):
     def set_values(self):
         self._validate_llm_qc_seed_file()
         self._validate_youtube_cookies_file()
+        self._validate_local_extractor_url()
         ICP = self.env["ir.config_parameter"].sudo()
         raw = self.video_editor_s3_llm_qc_seed_file
         if raw:
@@ -268,6 +280,19 @@ class ResConfigSettings(models.TransientModel):
             raise ValidationError(_(
                 "LLM QC seed file must be .md or .txt (got %s)."
             ) % fn)
+
+    def _validate_local_extractor_url(self):
+        url = (self.video_editor_s3_local_extractor_url or "").strip()
+        if not url:
+            return
+        if not url.startswith(("http://", "https://")):
+            raise ValidationError(_(
+                "Local Extractor URL must start with http:// or https:// "
+                "(got %s). Set this to the base URL of the running "
+                "scripts/local_youtube_extractor.py HTTP server "
+                "(e.g. http://127.0.0.1:8081 or your Tailscale/cloudflared "
+                "URL), NOT the path to the script file."
+            ) % url[:120])
 
     def _validate_youtube_cookies_file(self):
         raw_b64 = self.video_editor_s3_yt_cookies_file

@@ -3,6 +3,7 @@ import getpass
 import logging
 import os
 import re
+import secrets
 import shutil
 import tempfile
 import threading
@@ -49,6 +50,17 @@ _DEFAULT_USER_AGENT = (
 # images are returned and we ship a JPEG to S3).
 _DEFAULT_REMOTE_COMPONENTS = ("ejs:github",)
 
+# `web` excluded on purpose: it triggers PO-token / bot challenges.
+# Order matters (yt-dlp tries each in turn).
+_DEFAULT_PLAYER_CLIENTS = ("tv_simply", "web_safari", "mweb")
+
+# Rotating-proxy providers (Bright Data, Smartproxy, Oxylabs, IPRoyal,
+# NetNut) trigger a new exit IP via a session id in the username; this
+# placeholder is replaced with a fresh random id per attempt.
+_PROXY_SESSION_TOKEN = "{session}"
+
+_PROXY_RETRY_MAX_ATTEMPTS = 3
+
 _BOT_CHALLENGE_MARKERS = (
     "sign in to confirm",
     "confirm you're not a bot",
@@ -87,6 +99,40 @@ _PROXY_SCHEMES = (
 
 def _strip_ansi(value):
     return _ANSI_RE.sub("", value or "")
+
+
+def _make_session_id():
+    return secrets.token_hex(6)
+
+
+def _parse_proxy_list(raw):
+    if not raw:
+        return []
+    out = []
+    for line in raw.replace(";", "\n").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#"):
+            out.append(line)
+    return out
+
+
+def _resolve_proxy(raw, attempt):
+    candidates = _parse_proxy_list(raw or "")
+    if not candidates:
+        return ""
+    chosen = candidates[attempt % len(candidates)]
+    if _PROXY_SESSION_TOKEN in chosen:
+        chosen = chosen.replace(_PROXY_SESSION_TOKEN, _make_session_id())
+    return chosen
+
+
+def _validate_proxy_url_single(url):
+    check = url.replace(_PROXY_SESSION_TOKEN, "session").lower()
+    if not any(check.startswith(scheme) for scheme in _PROXY_SCHEMES):
+        raise UserError(_(
+            "YouTube Proxy URL %s has an unsupported scheme. Use one of: "
+            "http://, https://, socks5://, socks5h://, socks4://, socks4a://"
+        ) % url)
 
 
 def _human_bytes(n):
@@ -383,16 +429,11 @@ def validate_cookies_file(path):
 
 
 def validate_proxy_url(url):
-    lower = url.strip().lower()
-    if not any(lower.startswith(scheme) for scheme in _PROXY_SCHEMES):
-        raise UserError(_(
-            "YouTube Proxy URL %s has an unsupported scheme. Use one of: "
-            "http://, https://, socks5://, socks5h://, socks4://, socks4a://"
-        ) % url)
+    for candidate in _parse_proxy_list(url):
+        _validate_proxy_url_single(candidate)
 
 
-def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None):
-    """Base ydl opts: retries + cookies + proxy + headers + remote components."""
+def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None, attempt=0):
     opts = {
         "quiet": True,
         "no_warnings": True,
@@ -401,17 +442,19 @@ def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None
         "retries": 10,
         "fragment_retries": 10,
         "extractor_retries": 3,
-        "http_headers": {"User-Agent": _DEFAULT_USER_AGENT},
         "geo_bypass": True,
         "remote_components": list(_DEFAULT_REMOTE_COMPONENTS),
+        "extractor_args": {
+            "youtube": {
+                "player_client": list(_DEFAULT_PLAYER_CLIENTS),
+            },
+        },
     }
     if cookies_path:
         validate_cookies_file(cookies_path)
         opts["cookiefile"] = cookies_path
         _logger.info("yt-dlp cookies file=%s", cookies_path)
 
-    # Browser cookies are opt-in only — auto-detecting a signed-in browser
-    # makes YouTube serve a stripped format set, which breaks the 2160p gate.
     if "cookiefile" not in opts:
         browser_tuple = _parse_browser_spec(cookies_from_browser)
         if browser_tuple:
@@ -432,11 +475,62 @@ def _common_opts(*, cookies_path=None, proxy_url=None, cookies_from_browser=None
                     browser_tuple[0],
                 )
 
-    if proxy_url:
-        validate_proxy_url(proxy_url)
-        opts["proxy"] = proxy_url
-        _logger.info("yt-dlp proxy configured")
+    resolved_proxy = _resolve_proxy(proxy_url, attempt)
+    if resolved_proxy:
+        _validate_proxy_url_single(resolved_proxy)
+        opts["proxy"] = resolved_proxy
+        _logger.info("yt-dlp proxy configured (attempt %d)", attempt)
     return opts
+
+
+def _invoke_ydl(call_with_opts, *, cookies_path, proxy_url, cookies_from_browser, max_attempts=None):
+    yt_dlp = _ensure_yt_dlp()
+    DownloadError = yt_dlp.utils.DownloadError
+
+    candidates = _parse_proxy_list(proxy_url or "")
+    if max_attempts is None:
+        if len(candidates) > 1:
+            attempts = max(len(candidates), _PROXY_RETRY_MAX_ATTEMPTS)
+        elif candidates and _PROXY_SESSION_TOKEN in candidates[0]:
+            attempts = _PROXY_RETRY_MAX_ATTEMPTS
+        elif candidates:
+            attempts = _PROXY_RETRY_MAX_ATTEMPTS
+        else:
+            attempts = 1
+    else:
+        attempts = max(1, max_attempts)
+
+    last_exc = None
+    last_opts = None
+    for attempt in range(attempts):
+        opts = _common_opts(
+            cookies_path=cookies_path,
+            proxy_url=proxy_url,
+            cookies_from_browser=cookies_from_browser,
+            attempt=attempt,
+        )
+        last_opts = opts
+        try:
+            return call_with_opts(opts), opts
+        except DownloadError as exc:
+            last_exc = exc
+            is_bot = _looks_like_bot_challenge(exc)
+            is_rate = _looks_like_rate_limit(exc)
+            if not (is_bot or is_rate):
+                raise
+            if is_bot:
+                _invalidate_cookie_cache()
+            if attempt + 1 >= attempts:
+                break
+            _logger.warning(
+                "yt-dlp attempt %d/%d failed (%s); rotating and retrying",
+                attempt + 1, attempts,
+                "bot-challenge" if is_bot else "rate-limit",
+            )
+            time.sleep(min(2.0, 0.5 + 0.5 * attempt))
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("yt-dlp invocation produced no result")
 
 
 def _looks_like_bot_challenge(exc):
@@ -650,21 +744,24 @@ def list_available_tiers(url, *, cookies_path=None, proxy_url=None, cookies_from
     if not video_id or not normalized:
         raise UserError(_("Not a recognised YouTube URL: %s") % url)
     yt_dlp = _ensure_yt_dlp()
-    opts = _common_opts(
-        cookies_path=cookies_path,
-        proxy_url=proxy_url,
-        cookies_from_browser=cookies_from_browser,
-    )
-    opts["skip_download"] = True
-    try:
+
+    def _do(opts):
+        opts["skip_download"] = True
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(normalized, download=False)
+            return ydl.extract_info(normalized, download=False)
+
+    try:
+        info, last_opts = _invoke_ydl(
+            _do,
+            cookies_path=cookies_path,
+            proxy_url=proxy_url,
+            cookies_from_browser=cookies_from_browser,
+        )
     except yt_dlp.utils.DownloadError as exc:
         if _looks_like_rate_limit(exc):
-            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+            raise UserError(_rate_limit_message(normalized, opts={"proxy": proxy_url})) from exc
         if _looks_like_bot_challenge(exc):
-            _invalidate_cookie_cache()
-            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+            raise UserError(_bot_challenge_message(normalized, opts={"proxy": proxy_url, "cookiefile": cookies_path})) from exc
         raise UserError(_("Could not read YouTube metadata: %s") % _strip_ansi(str(exc))) from exc
     formats = info.get("formats") or []
     available = []
@@ -679,26 +776,28 @@ def list_available_tiers(url, *, cookies_path=None, proxy_url=None, cookies_from
 
 
 def probe_and_select(url, *, tier=None, cookies_path=None, proxy_url=None, cookies_from_browser=None):
-    """Probe once, gate-check the requested tier (defaults to 2160p50/60 when omitted), return (info, chosen_format)."""
     video_id, normalized = parse_youtube_url(url)
     if not video_id or not normalized:
         raise UserError(_("Not a recognised YouTube URL: %s") % url)
     yt_dlp = _ensure_yt_dlp()
-    opts = _common_opts(
-        cookies_path=cookies_path,
-        proxy_url=proxy_url,
-        cookies_from_browser=cookies_from_browser,
-    )
-    opts["skip_download"] = True
-    try:
+
+    def _do(opts):
+        opts["skip_download"] = True
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(normalized, download=False)
+            return ydl.extract_info(normalized, download=False)
+
+    try:
+        info, last_opts = _invoke_ydl(
+            _do,
+            cookies_path=cookies_path,
+            proxy_url=proxy_url,
+            cookies_from_browser=cookies_from_browser,
+        )
     except yt_dlp.utils.DownloadError as exc:
         if _looks_like_rate_limit(exc):
-            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+            raise UserError(_rate_limit_message(normalized, opts={"proxy": proxy_url})) from exc
         if _looks_like_bot_challenge(exc):
-            _invalidate_cookie_cache()
-            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+            raise UserError(_bot_challenge_message(normalized, opts={"proxy": proxy_url, "cookiefile": cookies_path})) from exc
         raise UserError(_("Could not read YouTube metadata: %s") % _strip_ansi(str(exc))) from exc
     if _is_playlist(info):
         raise UserError(_(
@@ -732,26 +831,28 @@ def probe_and_select(url, *, tier=None, cookies_path=None, proxy_url=None, cooki
 
 
 def extract_metadata(url, *, cookies_path=None, proxy_url=None, cookies_from_browser=None):
-    """Metadata fetch with no quality gate (used by the dedup-hit path)."""
     video_id, normalized = parse_youtube_url(url)
     if not video_id:
         raise UserError(_("Not a recognised YouTube URL: %s") % url)
     yt_dlp = _ensure_yt_dlp()
-    opts = _common_opts(
-        cookies_path=cookies_path,
-        proxy_url=proxy_url,
-        cookies_from_browser=cookies_from_browser,
-    )
-    opts["skip_download"] = True
-    try:
+
+    def _do(opts):
+        opts["skip_download"] = True
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(normalized, download=False)
+            return ydl.extract_info(normalized, download=False)
+
+    try:
+        info, last_opts = _invoke_ydl(
+            _do,
+            cookies_path=cookies_path,
+            proxy_url=proxy_url,
+            cookies_from_browser=cookies_from_browser,
+        )
     except yt_dlp.utils.DownloadError as exc:
         if _looks_like_rate_limit(exc):
-            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+            raise UserError(_rate_limit_message(normalized, opts={"proxy": proxy_url})) from exc
         if _looks_like_bot_challenge(exc):
-            _invalidate_cookie_cache()
-            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+            raise UserError(_bot_challenge_message(normalized, opts={"proxy": proxy_url, "cookiefile": cookies_path})) from exc
         raise UserError(_("Could not read YouTube metadata: %s") % _strip_ansi(str(exc))) from exc
     return _info_to_metadata(info, video_id)
 
@@ -830,35 +931,35 @@ def download_to_tempdir(
     yt_dlp = _ensure_yt_dlp()
     cancel_exc = cancel_exception or InterruptedError
     outtmpl = "%s/%%(id)s.%%(ext)s" % target_dir.rstrip("/")
-    # Pin the exact qualifying video stream + the best audio. No bare ``fid``
-    # fallback: refusing to silently produce a video-only file is the whole
-    # point of the gate.
     format_spec = "%s+bestaudio[ext=webm]/%s+bestaudio[ext=m4a]/%s+bestaudio" % (fid, fid, fid)
-    opts = _common_opts(
-        cookies_path=cookies_path,
-        proxy_url=proxy_url,
-        cookies_from_browser=cookies_from_browser,
-    )
-    opts.update({
-        "format": format_spec,
-        "outtmpl": outtmpl,
-        "merge_output_format": "mkv",
-        "restrictfilenames": True,
-        "nooverwrites": True,
-        "continuedl": True,
-        "progress_hooks": [_make_progress_hook(progress_cb, cancel_event, cancel_exc)],
-    })
-    if max_size_bytes:
-        opts["max_filesize"] = int(max_size_bytes)
-    try:
+
+    def _do(opts):
+        opts.update({
+            "format": format_spec,
+            "outtmpl": outtmpl,
+            "merge_output_format": "mkv",
+            "restrictfilenames": True,
+            "nooverwrites": True,
+            "continuedl": True,
+            "progress_hooks": [_make_progress_hook(progress_cb, cancel_event, cancel_exc)],
+        })
+        if max_size_bytes:
+            opts["max_filesize"] = int(max_size_bytes)
         with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(normalized, download=True)
+            return ydl.extract_info(normalized, download=True)
+
+    try:
+        info, last_opts = _invoke_ydl(
+            _do,
+            cookies_path=cookies_path,
+            proxy_url=proxy_url,
+            cookies_from_browser=cookies_from_browser,
+        )
     except yt_dlp.utils.DownloadError as exc:
         if _looks_like_rate_limit(exc):
-            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+            raise UserError(_rate_limit_message(normalized, opts={"proxy": proxy_url})) from exc
         if _looks_like_bot_challenge(exc):
-            _invalidate_cookie_cache()
-            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+            raise UserError(_bot_challenge_message(normalized, opts={"proxy": proxy_url, "cookiefile": cookies_path})) from exc
         raise UserError(_("YouTube download failed: %s") % _strip_ansi(str(exc))) from exc
 
     final_path = None
@@ -903,40 +1004,42 @@ def download_clip_to_tempdir(
     cancel_exc = cancel_exception or InterruptedError
     outtmpl = "%s/%%(id)s.%%(ext)s" % target_dir.rstrip("/")
     format_spec = "bv*[height=%d]+ba/b[height=%d]" % (height, height)
-    opts = _common_opts(
-        cookies_path=cookies_path,
-        proxy_url=proxy_url,
-        cookies_from_browser=cookies_from_browser,
-    )
-    opts.update({
-        "format": format_spec,
-        "outtmpl": outtmpl,
-        "merge_output_format": "mp4",
-        "restrictfilenames": True,
-        "nooverwrites": True,
-        "continuedl": True,
-        "progress_hooks": [_make_progress_hook(progress_cb, cancel_event, cancel_exc)],
-    })
-    if start_seconds > 0.0 or end_seconds > 0.0:
-        from yt_dlp.utils import download_range_func
-        end_val = end_seconds if end_seconds > 0.0 else float("inf")
-        opts["download_ranges"] = download_range_func(None, [(start_seconds, end_val)])
-        opts["force_keyframes_at_cuts"] = True
-    opts["postprocessors"] = [
-        {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
-    ]
-    if max_size_bytes:
-        opts["max_filesize"] = int(max_size_bytes)
+
+    def _do(opts):
+        opts.update({
+            "format": format_spec,
+            "outtmpl": outtmpl,
+            "merge_output_format": "mp4",
+            "restrictfilenames": True,
+            "nooverwrites": True,
+            "continuedl": True,
+            "progress_hooks": [_make_progress_hook(progress_cb, cancel_event, cancel_exc)],
+        })
+        if start_seconds > 0.0 or end_seconds > 0.0:
+            from yt_dlp.utils import download_range_func
+            end_val = end_seconds if end_seconds > 0.0 else float("inf")
+            opts["download_ranges"] = download_range_func(None, [(start_seconds, end_val)])
+            opts["force_keyframes_at_cuts"] = True
+        opts["postprocessors"] = [
+            {"key": "FFmpegVideoConvertor", "preferedformat": "mp4"},
+        ]
+        if max_size_bytes:
+            opts["max_filesize"] = int(max_size_bytes)
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            return ydl.extract_info(normalized, download=True)
 
     try:
-        with yt_dlp.YoutubeDL(opts) as ydl:
-            info = ydl.extract_info(normalized, download=True)
+        info, last_opts = _invoke_ydl(
+            _do,
+            cookies_path=cookies_path,
+            proxy_url=proxy_url,
+            cookies_from_browser=cookies_from_browser,
+        )
     except yt_dlp.utils.DownloadError as exc:
         if _looks_like_rate_limit(exc):
-            raise UserError(_rate_limit_message(normalized, opts=opts)) from exc
+            raise UserError(_rate_limit_message(normalized, opts={"proxy": proxy_url})) from exc
         if _looks_like_bot_challenge(exc):
-            _invalidate_cookie_cache()
-            raise UserError(_bot_challenge_message(normalized, opts=opts)) from exc
+            raise UserError(_bot_challenge_message(normalized, opts={"proxy": proxy_url, "cookiefile": cookies_path})) from exc
         raise UserError(_("YouTube clip download failed: %s") % _strip_ansi(str(exc))) from exc
 
     final_path = None

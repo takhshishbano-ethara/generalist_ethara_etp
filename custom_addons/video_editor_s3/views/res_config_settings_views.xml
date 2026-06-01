@@ -83,6 +83,9 @@
                         <setting id="video_editor_s3_yt_proxy_url" string="Proxy URL" help="Optional HTTP / HTTPS / SOCKS5 proxy applied only to YouTube downloads (not S3).">
                             <field name="video_editor_s3_yt_proxy_url" placeholder="http://user:pass@host:8080"/>
                         </setting>
+                        <setting id="video_editor_s3_local_extractor_url" string="Local Extractor URL" help="Base URL of the standalone scripts/local_youtube_extractor.py HTTP server running on a residential network and exposed via Tailscale or cloudflared. Required for the 'Download YouTube' project button.">
+                            <field name="video_editor_s3_local_extractor_url" placeholder="http://127.0.0.1:8081"/>
+                        </setting>
                     </block>
                     <block title="AWS Lambda Pipeline" name="video_editor_s3_lambda">
                         <setting id="video_editor_s3_use_lambda" string="Run heavy jobs on AWS Lambda" help="When ON, render jobs dispatch to AWS Lambda instead of running in the local Odoo worker. YouTube ingest always runs locally on Odoo. Leave OFF on dev machines without AWS credentials.">

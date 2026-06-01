@@ -325,6 +325,11 @@ class S3SettingsResolver(models.AbstractModel):
         return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3").strip("/")
 
     @api.model
+    def get_local_extractor_url(self) -> str:
+        ICP = self.env["ir.config_parameter"].sudo()
+        return (ICP.get_param("video_editor_s3.local_extractor_url") or "").strip().rstrip("/")
+
+    @api.model
     def get_llm_qc_config(self) -> dict:
         ICP = self.env["ir.config_parameter"].sudo()
         return {

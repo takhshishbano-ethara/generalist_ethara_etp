@@ -69,7 +69,9 @@
             <form string="Video Project" js_class="video_editor_s3_project_form">
                 <header>
                     <button name="action_ingest_youtube" type="object" string="Process Video" class="btn-primary"/>
+                    <button name="action_download_youtube_local" type="object" string="Download YouTube" class="btn-primary" invisible="not youtube_url"/>
                     <button name="action_open_editor" type="object" string="Open Editor" class="btn-primary" invisible="not s3_source_url"/>
+                    <button name="action_copy_source_to_trimmed_url" type="object" string="Copy to Trimmed URL" invisible="not s3_source_url"/>
                     <button name="action_run_llm_qc" type="object" string="Run LLM QC" invisible="not output_s3_url or not prompt or not category or not style"/>
                     <button name="action_export" type="object" string="Export to S3" invisible="not edited_file_path or state in ('exporting', 'exported')"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,processed,exported"/>

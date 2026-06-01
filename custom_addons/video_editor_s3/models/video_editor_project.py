@@ -366,6 +366,12 @@ class VideoEditorProject(models.Model):
              "Leave as 00:00:00:000 to download until the end.",
     )
     youtube_ingested_at = fields.Datetime(string="YouTube Ingested At", readonly=True)
+    youtube_local_blob = fields.Binary(
+        string="YouTube Local Blob",
+        attachment=False,
+        help="Durable copy of the locally-downloaded YouTube clip held in the database between the local-extractor download and the S3 upload, so the upload survives an Odoo worker restart. Cleared automatically once the file is uploaded to S3.",
+    )
+    youtube_local_blob_filename = fields.Char(string="YouTube Local Blob Filename")
 
     prompt = fields.Text(string="Prompt")
 
@@ -718,6 +724,58 @@ class VideoEditorProject(models.Model):
                     "will be populated automatically."
                 ) % job.id,
                 "type": "info",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_download_youtube_local(self):
+        self.ensure_one()
+        if not self.youtube_url:
+            raise UserError(_("Set a YouTube URL first."))
+        base_url = self.env["video.editor.s3.settings"].sudo().get_local_extractor_url()
+        if not base_url:
+            raise UserError(_(
+                "Local Extractor URL is not configured. Set it under "
+                "Settings > Crowley Sourcing > YouTube Ingest."
+            ))
+        if not base_url.startswith(("http://", "https://")):
+            raise UserError(_(
+                "Local Extractor URL must start with http:// or https:// "
+                "(got %s). Configure it as the base URL of the running "
+                "scripts/local_youtube_extractor.py HTTP server, "
+                "e.g. http://127.0.0.1:8081 or your Tailscale/cloudflared URL."
+            ) % base_url[:120])
+        cfg = self._build_youtube_job_config()
+        job = self._kick_job("youtube_local_download", config=cfg)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Local YouTube download queued"),
+                "message": _(
+                    "Job #%s is downloading the clip via the local extractor "
+                    "and uploading it to S3. Refresh this form when the job "
+                    "finishes - the Source S3 URL will be populated automatically."
+                ) % job.id,
+                "type": "info",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_copy_source_to_trimmed_url(self):
+        self.ensure_one()
+        if not self.s3_source_url:
+            raise UserError(_("Source S3 URL is empty - nothing to copy."))
+        self.write({"output_s3_url": self.s3_source_url})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Trimmed S3 URL set"),
+                "message": _("Copied Source S3 URL into Trimmed S3 URL."),
+                "type": "success",
                 "sticky": False,
                 "next": {"type": "ir.actions.client", "tag": "soft_reload"},
             },

@@ -14,7 +14,7 @@ from odoo.modules.registry import Registry
 
 import requests
 
-from ..services import job_executor, llm_qc, s3_storage, youtube_downloader
+from ..services import job_executor, llm_qc, local_extractor_client, s3_storage, youtube_downloader
 from ..services.job_executor import JobCancelled
 
 _logger = logging.getLogger(__name__)
@@ -24,6 +24,7 @@ JOB_TYPES = [
     ("preview", "Render preview"),
     ("export", "Export to S3"),
     ("youtube_ingest", "YouTube Ingest"),
+    ("youtube_local_download", "YouTube Local Download"),
     ("llm_qc", "LLM QC"),
     ("s3_probe", "Probe S3 source"),
 ]
@@ -176,6 +177,8 @@ def _run_job(db, uid, job_id):
             _run_export(db, uid, job_id, cancel_event)
         elif job_type == "youtube_ingest":
             _run_youtube_ingest(db, uid, job_id, cancel_event)
+        elif job_type == "youtube_local_download":
+            _run_youtube_local_download(db, uid, job_id, cancel_event)
         elif job_type == "llm_qc":
             _run_llm_qc(db, uid, job_id, cancel_event)
         elif job_type == "s3_probe":
@@ -769,6 +772,182 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
                 "youtube_fps": float(yt_fps or 0.0),
                 "youtube_tier": youtube_tier or False,
                 "youtube_ingested_at": fields.Datetime.now(),
+            })
+            job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
+            cr.commit()
+    finally:
+        try:
+            shutil.rmtree(tempdir, ignore_errors=True)
+            _log_yt(db, uid, job_id, project_id, "info", "cleanup",
+                    "Removed tempdir %s" % tempdir)
+        except Exception as exc:
+            _logger.warning("Cleanup tempdir failed: %s", exc)
+
+
+def _run_youtube_local_download(db, uid, job_id, cancel_event):
+    with Registry(db).cursor() as cr:
+        env = api.Environment(cr, uid or SUPERUSER_ID, {})
+        job = env["video.editor.job"].browse(job_id)
+        if not job.exists():
+            raise UserError(_("Job %s no longer exists.") % job_id)
+        project = job.project_id
+        project_id = project.id
+        opts = job.config_json or {}
+        youtube_url = (opts.get("youtube_url") or project.youtube_url or "").strip()
+        youtube_tier = (opts.get("tier") or project.youtube_tier or "2160p").strip() or "2160p"
+        try:
+            start_seconds = float(opts.get("start_seconds") or 0.0)
+        except (TypeError, ValueError):
+            start_seconds = 0.0
+        try:
+            end_seconds = float(opts.get("end_seconds") or 0.0)
+        except (TypeError, ValueError):
+            end_seconds = 0.0
+        cfg = env["video.editor.s3.settings"].get_local_s3_config()
+        if not s3_storage.is_configured(cfg):
+            raise UserError(_("S3 settings are missing - configure bucket and credentials."))
+        youtube_prefix = env["video.editor.s3.settings"].get_youtube_prefix()
+        max_size_bytes = env["video.editor.s3.settings"].get_max_source_size_bytes()
+        extractor_url = env["video.editor.s3.settings"].get_local_extractor_url()
+        if not extractor_url:
+            raise UserError(_(
+                "Local Extractor URL is not configured - set it under "
+                "Settings > Crowley Sourcing > YouTube Ingest."
+            ))
+
+    _bump_heartbeat(db, job_id, "validating YouTube URL")
+    video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)
+    if not video_id or not normalized:
+        _log_yt(db, uid, job_id, project_id, "error", "youtube_local_validate",
+                "Invalid YouTube URL: %s" % youtube_url[:200])
+        raise UserError(_("Invalid YouTube URL: %s") % youtube_url[:200])
+    _log_yt(db, uid, job_id, project_id, "info", "youtube_local_validate",
+            "video_id=%s normalized=%s" % (video_id, normalized))
+    job_executor._check_cancelled(cancel_event)
+
+    end_label = "%d" % int(end_seconds) if end_seconds > 0.0 else "end"
+    target_key = "%s/%s_%s_%d-%s_local.mp4" % (
+        youtube_prefix, video_id, youtube_tier, int(start_seconds), end_label,
+    )
+
+    job_executor._check_cancelled(cancel_event)
+    tempdir = tempfile.mkdtemp(prefix="video_editor_s3_local_yt_")
+    progress_state = {"last_pct": -1}
+
+    def progress_cb(downloaded, total, status):
+        if total and total > 0:
+            pct = int((downloaded / total) * 100)
+            if pct >= progress_state["last_pct"] + 5:
+                progress_state["last_pct"] = pct
+                _bump_heartbeat(db, job_id, "downloading %d%%" % pct)
+        else:
+            mb = downloaded / (1024 * 1024)
+            _bump_heartbeat(db, job_id, "downloading %.1f MB" % mb)
+
+    _log_yt(db, uid, job_id, project_id, "info", "youtube_local_download_start",
+            "url=%s tier=%s start=%s end=%s extractor=%s tempdir=%s" % (
+                normalized, youtube_tier, start_seconds, end_seconds, extractor_url, tempdir,
+            ))
+    _bump_heartbeat(db, job_id, "calling local extractor")
+
+    try:
+        try:
+            abs_path, metadata = local_extractor_client.download_clip_via_local_extractor(
+                extractor_url,
+                normalized,
+                tier=youtube_tier,
+                start_seconds=start_seconds,
+                end_seconds=end_seconds,
+                target_dir=tempdir,
+                progress_cb=progress_cb,
+                cancel_event=cancel_event,
+                cancel_exception=JobCancelled,
+                max_size_bytes=max_size_bytes,
+            )
+        except JobCancelled:
+            _log_yt(db, uid, job_id, project_id, "warning", "youtube_local_download_cancelled",
+                    "Download cancelled before completion.")
+            raise
+        except Exception as exc:
+            _log_yt(db, uid, job_id, project_id, "error", "youtube_local_download_failed",
+                    "%s" % str(exc)[:2000])
+            raise
+
+        file_size = os.path.getsize(abs_path)
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_local_download_done",
+                "path=%s size=%d" % (abs_path, file_size))
+
+        with Registry(db).cursor() as cr:
+            env = api.Environment(cr, uid or SUPERUSER_ID, {})
+            probe = env["video.editor.s3.ffmpeg.processor"].probe(abs_path) or {}
+        if not probe.get("duration") or not probe.get("width") or not probe.get("height"):
+            _log_yt(db, uid, job_id, project_id, "error", "youtube_local_quality_assert",
+                    "Downloaded file has no playable video stream: %s" % probe)
+            raise UserError(_(
+                "Local YouTube download produced a file with no video stream "
+                "(probe=%s). Aborting before S3 upload."
+            ) % probe)
+
+        job_executor._check_cancelled(cancel_event)
+        _bump_heartbeat(db, job_id, "stashing blob in project")
+        try:
+            with open(abs_path, "rb") as fh:
+                blob_b64 = base64.b64encode(fh.read())
+            blob_name = os.path.basename(abs_path)
+        except OSError as exc:
+            _logger.warning(
+                "Local YouTube download finished but reading %s for DB blob failed (%s); "
+                "S3 upload will rely on local disk only.",
+                abs_path, exc,
+            )
+            blob_b64 = False
+            blob_name = False
+        with Registry(db).cursor() as cr:
+            env = api.Environment(cr, uid or SUPERUSER_ID, {})
+            project = env["video.editor.project"].browse(project_id)
+            project.write({
+                "youtube_local_blob": blob_b64,
+                "youtube_local_blob_filename": blob_name,
+            })
+            cr.commit()
+
+        job_executor._check_cancelled(cancel_event)
+        _bump_heartbeat(db, job_id, "uploading to S3")
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_local_s3_upload_start",
+                "key=%s" % target_key)
+        s3_url = s3_storage.upload_file(cfg, abs_path, target_key)
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_local_s3_upload_done",
+                "url=%s" % s3_url)
+
+        width = int(probe.get("width") or 0)
+        height = int(probe.get("height") or 0)
+        fps = float(probe.get("fps") or 0.0)
+        resolution = probe.get("resolution") or (
+            "%dx%d" % (width, height) if width and height else ""
+        )
+        with Registry(db).cursor() as cr:
+            env = api.Environment(cr, uid or SUPERUSER_ID, {})
+            project = env["video.editor.project"].browse(project_id)
+            project.write({
+                "s3_source_url": s3_url,
+                "source_metadata": {
+                    "duration": float(metadata.get("duration_seconds") or probe.get("duration") or 0.0),
+                    "size_bytes": file_size,
+                    "width": width,
+                    "height": height,
+                    "resolution": resolution,
+                    "fps": fps,
+                    "codec": probe.get("codec") or "",
+                },
+                "youtube_title": metadata.get("title") or "",
+                "youtube_channel": metadata.get("channel") or "",
+                "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
+                "youtube_resolution": resolution or "",
+                "youtube_fps": fps,
+                "youtube_tier": youtube_tier,
+                "youtube_ingested_at": fields.Datetime.now(),
+                "youtube_local_blob": False,
+                "youtube_local_blob_filename": False,
             })
             job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
             cr.commit()
