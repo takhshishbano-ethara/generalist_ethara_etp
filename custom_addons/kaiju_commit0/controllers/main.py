@@ -25,7 +25,11 @@ class KaijuCallbackController(http.Controller):
         return token == expected
 
     def _upsert_callback_steps(
-        self, parent_record, steps_data, parent_field, workflow_status=None
+        self,
+        parent_record,
+        steps_data,
+        parent_field,
+        workflow_status=None,
     ):
         if not steps_data or not isinstance(steps_data, list):
             return
@@ -299,6 +303,7 @@ class KaijuCallbackController(http.Controller):
         return Response(
             json.dumps({"ok": True}), status=200, content_type="application/json"
         )
+
 
     @staticmethod
     def _append_log(existing_log, new_line):
