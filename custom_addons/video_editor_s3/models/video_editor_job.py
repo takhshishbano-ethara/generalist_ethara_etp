@@ -37,7 +37,7 @@ JOB_STATES = [
 
 class VideoEditorJob(models.Model):
     _name = "video.editor.job"
-    _description = "Crowly Sourcing job"
+    _description = "Crowley Sourcing job"
     _order = "id desc"
     _rec_name = "display_name"
 
@@ -814,10 +814,10 @@ def _run_prompt_qc(db, uid, job_id, cancel_event):
 
     if not bedrock_cfg.get("api_key"):
         _log_yt(db, uid, job_id, project_id, "error", "prompt_qc_failed",
-                "Kimi K2.5 API key missing — configure under Settings > Crowly Sourcing > Kimi K2.5 Prompt QC.")
-        raise UserError(_("Kimi K2.5 API key missing — configure under Settings > Crowly Sourcing > Kimi K2.5 Prompt QC."))
+                "Kimi K2.5 API key missing — configure under Settings > Crowley Sourcing > Kimi K2.5 Prompt QC.")
+        raise UserError(_("Kimi K2.5 API key missing — configure under Settings > Crowley Sourcing > Kimi K2.5 Prompt QC."))
     if not bedrock_cfg.get("model_id"):
-        raise UserError(_("Kimi K2.5 model ID/ARN missing — configure under Settings > Crowly Sourcing > Kimi K2.5 Prompt QC."))
+        raise UserError(_("Kimi K2.5 model ID/ARN missing — configure under Settings > Crowley Sourcing > Kimi K2.5 Prompt QC."))
 
     _bump_heartbeat(db, job_id, "evaluating prompt via Kimi K2.5")
     _log_yt(db, uid, job_id, project_id, "info", "prompt_qc_start",

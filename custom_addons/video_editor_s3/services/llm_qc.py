@@ -172,15 +172,15 @@ def evaluate_prompt(
         raise UserError(_("Prompt to evaluate is empty."))
     if not seed_prompt or not seed_prompt.strip():
         raise UserError(_(
-            "QC seed prompt is empty. Configure it in Settings > Crowly Sourcing."
+            "QC seed prompt is empty. Configure it in Settings > Crowley Sourcing."
         ))
     if not api_key or not api_key.strip():
         raise UserError(_(
-            "Bedrock API key missing. Configure it in Settings > Crowly Sourcing > Kimi K2.5 Prompt QC."
+            "Bedrock API key missing. Configure it in Settings > Crowley Sourcing > Kimi K2.5 Prompt QC."
         ))
     if not model_id or not model_id.strip():
         raise UserError(_(
-            "Kimi K2.5 model ARN missing. Configure it in Settings > Crowly Sourcing > Kimi K2.5 Prompt QC."
+            "Kimi K2.5 model ARN missing. Configure it in Settings > Crowley Sourcing > Kimi K2.5 Prompt QC."
         ))
 
     user_turn = _build_user_turn(prompt)

@@ -340,7 +340,7 @@ def validate_cookies_file(path):
             "Export a Netscape-format cookies.txt from a logged-in YouTube "
             "session (use the 'Get cookies.txt LOCALLY' extension for "
             "Chrome / Edge, or 'cookies.txt' for Firefox), upload it to the "
-            "Odoo host, then set Settings \u2192 Crowly Sourcing \u2192 "
+            "Odoo host, then set Settings \u2192 Crowley Sourcing \u2192 "
             "YouTube Ingest \u2192 Cookies File Path to the absolute path."
         ) % path)
     if not os.access(path, os.R_OK):
@@ -485,7 +485,7 @@ def _bot_challenge_message(url, *, opts=None):
         "not rotate the cookies.\n"
         "  6. Upload the file to the Odoo host (e.g. /var/lib/odoo/yt_cookies.txt), "
         "make it readable by the Odoo OS user (%(user)s), and set Settings → "
-        "Crowly Sourcing → YouTube Ingest → Cookies File Path to that absolute path.\n\n"
+        "Crowley Sourcing → YouTube Ingest → Cookies File Path to that absolute path.\n\n"
         "Alternative for local development only:\n"
         "  • Sign in to YouTube in Chrome / Firefox / Edge / Brave on this host. The "
         "downloader will auto-pick the first installed browser. Note: YouTube rotates "
@@ -522,10 +522,10 @@ def _rate_limit_message(url, *, opts=None):
         "Remediation:\n"
         "  1. Wait 10–30 minutes before retrying — the limit resets on its own.\n"
         "  2. If retries keep failing, the Odoo host's IP itself is throttled. "
-        "Set Settings → Crowly Sourcing → YouTube Ingest → "
+        "Set Settings → Crowley Sourcing → YouTube Ingest → "
         "Proxy URL to a residential HTTP / SOCKS5 proxy and retry.\n"
         "  3. Reduce concurrency of bulk ingests via Settings → "
-        "Crowly Sourcing → Processing Limits → Max Concurrent Jobs."
+        "Crowley Sourcing → Processing Limits → Max Concurrent Jobs."
     ) % {"url": url, "proxy": proxy_line}
 
 

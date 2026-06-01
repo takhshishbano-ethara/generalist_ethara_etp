@@ -53,6 +53,24 @@ class ResConfigSettings(models.TransientModel):
         default=2,
         config_parameter="video_editor_s3.max_concurrent_jobs",
     )
+    video_editor_s3_trim_min_seconds = fields.Float(
+        string="Trim Min Duration (s)",
+        default=8.0,
+        config_parameter="video_editor_s3.trim_min_seconds",
+        help="Minimum allowed duration of the exported trim video, in seconds.",
+    )
+    video_editor_s3_trim_max_seconds = fields.Float(
+        string="Trim Max Duration (s)",
+        default=16.0,
+        config_parameter="video_editor_s3.trim_max_seconds",
+        help="Maximum allowed duration of the exported trim video, in seconds.",
+    )
+    video_editor_s3_prompt_max_words = fields.Integer(
+        string="Prompt Max Words",
+        default=150,
+        config_parameter="video_editor_s3.prompt_max_words",
+        help="Maximum allowed number of words in the project prompt.",
+    )
     video_editor_s3_ffmpeg_path = fields.Char(
         string="FFmpeg Binary",
         config_parameter="video_editor_s3.ffmpeg_path",

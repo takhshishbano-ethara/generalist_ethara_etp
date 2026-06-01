@@ -75,26 +75,22 @@
                         <h1><field name="name" placeholder="Project name"/></h1>
                     </div>
                     <group>
-                        <group name="primary">
+                        <group>
+                            <field name="project_name"/>
+                            <field name="category"/>
+                            <field name="sub_category"/>
+                            <field name="topic_name" required="1"/>
+                            <field name="style"/>
+                        </group>
+                        <group>
                             <field name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."/>
                             <field name="s3_source_url" widget="video_url_preview" options="{'stream_kind': 'source'}" placeholder="s3://bucket/path/to/video.mp4 or https URL"/>
-                        </group>
-                        <group name="primary_right">
                             <field name="output_s3_url" widget="video_url_preview" readonly="0"/>
-<!--                            <field name="resolution" readonly="1" invisible="not resolution"/>-->
-<!--                            <field name="source_fps" readonly="1" invisible="not source_fps"/>-->
                             <field name="assigned_to" widget="many2one_avatar_user"/>
                         </group>
                     </group>
                     <notebook>
                         <page string="General Information" name="general">
-                            <group string="Project Details">
-                                <group>
-                                    <field name="project_name"/>
-                                    <field name="category"/>
-                                    <field name="style"/>
-                                </group>
-                            </group>
                             <group string="Prompt">
                                 <field name="prompt" placeholder="Prompt..."/>
                             </group>
