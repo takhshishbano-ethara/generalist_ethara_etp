@@ -325,11 +325,6 @@ class S3SettingsResolver(models.AbstractModel):
         return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3").strip("/")
 
     @api.model
-    def get_local_extractor_url(self) -> str:
-        ICP = self.env["ir.config_parameter"].sudo()
-        return (ICP.get_param("video_editor_s3.local_extractor_url") or "").strip().rstrip("/")
-
-    @api.model
     def get_llm_qc_config(self) -> dict:
         ICP = self.env["ir.config_parameter"].sudo()
         return {
@@ -359,17 +354,6 @@ class S3SettingsResolver(models.AbstractModel):
                 )
 
         return llm_qc.load_default_seed_prompt()
-
-    @api.model
-    def get_youtube_ingest_config(self) -> dict:
-        ICP = self.env["ir.config_parameter"].sudo()
-        return {
-            "cookies_browser": (ICP.get_param("video_editor_s3.yt_cookies_browser") or "").strip(),
-            "cookies_path": (ICP.get_param("video_editor_s3.yt_cookies_path") or "").strip(),
-            "cookies_blob_b64": (ICP.get_param("video_editor_s3.yt_cookies_file") or "").strip(),
-            "cookies_filename": (ICP.get_param("video_editor_s3.yt_cookies_filename") or "").strip(),
-            "proxy_url": (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip(),
-        }
 
     @api.model
     def get_trim_min_seconds(self) -> float:

@@ -46,6 +46,10 @@ class LambdaDispatched(Exception):
     pass
 
 
+class Ec2Dispatched(Exception):
+    pass
+
+
 def _register_cancel_event(job_id):
     event = threading.Event()
     with _cancel_lock:
@@ -125,6 +129,8 @@ def _safe_worker(fn):
                 return fn(db, uid, job_id, *args, **kwargs)
             except LambdaDispatched:
                 _logger.info("video_editor_s3 job %s dispatched to lambda; callback will set status", job_id)
+            except Ec2Dispatched:
+                _logger.info("video_editor_s3 job %s dispatched to EC2; callback will set status", job_id)
             except JobCancelled:
                 _logger.info("video_editor_s3 job %s cancelled", job_id)
                 _mark_status(db, job_id, "cancelled", error=None)
@@ -159,7 +165,6 @@ _JOB_TYPE_LABELS = {
     "preview": "Preview",
     "export": "Export",
     "youtube_ingest": "YouTube ingest",
-    "youtube_local_download": "YouTube local download",
     "prompt_qc": "Prompt QC",
     "s3_probe": "S3 probe",
 }
@@ -193,9 +198,6 @@ def _build_notification_payload(job):
         if job_type == "youtube_ingest":
             title = project.youtube_title or _("(no title)")
             message = _("Video '%s' ingested. Source S3 URL set.") % title
-        elif job_type == "youtube_local_download":
-            title = project.youtube_title or _("(no title)")
-            message = _("Video '%s' downloaded locally and uploaded. Source S3 URL set.") % title
         elif job_type in ("render", "preview"):
             message = _("Project: %s") % (project.name or "")
         elif job_type == "export":

@@ -694,7 +694,6 @@ class VideoEditorProject(models.Model):
         self.ensure_one()
         cfg = {
             "youtube_url": self.youtube_url,
-            "tier": self.youtube_tier or "2160p",
         }
         start = _parse_hhmmssms_to_seconds(self.youtube_start_time)
         end = _parse_hhmmssms_to_seconds(self.youtube_end_time)
@@ -709,9 +708,6 @@ class VideoEditorProject(models.Model):
         if not self.youtube_url:
             raise UserError(_("Set a YouTube URL first."))
         cfg = self._build_youtube_job_config()
-        is_clip = "start_seconds" in cfg or "end_seconds" in cfg
-        if not is_clip:
-            self._probe_youtube_or_raise()
         job = self._kick_job("youtube_ingest", config=cfg)
         return {
             "type": "ir.actions.client",
@@ -722,41 +718,6 @@ class VideoEditorProject(models.Model):
                     "Job #%s is downloading the video and uploading to S3. "
                     "Refresh this form when the job finishes — the Source S3 URL "
                     "will be populated automatically."
-                ) % job.id,
-                "type": "info",
-                "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
-            },
-        }
-
-    def action_download_youtube_local(self):
-        self.ensure_one()
-        if not self.youtube_url:
-            raise UserError(_("Set a YouTube URL first."))
-        base_url = self.env["video.editor.s3.settings"].sudo().get_local_extractor_url()
-        if not base_url:
-            raise UserError(_(
-                "Local Extractor URL is not configured. Set it under "
-                "Settings > Crowley Sourcing > YouTube Ingest."
-            ))
-        if not base_url.startswith(("http://", "https://")):
-            raise UserError(_(
-                "Local Extractor URL must start with http:// or https:// "
-                "(got %s). Configure it as the base URL of the running "
-                "scripts/local_youtube_extractor.py HTTP server, "
-                "e.g. http://127.0.0.1:8081 or your Tailscale/cloudflared URL."
-            ) % base_url[:120])
-        cfg = self._build_youtube_job_config()
-        job = self._kick_job("youtube_local_download", config=cfg)
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Local YouTube download queued"),
-                "message": _(
-                    "Job #%s is downloading the clip via the local extractor "
-                    "and uploading it to S3. Refresh this form when the job "
-                    "finishes - the Source S3 URL will be populated automatically."
                 ) % job.id,
                 "type": "info",
                 "sticky": False,
@@ -801,19 +762,6 @@ class VideoEditorProject(models.Model):
             "context": {"default_project_id": self.id},
         }
 
-    def _probe_youtube_or_raise(self):
-        """Run the 2160p50/60 gate synchronously so a UserError surfaces as a modal popup."""
-        self.ensure_one()
-        if not self.youtube_url:
-            return
-        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
-        youtube_downloader.probe_and_select(
-            self.youtube_url,
-            cookies_path=cfg.get("cookies_path"),
-            proxy_url=cfg.get("proxy_url"),
-            cookies_from_browser=cfg.get("cookies_browser"),
-        )
-
     def _maybe_auto_ingest_youtube(self):
         for rec in self:
             if not rec.youtube_url:
@@ -830,13 +778,6 @@ class VideoEditorProject(models.Model):
             except ValueError as exc:
                 _logger.info("auto-ingest skipped for project %s: bad time format %s", rec.id, exc)
                 continue
-            is_clip = "start_seconds" in cfg or "end_seconds" in cfg
-            if not is_clip:
-                try:
-                    rec._probe_youtube_or_raise()
-                except UserError as exc:
-                    _logger.info("auto-ingest probe failed for project %s: %s", rec.id, exc)
-                    continue
             try:
                 rec._kick_job("youtube_ingest", config=cfg)
             except UserError as exc:
