@@ -152,9 +152,13 @@
                                                 class="btn btn-sm btn-secondary ms-auto me-2"
                                                 invisible="not llm_evaluated_at or llm_qc_force_passed or llm_qc_result == 'pass'"/>
                                         <button name="action_force_pass_llm_qc" type="object" string="Force Pass" icon="fa-shield"
-                                                class="btn btn-sm btn-warning"
+                                                class="btn btn-sm btn-warning me-2"
                                                 confirm="This will mark the QC as PASSED while preserving the reviewer's original verdict. The override and your user are recorded in the chatter and form. Continue?"
                                                 invisible="not llm_evaluated_at or llm_qc_force_passed or llm_qc_result == 'pass'"/>
+                                        <button name="action_clear_llm_qc" type="object" string="Clear QC" icon="fa-trash"
+                                                class="btn btn-sm btn-outline-danger"
+                                                confirm="This will clear the LLM QC verdict, failure reason, fixed prompt and any force-pass record. The clearing is logged in the chatter. You can then click Run LLM QC to re-evaluate. Continue?"
+                                                invisible="not llm_evaluated_at"/>
                                     </div>
                                     <field name="llm_failure_reason" nolabel="1" readonly="1" widget="text" class="w-100 d-block" placeholder="No failure reason recorded."/>
                                 </div>
