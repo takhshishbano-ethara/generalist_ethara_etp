@@ -7,6 +7,10 @@
         <field name="arch" type="xml">
             <form string="YouTube Video Download">
                 <header>
+                    <button name="action_probe"
+                            type="object"
+                            string="Test on Server"
+                            help="Dry-run every strategy with --simulate. Shows which ones pass on this host."/>
                     <button name="action_download"
                             type="object"
                             string="Submit / Download"
@@ -40,6 +44,9 @@
                     <notebook>
                         <page string="Log" name="log">
                             <field name="log" readonly="1" widget="text"/>
+                        </page>
+                        <page string="Probe Result" name="probe">
+                            <field name="probe_result" readonly="1" widget="text"/>
                         </page>
                     </notebook>
                 </sheet>
