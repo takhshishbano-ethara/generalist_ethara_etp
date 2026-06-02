@@ -5,7 +5,7 @@
         Safety-net dispatcher. The bulk endpoint kicks the dispatcher immediately via a
         postcommit hook, so under normal operation queued runs start within a second. This cron
         is the backstop: it drains any 'queued' runs left behind by a lost kick (e.g. a process
-        restart between commit and kick), bounded by the configured concurrency N.
+        restart between commit and kick), bounded by the worker pool size.
     -->
     <record id="cron_prompt_qc_dispatch" model="ir.cron">
         <field name="name">Prompt QC: Dispatch Queue</field>

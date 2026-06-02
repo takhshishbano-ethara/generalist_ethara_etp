@@ -102,7 +102,7 @@ function renderMarkdown(text) {
  * `$` in a prompt (shell var, regex, code) is never reinterpreted as LaTeX math.
  *
  * All hooks are registered UNCONDITIONALLY (mirroring core web.TextField): this field flips
- * readonly across the run lifecycle (draft -> streaming -> done), and useInputField/useAutoresize
+ * readonly across the run lifecycle (draft -> queued -> running -> done), and useInputField/useAutoresize
  * both guard on a null ref and re-key on the textarea element, so they rewire cleanly when the
  * template swaps between the editor and the preview.
  */

@@ -29,7 +29,6 @@ class PromptQcBulkController(http.Controller):
     def bulk_config(self, **_kw):
         Model = request.env["prompt.qc.run"]
         return {
-            "max_rows": Model._get_bulk_max_rows(),
             "max_file_size_mb": Model._get_max_file_size_mb(),
         }
 
@@ -40,21 +39,18 @@ class PromptQcBulkController(http.Controller):
         if not isinstance(rows, list):
             return {"error": _("Malformed request: 'rows' must be a list.")}
 
-        max_rows = Model._get_bulk_max_rows()
-        if len(rows) > max_rows:
-            return {"error": _("Too many rows: %s submitted, the maximum is %s.") % (
-                len(rows), max_rows)}
-
         max_file_bytes = Model._get_max_file_size_mb() * 1024 * 1024
 
         # Cheap aggregate guard: reject a hostile payload by summed base64 length BEFORE any
-        # per-row base64 decode. Bound = max_rows * the per-file (rubric) base64 ceiling (+slack).
+        # per-row base64 decode. There is no row-count cap, so the bound scales with the number
+        # of rows submitted: each row may legitimately carry one rubric at the per-file base64
+        # ceiling (+slack). Per-row validation still checks every file authoritatively below.
         per_file_b64_cap = (max_file_bytes // 3 + 1) * 4 + 64
         total_b64 = sum(
             len(r.get("rubric_b64") or "")
             for r in rows if isinstance(r, dict)
         )
-        if total_b64 > per_file_b64_cap * max_rows:
+        if total_b64 > per_file_b64_cap * len(rows):
             return {"error": _("Upload payload too large.")}
 
         valid_vals = []
@@ -77,7 +73,8 @@ class PromptQcBulkController(http.Controller):
             return {"created": 0, "ids": [],
                     "errors": [{"row": 0, "message": _("Add at least one row with a user prompt.")}]}
 
-        runs = Model.create(valid_vals)
+        # Create in bounded batches so a very large submit is not one giant in-memory create().
+        runs = Model.create_runs_chunked(valid_vals)
         # Kick the worker AFTER this request commits, so the 'queued' rows are durably visible.
         Model._enqueue_dispatch()
         _logger.info("prompt_qc: bulk-created %s queued run(s): %s", len(runs), runs.ids)

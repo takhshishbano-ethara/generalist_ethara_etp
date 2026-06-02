@@ -58,12 +58,11 @@
 
                 <div class="o_prompt_qc_bulk_addbar mt-2">
                     <button type="button" class="btn btn-outline-primary btn-sm"
-                            t-att-disabled="!canAddRow"
                             t-on-click="() => this.addRow()">
                         <i class="fa fa-plus me-1"/>Add row
                     </button>
                     <span class="text-muted small ms-2">
-                        <t t-esc="state.rows.length"/> / <t t-esc="state.maxRows"/> rows
+                        <t t-esc="state.rows.length"/> rows
                     </span>
                 </div>
             </div>

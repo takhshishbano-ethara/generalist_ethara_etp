@@ -40,20 +40,12 @@
                         </setting>
                     </block>
                     <block title="Bulk Import"
-                           help="Limits and concurrency for the Bulk Import action. Each row queued there becomes one independent background QC run.">
-                        <setting string="Bulk Processing" help="Bound concurrency and protect runs from getting stuck.">
+                           help="Timeout and upload limits for the Bulk Import action. Each row queued there becomes one independent background QC run.">
+                        <setting string="Bulk Processing" help="Protect runs from getting stuck and bound each uploaded file's size.">
                             <div class="content-group">
-                                <div class="row mt8">
-                                    <label for="prompt_qc_bulk_concurrency" class="col-lg-6"/>
-                                    <field name="prompt_qc_bulk_concurrency" class="col-lg-2"/>
-                                </div>
                                 <div class="row mt8">
                                     <label for="prompt_qc_run_timeout_minutes" class="col-lg-6"/>
                                     <field name="prompt_qc_run_timeout_minutes" class="col-lg-2"/>
-                                </div>
-                                <div class="row mt8">
-                                    <label for="prompt_qc_bulk_max_rows" class="col-lg-6"/>
-                                    <field name="prompt_qc_bulk_max_rows" class="col-lg-2"/>
                                 </div>
                                 <div class="row mt8">
                                     <label for="prompt_qc_max_file_size_mb" class="col-lg-6"/>

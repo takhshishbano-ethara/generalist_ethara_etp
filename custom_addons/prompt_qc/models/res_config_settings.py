@@ -32,13 +32,6 @@ class ResConfigSettings(models.TransientModel):
     )
 
     # --- Bulk Import (Stage 2) ------------------------------------------------------------
-    prompt_qc_bulk_concurrency = fields.Integer(
-        string="Prompt QC: Bulk Concurrency",
-        config_parameter="prompt_qc.bulk_concurrency",
-        default=5,
-        help="Maximum number of bulk QC runs processed at the same time. Bounds the worker "
-             "pool and respects Bedrock rate limits.",
-    )
     prompt_qc_run_timeout_minutes = fields.Integer(
         string="Prompt QC: Run Timeout (minutes)",
         config_parameter="prompt_qc.run_timeout_minutes",
@@ -51,12 +44,6 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="prompt_qc.max_file_size_mb",
         default=1,
         help="Maximum size of each uploaded rubric (.json) or system prompt (.md) file.",
-    )
-    prompt_qc_bulk_max_rows = fields.Integer(
-        string="Prompt QC: Max Bulk Rows",
-        config_parameter="prompt_qc.bulk_max_rows",
-        default=25,
-        help="Maximum number of rows accepted in a single Bulk Import.",
     )
 
     # ----- Universal system prompt: persisted by hand (Binary is not a config_parameter) -----

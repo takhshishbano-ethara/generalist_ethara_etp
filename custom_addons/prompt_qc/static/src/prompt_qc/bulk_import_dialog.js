@@ -45,7 +45,6 @@ export class BulkImportDialog extends Component {
             rows: [emptyRow()],
             submitting: false,
             globalError: "",
-            maxRows: 25,
             maxFileMb: 1,
         });
         this._loadConfig();
@@ -54,22 +53,13 @@ export class BulkImportDialog extends Component {
     async _loadConfig() {
         try {
             const cfg = await rpc("/prompt_qc/bulk/config", {});
-            if (cfg) {
-                if (cfg.max_rows) {
-                    this.state.maxRows = cfg.max_rows;
-                }
-                if (cfg.max_file_size_mb) {
-                    this.state.maxFileMb = cfg.max_file_size_mb;
-                }
+            if (cfg && cfg.max_file_size_mb) {
+                this.state.maxFileMb = cfg.max_file_size_mb;
             }
         } catch (e) {
-            // Keep the safe defaults (25 rows / 1 MB); the server enforces the real limits anyway.
+            // Keep the safe default (1 MB); the server enforces the real limit anyway.
             console.warn("[prompt_qc] could not load bulk config", e);
         }
-    }
-
-    get canAddRow() {
-        return this.state.rows.length < this.state.maxRows;
     }
 
     get showRemove() {
@@ -77,13 +67,6 @@ export class BulkImportDialog extends Component {
     }
 
     addRow() {
-        if (!this.canAddRow) {
-            this.notification.add(
-                _t("Maximum of %s rows reached.").replace("%s", this.state.maxRows),
-                { type: "warning" }
-            );
-            return;
-        }
         this.state.rows.push(emptyRow());
     }
 
