@@ -959,6 +959,45 @@ class VideoEditorProject(models.Model):
             },
         }
 
+    def action_clear_llm_qc(self):
+        self.ensure_one()
+        if not self.llm_evaluated_at and not self.llm_qc_result:
+            raise UserError(_("Nothing to clear: this project has no LLM QC record."))
+        previous_verdict = dict(self._fields["llm_qc_result"].selection).get(
+            self.llm_qc_result, self.llm_qc_result or _("(none)")
+        )
+        was_force_passed = self.llm_qc_force_passed
+        self.write({
+            "llm_qc_result": False,
+            "llm_failure_reason": False,
+            "llm_fixed_prompt": False,
+            "llm_evaluated_at": False,
+            "llm_qc_force_passed": False,
+            "llm_qc_force_passed_by": False,
+            "llm_qc_force_passed_at": False,
+            "llm_qc_force_pass_reason": False,
+        })
+        suffix = _(" (was force-passed)") if was_force_passed else ""
+        self.message_post(body=_(
+            "LLM QC cleared by %(user)s. Previous verdict: %(verdict)s%(suffix)s. "
+            "You can now click Run LLM QC to re-evaluate."
+        ) % {
+            "user": self.env.user.name,
+            "verdict": previous_verdict,
+            "suffix": suffix,
+        })
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("LLM QC cleared"),
+                "message": _("Click Run LLM QC to re-evaluate."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
     def _maybe_run_llm_qc(self):
         for rec in self:
             if not rec.prompt:

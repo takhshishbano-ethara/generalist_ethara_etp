@@ -31,7 +31,7 @@ intentionally independent so each can evolve on its own schedule.
         "web",
     ],
     "external_dependencies": {
-        "python": ["boto3", "requests", "yt_dlp", "litellm"],
+        "python": ["boto3", "requests", "yt_dlp"],
         "bin": ["ffmpeg", "ffprobe"],
     },
     "data": [

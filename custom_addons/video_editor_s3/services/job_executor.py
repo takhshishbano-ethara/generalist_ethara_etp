@@ -200,11 +200,13 @@ def _build_notification_payload(job):
             message = _("Project: %s") % (project.name or "")
         elif job_type == "export":
             message = job.output_s3_url or (project.name or "")
-        elif job_type == "prompt_qc":
-            message = _("Quality: %s (score: %s)") % (
-                project.qc_quality or _("(unknown)"),
-                project.qc_score or 0,
-            )
+        elif job_type == "llm_qc":
+            verdict = (project.llm_qc_result or _("unknown")).upper()
+            reason = project.llm_failure_reason or ""
+            if reason:
+                message = _("Verdict: %s. %s") % (verdict, reason[:200])
+            else:
+                message = _("Verdict: %s.") % verdict
         else:
             message = project.name or ""
         return {
