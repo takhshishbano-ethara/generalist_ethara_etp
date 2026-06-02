@@ -31,12 +31,7 @@
                             <field name="output_dir"/>
                             <field name="output_path" readonly="1"/>
                         </group>
-                        <group string="Auth &amp; Bot Evasion">
-                            <field name="cookies_data"
-                                   filename="cookies_filename"
-                                   widget="binary"/>
-                            <field name="cookies_filename" invisible="1"/>
-                            <field name="cookies_from_browser"/>
+                        <group string="Bot Evasion">
                             <field name="user_agent"/>
                             <field name="extractor_args"/>
                             <field name="extra_args" placeholder="--proxy http://..."/>

@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import base64
 import logging
 import os
 import re
@@ -19,16 +18,10 @@ DEFAULT_USER_AGENT = (
     'Chrome/124.0.0.0 Safari/537.36'
 )
 DEFAULT_EXTRACTOR_ARGS = 'youtube:player_client=default,tv,web_safari'
-BROWSER_CHOICES = [
-    ('chrome', 'Chrome'),
-    ('firefox', 'Firefox'),
-    ('safari', 'Safari'),
-    ('brave', 'Brave'),
-    ('edge', 'Edge'),
-    ('opera', 'Opera'),
-    ('chromium', 'Chromium'),
-    ('vivaldi', 'Vivaldi'),
-]
+BUNDLED_COOKIES_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    'data', 'cookies.txt',
+)
 TIME_RE = re.compile(r'^(\d{1,2}:)?\d{1,2}:\d{2}(\.\d+)?$|^\d+(\.\d+)?$')
 
 
@@ -61,20 +54,6 @@ class YtVideoDownload(models.Model):
         default=lambda self: tempfile.gettempdir(),
         help='Directory where the downloaded file will be saved. '
              'Must be writable by the Odoo process user.',
-    )
-    cookies_data = fields.Binary(
-        string='Cookies File',
-        attachment=True,
-        help='Upload a Netscape-format cookies.txt exported from your browser. '
-             'Recommended on headless servers. Re-upload when YouTube rotates them.',
-    )
-    cookies_filename = fields.Char(string='Cookies Filename')
-    cookies_from_browser = fields.Selection(
-        BROWSER_CHOICES,
-        string='Cookies From Browser',
-        help='Reads cookies live from a local browser profile. '
-             'Only works if the Odoo host has that browser installed and '
-             'logged into YouTube. Leave empty on a headless server.',
     )
     format_spec = fields.Char(
         string='Format',
@@ -116,39 +95,25 @@ class YtVideoDownload(models.Model):
             raise UserError(_('Invalid start time format. Use HH:MM:SS, MM:SS or seconds.'))
         if not TIME_RE.match(self.end_time or ''):
             raise UserError(_('Invalid end time format. Use HH:MM:SS, MM:SS or seconds.'))
+        if not os.path.isfile(BUNDLED_COOKIES_PATH):
+            raise UserError(_('Bundled cookies file is missing at %s') % BUNDLED_COOKIES_PATH)
         if self.output_dir and not os.path.isdir(self.output_dir):
             try:
                 os.makedirs(self.output_dir, exist_ok=True)
             except OSError as exc:
                 raise UserError(_('Cannot create output directory: %s') % exc)
 
-    def _write_cookies_tempfile(self):
-        self.ensure_one()
-        if not self.cookies_data:
-            return None
-        fd, path = tempfile.mkstemp(suffix='.txt', prefix='yt_cookies_')
-        try:
-            with os.fdopen(fd, 'wb') as fh:
-                fh.write(base64.b64decode(self.cookies_data))
-            os.chmod(path, 0o600)
-        except Exception:
-            if os.path.exists(path):
-                os.unlink(path)
-            raise
-        return path
-
-    def _build_cmd(self, cookies_path=None):
+    def _build_cmd(self):
         self.ensure_one()
         section = '*%s-%s' % (self.start_time, self.end_time)
         output_template = os.path.join(
             self.output_dir or tempfile.gettempdir(),
             '%(title)s [%(id)s].%(ext)s',
         )
-        cmd = ['yt-dlp']
-        if cookies_path:
-            cmd += ['--cookies', cookies_path]
-        elif self.cookies_from_browser:
-            cmd += ['--cookies-from-browser', self.cookies_from_browser]
+        cmd = [
+            'yt-dlp',
+            '--cookies', BUNDLED_COOKIES_PATH,
+        ]
         if self.user_agent:
             cmd += ['--user-agent', self.user_agent]
         if self.extractor_args:
@@ -174,49 +139,41 @@ class YtVideoDownload(models.Model):
     def action_download(self):
         for rec in self:
             rec._validate_inputs()
-            cookies_path = rec._write_cookies_tempfile()
+            cmd = rec._build_cmd()
+            _logger.info('Running yt-dlp: %s', ' '.join(shlex.quote(c) for c in cmd))
             try:
-                cmd = rec._build_cmd(cookies_path=cookies_path)
-                _logger.info('Running yt-dlp: %s', ' '.join(shlex.quote(c) for c in cmd))
-                try:
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=1800,
-                        check=False,
-                    )
-                except FileNotFoundError:
-                    rec.write({'state': 'failed', 'log': 'yt-dlp executable not found on server.'})
-                    raise UserError(_('yt-dlp is not installed on the server.'))
-                except subprocess.TimeoutExpired:
-                    rec.write({'state': 'failed', 'log': 'yt-dlp timed out after 30 minutes.'})
-                    raise UserError(_('yt-dlp timed out.'))
+                result = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=1800,
+                    check=False,
+                )
+            except FileNotFoundError:
+                rec.write({'state': 'failed', 'log': 'yt-dlp executable not found on server.'})
+                raise UserError(_('yt-dlp is not installed on the server.'))
+            except subprocess.TimeoutExpired:
+                rec.write({'state': 'failed', 'log': 'yt-dlp timed out after 30 minutes.'})
+                raise UserError(_('yt-dlp timed out.'))
 
-                log_text = (result.stdout or '') + '\n' + (result.stderr or '')
-                if result.returncode != 0:
-                    rec.write({'state': 'failed', 'log': log_text})
-                    raise UserError(_('yt-dlp failed (exit %s):\n%s') % (
-                        result.returncode, result.stderr or result.stdout))
+            log_text = (result.stdout or '') + '\n' + (result.stderr or '')
+            if result.returncode != 0:
+                rec.write({'state': 'failed', 'log': log_text})
+                raise UserError(_('yt-dlp failed (exit %s):\n%s') % (
+                    result.returncode, result.stderr or result.stdout))
 
-                final_path = ''
-                for line in (result.stdout or '').splitlines():
-                    line = line.strip()
-                    if line and os.path.isabs(line):
-                        final_path = line
-                if rec.name == _('New') or not rec.name:
-                    rec.name = os.path.basename(final_path) or rec.youtube_url
-                rec.write({
-                    'state': 'done',
-                    'output_path': final_path,
-                    'log': log_text,
-                })
-            finally:
-                if cookies_path and os.path.exists(cookies_path):
-                    try:
-                        os.unlink(cookies_path)
-                    except OSError:
-                        _logger.warning('Failed to remove temp cookies file %s', cookies_path)
+            final_path = ''
+            for line in (result.stdout or '').splitlines():
+                line = line.strip()
+                if line and os.path.isabs(line):
+                    final_path = line
+            if rec.name == _('New') or not rec.name:
+                rec.name = os.path.basename(final_path) or rec.youtube_url
+            rec.write({
+                'state': 'done',
+                'output_path': final_path,
+                'log': log_text,
+            })
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
