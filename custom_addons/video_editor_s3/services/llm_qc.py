@@ -66,6 +66,73 @@ def _coerce_str(value):
     return str(value).strip()
 
 
+OPENROUTER_INLINE_LIMIT_BYTES = 30 * 1024 * 1024
+COMPRESS_THRESHOLD_BYTES = 25 * 1024 * 1024
+COMPRESS_TARGET_BYTES = 22 * 1024 * 1024
+COMPRESS_AUDIO_BITRATE_BPS = 128 * 1000
+COMPRESS_MIN_VIDEO_BITRATE_BPS = 1_000_000
+
+
+def _compute_target_video_bitrate_bps(duration_s: float) -> int:
+    if not duration_s or duration_s <= 0:
+        return 8_000_000
+    target_bits = COMPRESS_TARGET_BYTES * 8
+    audio_bits = COMPRESS_AUDIO_BITRATE_BPS * duration_s
+    video_bits = max(target_bits - audio_bits, 0)
+    bps = int(video_bits / duration_s)
+    return max(bps, COMPRESS_MIN_VIDEO_BITRATE_BPS)
+
+
+def _compress_for_qc(video_bytes: bytes, duration_s: float) -> bytes:
+    ffmpeg = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+    if not ffmpeg or not os.path.exists(ffmpeg):
+        _logger.warning("ffmpeg not found; sending video uncompressed (size=%d)", len(video_bytes))
+        return video_bytes
+    target_bps = _compute_target_video_bitrate_bps(duration_s)
+    in_path = out_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as fh:
+            fh.write(video_bytes)
+            in_path = fh.name
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as fh:
+            out_path = fh.name
+        cmd = [
+            ffmpeg, "-y", "-i", in_path,
+            "-c:v", "libx264", "-preset", "fast",
+            "-b:v", str(target_bps), "-maxrate", str(target_bps),
+            "-bufsize", str(target_bps * 2),
+            "-c:a", "aac", "-b:a", "%dk" % (COMPRESS_AUDIO_BITRATE_BPS // 1000),
+            "-movflags", "+faststart", out_path,
+        ]
+        t0 = time.monotonic()
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        elapsed = time.monotonic() - t0
+        if proc.returncode != 0:
+            _logger.warning(
+                "ffmpeg compression failed (rc=%d): %s; sending uncompressed",
+                proc.returncode, (proc.stderr or "")[-500:],
+            )
+            return video_bytes
+        with open(out_path, "rb") as fh:
+            out_bytes = fh.read()
+        _logger.info(
+            "Compressed video for QC: %.1f MB -> %.1f MB at %.1f Mbps (dur=%.1fs) in %.1fs",
+            len(video_bytes) / 1e6, len(out_bytes) / 1e6,
+            target_bps / 1e6, duration_s, elapsed,
+        )
+        return out_bytes
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        _logger.warning("ffmpeg compression error: %s; sending uncompressed", exc)
+        return video_bytes
+    finally:
+        for path in (in_path, out_path):
+            if path:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+
+
 def probe_video(video_bytes: bytes) -> dict:
     ffprobe = shutil.which("ffprobe") or "/opt/homebrew/bin/ffprobe"
     if not ffprobe or not os.path.exists(ffprobe):
@@ -326,6 +393,14 @@ def evaluate_llm_qc(
         raise UserError(_("Video bytes are empty; cannot run LLM QC."))
 
     probe = probe_video(video_bytes)
+    if len(video_bytes) > COMPRESS_THRESHOLD_BYTES:
+        duration_for_compress = float(probe.get("actual_duration_s") or duration_seconds or 0.0)
+        video_bytes = _compress_for_qc(video_bytes, duration_for_compress)
+        if len(video_bytes) > OPENROUTER_INLINE_LIMIT_BYTES:
+            raise UserError(_(
+                "Video is %d MB after compression, still over OpenRouter's "
+                "30 MB inline limit. Re-trim to a shorter clip."
+            ) % (len(video_bytes) // (1024 * 1024)))
     user_text = _build_user_turn(
         item_id=item_id, category=category, sub_category=sub_category,
         description=description, topic=topic, prompt=prompt,
