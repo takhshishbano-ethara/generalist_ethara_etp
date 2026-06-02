@@ -6,7 +6,7 @@ import shutil
 from urllib.parse import parse_qs, urlparse
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from ..services import llm_qc, youtube_downloader
 
@@ -424,6 +424,9 @@ class VideoEditorProject(models.Model):
 
     @api.constrains("youtube_start_time", "youtube_end_time")
     def _check_youtube_time_format(self):
+        settings = self.env["video.editor.s3.settings"]
+        trim_min = settings.get_trim_min_seconds()
+        trim_max = settings.get_trim_max_seconds()
         for rec in self:
             try:
                 start = _parse_hhmmssms_to_seconds(rec.youtube_start_time)
@@ -434,6 +437,12 @@ class VideoEditorProject(models.Model):
                 raise ValidationError(_(
                     "YouTube End Time (%(end)s) must be greater than Start Time (%(start)s)."
                 ) % {"end": rec.youtube_end_time or "0", "start": rec.youtube_start_time or "0"})
+            if end > 0.0:
+                duration = end - start
+                if duration < trim_min - 1e-4 or duration > trim_max + 1e-4:
+                    raise ValidationError(_(
+                        "YouTube clip duration must be between %(min).1f and %(max).1f seconds (current: %(current).3f)."
+                    ) % {"min": trim_min, "max": trim_max, "current": duration})
 
     @api.onchange("youtube_url")
     def _onchange_youtube_url_parse_times(self):
@@ -509,6 +518,22 @@ class VideoEditorProject(models.Model):
         default=lambda self: self.env.user,
         tracking=True,
     )
+
+    review_status = fields.Selection(
+        [
+            ("pending", "Pending Review"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        string="Review Status",
+        default="pending",
+        required=True,
+        tracking=True,
+        index=True,
+    )
+    review_decided_by = fields.Many2one("res.users", string="Reviewed By", readonly=True, tracking=True)
+    review_decided_at = fields.Datetime(string="Reviewed At", readonly=True, tracking=True)
+    review_notes = fields.Char(string="Review Notes", tracking=True)
 
     job_ids = fields.One2many(
         "video.editor.job", "project_id", string="Jobs",
@@ -694,7 +719,6 @@ class VideoEditorProject(models.Model):
         self.ensure_one()
         cfg = {
             "youtube_url": self.youtube_url,
-            "tier": self.youtube_tier or "2160p",
         }
         start = _parse_hhmmssms_to_seconds(self.youtube_start_time)
         end = _parse_hhmmssms_to_seconds(self.youtube_end_time)
@@ -709,9 +733,6 @@ class VideoEditorProject(models.Model):
         if not self.youtube_url:
             raise UserError(_("Set a YouTube URL first."))
         cfg = self._build_youtube_job_config()
-        is_clip = "start_seconds" in cfg or "end_seconds" in cfg
-        if not is_clip:
-            self._probe_youtube_or_raise()
         job = self._kick_job("youtube_ingest", config=cfg)
         return {
             "type": "ir.actions.client",
@@ -722,41 +743,6 @@ class VideoEditorProject(models.Model):
                     "Job #%s is downloading the video and uploading to S3. "
                     "Refresh this form when the job finishes — the Source S3 URL "
                     "will be populated automatically."
-                ) % job.id,
-                "type": "info",
-                "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
-            },
-        }
-
-    def action_download_youtube_local(self):
-        self.ensure_one()
-        if not self.youtube_url:
-            raise UserError(_("Set a YouTube URL first."))
-        base_url = self.env["video.editor.s3.settings"].sudo().get_local_extractor_url()
-        if not base_url:
-            raise UserError(_(
-                "Local Extractor URL is not configured. Set it under "
-                "Settings > Crowley Sourcing > YouTube Ingest."
-            ))
-        if not base_url.startswith(("http://", "https://")):
-            raise UserError(_(
-                "Local Extractor URL must start with http:// or https:// "
-                "(got %s). Configure it as the base URL of the running "
-                "scripts/local_youtube_extractor.py HTTP server, "
-                "e.g. http://127.0.0.1:8081 or your Tailscale/cloudflared URL."
-            ) % base_url[:120])
-        cfg = self._build_youtube_job_config()
-        job = self._kick_job("youtube_local_download", config=cfg)
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Local YouTube download queued"),
-                "message": _(
-                    "Job #%s is downloading the clip via the local extractor "
-                    "and uploading it to S3. Refresh this form when the job "
-                    "finishes - the Source S3 URL will be populated automatically."
                 ) % job.id,
                 "type": "info",
                 "sticky": False,
@@ -801,19 +787,6 @@ class VideoEditorProject(models.Model):
             "context": {"default_project_id": self.id},
         }
 
-    def _probe_youtube_or_raise(self):
-        """Run the 2160p50/60 gate synchronously so a UserError surfaces as a modal popup."""
-        self.ensure_one()
-        if not self.youtube_url:
-            return
-        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
-        youtube_downloader.probe_and_select(
-            self.youtube_url,
-            cookies_path=cfg.get("cookies_path"),
-            proxy_url=cfg.get("proxy_url"),
-            cookies_from_browser=cfg.get("cookies_browser"),
-        )
-
     def _maybe_auto_ingest_youtube(self):
         for rec in self:
             if not rec.youtube_url:
@@ -830,13 +803,6 @@ class VideoEditorProject(models.Model):
             except ValueError as exc:
                 _logger.info("auto-ingest skipped for project %s: bad time format %s", rec.id, exc)
                 continue
-            is_clip = "start_seconds" in cfg or "end_seconds" in cfg
-            if not is_clip:
-                try:
-                    rec._probe_youtube_or_raise()
-                except UserError as exc:
-                    _logger.info("auto-ingest probe failed for project %s: %s", rec.id, exc)
-                    continue
             try:
                 rec._kick_job("youtube_ingest", config=cfg)
             except UserError as exc:
@@ -993,6 +959,64 @@ class VideoEditorProject(models.Model):
                 "title": _("LLM QC cleared"),
                 "message": _("Click Run LLM QC to re-evaluate."),
                 "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_approve(self):
+        self.ensure_one()
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can approve projects."))
+        if not self.output_s3_url:
+            raise UserError(_("Approve requires a Trimmed S3 URL."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Approve requires LLM QC to have run first."))
+        now = fields.Datetime.now()
+        self.write({
+            "review_status": "approved",
+            "review_decided_by": self.env.user.id,
+            "review_decided_at": now,
+        })
+        self.message_post(body=_(
+            "Project approved by %(user)s on %(when)s."
+        ) % {"user": self.env.user.name, "when": now})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Approved"),
+                "message": _("Project marked as approved."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_reject(self):
+        self.ensure_one()
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can reject projects."))
+        if not self.output_s3_url:
+            raise UserError(_("Reject requires a Trimmed S3 URL."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Reject requires LLM QC to have run first."))
+        now = fields.Datetime.now()
+        self.write({
+            "review_status": "rejected",
+            "review_decided_by": self.env.user.id,
+            "review_decided_at": now,
+        })
+        self.message_post(body=_(
+            "Project rejected by %(user)s on %(when)s."
+        ) % {"user": self.env.user.name, "when": now})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Rejected"),
+                "message": _("Project marked as rejected."),
+                "type": "warning",
                 "sticky": False,
                 "next": {"type": "ir.actions.client", "tag": "soft_reload"},
             },
