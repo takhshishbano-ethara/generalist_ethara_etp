@@ -824,6 +824,30 @@ class VideoEditorProject(models.Model):
             except UserError as exc:
                 _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
 
+    def action_submit_for_processing(self):
+        self.ensure_one()
+        if self.state != "draft":
+            raise UserError(_("Submit is only available from Draft state."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Run LLM QC before submitting."))
+        if self.llm_qc_result != "pass" and not self.llm_qc_force_passed:
+            raise UserError(_("LLM QC must pass (or be force-passed) before submitting."))
+        self.write({"state": "processed"})
+        self.message_post(body=_(
+            "Submitted for processing by %(user)s."
+        ) % {"user": self.env.user.name})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Submitted"),
+                "message": _("Project moved to Processed."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
     def action_run_llm_qc(self):
         self.ensure_one()
         if not self.output_s3_url:
@@ -977,6 +1001,7 @@ class VideoEditorProject(models.Model):
             "review_status": "approved",
             "review_decided_by": self.env.user.id,
             "review_decided_at": now,
+            "state": "exported",
         })
         self.message_post(body=_(
             "Project approved by %(user)s on %(when)s."
@@ -1006,6 +1031,7 @@ class VideoEditorProject(models.Model):
             "review_status": "rejected",
             "review_decided_by": self.env.user.id,
             "review_decided_at": now,
+            "state": "exported",
         })
         self.message_post(body=_(
             "Project rejected by %(user)s on %(when)s."
