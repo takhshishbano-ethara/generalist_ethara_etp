@@ -357,19 +357,19 @@ def _read_render_context(db, uid, job_id, preview):
         return project.id, src_input, dst_abs, dict(config or {})
 
 
-def _build_source_input(env, project):
-    url = (project.s3_source_url or "").strip()
-    bucket, key = s3_storage.parse_s3_url(url)
+def _build_source_input(env, project, url=None):
+    src_url = (url if url is not None else project.s3_source_url or "").strip()
+    bucket, key = s3_storage.parse_s3_url(src_url)
     cfg = env["video.editor.s3.settings"].get_s3_config()
     if bucket and key and cfg.get("access_key") and cfg.get("secret_key"):
         return s3_storage.generate_presigned_url(
             {**cfg, "bucket": bucket}, key, expires_in=7200,
         )
-    if url.startswith(("http://", "https://")):
-        return url
+    if src_url.startswith(("http://", "https://")):
+        return src_url
     raise UserError(_(
-        "Cannot resolve source URL %s — configure S3 credentials or use an https:// URL."
-    ) % url[:120])
+        "Cannot resolve S3 URL %s — configure S3 credentials or use an https:// URL."
+    ) % src_url[:120])
 
 
 def _run_export(db, uid, job_id, cancel_event):
@@ -514,18 +514,32 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
 
 def _run_s3_probe(db, uid, job_id, cancel_event):
     job_executor._check_cancelled(cancel_event)
-    _bump_heartbeat(db, job_id, "probing source")
 
     with Registry(db).cursor() as cr:
         env = api.Environment(cr, uid or SUPERUSER_ID, {})
         job = env["video.editor.job"].browse(job_id)
         project = job.project_id
-        if not project.s3_source_url:
-            raise UserError(_("Project has no source S3 URL."))
-        src_input = _build_source_input(env, project)
+        target = ((job.config_json or {}).get("target") or "source").strip().lower()
+        if target == "output":
+            url = project.output_s3_url
+            if not url:
+                raise UserError(_("Project has no trimmed S3 URL."))
+        else:
+            url = project.s3_source_url
+            if not url:
+                raise UserError(_("Project has no source S3 URL."))
+
+    _bump_heartbeat(db, job_id, "probing trimmed" if target == "output" else "probing source")
+
+    with Registry(db).cursor() as cr:
+        env = api.Environment(cr, uid or SUPERUSER_ID, {})
+        job = env["video.editor.job"].browse(job_id)
+        project = job.project_id
+        src_input = _build_source_input(env, project, url=url)
         job_executor._check_cancelled(cancel_event)
         meta = env["video.editor.s3.ffmpeg.processor"].probe(src_input) or {}
-        existing = dict(project.source_metadata or {})
+        meta_field = "output_metadata" if target == "output" else "source_metadata"
+        existing = dict(getattr(project, meta_field) or {})
         existing.update({
             "duration": float(meta.get("duration") or 0.0),
             "resolution": meta.get("resolution") or "",
@@ -535,7 +549,7 @@ def _run_s3_probe(db, uid, job_id, cancel_event):
             "height": int(meta.get("height") or 0),
             "codec": meta.get("codec") or "",
         })
-        project.write({"source_metadata": existing})
+        project.write({meta_field: existing})
         cr.commit()
 
 

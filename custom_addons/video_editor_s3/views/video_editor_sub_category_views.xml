@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_video_editor_sub_category_list" model="ir.ui.view">
+        <field name="name">video.editor.sub.category.list</field>
+        <field name="model">video.editor.sub.category</field>
+        <field name="arch" type="xml">
+            <list string="Sub-Categories" editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="category"/>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_video_editor_sub_category_form" model="ir.ui.view">
+        <field name="name">video.editor.sub.category.form</field>
+        <field name="model">video.editor.sub.category</field>
+        <field name="arch" type="xml">
+            <form string="Sub-Category">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="category" required="1"/>
+                            <field name="name" required="1"/>
+                            <field name="code" required="1"/>
+                        </group>
+                        <group>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_video_editor_sub_category_search" model="ir.ui.view">
+        <field name="name">video.editor.sub.category.search</field>
+        <field name="model">video.editor.sub.category</field>
+        <field name="arch" type="xml">
+            <search string="Sub-Categories">
+                <field name="name"/>
+                <field name="code"/>
+                <field name="category"/>
+                <filter string="Archived" name="archived" domain="[('active', '=', False)]"/>
+                <separator/>
+                <filter string="Category" name="group_category" context="{'group_by': 'category'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_video_editor_sub_category" model="ir.actions.act_window">
+        <field name="name">Sub-Categories</field>
+        <field name="res_model">video.editor.sub.category</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_video_editor_sub_category_search"/>
+        <field name="context">{'search_default_group_category': 1}</field>
+    </record>
+
+    <menuitem id="menu_video_editor_s3_sub_categories"
+              name="Sub-Categories"
+              parent="menu_video_editor_s3_config"
+              action="action_video_editor_sub_category"
+              sequence="20"
+              groups="video_editor_s3.group_video_editor_s3_manager"/>
+
+</odoo>

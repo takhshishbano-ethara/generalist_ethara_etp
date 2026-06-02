@@ -335,6 +335,28 @@ class VideoEditorProject(models.Model):
         store=True,
     )
 
+    output_s3_key = fields.Char(
+        string="Trimmed S3 Key",
+        compute="_compute_output_s3_key",
+        store=True,
+    )
+    output_metadata = fields.Json(string="Output Metadata")
+    output_duration_seconds = fields.Float(
+        string="Output Duration (s)",
+        compute="_compute_output_summary",
+        store=True,
+    )
+    output_resolution = fields.Char(
+        string="Output Resolution",
+        compute="_compute_output_summary",
+        store=True,
+    )
+    output_fps = fields.Float(
+        string="Output FPS",
+        compute="_compute_output_summary",
+        store=True,
+    )
+
     youtube_url = fields.Char(string="YouTube URL", tracking=True)
     youtube_video_id = fields.Char(
         string="YouTube Video ID",
@@ -412,6 +434,28 @@ class VideoEditorProject(models.Model):
         SUB_CATEGORIES,
         string="Sub-Category",
     )
+    sub_category_id = fields.Many2one(
+        "video.editor.sub.category",
+        string="Sub-Category",
+        domain="[('category', '=', category)]",
+        compute="_compute_sub_category_id",
+        inverse="_inverse_sub_category_id",
+        store=True,
+        readonly=False,
+    )
+
+    @api.depends("sub_category")
+    def _compute_sub_category_id(self):
+        Sub = self.env["video.editor.sub.category"]
+        for rec in self:
+            if rec.sub_category:
+                rec.sub_category_id = Sub.search([("code", "=", rec.sub_category)], limit=1)
+            else:
+                rec.sub_category_id = False
+
+    def _inverse_sub_category_id(self):
+        for rec in self:
+            rec.sub_category = rec.sub_category_id.code if rec.sub_category_id else False
 
     @api.onchange("category")
     def _onchange_category(self):
@@ -581,6 +625,35 @@ class VideoEditorProject(models.Model):
             rec.resolution = meta.get("resolution") or ""
             rec.source_fps = float(meta.get("fps") or 0.0)
             rec.source_size_mb = float(meta.get("size_bytes") or 0.0) / (1024 * 1024)
+
+    @api.depends("output_s3_url")
+    def _compute_output_s3_key(self):
+        for rec in self:
+            url = (rec.output_s3_url or "").strip()
+            if not url:
+                rec.output_s3_key = False
+                continue
+            try:
+                if url.startswith("s3://"):
+                    _, key = url[len("s3://"):].split("/", 1)
+                else:
+                    parsed = urlparse(url)
+                    key = parsed.path.lstrip("/")
+                    host = parsed.netloc or ""
+                    if host.endswith(".amazonaws.com") and (host.startswith("s3.") or host.startswith("s3-")):
+                        if "/" in key:
+                            _, key = key.split("/", 1)
+                rec.output_s3_key = key or False
+            except (ValueError, AttributeError):
+                rec.output_s3_key = False
+
+    @api.depends("output_metadata")
+    def _compute_output_summary(self):
+        for rec in self:
+            meta = rec.output_metadata or {}
+            rec.output_duration_seconds = float(meta.get("duration") or 0.0)
+            rec.output_resolution = meta.get("resolution") or ""
+            rec.output_fps = float(meta.get("fps") or 0.0)
 
     @api.depends("job_ids.status")
     def _compute_active_job(self):
@@ -816,7 +889,9 @@ class VideoEditorProject(models.Model):
             if meta.get("size_bytes") or meta.get("duration"):
                 continue
             if rec.job_ids.filtered(
-                lambda j: j.job_type in ("s3_probe", "youtube_ingest") and j.status in ("queued", "running")
+                lambda j: j.job_type in ("s3_probe", "youtube_ingest")
+                and j.status in ("queued", "running")
+                and (j.config_json or {}).get("target") != "output"
             ):
                 continue
             try:
@@ -824,10 +899,26 @@ class VideoEditorProject(models.Model):
             except UserError as exc:
                 _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
 
+    def _maybe_probe_output_s3(self):
+        for rec in self:
+            if not rec.output_s3_url:
+                continue
+            meta = rec.output_metadata or {}
+            if meta.get("duration") or meta.get("size_bytes"):
+                continue
+            if rec.job_ids.filtered(
+                lambda j: j.job_type == "s3_probe"
+                and j.status in ("queued", "running")
+                and (j.config_json or {}).get("target") == "output"
+            ):
+                continue
+            try:
+                rec._kick_job("s3_probe", config={"target": "output"})
+            except UserError as exc:
+                _logger.info("output s3_probe skipped for project %s: %s", rec.id, exc)
+
     def action_submit_for_processing(self):
         self.ensure_one()
-        if self.state != "draft":
-            raise UserError(_("Submit is only available from Draft state."))
         if not self.llm_evaluated_at:
             raise UserError(_("Run LLM QC before submitting."))
         if self.llm_qc_result != "pass" and not self.llm_qc_force_passed:
@@ -1069,6 +1160,8 @@ class VideoEditorProject(models.Model):
         res = super().write(vals)
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
+        if "output_s3_url" in vals:
+            self._maybe_probe_output_s3()
         return res
 
     def unlink(self):
