@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """prompt.qc.run — one LLM-as-a-judge QC run.
 
-Holds the subject (user_prompt), an optional per-run rubric (uploaded .json, decoded into
-rubric_text), and the judge's response. The judge's system prompt is NOT per-run: it is uploaded
-once on the Settings page and applied universally to every run (see `_get_system_prompt`).
+Holds the subject (user_prompt), an optional per-run rubric (an uploaded .json, stored as an
+attachment and decoded on demand at judge time — see `_get_rubric`), and the judge's response.
+The judge's system prompt is NOT per-run: it is uploaded once on the Settings page and applied
+universally to every run (see `_get_system_prompt`).
 
 Both the single "Start QC" button and "Bulk Import" use ONE background path — the LLM call never
 runs inside an HTTP request (an inline multi-minute Bedrock call in a web worker is what collapses
@@ -17,6 +18,7 @@ persisted only on completion. One Bedrock code path (services/bedrock_judge.py, 
 
 Lifecycle: draft/queued -> running -> done/failed. A partial/aborted run is always 'failed'.
 """
+import atexit
 import base64
 import json
 import logging
@@ -47,14 +49,36 @@ _ALLOWED_RUBRIC_EXTENSIONS = (".json",)
 _POOL_SIZE = int(os.environ.get("PROMPT_QC_POOL_SIZE", "16"))
 _DISPATCH_LOCK_ID = 729114301  # arbitrary, stable advisory-lock key for this module
 
-# Per-process pool registry (leviathan pattern). Odoo prefork forks N worker processes; a
-# ThreadPoolExecutor built once at import time (pre-fork) has DEAD threads in the children — that
-# is the "21 May" collapse leviathan documents. Keying the pool on os.getpid() gives every worker
-# process a live pool. Global concurrency is still capped at _POOL_SIZE regardless of how many
-# processes run, because the dispatcher only ever flips (_POOL_SIZE - running) rows to 'running'
-# under the DB-wide advisory lock (see _dispatch_pending) — `running` is a global DB count.
+# Per-(process, database) pool registry (leviathan pattern). Odoo prefork forks N worker processes;
+# a ThreadPoolExecutor built once at import time (pre-fork) has DEAD threads in the children — that
+# is the "21 May" collapse leviathan documents. Keying the pool on (os.getpid(), db_name) gives
+# every worker process its OWN pool PER DATABASE. This matters because the dispatcher's concurrency
+# cap is a PER-DATABASE advisory lock: if one process served several databases from a single shared
+# 16-thread pool, DB-A and DB-B could each flip _POOL_SIZE rows to 'running' while only _POOL_SIZE
+# threads exist total — the surplus would sit 'running' yet unexecuted, then be falsely reaped. One
+# pool per (pid, db) keeps the 'running' count aligned with real execution capacity in each database.
 _POOL_REGISTRY = {}
 _POOL_REGISTRY_LOCK = threading.Lock()
+
+# Set on process exit (e.g. a deploy/restart). In-flight judge calls poll this between stream
+# events and abort cleanly (-> the run is marked 'failed', never left stuck 'running'); the
+# dispatcher stops claiming new runs. A hard kill (SIGKILL) runs no handler — the reaper is the
+# backstop for that. We deliberately do NOT persist the partial verdict (decision D1).
+_SHUTTING_DOWN = threading.Event()
+
+
+def _shutdown_pools():
+    """atexit hook: signal in-flight runs to abort and stop the pools accepting new work."""
+    _SHUTTING_DOWN.set()
+    with _POOL_REGISTRY_LOCK:
+        for pool in list(_POOL_REGISTRY.values()):
+            try:
+                pool.shutdown(wait=False, cancel_futures=True)
+            except Exception:
+                pass
+
+
+atexit.register(_shutdown_pools)
 
 
 def _pool_is_dead(pool):
@@ -64,29 +88,48 @@ def _pool_is_dead(pool):
     return bool(getattr(pool, "_broken", None) or getattr(pool, "_shutdown", False))
 
 
-def _get_pool():
-    """Return this process's judge pool, building it lazily and rebuilding it if it died."""
+def _get_pool(db_name):
+    """Return this (process, database)'s judge pool, building it lazily and rebuilding it if it
+    died. Also prunes pools inherited from a parent process (a different pid) — their threads are
+    dead after the fork, so they must never be served, and leaving them in the dict leaks."""
     pid = os.getpid()
-    pool = _POOL_REGISTRY.get(pid)
+    key = (pid, db_name)
+    pool = _POOL_REGISTRY.get(key)
     if pool is not None and not _pool_is_dead(pool):
         return pool
     with _POOL_REGISTRY_LOCK:
-        pool = _POOL_REGISTRY.get(pid)
+        pool = _POOL_REGISTRY.get(key)
         if pool is not None and not _pool_is_dead(pool):
             return pool
+        # Drop entries owned by a different (parent) pid — leaked across fork.
+        for stale in [k for k in _POOL_REGISTRY if k[0] != pid]:
+            _POOL_REGISTRY.pop(stale, None)
         pool = ThreadPoolExecutor(
-            max_workers=_POOL_SIZE, thread_name_prefix="prompt_qc[pid=%s]" % pid)
-        _POOL_REGISTRY[pid] = pool
+            max_workers=_POOL_SIZE,
+            thread_name_prefix="prompt_qc[pid=%s,db=%s]" % (pid, db_name))
+        _POOL_REGISTRY[key] = pool
     return pool
 
 
 _DEFAULT_TIMEOUT_MIN = 15
 _DEFAULT_MAX_FILE_MB = 1
+# The reaper cron interval, in minutes. MUST stay in sync with data/ir_cron_data.xml
+# (interval_number/interval_type for the reap cron). Mirrored here so the invariant below is
+# explicit and self-checking.
+_REAPER_CRON_INTERVAL_MIN = 5
 # Extra minutes the reaper waits beyond the run timeout before forcing a 'running' run to
-# 'failed'. It must exceed the reaper cron interval (5 min) so the reaper only ever fires AFTER a
-# healthy worker has already self-terminated at the wall-clock budget — that keeps the reaper from
-# freeing a slot for a worker that is still holding a live Bedrock connection (would overshoot N).
+# 'failed'. It must exceed the reaper cron interval so the reaper only ever fires AFTER a healthy
+# worker has already self-terminated at the wall-clock budget — that keeps the reaper from freeing a
+# slot for a worker that is still holding a live Bedrock connection (would overshoot N).
 _REAPER_GRACE_MIN = 6
+
+# Fail loud at import if someone breaks the invariant by editing a constant (the XML interval still
+# has to be kept in sync by hand — that coupling is documented on _REAPER_CRON_INTERVAL_MIN).
+assert _REAPER_GRACE_MIN > _REAPER_CRON_INTERVAL_MIN, (
+    "prompt_qc: _REAPER_GRACE_MIN (%s) must exceed the reaper cron interval (%s min), else the "
+    "reaper can fire while a healthy worker is still mid-call and overshoot the concurrency cap."
+    % (_REAPER_GRACE_MIN, _REAPER_CRON_INTERVAL_MIN)
+)
 
 # Live-streaming over the bus. The worker pushes judge tokens to the run owner's bus channel as
 # they arrive, batched so we do not open a cursor per token. Each flush commits in its own short
@@ -157,6 +200,8 @@ def _dispatch_pending(db_name):
     enforced globally: the advisory lock serializes the slot computation, and SKIP LOCKED + the
     state='queued' filter guarantee a run is claimed at most once.
     """
+    if _SHUTTING_DOWN.is_set():
+        return  # process is exiting; don't claim new runs (they stay 'queued' for the next process)
     ids = []
     try:
         registry = Registry(db_name)
@@ -200,7 +245,7 @@ def _dispatch_pending(db_name):
 
     for rec_id in ids:
         try:
-            _get_pool().submit(_process_run, db_name, rec_id)
+            _get_pool(db_name).submit(_process_run, db_name, rec_id)
         except Exception:
             # Pool refused the task (shutdown): leave the run 'running' for the reaper, which
             # will time it out, and for the next dispatch tick.
@@ -227,16 +272,52 @@ def _process_run(db_name, rec_id):
 
 
 def _safe_mark_failed(db_name, rec_id, message):
-    """Best-effort terminal write in a fresh cursor (used when the worker's own cursor died)."""
+    """Best-effort terminal write in a fresh cursor (used when the worker's own cursor died).
+
+    Guarantees the run owner gets a terminal bus event so the browser's spinner never hangs: the
+    normal `_mark_failed` fires that event on its own commit, but if the write was a no-op (the row
+    was already terminal — e.g. the reaper won) or it raised, we fall back to publishing the
+    committed terminal state directly. The fallback is idempotent (the browser just reloads)."""
+    wrote = False
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
             run = env["prompt.qc.run"].browse(rec_id)
             if run.exists():
-                run._mark_failed(message, 0.0, run.model_label)
+                wrote = run._mark_failed(message, 0.0, run.model_label)
             cr.commit()
     except Exception:
         _logger.exception("prompt_qc: failed to mark run %s failed", rec_id)
+    if not wrote:
+        # Our write did nothing (lost the race or errored). Make sure a terminal event still
+        # reaches the owner, in case the winning writer's own notification never went out.
+        _publish_terminal_state(db_name, rec_id)
+
+
+def _publish_terminal_state(db_name, rec_id):
+    """Read rec_id's COMMITTED terminal state in a fresh cursor and push it to the owner's bus
+    channel. Best-effort and idempotent: a duplicate terminal event just makes the browser reload
+    again. No-op if the run is gone or not yet terminal."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            run = env["prompt.qc.run"].browse(rec_id)
+            if not run.exists() or run.state not in ("done", "failed"):
+                return
+            partner = run.create_uid.partner_id
+            if not partner:
+                return
+            payload = {
+                "run_id": run.id,
+                "kind": "done",
+                "state": run.state,
+                "error": (run.error_message or "")[:500] or False,
+            }
+            partner_id = partner.id
+    except Exception:
+        _logger.exception("prompt_qc: terminal bus backstop read failed for run %s", rec_id)
+        return
+    _bus_publish(db_name, partner_id, payload)
 
 
 class PromptQcRun(models.Model):
@@ -256,15 +337,13 @@ class PromptQcRun(models.Model):
     # Settings page and applied UNIVERSALLY to every run — see `_get_system_prompt` and
     # res.config.settings (ir.config_parameter prompt_qc.system_prompt_text).
 
-    # Uploaded .json rubric (optional, per-run). Decoded into rubric_text and, when present, sent
-    # to the judge as a second system block (decision D5). Passthrough only — not parsed into scores.
-    rubric_file = fields.Binary(string="Rubric (.json)", attachment=False)
+    # Uploaded .json rubric (optional, per-run). Stored as an attachment (attachment=True) so the
+    # file lives in the filestore, NOT inline in this table's heap — at bulk scale an inline Binary
+    # plus a decoded Text copy bloated every row and dragged on every list fetch. The decoded text
+    # is no longer persisted; it is decoded on demand at judge time (_get_rubric) and forwarded to
+    # the judge as a second system block (decision D5). Passthrough only — not parsed into scores.
+    rubric_file = fields.Binary(string="Rubric (.json)", attachment=True)
     rubric_filename = fields.Char(string="Rubric Filename")
-    rubric_text = fields.Text(
-        string="Rubric Text",
-        help="Decoded contents of the uploaded .json rubric. Sent to the judge alongside the "
-             "system prompt. Optional; left empty when no rubric is uploaded.",
-    )
 
     response = fields.Text(
         string="Judge Response",
@@ -277,7 +356,6 @@ class PromptQcRun(models.Model):
             ("draft", "Draft"),
             ("queued", "Queued"),
             ("running", "Running"),
-            ("streaming", "Streaming"),
             ("done", "Done"),
             ("failed", "Failed"),
         ],
@@ -298,6 +376,17 @@ class PromptQcRun(models.Model):
     input_tokens = fields.Integer(string="Input Tokens", readonly=True, copy=False)
     output_tokens = fields.Integer(string="Output Tokens", readonly=True, copy=False)
     duration = fields.Float(string="Duration (s)", readonly=True, copy=False)
+
+    def init(self):
+        """Partial index for the dispatcher/reaper hot path. The dispatcher counts/claims
+        'queued'/'running' rows on every tick and the reaper scans (state, started_at); without an
+        index these seq-scan the whole table. Indexing ONLY the in-flight rows keeps the index tiny
+        (the done/failed bulk is excluded), so it stays cheap to maintain as runs accumulate."""
+        self.env.cr.execute("""
+            CREATE INDEX IF NOT EXISTS prompt_qc_run_active_idx
+                ON prompt_qc_run (state, started_at)
+             WHERE state IN ('queued', 'running')
+        """)
 
     # ------------------------------------------------------------------
     # Upload decode (aurora pattern).
@@ -326,36 +415,68 @@ class PromptQcRun(models.Model):
             raise UserError(_("The system prompt file is not valid UTF-8 text: %s") % exc)
 
     @api.model
-    def _decode_rubric(self, vals):
-        raw_b64 = vals.get("rubric_file")
+    def _validate_rubric_b64(self, raw_b64, filename, max_file_bytes):
+        """Validate an uploaded .json rubric with a SINGLE base64 decode: size, extension, UTF-8,
+        and well-formed JSON. Raises UserError on a bad upload; a no-op for an empty value. Stores
+        nothing — the file rides as an attachment (rubric_file) and is decoded on demand at judge
+        time (_get_rubric)."""
         if not raw_b64:
             return
+        label = _("Rubric")
+        # Cheap length guard BEFORE decoding, so a hostile payload is never decoded into memory
+        # just to be measured (resource amplification).
+        b64_ceiling = (max_file_bytes // 3 + 1) * 4 + 64  # +slack for padding/whitespace
+        if len(raw_b64) > b64_ceiling:
+            raise UserError(_("The %(label)s file is over the %(cap).1f MB limit.") % {
+                "label": label, "cap": max_file_bytes / (1024.0 * 1024.0)})
         try:
-            data = base64.b64decode(raw_b64)
+            data = base64.b64decode(raw_b64)  # the ONE decode — shared by validation and storage
         except Exception as exc:
             raise UserError(_("Invalid upload for the rubric file: %s") % exc)
         if not data:
             return
-        filename = (vals.get("rubric_filename") or "").strip().lower()
-        if filename and not filename.endswith(_ALLOWED_RUBRIC_EXTENSIONS):
+        if len(data) > max_file_bytes:
+            raise UserError(_("The %(label)s file is %(size).1f MB, over the %(cap).1f MB limit.") % {
+                "label": label, "size": len(data) / (1024.0 * 1024.0),
+                "cap": max_file_bytes / (1024.0 * 1024.0)})
+        if filename and not filename.strip().lower().endswith(_ALLOWED_RUBRIC_EXTENSIONS):
             raise UserError(_("The rubric must be a .json file."))
         try:
             text = data.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise UserError(_("The rubric file is not valid UTF-8 text: %s") % exc)
-        # D6: validate well-formedness only. We forward the raw text, not a parsed structure.
+        # D6: validate well-formedness only. We forward the raw file, not a parsed structure.
         try:
             json.loads(text)
         except json.JSONDecodeError as exc:
             raise UserError(_("The rubric file is not valid JSON: %s") % exc)
-        vals["rubric_text"] = text
+        except (RecursionError, ValueError):
+            # A pathologically deep/nested rubric can blow Python's recursion limit (RecursionError)
+            # or otherwise choke the parser. The file-size cap above bounds width; reject excessive
+            # depth here rather than letting it crash the worker thread.
+            raise UserError(_("The rubric file is too deeply nested or malformed."))
+
+    @api.model
+    def _decode_rubric(self, vals, max_file_bytes=None):
+        """Validate the rubric upload in `vals` (no-op when none). The create()/write() hook;
+        bulk import validates up front and tells create() to skip this re-check (see create())."""
+        raw_b64 = vals.get("rubric_file")
+        if not raw_b64:
+            return
+        if max_file_bytes is None:
+            max_file_bytes = self._get_max_file_size_mb() * 1024 * 1024
+        self._validate_rubric_b64(raw_b64, vals.get("rubric_filename"), max_file_bytes)
 
     @api.model_create_multi
     def create(self, vals_list):
+        # Bulk import already validated each rubric once (in _validate_bulk_row) and sets this
+        # context flag, so we don't decode the same file a second time here.
+        skip_rubric = self.env.context.get("prompt_qc_rubric_validated")
         for vals in vals_list:
             if not vals.get("name") or vals.get("name") == "New":
                 vals["name"] = self.env["ir.sequence"].next_by_code("prompt.qc.run") or "New"
-            self._decode_rubric(vals)
+            if not skip_rubric:
+                self._decode_rubric(vals)
         return super().create(vals_list)
 
     def write(self, vals):
@@ -367,10 +488,13 @@ class PromptQcRun(models.Model):
     def create_runs_chunked(self, vals_list):
         """Create many runs in bounded batches, so one very large Bulk Import is not one giant
         in-memory create(). Same transaction as the caller — this caps peak memory and keeps each
-        create() call small; there is intentionally no row-count limit on the import itself."""
-        runs = self.browse()
+        create() call small. Rows here were already validated by _validate_bulk_row (one decode
+        each), so they are created with 'prompt_qc_rubric_validated' to skip the redundant
+        re-decode in create() — each rubric is thus decoded exactly once across the bulk path."""
+        Model = self.with_context(prompt_qc_rubric_validated=True)
+        runs = Model.browse()
         for i in range(0, len(vals_list), _CREATE_CHUNK_SIZE):
-            runs |= self.create(vals_list[i:i + _CREATE_CHUNK_SIZE])
+            runs |= Model.create(vals_list[i:i + _CREATE_CHUNK_SIZE])
         return runs
 
     def action_enqueue(self):
@@ -451,9 +575,10 @@ class PromptQcRun(models.Model):
             vals["rubric_filename"] = row.get("rubric_filename") or "rubric.json"
 
         try:
-            self._check_file_size(rub_b64, max_file_bytes, _("Rubric"))
-            # Reuse the exact decode/extension/JSON validation used by create().
-            self._decode_rubric(vals)
+            # ONE decode does size + extension + UTF-8 + JSON validation. create() then skips its
+            # own re-decode for these rows (prompt_qc_rubric_validated), so each rubric that used
+            # to be base64-decoded three times per row is now decoded exactly once.
+            self._validate_rubric_b64(rub_b64, vals.get("rubric_filename"), max_file_bytes)
         except UserError as exc:
             msg = exc.args[0] if exc.args else str(exc)
             return None, msg
@@ -523,7 +648,10 @@ class PromptQcRun(models.Model):
                 _("Timed out: no completion within %s minutes.") % timeout_min,
                 0.0, run.model_label,
             )
-        self.env.cr.commit()
+            # Commit per row so each row's FOR UPDATE lock (taken in _mark_failed) is released
+            # immediately. A single commit at the end would hold locks on the WHOLE stuck set for
+            # the duration of the loop, stalling any worker about to finish on one of those rows.
+            self.env.cr.commit()
         _dispatch_pending(self.env.cr.dbname)
 
     # ------------------------------------------------------------------
@@ -562,8 +690,9 @@ class PromptQcRun(models.Model):
 
         # Hard wall-clock budget for this run. The worker self-terminates at this budget — well
         # before the reaper window (budget + grace) — so a healthy worker is never reaped mid-call
-        # and the global concurrency cap N is never overshot. `timeout` bounds connect/idle-read;
-        # `max_seconds` bounds TOTAL elapsed even for a slow-trickle stream.
+        # and the global concurrency cap N is never overshot. The Bedrock client uses tight
+        # per-operation timeouts of its own (connect/read/write); `max_seconds` here bounds the
+        # TOTAL elapsed time even for a slow-trickle stream that never trips a per-op timeout.
         budget = float(self._get_run_timeout_minutes() * 60)
         # Stream tokens live to the run owner over the bus while accumulating server-side. The bus
         # push is fire-forward; the durable verdict is still written only once, on completion.
@@ -576,6 +705,8 @@ class PromptQcRun(models.Model):
             temperature=bedrock_judge.JUDGE_TEMPERATURE,
             timeout=budget, max_seconds=budget,
             on_delta=publisher.push,
+            # Abort cleanly if the process is shutting down (deploy/restart) instead of hanging.
+            should_continue=lambda: not _SHUTTING_DOWN.is_set(),
         )
         publisher.flush()  # emit any buffered tail before the terminal event
         duration = round(time.time() - t0, 2)
@@ -600,10 +731,12 @@ class PromptQcRun(models.Model):
         return row[0] in ("done", "failed")
 
     def _mark_done(self, response, usage, duration, model_label):
-        """Terminal success write. First-terminal-wins (row-locked). Notifies the owner on commit."""
+        """Terminal success write. First-terminal-wins (row-locked). Notifies the owner on commit.
+        Returns True if this call performed the terminal write, False if the row was already
+        terminal (someone else won the race)."""
         self.ensure_one()
         if self._is_already_terminal_locked():
-            return
+            return False
         usage = usage or {}
         self.write({
             "state": "done",
@@ -615,12 +748,15 @@ class PromptQcRun(models.Model):
             "model_label": model_label or False,
         })
         self._notify_stream_terminal("done", False)
+        return True
 
     def _mark_failed(self, error, duration, model_label):
-        """Terminal failure write. D1: never store partial text. First-terminal-wins (row-locked)."""
+        """Terminal failure write. D1: never store partial text. First-terminal-wins (row-locked).
+        Returns True if this call performed the terminal write, False if the row was already
+        terminal (someone else won the race)."""
         self.ensure_one()
         if self._is_already_terminal_locked():
-            return
+            return False
         message = (error or _("Stream ended before completion."))[:2000]
         self.write({
             "state": "failed",
@@ -629,6 +765,7 @@ class PromptQcRun(models.Model):
             "model_label": model_label or False,
         })
         self._notify_stream_terminal("failed", message)
+        return True
 
     def _notify_stream_terminal(self, state, error):
         """After this transaction commits, push the terminal event to the run owner's bus channel
@@ -662,16 +799,22 @@ class PromptQcRun(models.Model):
         return self._default_seed_prompt()
 
     def _get_rubric(self):
-        """Resolve the rubric to send to the judge: the uploaded text, else empty.
+        """Resolve the rubric text to send to the judge by decoding the uploaded .json on demand.
 
-        The rubric is optional. When empty, no rubric block is sent and behaviour matches a
-        plain (no-rubric) run. We deliberately do NOT fall back to a default rubric, so adding
-        this feature never changes an existing run that uploaded no rubric.
+        The file is stored as an attachment (rubric_file); rather than keep a second decoded copy
+        on the row, we decode it here at judge time. The rubric is optional — when none was
+        uploaded this returns "" and no rubric block is sent, matching a plain (no-rubric) run. We
+        deliberately do NOT fall back to a default rubric.
         """
         self.ensure_one()
-        if self.rubric_text and self.rubric_text.strip():
-            return self.rubric_text
-        return ""
+        if not self.rubric_file:
+            return ""
+        try:
+            text = base64.b64decode(self.rubric_file).decode("utf-8")
+        except Exception:
+            _logger.warning("prompt_qc: could not decode rubric for run %s", self.id)
+            return ""
+        return text if text.strip() else ""
 
     @api.model
     def _default_seed_prompt(self):

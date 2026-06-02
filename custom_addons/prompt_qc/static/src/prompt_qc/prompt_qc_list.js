@@ -18,6 +18,7 @@ export class PromptQcListController extends ListController {
         super.setup();
         this.dialogService = useService("dialog");
         this._pollHandle = null;
+        this._polling = false;
         // Start the poller unconditionally: its first tick reloads and self-stops if nothing is
         // transient, so a list opened with runs already in flight (e.g. a bulk started elsewhere)
         // also refreshes live, not just one started in this session.
@@ -50,20 +51,39 @@ export class PromptQcListController extends ListController {
     }
 
     _startPoll() {
-        if (this._pollHandle) {
+        if (this._polling) {
             return;
         }
-        this._pollHandle = setInterval(async () => {
+        this._polling = true;
+        this._schedulePoll();
+    }
+
+    // Chain the next tick with setTimeout only AFTER the previous reload has finished. setInterval
+    // would fire on a fixed clock regardless of whether the last reload is still running, so a
+    // reload slower than POLL_INTERVAL_MS (likely with many rows) would stack reloads in parallel
+    // and stampede the server. This self-paces: one reload at a time, then wait, then the next.
+    _schedulePoll() {
+        this._pollHandle = setTimeout(async () => {
+            this._pollHandle = null;
+            if (!this._polling) {
+                return;
+            }
             await this._reload();
-            if (!this._hasTransientRecords()) {
+            if (!this._polling) {
+                return; // stopped (e.g. unmounted) during the await
+            }
+            if (this._hasTransientRecords()) {
+                this._schedulePoll();
+            } else {
                 this._stopPoll();
             }
         }, POLL_INTERVAL_MS);
     }
 
     _stopPoll() {
+        this._polling = false;
         if (this._pollHandle) {
-            clearInterval(this._pollHandle);
+            clearTimeout(this._pollHandle);
             this._pollHandle = null;
         }
     }
