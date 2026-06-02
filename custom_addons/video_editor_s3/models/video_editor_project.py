@@ -6,7 +6,7 @@ import shutil
 from urllib.parse import parse_qs, urlparse
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from ..services import llm_qc, youtube_downloader
 
@@ -424,6 +424,9 @@ class VideoEditorProject(models.Model):
 
     @api.constrains("youtube_start_time", "youtube_end_time")
     def _check_youtube_time_format(self):
+        settings = self.env["video.editor.s3.settings"]
+        trim_min = settings.get_trim_min_seconds()
+        trim_max = settings.get_trim_max_seconds()
         for rec in self:
             try:
                 start = _parse_hhmmssms_to_seconds(rec.youtube_start_time)
@@ -434,6 +437,12 @@ class VideoEditorProject(models.Model):
                 raise ValidationError(_(
                     "YouTube End Time (%(end)s) must be greater than Start Time (%(start)s)."
                 ) % {"end": rec.youtube_end_time or "0", "start": rec.youtube_start_time or "0"})
+            if end > 0.0:
+                duration = end - start
+                if duration < trim_min - 1e-4 or duration > trim_max + 1e-4:
+                    raise ValidationError(_(
+                        "YouTube clip duration must be between %(min).1f and %(max).1f seconds (current: %(current).3f)."
+                    ) % {"min": trim_min, "max": trim_max, "current": duration})
 
     @api.onchange("youtube_url")
     def _onchange_youtube_url_parse_times(self):
@@ -509,6 +518,22 @@ class VideoEditorProject(models.Model):
         default=lambda self: self.env.user,
         tracking=True,
     )
+
+    review_status = fields.Selection(
+        [
+            ("pending", "Pending Review"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        string="Review Status",
+        default="pending",
+        required=True,
+        tracking=True,
+        index=True,
+    )
+    review_decided_by = fields.Many2one("res.users", string="Reviewed By", readonly=True, tracking=True)
+    review_decided_at = fields.Datetime(string="Reviewed At", readonly=True, tracking=True)
+    review_notes = fields.Char(string="Review Notes", tracking=True)
 
     job_ids = fields.One2many(
         "video.editor.job", "project_id", string="Jobs",
@@ -934,6 +959,64 @@ class VideoEditorProject(models.Model):
                 "title": _("LLM QC cleared"),
                 "message": _("Click Run LLM QC to re-evaluate."),
                 "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_approve(self):
+        self.ensure_one()
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can approve projects."))
+        if not self.output_s3_url:
+            raise UserError(_("Approve requires a Trimmed S3 URL."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Approve requires LLM QC to have run first."))
+        now = fields.Datetime.now()
+        self.write({
+            "review_status": "approved",
+            "review_decided_by": self.env.user.id,
+            "review_decided_at": now,
+        })
+        self.message_post(body=_(
+            "Project approved by %(user)s on %(when)s."
+        ) % {"user": self.env.user.name, "when": now})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Approved"),
+                "message": _("Project marked as approved."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_reject(self):
+        self.ensure_one()
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can reject projects."))
+        if not self.output_s3_url:
+            raise UserError(_("Reject requires a Trimmed S3 URL."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Reject requires LLM QC to have run first."))
+        now = fields.Datetime.now()
+        self.write({
+            "review_status": "rejected",
+            "review_decided_by": self.env.user.id,
+            "review_decided_at": now,
+        })
+        self.message_post(body=_(
+            "Project rejected by %(user)s on %(when)s."
+        ) % {"user": self.env.user.name, "when": now})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Rejected"),
+                "message": _("Project marked as rejected."),
+                "type": "warning",
                 "sticky": False,
                 "next": {"type": "ir.actions.client", "tag": "soft_reload"},
             },

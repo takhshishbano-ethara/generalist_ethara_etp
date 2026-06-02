@@ -73,6 +73,8 @@
                     <button name="action_copy_source_to_trimmed_url" type="object" string="Copy to Trimmed URL" invisible="not s3_source_url"/>
                     <button name="action_run_llm_qc" type="object" string="Run LLM QC" invisible="not output_s3_url or not prompt or not category or not style"/>
                     <button name="action_export" type="object" string="Export to S3" invisible="not edited_file_path or state in ('exporting', 'exported')"/>
+                    <button name="action_approve" type="object" string="Approve" class="btn-success" groups="video_editor_s3.group_video_editor_s3_manager" invisible="review_status == 'approved' or not output_s3_url"/>
+                    <button name="action_reject" type="object" string="Reject" class="btn-danger" groups="video_editor_s3.group_video_editor_s3_manager" invisible="review_status == 'rejected' or not output_s3_url"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,processed,exported"/>
                 </header>
                 <sheet>
@@ -94,7 +96,7 @@
                             <field name="style"/>
                         </group>
                         <group>
-                            <field name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."/>
+                            <field name="youtube_url" widget="video_url_preview" options="{'dialog_title': 'YouTube Preview'}" placeholder="https://www.youtube.com/watch?v=..."/>
                             <field name="youtube_start_time" placeholder="00:06:50:000 (optional)" invisible="not youtube_url"/>
                             <field name="youtube_end_time" placeholder="00:07:03:000 (optional)" invisible="not youtube_url"/>
                             <field name="s3_source_url" widget="video_url_preview" options="{'stream_kind': 'source'}" placeholder="s3://bucket/path/to/video.mp4 or https URL"/>
