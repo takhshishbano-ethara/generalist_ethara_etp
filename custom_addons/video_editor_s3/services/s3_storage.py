@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+import mimetypes
 import os
 import time
 from urllib.parse import urlparse
@@ -131,10 +132,16 @@ def upload_file(s3_config: dict, local_path: str, s3_key: str) -> str:
     transfer_config = _get_transfer_config()
     last_error = None
 
+    guessed_type, _enc = mimetypes.guess_type(local_path)
+    extra_args = {"ContentType": guessed_type} if guessed_type else None
+
     for attempt in range(1, _S3_MAX_UPLOAD_ATTEMPTS + 1):
         t0 = time.monotonic()
         try:
-            client.upload_file(local_path, bucket, s3_key, Config=transfer_config)
+            kwargs = {"Config": transfer_config}
+            if extra_args:
+                kwargs["ExtraArgs"] = extra_args
+            client.upload_file(local_path, bucket, s3_key, **kwargs)
             elapsed = time.monotonic() - t0
             speed_mbps = (size_mb / elapsed) if elapsed > 0 else 0
             _logger.info(
@@ -254,6 +261,13 @@ def head_object_exists(s3_config: dict, s3_key: str) -> bool:
         code = (exc.response or {}).get("Error", {}).get("Code") if hasattr(exc, "response") else None
         if code in ("404", "NoSuchKey", "NotFound"):
             return False
+        if code in ("403", "AccessDenied", "Forbidden"):
+            _logger.warning(
+                "head_object 403 for s3://%s/%s — IAM lacks s3:ListBucket or s3:GetObject; "
+                "skipping dedup check and proceeding with upload.",
+                s3_config.get("bucket"), s3_key,
+            )
+            return False
         raise
 
 
@@ -270,6 +284,17 @@ class S3SettingsResolver(models.AbstractModel):
             "access_key": (ICP.get_param("video_editor_s3.aws_access_key") or "").strip(),
             "secret_key": (ICP.get_param("video_editor_s3.aws_secret_key") or "").strip(),
         }
+
+    @api.model
+    def get_local_s3_config(self) -> dict:
+        ICP = self.env["ir.config_parameter"].sudo()
+        local_access = (ICP.get_param("video_editor_s3.s3_access_key") or "").strip()
+        local_secret = (ICP.get_param("video_editor_s3.s3_secret_key") or "").strip()
+        cfg = self.get_s3_config()
+        if local_access and local_secret:
+            cfg["access_key"] = local_access
+            cfg["secret_key"] = local_secret
+        return cfg
 
     @api.model
     def get_max_source_size_bytes(self) -> int:
@@ -297,7 +322,12 @@ class S3SettingsResolver(models.AbstractModel):
     @api.model
     def get_youtube_prefix(self) -> str:
         ICP = self.env["ir.config_parameter"].sudo()
-        return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3/youtube").strip("/")
+        return (ICP.get_param("video_editor_s3.youtube_prefix") or "video_editor_s3").strip("/")
+
+    @api.model
+    def get_local_extractor_url(self) -> str:
+        ICP = self.env["ir.config_parameter"].sudo()
+        return (ICP.get_param("video_editor_s3.local_extractor_url") or "").strip().rstrip("/")
 
     @api.model
     def get_llm_qc_config(self) -> dict:
@@ -336,6 +366,8 @@ class S3SettingsResolver(models.AbstractModel):
         return {
             "cookies_browser": (ICP.get_param("video_editor_s3.yt_cookies_browser") or "").strip(),
             "cookies_path": (ICP.get_param("video_editor_s3.yt_cookies_path") or "").strip(),
+            "cookies_blob_b64": (ICP.get_param("video_editor_s3.yt_cookies_file") or "").strip(),
+            "cookies_filename": (ICP.get_param("video_editor_s3.yt_cookies_filename") or "").strip(),
             "proxy_url": (ICP.get_param("video_editor_s3.yt_proxy_url") or "").strip(),
         }
 

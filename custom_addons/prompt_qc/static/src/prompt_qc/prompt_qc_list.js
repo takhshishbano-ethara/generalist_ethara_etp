@@ -10,7 +10,7 @@ import { BulkImportDialog } from "./bulk_import_dialog";
 // Non-terminal states. While any visible run is in one of these, the list polls so its badge
 // transitions queued -> running -> done/failed live, the same "watch it progress" feel as the
 // single-run form in Stage 1.
-const TRANSIENT_STATES = new Set(["draft", "queued", "running", "streaming"]);
+const TRANSIENT_STATES = new Set(["draft", "queued", "running"]);
 const POLL_INTERVAL_MS = 3000;
 
 export class PromptQcListController extends ListController {

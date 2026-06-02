@@ -5,22 +5,23 @@ Holds the subject (user_prompt), an optional per-run rubric (uploaded .json, dec
 rubric_text), and the judge's response. The judge's system prompt is NOT per-run: it is uploaded
 once on the Settings page and applied universally to every run (see `_get_system_prompt`).
 
-Two execution paths share one Bedrock code path (services/bedrock_judge.py) and one pair of
-terminal-state writers (`_mark_done` / `_mark_failed`):
+Both the single "Start QC" button and "Bulk Import" use ONE background path — the LLM call never
+runs inside an HTTP request (an inline multi-minute Bedrock call in a web worker is what collapses
+an instance under load). `action_enqueue` (the button) and controllers/bulk.py both create runs in
+state 'queued' and return immediately. A gohan/leviathan-style background worker (a per-process
+ThreadPoolExecutor + ir.cron dispatcher/reaper) claims them with SELECT ... FOR UPDATE SKIP LOCKED,
+runs Bedrock per run in its own cursor, commits per run, and isolates failures. While a run
+executes, the judge's tokens stream live to the run owner over the bus (bus.bus); the verdict is
+persisted only on completion. One Bedrock code path (services/bedrock_judge.py, now with
+429/5xx retry+backoff) and one pair of terminal writers (`_mark_done` / `_mark_failed`) are shared.
 
-- Single run ("New"): the browser opens an SSE stream; controllers/main.py runs the Bedrock
-  call inside that request and persists in its `finally`. Lifecycle: draft -> streaming -> done/failed.
-- Bulk run ("Bulk Import"): controllers/bulk.py creates many runs in state 'queued' and returns
-  immediately. A gohan-style background worker (ThreadPoolExecutor + ir.cron dispatcher/reaper)
-  claims them with SELECT ... FOR UPDATE SKIP LOCKED, runs Bedrock per run in its own cursor,
-  commits per run, and isolates failures. Lifecycle: queued -> running -> done/failed.
-
-A partial/aborted run is always marked 'failed', never 'done'.
+Lifecycle: draft/queued -> running -> done/failed. A partial/aborted run is always 'failed'.
 """
 import base64
 import json
 import logging
 import os
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -37,31 +38,123 @@ _ALLOWED_RUBRIC_EXTENSIONS = (".json",)
 # ----------------------------------------------------------------------
 # Background worker (gohan pattern: bounded thread pool + cron dispatch/reap).
 # ----------------------------------------------------------------------
-# The pool is a generous upper bound on threads; the REAL concurrency cap is the configurable
-# N (prompt_qc.bulk_concurrency), enforced at claim time so at most N runs are ever in
-# 'running' DB-wide. The advisory lock serializes dispatchers so two of them can never each
-# claim N runs and together exceed the cap.
+# The pool size IS the concurrency cap: at most _POOL_SIZE runs are ever marked 'running'
+# DB-wide, because the dispatcher only claims up to (_POOL_SIZE - running) queued runs at a
+# time. Keeping the 'running' count aligned with the pool's real execution capacity is what
+# keeps the stuck-run reaper correct — a 'running' run is genuinely executing, never just
+# parked in the executor's queue waiting for a thread. The advisory lock serializes
+# dispatchers so two of them can never each claim a full pool and together overshoot it.
 _POOL_SIZE = int(os.environ.get("PROMPT_QC_POOL_SIZE", "16"))
-_POOL = ThreadPoolExecutor(max_workers=_POOL_SIZE, thread_name_prefix="prompt_qc")
 _DISPATCH_LOCK_ID = 729114301  # arbitrary, stable advisory-lock key for this module
 
-_DEFAULT_CONCURRENCY = 5
+# Per-process pool registry (leviathan pattern). Odoo prefork forks N worker processes; a
+# ThreadPoolExecutor built once at import time (pre-fork) has DEAD threads in the children — that
+# is the "21 May" collapse leviathan documents. Keying the pool on os.getpid() gives every worker
+# process a live pool. Global concurrency is still capped at _POOL_SIZE regardless of how many
+# processes run, because the dispatcher only ever flips (_POOL_SIZE - running) rows to 'running'
+# under the DB-wide advisory lock (see _dispatch_pending) — `running` is a global DB count.
+_POOL_REGISTRY = {}
+_POOL_REGISTRY_LOCK = threading.Lock()
+
+
+def _pool_is_dead(pool):
+    """A ThreadPoolExecutor is unusable once a worker thread failed to spawn (`_broken`) or it was
+    shut down (`_shutdown`). Either way it must be discarded and rebuilt, not served forever
+    (leviathan P0-1: a dead pool handed out for 80 min forced every job onto the inline fallback)."""
+    return bool(getattr(pool, "_broken", None) or getattr(pool, "_shutdown", False))
+
+
+def _get_pool():
+    """Return this process's judge pool, building it lazily and rebuilding it if it died."""
+    pid = os.getpid()
+    pool = _POOL_REGISTRY.get(pid)
+    if pool is not None and not _pool_is_dead(pool):
+        return pool
+    with _POOL_REGISTRY_LOCK:
+        pool = _POOL_REGISTRY.get(pid)
+        if pool is not None and not _pool_is_dead(pool):
+            return pool
+        pool = ThreadPoolExecutor(
+            max_workers=_POOL_SIZE, thread_name_prefix="prompt_qc[pid=%s]" % pid)
+        _POOL_REGISTRY[pid] = pool
+    return pool
+
+
 _DEFAULT_TIMEOUT_MIN = 15
 _DEFAULT_MAX_FILE_MB = 1
-_DEFAULT_MAX_ROWS = 25
 # Extra minutes the reaper waits beyond the run timeout before forcing a 'running' run to
 # 'failed'. It must exceed the reaper cron interval (5 min) so the reaper only ever fires AFTER a
 # healthy worker has already self-terminated at the wall-clock budget — that keeps the reaper from
 # freeing a slot for a worker that is still holding a live Bedrock connection (would overshoot N).
 _REAPER_GRACE_MIN = 6
 
+# Live-streaming over the bus. The worker pushes judge tokens to the run owner's bus channel as
+# they arrive, batched so we do not open a cursor per token. Each flush commits in its own short
+# cursor because Postgres delivers a NOTIFY only at commit — a single end-of-run commit would make
+# the whole verdict appear at once instead of streaming.
+_BUS_FLUSH_INTERVAL = 0.2   # seconds between flushes
+_BUS_FLUSH_CHARS = 400      # or flush early once this many characters have buffered
+
+# Bulk Import creates runs in batches of this size, so one very large submit is not one giant
+# in-memory create(). There is no row-count cap (removed by design); this only bounds peak memory.
+_CREATE_CHUNK_SIZE = int(os.environ.get("PROMPT_QC_CREATE_CHUNK", "100"))
+
+
+def _bus_publish(db_name, partner_id, payload):
+    """Send one bus notification in a fresh, immediately-committed cursor.
+
+    Streaming progress must commit per message (Postgres fires NOTIFY only at commit), so this is
+    deliberately independent of the worker's run-processing transaction. Best-effort: a bus failure
+    is logged and swallowed — it must never fail the judge call itself."""
+    if not partner_id:
+        return
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            partner = env["res.partner"].browse(partner_id)
+            env["bus.bus"]._sendone(partner, "prompt_qc.stream", payload)
+            cr.commit()
+    except Exception:
+        _logger.exception("prompt_qc: bus publish failed for run %s", payload.get("run_id"))
+
+
+class _StreamPublisher:
+    """Batches judge deltas and pushes them to the run owner's bus channel.
+
+    Flushes when the buffer is older than _BUS_FLUSH_INTERVAL or longer than _BUS_FLUSH_CHARS. Each
+    flush is one bus message in its own committed cursor (see _bus_publish), so the browser sees a
+    steady live stream rather than the whole verdict at the very end."""
+
+    def __init__(self, db_name, partner_id, run_id):
+        self._db = db_name
+        self._partner_id = partner_id
+        self._run_id = run_id
+        self._buf = ""
+        self._last = time.monotonic()
+
+    def push(self, text):
+        if not text:
+            return
+        self._buf += text
+        if (len(self._buf) >= _BUS_FLUSH_CHARS
+                or (time.monotonic() - self._last) >= _BUS_FLUSH_INTERVAL):
+            self.flush()
+
+    def flush(self):
+        if not self._buf:
+            return
+        payload = {"run_id": self._run_id, "kind": "delta", "text": self._buf}
+        self._buf = ""
+        self._last = time.monotonic()
+        _bus_publish(self._db, self._partner_id, payload)
+
 
 def _dispatch_pending(db_name):
-    """Claim up to (N - running) queued runs and submit each to the worker pool.
+    """Claim up to (_POOL_SIZE - running) queued runs and submit each to the worker pool.
 
     Safe to call from a request postcommit hook, from a cron, or from a finishing worker — it
-    opens its own short-lived cursor and never touches a caller's env. Bound N is enforced
-    globally: the advisory lock serializes the slot computation, and SKIP LOCKED + the
+    opens its own short-lived cursor and never touches a caller's env. The pool-size bound is
+    enforced globally: the advisory lock serializes the slot computation, and SKIP LOCKED + the
     state='queued' filter guarantee a run is claimed at most once.
     """
     ids = []
@@ -73,14 +166,13 @@ def _dispatch_pending(db_name):
             # Transaction-scoped advisory lock: auto-released on commit OR rollback, so a failed
             # commit can never strand a session lock on a pooled connection. It serializes the
             # slot computation across dispatchers (postcommit kick, cron, finishing workers) so
-            # two of them cannot each claim N and overshoot the global cap.
+            # two of them cannot each claim a full pool and overshoot the global cap.
             cr.execute("SELECT pg_try_advisory_xact_lock(%s)", (_DISPATCH_LOCK_ID,))
             got = cr.fetchone()
             if not got or not got[0]:
                 return  # another dispatcher holds the lock; it fills the available slots
-            n = Model._get_bulk_concurrency()
             running = Model.search_count([("state", "=", "running")])
-            slots = max(0, n - running)
+            slots = max(0, _POOL_SIZE - running)
             if slots <= 0:
                 return
             cr.execute(
@@ -108,7 +200,7 @@ def _dispatch_pending(db_name):
 
     for rec_id in ids:
         try:
-            _POOL.submit(_process_run, db_name, rec_id)
+            _get_pool().submit(_process_run, db_name, rec_id)
         except Exception:
             # Pool refused the task (shutdown): leave the run 'running' for the reaper, which
             # will time it out, and for the next dispatch tick.
@@ -178,7 +270,6 @@ class PromptQcRun(models.Model):
         string="Judge Response",
         readonly=True,
         copy=False,
-        help="The judge's output. Empty until the stream completes successfully.",
     )
 
     state = fields.Selection(
@@ -272,6 +363,34 @@ class PromptQcRun(models.Model):
             self._decode_rubric(vals)
         return super().write(vals)
 
+    @api.model
+    def create_runs_chunked(self, vals_list):
+        """Create many runs in bounded batches, so one very large Bulk Import is not one giant
+        in-memory create(). Same transaction as the caller — this caps peak memory and keeps each
+        create() call small; there is intentionally no row-count limit on the import itself."""
+        runs = self.browse()
+        for i in range(0, len(vals_list), _CREATE_CHUNK_SIZE):
+            runs |= self.create(vals_list[i:i + _CREATE_CHUNK_SIZE])
+        return runs
+
+    def action_enqueue(self):
+        """Queue these runs and kick the background dispatcher, then return immediately.
+
+        This is the single-run entry point for the 'Start QC' button. The LLM call never runs in
+        the calling (HTTP) request — it runs in the background pool (capped at _POOL_SIZE, with
+        retry/backoff), streaming tokens to the owner over the bus and persisting on completion.
+        Runs already in flight ('queued'/'running') are left untouched."""
+        to_queue = self.filtered(lambda r: r.state not in ("queued", "running"))
+        if to_queue:
+            to_queue.write({
+                "state": "queued",
+                "response": False,
+                "error_message": False,
+                "started_at": False,
+            })
+        self._enqueue_dispatch()
+        return True
+
     # ------------------------------------------------------------------
     # Config helpers (read once from System Parameters; default + clamp).
     # ------------------------------------------------------------------
@@ -295,21 +414,12 @@ class PromptQcRun(models.Model):
         return val
 
     @api.model
-    def _get_bulk_concurrency(self):
-        return self._icp_int("prompt_qc.bulk_concurrency", _DEFAULT_CONCURRENCY,
-                             minimum=1, maximum=_POOL_SIZE)
-
-    @api.model
     def _get_run_timeout_minutes(self):
         return self._icp_int("prompt_qc.run_timeout_minutes", _DEFAULT_TIMEOUT_MIN, minimum=1)
 
     @api.model
     def _get_max_file_size_mb(self):
         return self._icp_int("prompt_qc.max_file_size_mb", _DEFAULT_MAX_FILE_MB, minimum=1)
-
-    @api.model
-    def _get_bulk_max_rows(self):
-        return self._icp_int("prompt_qc.bulk_max_rows", _DEFAULT_MAX_ROWS, minimum=1)
 
     # ------------------------------------------------------------------
     # Bulk row validation (shared, non-raising — one error per row, valid rows untouched).
@@ -420,10 +530,11 @@ class PromptQcRun(models.Model):
     # Judge execution + terminal-state writers (shared single + bulk).
     # ------------------------------------------------------------------
     def _execute_judge(self):
-        """Run one Bedrock judge call for this (already 'running') run and persist the result.
+        """Run one Bedrock judge call for this (already 'running') run, stream it, and persist.
 
-        Called by the bulk worker on its own cursor. Mirrors the validation/branching the SSE
-        controller does, but accumulates server-side via `collect_judge` instead of streaming.
+        Called by the background worker on its own cursor. Tokens are accumulated server-side AND
+        pushed live to the run owner over the bus (via _StreamPublisher); the full verdict is
+        written exactly once, on completion (persist-only-on-completion, decision D1).
         """
         self.ensure_one()
         from ..services import bedrock_judge
@@ -454,13 +565,19 @@ class PromptQcRun(models.Model):
         # and the global concurrency cap N is never overshot. `timeout` bounds connect/idle-read;
         # `max_seconds` bounds TOTAL elapsed even for a slow-trickle stream.
         budget = float(self._get_run_timeout_minutes() * 60)
+        # Stream tokens live to the run owner over the bus while accumulating server-side. The bus
+        # push is fire-forward; the durable verdict is still written only once, on completion.
+        publisher = _StreamPublisher(
+            self.env.cr.dbname, self.create_uid.partner_id.id, self.id)
         result = bedrock_judge.collect_judge(
             api_key, inference_arn, region, system_prompt, self.user_prompt,
             rubric_text=self._get_rubric(),
             max_tokens=bedrock_judge.JUDGE_MAX_TOKENS,
             temperature=bedrock_judge.JUDGE_TEMPERATURE,
             timeout=budget, max_seconds=budget,
+            on_delta=publisher.push,
         )
+        publisher.flush()  # emit any buffered tail before the terminal event
         duration = round(time.time() - t0, 2)
         if result["ok"]:
             self._mark_done(result["text"], result["usage"], duration, model_label)
@@ -471,9 +588,9 @@ class PromptQcRun(models.Model):
     def _is_already_terminal_locked(self):
         """Lock this run's row and read its COMMITTED state. Returns True if the row is gone or
         already terminal (done/failed) — the caller must then NOT write. This serializes the
-        worker's terminal write against the reaper's (and any duplicate SSE persist) on the row
-        itself, so the FIRST terminal state wins: a finished run can never be flipped (e.g. a
-        reaped 'failed' run resurrected to 'done' by a late-finishing worker)."""
+        worker's terminal write against the reaper's on the row itself, so the FIRST terminal state
+        wins: a finished run can never be flipped (e.g. a reaped 'failed' run resurrected to 'done'
+        by a late-finishing worker)."""
         self.ensure_one()
         self.env.cr.execute(
             "SELECT state FROM prompt_qc_run WHERE id = %s FOR UPDATE", (self.id,))
@@ -483,7 +600,7 @@ class PromptQcRun(models.Model):
         return row[0] in ("done", "failed")
 
     def _mark_done(self, response, usage, duration, model_label):
-        """Terminal success write. First-terminal-wins (row-locked), shared by SSE + worker."""
+        """Terminal success write. First-terminal-wins (row-locked). Notifies the owner on commit."""
         self.ensure_one()
         if self._is_already_terminal_locked():
             return
@@ -497,21 +614,42 @@ class PromptQcRun(models.Model):
             "duration": duration,
             "model_label": model_label or False,
         })
+        self._notify_stream_terminal("done", False)
 
     def _mark_failed(self, error, duration, model_label):
         """Terminal failure write. D1: never store partial text. First-terminal-wins (row-locked)."""
         self.ensure_one()
         if self._is_already_terminal_locked():
             return
+        message = (error or _("Stream ended before completion."))[:2000]
         self.write({
             "state": "failed",
-            "error_message": (error or _("Stream ended before completion."))[:2000],
+            "error_message": message,
             "duration": duration,
             "model_label": model_label or False,
         })
+        self._notify_stream_terminal("failed", message)
+
+    def _notify_stream_terminal(self, state, error):
+        """After this transaction commits, push the terminal event to the run owner's bus channel
+        so the browser stops the spinner and reloads the durable result. Registered as a postcommit
+        so the frontend never reloads before the write is visible. Fires exactly once, because the
+        terminal writers are guarded by _is_already_terminal_locked()."""
+        partner = self.create_uid.partner_id
+        if not partner:
+            return
+        payload = {
+            "run_id": self.id,
+            "kind": "done",
+            "state": state,
+            "error": (error or "")[:500] or False,
+        }
+        db_name = self.env.cr.dbname
+        partner_id = partner.id
+        self.env.cr.postcommit.add(lambda: _bus_publish(db_name, partner_id, payload))
 
     # ------------------------------------------------------------------
-    # Helpers used by the streaming controller and the worker.
+    # Helpers used by the background worker.
     # ------------------------------------------------------------------
     def _get_system_prompt(self):
         """Resolve the judge instructions for ANY run: the ONE universal system prompt uploaded on

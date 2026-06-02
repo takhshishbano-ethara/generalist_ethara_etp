@@ -159,6 +159,7 @@ _JOB_TYPE_LABELS = {
     "preview": "Preview",
     "export": "Export",
     "youtube_ingest": "YouTube ingest",
+    "youtube_local_download": "YouTube local download",
     "prompt_qc": "Prompt QC",
     "s3_probe": "S3 probe",
 }
@@ -192,15 +193,20 @@ def _build_notification_payload(job):
         if job_type == "youtube_ingest":
             title = project.youtube_title or _("(no title)")
             message = _("Video '%s' ingested. Source S3 URL set.") % title
+        elif job_type == "youtube_local_download":
+            title = project.youtube_title or _("(no title)")
+            message = _("Video '%s' downloaded locally and uploaded. Source S3 URL set.") % title
         elif job_type in ("render", "preview"):
             message = _("Project: %s") % (project.name or "")
         elif job_type == "export":
             message = job.output_s3_url or (project.name or "")
-        elif job_type == "prompt_qc":
-            message = _("Quality: %s (score: %s)") % (
-                project.qc_quality or _("(unknown)"),
-                project.qc_score or 0,
-            )
+        elif job_type == "llm_qc":
+            verdict = (project.llm_qc_result or _("unknown")).upper()
+            reason = project.llm_failure_reason or ""
+            if reason:
+                message = _("Verdict: %s. %s") % (verdict, reason[:200])
+            else:
+                message = _("Verdict: %s.") % verdict
         else:
             message = project.name or ""
         return {

@@ -1,0 +1,41 @@
+{
+  "name": "Prompt Quality Rubric",
+  "description": "Example rubric for judging the quality of a user prompt. Copy this file, edit the dimensions/weights/scale to fit your needs, and upload it on a QC run. This sample is not auto-applied; a run only uses a rubric you upload.",
+  "scale": {
+    "min": 1,
+    "max": 5,
+    "guidance": "1 = poor, 3 = acceptable, 5 = excellent"
+  },
+  "dimensions": [
+    {
+      "key": "clarity",
+      "label": "Clarity",
+      "description": "Is the intent unambiguous? Could a competent model misread it?",
+      "weight": 1
+    },
+    {
+      "key": "specificity",
+      "label": "Specificity",
+      "description": "Are the task, constraints, and expected output format stated?",
+      "weight": 1
+    },
+    {
+      "key": "context_sufficiency",
+      "label": "Context sufficiency",
+      "description": "Is enough background given to complete the task well?",
+      "weight": 1
+    },
+    {
+      "key": "structure",
+      "label": "Structure",
+      "description": "Is it organised so the most important instructions are easy to find?",
+      "weight": 1
+    },
+    {
+      "key": "safety_scope",
+      "label": "Safety & scope",
+      "description": "Does it avoid disallowed, manipulative, or out-of-scope requests?",
+      "weight": 1
+    }
+  ]
+}

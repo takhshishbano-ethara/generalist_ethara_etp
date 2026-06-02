@@ -16,6 +16,7 @@ bytes, so the non-streaming worker can consume them too.
 import json
 import logging
 import os
+import random
 import struct
 import time
 from urllib.parse import quote
@@ -32,6 +33,19 @@ BEDROCK_CONVERSE_STREAM_URL = (
 DEFAULT_REGION = "ap-south-1"
 JUDGE_MAX_TOKENS = 8192
 JUDGE_TEMPERATURE = 0.2
+
+# Retry policy for the Bedrock call (ported from gohan/vegeta's bedrock_service). A 429
+# (throttling) or a transient 5xx is retried with exponential backoff + jitter; any other status
+# fails immediately. Retries happen ONLY before the stream has produced output — once tokens are
+# flowing we are committed, because a mid-stream retry would duplicate the verdict.
+_MAX_ATTEMPTS = 3
+_RETRYABLE_STATUS = (429, 500, 502, 503, 529)
+_MAX_BACKOFF = 8.0
+
+
+def _sleep_backoff(attempt):
+    """Exponential backoff with jitter: ~1-2s, then ~2-3s, capped at _MAX_BACKOFF seconds."""
+    time.sleep(min((2 ** attempt) + random.random(), _MAX_BACKOFF))
 
 
 # ----------------------------------------------------------------------
@@ -201,52 +215,83 @@ def iter_judge_events(api_key, inference_arn, region, system_prompt, user_messag
     }
 
     start = time.monotonic()
-    try:
-        with httpx.Client(http2=False, timeout=timeout) as client:
-            with client.stream("POST", url, json=payload, headers=headers) as resp:
-                if resp.status_code != 200:
+    last_error = None
+    for attempt in range(_MAX_ATTEMPTS):
+        streamed_any = False  # once True, a failure is terminal — never retry (would duplicate)
+        try:
+            with httpx.Client(http2=False, timeout=timeout) as client:
+                with client.stream("POST", url, json=payload, headers=headers) as resp:
+                    if resp.status_code == 200:
+                        for event_type, data in _iter_event_stream(resp.iter_raw()):
+                            if max_seconds is not None and (time.monotonic() - start) > max_seconds:
+                                # Hard wall-clock deadline: abandon the stream (no ("done", ...))
+                                # so the caller records a failure and frees its slot in time.
+                                yield ("error",
+                                       "Judge call exceeded the %ds time budget." % int(max_seconds))
+                                return
+                            if event_type == "contentBlockDelta":
+                                text = (data.get("delta") or {}).get("text") or ""
+                                if text:
+                                    streamed_any = True
+                                    yield ("delta", text)
+                            elif event_type == "metadata":
+                                usage = data.get("usage") or {}
+                                yield ("metadata", {
+                                    "input_tokens": int(usage.get("inputTokens", 0)),
+                                    "output_tokens": int(usage.get("outputTokens", 0)),
+                                })
+                        yield ("done", None)
+                        return
+
+                    # Non-200: read a bounded slice of the body for the error message.
                     raw = b""
                     for chunk in resp.iter_raw():
                         raw += chunk
                         if len(raw) > 2000:
                             break
-                    yield ("error", "Bedrock %s: %s" % (
-                        resp.status_code, raw[:2000].decode("utf-8", errors="replace"),
-                    ))
+                    last_error = "Bedrock %s: %s" % (
+                        resp.status_code, raw[:2000].decode("utf-8", errors="replace"))
+                    if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS - 1:
+                        _logger.warning(
+                            "prompt_qc: Bedrock %s (attempt %d/%d) — backing off",
+                            resp.status_code, attempt + 1, _MAX_ATTEMPTS)
+                        _sleep_backoff(attempt)
+                        continue
+                    yield ("error", last_error)
                     return
+        except (httpx.TimeoutException, httpx.TransportError) as exc:
+            # Connect/read failure. Safe to retry ONLY if no tokens were emitted yet.
+            last_error = "Bedrock connection error: %s" % exc
+            if not streamed_any and attempt < _MAX_ATTEMPTS - 1:
+                _logger.warning(
+                    "prompt_qc: %s (attempt %d/%d) — backing off",
+                    last_error, attempt + 1, _MAX_ATTEMPTS)
+                _sleep_backoff(attempt)
+                continue
+            yield ("error", last_error)
+            return
+        except Exception as exc:
+            _logger.exception("prompt_qc: Bedrock stream failed")
+            yield ("error", str(exc))
+            return
 
-                for event_type, data in _iter_event_stream(resp.iter_raw()):
-                    if max_seconds is not None and (time.monotonic() - start) > max_seconds:
-                        # Hard wall-clock deadline: abandon the stream (no ("done", ...)) so the
-                        # caller records a failure and the worker frees its slot in time.
-                        yield ("error", "Judge call exceeded the %ds time budget." % int(max_seconds))
-                        return
-                    if event_type == "contentBlockDelta":
-                        text = (data.get("delta") or {}).get("text") or ""
-                        if text:
-                            yield ("delta", text)
-                    elif event_type == "metadata":
-                        usage = data.get("usage") or {}
-                        yield ("metadata", {
-                            "input_tokens": int(usage.get("inputTokens", 0)),
-                            "output_tokens": int(usage.get("outputTokens", 0)),
-                        })
-                yield ("done", None)
-    except Exception as exc:
-        _logger.exception("prompt_qc: Bedrock stream failed")
-        yield ("error", str(exc))
+    yield ("error", last_error or "Bedrock: all retries exhausted")
 
 
 def collect_judge(api_key, inference_arn, region, system_prompt, user_message,
                   rubric_text=None,
                   max_tokens=JUDGE_MAX_TOKENS, temperature=JUDGE_TEMPERATURE,
-                  timeout=600.0, max_seconds=None):
+                  timeout=600.0, max_seconds=None, on_delta=None):
     """Drain ``iter_judge_events`` server-side and return the full result.
 
     Returns a dict: {"text": str, "usage": {...}, "ok": bool, "error": str|None}. ``ok`` is True
     only when a ("done", ...) event was seen and no ("error", ...) occurred — the same
-    persist-only-on-completion contract Stage 1 enforces for the SSE path. ``max_seconds`` is the
-    total wall-clock budget the background worker enforces on the call.
+    persist-only-on-completion contract Stage 1 enforces. ``max_seconds`` is the total wall-clock
+    budget the background worker enforces on the call.
+
+    ``on_delta`` is an optional callback invoked with each text chunk as it arrives, so the worker
+    can live-stream the verdict (e.g. over the bus) while still accumulating it for the single
+    persisted result. A failing callback is logged and ignored — it must never break the call.
     """
     accumulated = ""
     usage = {}
@@ -259,6 +304,11 @@ def collect_judge(api_key, inference_arn, region, system_prompt, user_message,
     ):
         if kind == "delta":
             accumulated += data
+            if on_delta is not None:
+                try:
+                    on_delta(data)
+                except Exception:
+                    _logger.exception("prompt_qc: on_delta callback failed")
         elif kind == "metadata":
             usage = data or {}
         elif kind == "done":

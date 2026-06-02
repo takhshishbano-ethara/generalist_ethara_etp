@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <form string="Prompt QC">
                 <header>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,running,streaming,done"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,queued,running,done"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -17,7 +17,7 @@
                         <group>
                             <field name="rubric_file" widget="binary"
                                    filename="rubric_filename"
-                                   readonly="state in ('queued','running','streaming')"
+                                   readonly="state in ('queued','running')"
                                    string="Rubric (.json)"/>
                             <field name="rubric_filename" invisible="1"/>
                             <div class="text-muted" colspan="2">
@@ -34,7 +34,7 @@
                     </group>
                     <separator string="User Prompt (subject being evaluated)"/>
                     <field name="user_prompt" nolabel="1" widget="prompt_qc_markdown"
-                           readonly="state in ('queued','running','streaming')"
+                           readonly="state in ('queued','running')"
                            placeholder="Paste the prompt to be evaluated…"/>
 
                     <separator string="QC Result"/>
@@ -58,7 +58,7 @@
                 <field name="create_date"/>
                 <field name="state" widget="badge"
                        decoration-muted="state == 'queued'"
-                       decoration-info="state in ('running','streaming')"
+                       decoration-info="state == 'running'"
                        decoration-warning="state == 'draft'"
                        decoration-success="state == 'done'"
                        decoration-danger="state == 'failed'"/>

@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 import logging
 import os
+import re
 import shutil
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -10,6 +11,68 @@ from odoo.exceptions import UserError, ValidationError
 from ..services import llm_qc, youtube_downloader
 
 _logger = logging.getLogger(__name__)
+
+_HHMMSSMS_RE = re.compile(r"^\d{1,2}(:\d{1,3}){0,3}$")
+_YT_T_RE = re.compile(r"^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+(?:\.\d+)?)s?)?$")
+
+
+def _parse_hhmmssms_to_seconds(value):
+    if value is None:
+        return 0.0
+    s = str(value).strip()
+    if not s:
+        return 0.0
+    try:
+        return max(float(s), 0.0)
+    except ValueError:
+        pass
+    if not _HHMMSSMS_RE.match(s):
+        raise ValueError(_("Invalid time format: %r. Use HH:MM:SS:MS, HH:MM:SS, MM:SS or plain seconds.") % value)
+    parts = s.split(":")
+    nums = [int(p) for p in parts]
+    if len(nums) == 1:
+        return float(nums[0])
+    if len(nums) == 2:
+        return float(nums[0] * 60 + nums[1])
+    if len(nums) == 3:
+        return float(nums[0] * 3600 + nums[1] * 60 + nums[2])
+    h, m, sec, ms = nums
+    return float(h * 3600 + m * 60 + sec) + (ms / 1000.0)
+
+
+def _seconds_to_hhmmssms(seconds):
+    try:
+        total = max(float(seconds or 0.0), 0.0)
+    except (TypeError, ValueError):
+        return ""
+    if total <= 0.0:
+        return ""
+    ms = int(round((total - int(total)) * 1000))
+    if ms >= 1000:
+        total += 1
+        ms = 0
+    whole = int(total)
+    h = whole // 3600
+    m = (whole % 3600) // 60
+    sec = whole % 60
+    return "%02d:%02d:%02d:%03d" % (h, m, sec, ms)
+
+
+def _parse_yt_t_param(value):
+    if value is None:
+        return None
+    s = str(value).strip().lower()
+    if not s:
+        return None
+    try:
+        return max(float(s), 0.0)
+    except ValueError:
+        pass
+    m = _YT_T_RE.match(s)
+    if not m or not any(m.groups()):
+        return None
+    h, mn, se = m.groups()
+    return float(int(h or 0) * 3600 + int(mn or 0) * 60) + float(se or 0)
 
 PROJECT_STATES = [
     ("draft", "Draft"),
@@ -286,11 +349,29 @@ class VideoEditorProject(models.Model):
     youtube_resolution = fields.Char(string="YouTube Resolution", readonly=True)
     youtube_fps = fields.Float(string="YouTube FPS", readonly=True)
     youtube_tier = fields.Selection(
-        [("1080p", "1080p"), ("1440p", "1440p"), ("2160p", "2160p")],
+        [("2160p", "2160p")],
         string="YouTube Tier",
-        readonly=True,
+        default="2160p",
+    )
+    youtube_start_time = fields.Char(
+        string="Start Time",
+        default="00:00:00:000",
+        help="Download trim start in HH:MM:SS:MS (e.g. 00:06:50:000). "
+             "Leave as 00:00:00:000 to start from the beginning.",
+    )
+    youtube_end_time = fields.Char(
+        string="End Time",
+        default="00:00:00:000",
+        help="Download trim end in HH:MM:SS:MS (e.g. 00:07:03:000). "
+             "Leave as 00:00:00:000 to download until the end.",
     )
     youtube_ingested_at = fields.Datetime(string="YouTube Ingested At", readonly=True)
+    youtube_local_blob = fields.Binary(
+        string="YouTube Local Blob",
+        attachment=False,
+        help="Durable copy of the locally-downloaded YouTube clip held in the database between the local-extractor download and the S3 upload, so the upload survives an Odoo worker restart. Cleared automatically once the file is uploaded to S3.",
+    )
+    youtube_local_blob_filename = fields.Char(string="YouTube Local Blob Filename")
 
     prompt = fields.Text(string="Prompt")
 
@@ -340,6 +421,51 @@ class VideoEditorProject(models.Model):
             allowed = {val for val, _label in SUB_CATEGORIES_BY_CATEGORY.get(rec.category or "", [])}
             if rec.sub_category not in allowed:
                 rec.sub_category = False
+
+    @api.constrains("youtube_start_time", "youtube_end_time")
+    def _check_youtube_time_format(self):
+        for rec in self:
+            try:
+                start = _parse_hhmmssms_to_seconds(rec.youtube_start_time)
+                end = _parse_hhmmssms_to_seconds(rec.youtube_end_time)
+            except ValueError as exc:
+                raise ValidationError(str(exc))
+            if end > 0.0 and end <= start:
+                raise ValidationError(_(
+                    "YouTube End Time (%(end)s) must be greater than Start Time (%(start)s)."
+                ) % {"end": rec.youtube_end_time or "0", "start": rec.youtube_start_time or "0"})
+
+    @api.onchange("youtube_url")
+    def _onchange_youtube_url_parse_times(self):
+        for rec in self:
+            url = (rec.youtube_url or "").strip()
+            if not url:
+                continue
+            try:
+                parsed = urlparse(url)
+            except (TypeError, ValueError):
+                continue
+            params = parse_qs(parsed.query or "")
+            try:
+                start_set = _parse_hhmmssms_to_seconds(rec.youtube_start_time) > 0.0
+                end_set = _parse_hhmmssms_to_seconds(rec.youtube_end_time) > 0.0
+            except ValueError:
+                start_set = end_set = False
+            if not start_set:
+                for key in ("t", "start"):
+                    raw = (params.get(key) or [None])[0]
+                    start_sec = _parse_yt_t_param(raw)
+                    if start_sec is not None and start_sec > 0:
+                        rec.youtube_start_time = _seconds_to_hhmmssms(start_sec)
+                        break
+            if not end_set:
+                for key in ("end", "stop"):
+                    raw = (params.get(key) or [None])[0]
+                    end_sec = _parse_yt_t_param(raw)
+                    if end_sec is not None and end_sec > 0:
+                        rec.youtube_end_time = _seconds_to_hhmmssms(end_sec)
+                        break
+
     style = fields.Selection(
         [
             ("casual", "Casual"),
@@ -564,12 +690,29 @@ class VideoEditorProject(models.Model):
         self.write({"state": "exporting"})
         return self._kick_job("export", config=cfg)
 
+    def _build_youtube_job_config(self):
+        self.ensure_one()
+        cfg = {
+            "youtube_url": self.youtube_url,
+            "tier": self.youtube_tier or "2160p",
+        }
+        start = _parse_hhmmssms_to_seconds(self.youtube_start_time)
+        end = _parse_hhmmssms_to_seconds(self.youtube_end_time)
+        if start > 0.0:
+            cfg["start_seconds"] = start
+        if end > 0.0:
+            cfg["end_seconds"] = end
+        return cfg
+
     def action_ingest_youtube(self):
         self.ensure_one()
         if not self.youtube_url:
             raise UserError(_("Set a YouTube URL first."))
-        self._probe_youtube_or_raise()
-        job = self._kick_job("youtube_ingest", config={"youtube_url": self.youtube_url})
+        cfg = self._build_youtube_job_config()
+        is_clip = "start_seconds" in cfg or "end_seconds" in cfg
+        if not is_clip:
+            self._probe_youtube_or_raise()
+        job = self._kick_job("youtube_ingest", config=cfg)
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -581,6 +724,58 @@ class VideoEditorProject(models.Model):
                     "will be populated automatically."
                 ) % job.id,
                 "type": "info",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_download_youtube_local(self):
+        self.ensure_one()
+        if not self.youtube_url:
+            raise UserError(_("Set a YouTube URL first."))
+        base_url = self.env["video.editor.s3.settings"].sudo().get_local_extractor_url()
+        if not base_url:
+            raise UserError(_(
+                "Local Extractor URL is not configured. Set it under "
+                "Settings > Crowley Sourcing > YouTube Ingest."
+            ))
+        if not base_url.startswith(("http://", "https://")):
+            raise UserError(_(
+                "Local Extractor URL must start with http:// or https:// "
+                "(got %s). Configure it as the base URL of the running "
+                "scripts/local_youtube_extractor.py HTTP server, "
+                "e.g. http://127.0.0.1:8081 or your Tailscale/cloudflared URL."
+            ) % base_url[:120])
+        cfg = self._build_youtube_job_config()
+        job = self._kick_job("youtube_local_download", config=cfg)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Local YouTube download queued"),
+                "message": _(
+                    "Job #%s is downloading the clip via the local extractor "
+                    "and uploading it to S3. Refresh this form when the job "
+                    "finishes - the Source S3 URL will be populated automatically."
+                ) % job.id,
+                "type": "info",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_copy_source_to_trimmed_url(self):
+        self.ensure_one()
+        if not self.s3_source_url:
+            raise UserError(_("Source S3 URL is empty - nothing to copy."))
+        self.write({"output_s3_url": self.s3_source_url})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Trimmed S3 URL set"),
+                "message": _("Copied Source S3 URL into Trimmed S3 URL."),
+                "type": "success",
                 "sticky": False,
                 "next": {"type": "ir.actions.client", "tag": "soft_reload"},
             },
@@ -630,9 +825,20 @@ class VideoEditorProject(models.Model):
             video_id, _normalized = youtube_downloader.parse_youtube_url(rec.youtube_url)
             if not video_id:
                 continue
-            rec._probe_youtube_or_raise()
             try:
-                rec._kick_job("youtube_ingest", config={"youtube_url": rec.youtube_url})
+                cfg = rec._build_youtube_job_config()
+            except ValueError as exc:
+                _logger.info("auto-ingest skipped for project %s: bad time format %s", rec.id, exc)
+                continue
+            is_clip = "start_seconds" in cfg or "end_seconds" in cfg
+            if not is_clip:
+                try:
+                    rec._probe_youtube_or_raise()
+                except UserError as exc:
+                    _logger.info("auto-ingest probe failed for project %s: %s", rec.id, exc)
+                    continue
+            try:
+                rec._kick_job("youtube_ingest", config=cfg)
             except UserError as exc:
                 _logger.info("auto-ingest skipped for project %s: %s", rec.id, exc)
 
@@ -747,6 +953,45 @@ class VideoEditorProject(models.Model):
             "params": {
                 "title": _("Fixed prompt applied"),
                 "message": _("Re-run LLM QC to verify the new prompt."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_clear_llm_qc(self):
+        self.ensure_one()
+        if not self.llm_evaluated_at and not self.llm_qc_result:
+            raise UserError(_("Nothing to clear: this project has no LLM QC record."))
+        previous_verdict = dict(self._fields["llm_qc_result"].selection).get(
+            self.llm_qc_result, self.llm_qc_result or _("(none)")
+        )
+        was_force_passed = self.llm_qc_force_passed
+        self.write({
+            "llm_qc_result": False,
+            "llm_failure_reason": False,
+            "llm_fixed_prompt": False,
+            "llm_evaluated_at": False,
+            "llm_qc_force_passed": False,
+            "llm_qc_force_passed_by": False,
+            "llm_qc_force_passed_at": False,
+            "llm_qc_force_pass_reason": False,
+        })
+        suffix = _(" (was force-passed)") if was_force_passed else ""
+        self.message_post(body=_(
+            "LLM QC cleared by %(user)s. Previous verdict: %(verdict)s%(suffix)s. "
+            "You can now click Run LLM QC to re-evaluate."
+        ) % {
+            "user": self.env.user.name,
+            "verdict": previous_verdict,
+            "suffix": suffix,
+        })
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("LLM QC cleared"),
+                "message": _("Click Run LLM QC to re-evaluate."),
                 "type": "success",
                 "sticky": False,
                 "next": {"type": "ir.actions.client", "tag": "soft_reload"},
