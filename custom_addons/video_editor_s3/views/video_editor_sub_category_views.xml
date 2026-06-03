@@ -7,7 +7,7 @@
         <field name="arch" type="xml">
             <list string="Sub-Categories" editable="bottom">
                 <field name="sequence" widget="handle"/>
-                <field name="category"/>
+                <field name="category_id"/>
                 <field name="name"/>
                 <field name="code"/>
                 <field name="active" widget="boolean_toggle"/>
@@ -23,7 +23,7 @@
                 <sheet>
                     <group>
                         <group>
-                            <field name="category" required="1"/>
+                            <field name="category_id" required="1" options="{'no_create': True, 'no_open': True}"/>
                             <field name="name" required="1"/>
                             <field name="code" required="1"/>
                         </group>
@@ -44,10 +44,10 @@
             <search string="Sub-Categories">
                 <field name="name"/>
                 <field name="code"/>
-                <field name="category"/>
+                <field name="category_id"/>
                 <filter string="Archived" name="archived" domain="[('active', '=', False)]"/>
                 <separator/>
-                <filter string="Category" name="group_category" context="{'group_by': 'category'}"/>
+                <filter string="Category" name="group_category" context="{'group_by': 'category_id'}"/>
             </search>
         </field>
     </record>

@@ -425,7 +425,6 @@ class VideoEditorProject(models.Model):
     llm_qc_force_pass_reason = fields.Char(
         string="Force-Pass Reason", readonly=True, copy=False, tracking=True,
     )
-
     category = fields.Selection(
         CATEGORIES,
         string="Category",
@@ -434,28 +433,9 @@ class VideoEditorProject(models.Model):
         SUB_CATEGORIES,
         string="Sub-Category",
     )
-    sub_category_id = fields.Many2one(
-        "video.editor.sub.category",
-        string="Sub-Category",
-        domain="[('category', '=', category)]",
-        compute="_compute_sub_category_id",
-        inverse="_inverse_sub_category_id",
-        store=True,
-        readonly=False,
-    )
+    category_id = fields.Many2one("video.editor.category", string="Category")
+    sub_category_id = fields.Many2one("video.editor.sub.category", string="Sub-Category", domain="[('category_id', '=', category_id)]")
 
-    @api.depends("sub_category")
-    def _compute_sub_category_id(self):
-        Sub = self.env["video.editor.sub.category"]
-        for rec in self:
-            if rec.sub_category:
-                rec.sub_category_id = Sub.search([("code", "=", rec.sub_category)], limit=1)
-            else:
-                rec.sub_category_id = False
-
-    def _inverse_sub_category_id(self):
-        for rec in self:
-            rec.sub_category = rec.sub_category_id.code if rec.sub_category_id else False
 
     @api.onchange("category")
     def _onchange_category(self):
@@ -899,7 +879,7 @@ class VideoEditorProject(models.Model):
             except UserError as exc:
                 _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
 
-    def _maybe_probe_output_s3(self):
+    def maybe_probe_output_s3(self):
         for rec in self:
             if not rec.output_s3_url:
                 continue
@@ -1161,7 +1141,7 @@ class VideoEditorProject(models.Model):
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
         if "output_s3_url" in vals:
-            self._maybe_probe_output_s3()
+            self.maybe_probe_output_s3()
         return res
 
     def unlink(self):

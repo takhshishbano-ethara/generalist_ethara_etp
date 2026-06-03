@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <record id="category_animals_wildlife" model="video.editor.category">
+        <field name="name">Animals &amp; Wildlife</field>
+        <field name="code">animals_wildlife</field>
+        <field name="sequence">10</field>
+    </record>
+
+    <record id="category_animated_styles" model="video.editor.category">
+        <field name="name">Animated Styles</field>
+        <field name="code">animated_styles</field>
+        <field name="sequence">20</field>
+    </record>
+
+    <record id="category_animated_text" model="video.editor.category">
+        <field name="name">Animated Text</field>
+        <field name="code">animated_text</field>
+        <field name="sequence">30</field>
+    </record>
+
+    <record id="category_av_sync_sound_effects" model="video.editor.category">
+        <field name="name">AV-Sync Sound Effects</field>
+        <field name="code">av_sync_sound_effects</field>
+        <field name="sequence">40</field>
+    </record>
+
+    <record id="category_camera_motion" model="video.editor.category">
+        <field name="name">Camera Motion</field>
+        <field name="code">camera_motion</field>
+        <field name="sequence">50</field>
+    </record>
+
+    <record id="category_explainer_educational" model="video.editor.category">
+        <field name="name">Explainer &amp; Educational</field>
+        <field name="code">explainer_educational</field>
+        <field name="sequence">60</field>
+    </record>
+
+    <record id="category_fantasy_surreal" model="video.editor.category">
+        <field name="name">Fantasy &amp; Surreal</field>
+        <field name="code">fantasy_surreal</field>
+        <field name="sequence">70</field>
+    </record>
+
+    <record id="category_fine_grained_motion" model="video.editor.category">
+        <field name="name">Fine-Grained Motion</field>
+        <field name="code">fine_grained_motion</field>
+        <field name="sequence">80</field>
+    </record>
+
+    <record id="category_high_motion_action" model="video.editor.category">
+        <field name="name">High-Motion Action</field>
+        <field name="code">high_motion_action</field>
+        <field name="sequence">90</field>
+    </record>
+
+    <record id="category_human_activities" model="video.editor.category">
+        <field name="name">Human Activities</field>
+        <field name="code">human_activities</field>
+        <field name="sequence">100</field>
+    </record>
+
+    <record id="category_multi_speaker_dialogue" model="video.editor.category">
+        <field name="name">Multi-Speaker Dialogue</field>
+        <field name="code">multi_speaker_dialogue</field>
+        <field name="sequence">110</field>
+    </record>
+
+    <record id="category_music_performance" model="video.editor.category">
+        <field name="name">Music Performance</field>
+        <field name="code">music_performance</field>
+        <field name="sequence">120</field>
+    </record>
+
+    <record id="category_narrative_cinematic" model="video.editor.category">
+        <field name="name">Narrative &amp; Cinematic</field>
+        <field name="code">narrative_cinematic</field>
+        <field name="sequence">130</field>
+    </record>
+
+    <record id="category_natural_patterns" model="video.editor.category">
+        <field name="name">Natural Patterns</field>
+        <field name="code">natural_patterns</field>
+        <field name="sequence">140</field>
+    </record>
+
+    <record id="category_nature_weather" model="video.editor.category">
+        <field name="name">Nature &amp; Weather</field>
+        <field name="code">nature_weather</field>
+        <field name="sequence">150</field>
+    </record>
+
+    <record id="category_person_emoting" model="video.editor.category">
+        <field name="name">Person Emoting</field>
+        <field name="code">person_emoting</field>
+        <field name="sequence">160</field>
+    </record>
+
+    <record id="category_speech_styles" model="video.editor.category">
+        <field name="name">Speech Styles</field>
+        <field name="code">speech_styles</field>
+        <field name="sequence">170</field>
+    </record>
+
+    <record id="category_urban_scenes" model="video.editor.category">
+        <field name="name">Urban Scenes</field>
+        <field name="code">urban_scenes</field>
+        <field name="sequence">180</field>
+    </record>
+
+    <record id="category_vehicles_machines" model="video.editor.category">
+        <field name="name">Vehicles &amp; Machines</field>
+        <field name="code">vehicles_machines</field>
+        <field name="sequence">190</field>
+    </record>
+
+</odoo>

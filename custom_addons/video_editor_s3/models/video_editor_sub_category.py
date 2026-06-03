@@ -2,15 +2,10 @@
 from odoo import fields, models
 
 
-def _category_selection(self):
-    field = self.env["video.editor.project"]._fields.get("category")
-    return field.selection if field else []
-
-
 class VideoEditorSubCategory(models.Model):
     _name = "video.editor.sub.category"
     _description = "Crowley Sourcing Sub-Category"
-    _order = "category, sequence, name"
+    _order = "category_id, sequence, name"
     _rec_name = "name"
 
     name = fields.Char(required=True, translate=True)
@@ -18,9 +13,11 @@ class VideoEditorSubCategory(models.Model):
         required=True,
         help="Key written to video.editor.project.sub_category when this record is picked.",
     )
-    category = fields.Selection(
-        selection=_category_selection,
+    category_id = fields.Many2one(
+        "video.editor.category",
+        string="Category",
         required=True,
+        ondelete="restrict",
         index=True,
     )
     sequence = fields.Integer(default=10)
