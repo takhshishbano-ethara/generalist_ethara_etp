@@ -89,12 +89,11 @@ class VideoEditorJob(models.Model):
         for rec in self:
             if rec.status not in ("queued", "running"):
                 continue
-            cancelled = job_executor.request_cancel(rec.id)
-            if not cancelled and rec.status == "queued":
-                rec.write({
-                    "status": "cancelled",
-                    "finished_at": fields.Datetime.now(),
-                })
+            job_executor.request_cancel(rec.id)
+            rec.write({
+                "status": "cancelled",
+                "finished_at": fields.Datetime.now(),
+            })
         return True
 
     def action_retry(self):
@@ -162,6 +161,57 @@ class VideoEditorJob(models.Model):
             "error_message": _("Job marked failed: no heartbeat within %s seconds.") % job_executor._HEARTBEAT_STALE_SECONDS,
             "finished_at": fields.Datetime.now(),
         })
+
+
+def _extract_qc_metadata(project):
+    category = (
+        (project.category_id.code if project.category_id else "")
+        or project.category
+        or ""
+    )
+    sub_category = (
+        (project.sub_category_id.code if project.sub_category_id else "")
+        or project.sub_category
+        or ""
+    )
+    topic = (
+        getattr(project, "topic_name", "")
+        or getattr(project, "topic", "")
+        or ""
+    )
+    style = project.style or ""
+    source_meta = project.source_metadata or {}
+    resolution = (
+        (project.output_resolution or "").strip()
+        or (source_meta.get("resolution") or project.resolution or "").strip()
+    )
+    try:
+        duration_seconds = float(
+            project.output_duration_seconds
+            or source_meta.get("duration")
+            or project.duration_seconds
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        duration_seconds = 0.0
+    try:
+        fps = float(
+            project.output_fps
+            or source_meta.get("fps")
+            or project.source_fps
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        fps = 0.0
+    return {
+        "category": category,
+        "sub_category": sub_category,
+        "topic": topic,
+        "style": style,
+        "resolution": resolution,
+        "duration_seconds": duration_seconds,
+        "fps": fps,
+    }
 
 
 def _run_job(db, uid, job_id):
@@ -577,22 +627,15 @@ def _run_llm_qc(db, uid, job_id, cancel_event):
         project_id = project.id
 
         item_id = str(project.id)
-        category = project.category or ""
-        sub_category = project.sub_category or ""
-        topic = getattr(project, "topic_name", "") or getattr(project, "topic", "") or ""
+        meta = _extract_qc_metadata(project)
+        category = meta["category"]
+        sub_category = meta["sub_category"]
+        topic = meta["topic"]
         prompt_text = (project.prompt or "").strip()
-        style = project.style or ""
-
-        meta = project.source_metadata or {}
-        resolution = (meta.get("resolution") or project.resolution or "").strip()
-        try:
-            duration_seconds = float(meta.get("duration") or project.duration_seconds or 0.0)
-        except (TypeError, ValueError):
-            duration_seconds = 0.0
-        try:
-            fps = float(meta.get("fps") or project.source_fps or 0.0)
-        except (TypeError, ValueError):
-            fps = 0.0
+        style = meta["style"]
+        resolution = meta["resolution"]
+        duration_seconds = meta["duration_seconds"]
+        fps = meta["fps"]
 
         settings = env["video.editor.s3.settings"]
         llm_cfg = settings.get_llm_qc_config()
@@ -696,5 +739,6 @@ def _run_llm_qc(db, uid, job_id, cancel_event):
             "llm_failure_reason": result.get("failure_reason") or "",
             "llm_fixed_prompt": result.get("fixed_prompt") or "",
             "llm_evaluated_at": fields.Datetime.now(),
+            "llm_qc_cost_usd": float(result.get("cost_usd") or 0.0),
         })
         cr.commit()

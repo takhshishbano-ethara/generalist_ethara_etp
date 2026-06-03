@@ -150,6 +150,11 @@ def _mark_status(db, job_id, status, error=None):
     from datetime import datetime
     try:
         with _open_cursor(db) as cr:
+            cr.execute("SELECT status FROM video_editor_job WHERE id = %s", (job_id,))
+            row = cr.fetchone()
+            if row and row[0] == "cancelled" and status != "cancelled":
+                _logger.info("skip status=%s on job %s: already cancelled by user", status, job_id)
+                return
             vals = {"status": status, "finished_at": datetime.utcnow()}
             if error:
                 vals["error_message"] = error

@@ -1,7 +1,6 @@
 import logging
 
-from odoo import _, api, fields, models
-from odoo.exceptions import ValidationError
+from odoo import api, fields, models
 
 from . import credential_manager
 
@@ -10,7 +9,6 @@ _logger = logging.getLogger(__name__)
 _API_KEY_PARAM = "crowley.openrouter_api_key"
 _AWS_ACCESS_KEY_PARAM = "crowley.aws_access_key"
 _AWS_SECRET_KEY_PARAM = "crowley.aws_secret_key"
-_BEDROCK_API_KEY_PARAM = "crowley.bedrock_api_key"
 _WEBHOOK_SECRET_PARAM = "crowley.webhook_secret"
 _S3_CONNECTOR_PARAM = "crowley.s3_connector_id"
 _MASK = "********"
@@ -38,17 +36,6 @@ class ResConfigSettings(models.TransientModel):
     crowley_aws_secret_key = fields.Char(string="AWS Secret Access Key")
     crowley_aws_secret_key_is_set = fields.Boolean(
         string="AWS Secret Configured", compute="_compute_aws_secret_key_is_set"
-    )
-    crowley_bedrock_api_key = fields.Char(
-        string="Bedrock API Key",
-        help="AWS Bedrock API Key (starts with ABSK...). "
-             "Single-key alternative to AWS Access Key + Secret Key for "
-             "Bedrock auth. Preferred when set: no SigV4 signing, direct "
-             "HTTPS Bearer auth to bedrock-runtime endpoint.",
-    )
-    crowley_bedrock_api_key_is_set = fields.Boolean(
-        string="Bedrock API Key Configured",
-        compute="_compute_bedrock_api_key_is_set",
     )
     crowley_webhook_secret = fields.Char(string="Webhook HMAC Secret")
     crowley_webhook_secret_is_set = fields.Boolean(
@@ -92,75 +79,6 @@ class ResConfigSettings(models.TransientModel):
         help="X-Title header sent to OpenRouter.",
     )
 
-    crowley_bedrock_region = fields.Char(
-        string="Bedrock AWS Region",
-        config_parameter="crowley.bedrock_region",
-        default="ap-south-1",
-        help="AWS region for Bedrock (enrichment + optional Bedrock-backed review).",
-    )
-    crowley_bedrock_model_id = fields.Char(
-        string="Enrichment Model ID (Bedrock)",
-        config_parameter="crowley.bedrock_model_id",
-        help="Target: Claude Sonnet 4.6 — paste exact ARN when AWS publishes it.",
-    )
-    crowley_bedrock_max_retries = fields.Integer(
-        string="Bedrock Max Retries",
-        config_parameter="crowley.bedrock_max_retries",
-        default=5,
-    )
-    crowley_enrichment_max_attempts = fields.Integer(
-        string="Enrichment Max Attempts per Job",
-        config_parameter="crowley.enrichment_max_attempts",
-        default=3,
-    )
-    crowley_review_provider = fields.Selection(
-        [("openrouter", "OpenRouter (Gemini multimodal)"),
-         ("bedrock", "AWS Bedrock (Claude vision frames)")],
-        string="Video Review Provider",
-        config_parameter="crowley.review_provider",
-        default="openrouter",
-        help="OpenRouter routes the review to Gemini 3.1 Pro multimodal "
-             "(text + video URL in the same turn — judges prompt fidelity "
-             "AND actual video frames). Bedrock uses Claude vision with "
-             "20 ffmpeg-extracted frames as a fallback.",
-    )
-    crowley_openrouter_review_model_id = fields.Char(
-        string="Review Model ID (OpenRouter)",
-        config_parameter="crowley.openrouter_review_model_id",
-        default="google/gemini-3.1-pro-preview",
-        help="OpenRouter model slug for the review. Default: Gemini 3.1 Pro "
-             "Preview (multimodal — accepts video URL inline). Existing live "
-             "value is preserved on upgrade; flip here when ready to switch.",
-    )
-    crowley_review_max_attempts = fields.Integer(
-        string="Review Max Attempts per Attempt",
-        config_parameter="crowley.review_max_attempts",
-        default=3,
-        help="How many review rounds an attempt can spend before auto-retry "
-             "stops. Mirrors enrichment_max_attempts. Each reject below this "
-             "limit auto-queues the next round with previous failures injected.",
-    )
-    crowley_review_max_parallel = fields.Integer(
-        string="Review Max Parallel In-Flight",
-        config_parameter="crowley.review_max_parallel",
-        default=4,
-        help="Cap on concurrent submitting reviews. The cron dispatcher checks "
-             "this count and only releases capacity = max_parallel - in_flight.",
-    )
-    crowley_review_batch_size = fields.Integer(
-        string="Review Batch Size per Cron Tick",
-        config_parameter="crowley.review_batch_size",
-        default=8,
-        help="Upper bound on how many queued reviews the cron dispatches "
-             "per tick; effective dispatch is min(batch_size, capacity).",
-    )
-    crowley_review_video_url_ttl_seconds = fields.Integer(
-        string="Review Video URL TTL (seconds)",
-        config_parameter="crowley.review_video_url_ttl_seconds",
-        default=900,
-        help="TTL of the presigned S3 URL sent to the reviewer. Must outlive "
-             "the LLM round-trip; bump if Gemini reports url-fetch errors.",
-    )
     # ── Generation defaults ───────────────────────────────────────────────
     crowley_default_resolution = fields.Selection(
         selection=[("480p", "480p"), ("720p", "720p"), ("1080p", "1080p")],
@@ -219,12 +137,6 @@ class ResConfigSettings(models.TransientModel):
                 credential_manager.get_encrypted_param(self.env, "crowley.aws_secret_key")
             )
 
-    def _compute_bedrock_api_key_is_set(self):
-        for rec in self:
-            rec.crowley_bedrock_api_key_is_set = bool(
-                credential_manager.get_encrypted_param(self.env, _BEDROCK_API_KEY_PARAM)
-            )
-
     def _compute_webhook_secret_is_set(self):
         for rec in self:
             rec.crowley_webhook_secret_is_set = bool(
@@ -260,12 +172,6 @@ class ResConfigSettings(models.TransientModel):
             self.env, _AWS_SECRET_KEY_PARAM
         )
         res["crowley_aws_secret_key"] = _MASK if existing_aws_secret else ""
-
-        # Bedrock API key: mask if set, empty otherwise.
-        existing_bedrock_api = credential_manager.get_encrypted_param(
-            self.env, _BEDROCK_API_KEY_PARAM
-        )
-        res["crowley_bedrock_api_key"] = _MASK if existing_bedrock_api else ""
 
         # Webhook secret: mask if set, empty otherwise.
         existing_webhook = credential_manager.get_encrypted_param(
@@ -310,12 +216,6 @@ class ResConfigSettings(models.TransientModel):
                 self.env, _AWS_SECRET_KEY_PARAM, submitted_aws_secret,
             )
 
-        submitted_bedrock_api = (self.crowley_bedrock_api_key or "").strip()
-        if submitted_bedrock_api and submitted_bedrock_api != _MASK:
-            credential_manager.set_encrypted_param(
-                self.env, _BEDROCK_API_KEY_PARAM, submitted_bedrock_api,
-            )
-
         # Webhook secret: only write when user submitted a real new value.
         submitted_webhook = (self.crowley_webhook_secret or "").strip()
         if submitted_webhook and submitted_webhook != _MASK:
@@ -326,38 +226,3 @@ class ResConfigSettings(models.TransientModel):
         # S3 connector: store the id as a string, empty when cleared.
         sid = self.crowley_s3_connector_id.id if self.crowley_s3_connector_id else ""
         icp.set_param(_S3_CONNECTOR_PARAM, str(sid) if sid else "")
-
-    @api.constrains(
-        "crowley_bedrock_max_retries",
-        "crowley_enrichment_max_attempts",
-        "crowley_review_max_attempts",
-        "crowley_review_max_parallel",
-        "crowley_review_batch_size",
-        "crowley_review_video_url_ttl_seconds",
-    )
-    def _check_bedrock_limits(self):
-        for rec in self:
-            if not (1 <= rec.crowley_bedrock_max_retries <= 10):
-                raise ValidationError(_(
-                    "Bedrock Max Retries must be between 1 and 10."
-                ))
-            if not (1 <= rec.crowley_enrichment_max_attempts <= 5):
-                raise ValidationError(_(
-                    "Enrichment Max Attempts must be between 1 and 5."
-                ))
-            if not (1 <= rec.crowley_review_max_attempts <= 5):
-                raise ValidationError(_(
-                    "Review Max Attempts must be between 1 and 5."
-                ))
-            if not (1 <= rec.crowley_review_max_parallel <= 32):
-                raise ValidationError(_(
-                    "Review Max Parallel must be between 1 and 32."
-                ))
-            if not (1 <= rec.crowley_review_batch_size <= 64):
-                raise ValidationError(_(
-                    "Review Batch Size must be between 1 and 64."
-                ))
-            if not (60 <= rec.crowley_review_video_url_ttl_seconds <= 86400):
-                raise ValidationError(_(
-                    "Review Video URL TTL must be between 60 seconds and 24 hours (86400)."
-                ))

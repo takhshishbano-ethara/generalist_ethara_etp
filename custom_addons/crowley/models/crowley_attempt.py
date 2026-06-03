@@ -10,9 +10,10 @@ state machine — the parent job aggregates them and exposes the
 
 import json
 import logging
+import re
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -34,8 +35,17 @@ _STATE_DONE = "done"
 _STATE_FAILED = "failed"
 _STATE_CANCELLED = "cancelled"
 
-_NON_TERMINAL = {_STATE_QUEUED, _STATE_SUBMITTING, _STATE_PROCESSING, _STATE_DOWNLOADING}
+_NON_TERMINAL = {
+    _STATE_QUEUED,
+    _STATE_SUBMITTING,
+    _STATE_PROCESSING,
+    _STATE_DOWNLOADING,
+}
 _TERMINAL = {_STATE_DONE, _STATE_FAILED, _STATE_CANCELLED}
+# States that count as "this prompt is already taken" for duplicate detection:
+# everything currently in flight plus the completed result. Failed/cancelled
+# attempts are explicitly excluded so users can retry after a real failure.
+_BLOCKING_FOR_DEDUP = _NON_TERMINAL | {_STATE_DONE}
 
 # ---------------------------------------------------------------------------
 # Bus channel for OWL live-status widget
@@ -53,14 +63,24 @@ _OR_STATUS_EXPIRED = {"expired"}
 _ALLOWED_TRANSITIONS = {
     # Lenient on entry transitions (worker race against postcommit), strict
     # on exit transitions.
-    _STATE_DRAFT:        {_STATE_QUEUED, _STATE_SUBMITTING, _STATE_FAILED},
-    _STATE_QUEUED:       {_STATE_SUBMITTING, _STATE_FAILED, _STATE_CANCELLED},
-    _STATE_SUBMITTING:   {_STATE_PROCESSING, _STATE_FAILED, _STATE_CANCELLED},
-    _STATE_PROCESSING:   {_STATE_DOWNLOADING, _STATE_FAILED, _STATE_CANCELLED, _STATE_PROCESSING},
-    _STATE_DOWNLOADING:  {_STATE_DONE, _STATE_FAILED, _STATE_CANCELLED, _STATE_DOWNLOADING},
-    _STATE_DONE:         set(),
-    _STATE_FAILED:       set(),
-    _STATE_CANCELLED:    set(),
+    _STATE_DRAFT: {_STATE_QUEUED, _STATE_SUBMITTING, _STATE_FAILED},
+    _STATE_QUEUED: {_STATE_SUBMITTING, _STATE_FAILED, _STATE_CANCELLED},
+    _STATE_SUBMITTING: {_STATE_PROCESSING, _STATE_FAILED, _STATE_CANCELLED},
+    _STATE_PROCESSING: {
+        _STATE_DOWNLOADING,
+        _STATE_FAILED,
+        _STATE_CANCELLED,
+        _STATE_PROCESSING,
+    },
+    _STATE_DOWNLOADING: {
+        _STATE_DONE,
+        _STATE_FAILED,
+        _STATE_CANCELLED,
+        _STATE_DOWNLOADING,
+    },
+    _STATE_DONE: set(),
+    _STATE_FAILED: set(),
+    _STATE_CANCELLED: set(),
 }
 
 
@@ -106,11 +126,44 @@ class CrowleyAttempt(models.Model):
         copy=False,
         help="Exact prompt string sent to OpenRouter (system prefix + user prompt).",
     )
+    original_prompt = fields.Text(
+        string="Original Prompt",
+        readonly=True,
+        copy=False,
+        help="Snapshot of the job's original_prompt at spawn time. "
+        "Used for duplicate-prompt detection history.",
+    )
+    prompt_normalized = fields.Char(
+        string="Prompt (Normalized)",
+        compute="_compute_normalized_prompts",
+        store=True,
+        index=True,
+        copy=False,
+        help="Lowercased + whitespace-collapsed prompt, used for duplicate detection.",
+    )
+    original_prompt_normalized = fields.Char(
+        string="Original Prompt (Normalized)",
+        compute="_compute_normalized_prompts",
+        store=True,
+        index=True,
+        copy=False,
+        help="Lowercased + whitespace-collapsed original_prompt, used for duplicate detection.",
+    )
     negative_prompt = fields.Text(string="Negative Prompt")
     duration = fields.Selection(
         [
-            ("4", "4s"), ("5", "5s"), ("6", "6s"), ("7", "7s"), ("8", "8s"),
-            ("9", "9s"), ("10", "10s"), ("12", "12s"), ("15", "15s"),
+            ("4", "4s"),
+            ("5", "5s"),
+            ("6", "6s"),
+            ("7", "7s"),
+            ("8", "8s"),
+            ("9", "9s"),
+            ("10", "10s"),
+            ("11", "11s"),
+            ("12", "12s"),
+            ("13", "13s"),
+            ("14", "14s"),
+            ("15", "15s"),
         ],
         string="Duration",
     )
@@ -120,8 +173,12 @@ class CrowleyAttempt(models.Model):
     )
     aspect_ratio = fields.Selection(
         [
-            ("16:9", "16:9"), ("9:16", "9:16"), ("1:1", "1:1"),
-            ("4:3", "4:3"), ("3:4", "3:4"), ("21:9", "21:9"),
+            ("16:9", "16:9"),
+            ("9:16", "9:16"),
+            ("1:1", "1:1"),
+            ("4:3", "4:3"),
+            ("3:4", "3:4"),
+            ("21:9", "21:9"),
         ],
         string="Aspect Ratio",
     )
@@ -152,6 +209,41 @@ class CrowleyAttempt(models.Model):
     )
 
     # ------------------------------------------------------------------
+    # Review (manager approval / rejection)
+    # ------------------------------------------------------------------
+    review_state = fields.Selection(
+        [
+            ("pending", "Pending Review"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        string="Review Status",
+        readonly=True,
+        copy=False,
+        tracking=True,
+        index=True,
+    )
+    reviewed_by = fields.Many2one(
+        "res.users",
+        string="Reviewed By",
+        readonly=True,
+        copy=False,
+        tracking=True,
+    )
+    reviewed_at = fields.Datetime(
+        string="Reviewed At",
+        readonly=True,
+        copy=False,
+        tracking=True,
+    )
+    review_reason = fields.Text(
+        string="Review Notes",
+        readonly=True,
+        copy=False,
+        tracking=True,
+    )
+
+    # ------------------------------------------------------------------
     # OpenRouter tracking
     # ------------------------------------------------------------------
     openrouter_job_id = fields.Char(string="OpenRouter Job ID", index=True, copy=False)
@@ -172,36 +264,36 @@ class CrowleyAttempt(models.Model):
     video_s3_etag = fields.Char(string="S3 ETag", readonly=True, copy=False)
     video_sha256 = fields.Char(string="SHA-256", readonly=True, copy=False)
     video_size_bytes = fields.Integer(string="Size (bytes)", readonly=True, copy=False)
-    mimetype = fields.Char(string="MIME Type", default="video/mp4", readonly=True, copy=False)
+    mimetype = fields.Char(
+        string="MIME Type", default="video/mp4", readonly=True, copy=False
+    )
 
     # ------------------------------------------------------------------
     # Dataset naming (v1.2)
     # ------------------------------------------------------------------
     category = fields.Char(
         string="Category",
-        readonly=True, copy=False, index=True,
+        readonly=True,
+        copy=False,
+        index=True,
         help="Snapshot of the job's category at the moment this attempt was "
-             "uploaded. Required for the canonical filename.",
+        "uploaded. Required for the canonical filename.",
     )
     sequence_number = fields.Integer(
         string="Dataset Sequence #",
-        readonly=True, copy=False, index=True,
+        readonly=True,
+        copy=False,
+        index=True,
         help="Allocated from the per-category ir.sequence at successful S3 "
-             "upload. Failed attempts never consume a number.",
+        "upload. Failed attempts never consume a number.",
     )
     video_file = fields.Char(
         string="Video File",
         compute="_compute_video_file",
-        store=True, readonly=True, index=True,
-        help="Canonical dataset filename: T2AV_<category>_<NNNNNNN>.mp4 (padding 7 since v19.0.1.14.0).",
-    )
-    fps = fields.Float(
-        string="FPS",
-        default=24.0,
+        store=True,
         readonly=True,
-        copy=False,
-        help="Frames per second captured from the Seedance response when present; "
-             "defaults to 24.0 (Seedance 2.0's standard output rate).",
+        index=True,
+        help="Canonical dataset filename: T2AV_<category>_<NNNNNN>.mp4",
     )
 
     video_play_url = fields.Char(
@@ -218,7 +310,9 @@ class CrowleyAttempt(models.Model):
     # ------------------------------------------------------------------
     # Usage / cost
     # ------------------------------------------------------------------
-    tokens_used = fields.Integer(string="Tokens Used", default=0, readonly=True, copy=False)
+    tokens_used = fields.Integer(
+        string="Tokens Used", default=0, readonly=True, copy=False
+    )
     cost_usd = fields.Float(
         string="Cost (USD)",
         digits=(12, 6),
@@ -245,10 +339,6 @@ class CrowleyAttempt(models.Model):
         store=True,
     )
     raw_response_json = fields.Text(string="Last Raw Response")
-
-    review_ids = fields.One2many(
-        "crowley.video.review", "attempt_id", string="Reviews",
-    )
 
     # ------------------------------------------------------------------
     # Webhook idempotency
@@ -308,15 +398,33 @@ class CrowleyAttempt(models.Model):
     def _compute_duration_seconds(self):
         for rec in self:
             if rec.submitted_at and rec.completed_at:
-                rec.duration_seconds = (rec.completed_at - rec.submitted_at).total_seconds()
+                rec.duration_seconds = (
+                    rec.completed_at - rec.submitted_at
+                ).total_seconds()
             else:
                 rec.duration_seconds = 0.0
+
+    @staticmethod
+    def _normalize_prompt_text(text):
+        """Lowercase + collapse whitespace. Returns False on empty so partial unique indexes skip the row."""
+        if not text:
+            return False
+        normalized = re.sub(r"\s+", " ", text.strip()).lower()
+        return normalized or False
+
+    @api.depends("prompt", "original_prompt")
+    def _compute_normalized_prompts(self):
+        for rec in self:
+            rec.prompt_normalized = self._normalize_prompt_text(rec.prompt)
+            rec.original_prompt_normalized = self._normalize_prompt_text(
+                rec.original_prompt
+            )
 
     @api.depends("category", "sequence_number")
     def _compute_video_file(self):
         for rec in self:
             if rec.category and rec.sequence_number:
-                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:07d}.mp4"
+                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:06d}.mp4"
             else:
                 rec.video_file = False
 
@@ -345,14 +453,21 @@ class CrowleyAttempt(models.Model):
                 )
             except Exception:
                 _logger.exception(
-                    "Crowley: failed to presign URL for attempt %s", rec.id,
+                    "Crowley: failed to presign URL for attempt %s",
+                    rec.id,
                 )
                 rec.video_play_url = rec.video_s3_url or ""
 
     @api.depends(
-        "job_id.attempt_ids.attempt_number", "attempt_number",
-        "prompt", "duration", "resolution", "aspect_ratio",
-        "negative_prompt", "seed", "generate_audio",
+        "job_id.attempt_ids.attempt_number",
+        "attempt_number",
+        "prompt",
+        "duration",
+        "resolution",
+        "aspect_ratio",
+        "negative_prompt",
+        "seed",
+        "generate_audio",
     )
     def _compute_change_log(self):
         """Human-readable diff vs the prior attempt."""
@@ -383,7 +498,9 @@ class CrowleyAttempt(models.Model):
                         diffs.append(f"{label} edited")
                     else:
                         diffs.append(f"{label}: {old} → {new}")
-            rec.change_log = "; ".join(diffs) if diffs else "No input changes (retry only)"
+            rec.change_log = (
+                "; ".join(diffs) if diffs else "No input changes (retry only)"
+            )
 
     # ------------------------------------------------------------------
     # Constraints
@@ -406,7 +523,23 @@ class CrowleyAttempt(models.Model):
     # ------------------------------------------------------------------
     # CRUD / state-machine guard
     # ------------------------------------------------------------------
+    _REVIEW_FIELDS = frozenset(
+        {
+            "review_state",
+            "reviewed_by",
+            "reviewed_at",
+            "review_reason",
+        }
+    )
+
     def write(self, vals):
+        review_touched = self._REVIEW_FIELDS & vals.keys()
+        if review_touched and not self.env.user.has_group(
+            "crowley.group_crowley_manager"
+        ):
+            if not self.env.su:
+                raise UserError(_("Only Crowley Managers can modify review fields."))
+
         if "state" in vals:
             new_state = vals["state"]
             for rec in self:
@@ -415,14 +548,83 @@ class CrowleyAttempt(models.Model):
                     continue
                 allowed = _ALLOWED_TRANSITIONS.get(old_state, set())
                 if new_state not in allowed:
-                    raise ValidationError(_(
-                        "Cannot transition attempt %(name)s from %(old)s to %(new)s."
-                    ) % {
-                        "name": rec.display_name,
-                        "old": old_state,
-                        "new": new_state,
-                    })
+                    raise ValidationError(
+                        _("Cannot transition attempt %(name)s from %(old)s to %(new)s.")
+                        % {
+                            "name": rec.display_name,
+                            "old": old_state,
+                            "new": new_state,
+                        }
+                    )
+            if new_state == _STATE_DONE and "review_state" not in vals:
+                needs_review = self.filtered(lambda r: r.state != _STATE_DONE)
+                result = super().write(vals)
+                if needs_review:
+                    super(CrowleyAttempt, needs_review).write(
+                        {"review_state": "pending"}
+                    )
+                return result
         return super().write(vals)
+
+    # ------------------------------------------------------------------
+    # Visual helpers
+    # ------------------------------------------------------------------
+    def action_noop(self):
+        """No-op used as a visual spinner indicator in list views."""
+        return True
+
+    # ------------------------------------------------------------------
+    # Review actions
+    # ------------------------------------------------------------------
+    def action_approve(self):
+        self.ensure_one()
+        if not self.env.user.has_group("crowley.group_crowley_manager"):
+            raise UserError(_("Only Crowley Managers can approve attempts."))
+        if self.state != _STATE_DONE:
+            raise UserError(_("Only completed attempts can be approved."))
+        if self.review_state != "pending":
+            raise UserError(
+                _(
+                    "This attempt has already been reviewed (%(status)s).",
+                    status=self.review_state,
+                )
+            )
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Approve Attempt"),
+            "res_model": "crowley.attempt.review.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_attempt_id": self.id,
+                "default_review_action": "approve",
+            },
+        }
+
+    def action_reject(self):
+        self.ensure_one()
+        if not self.env.user.has_group("crowley.group_crowley_manager"):
+            raise UserError(_("Only Crowley Managers can reject attempts."))
+        if self.state != _STATE_DONE:
+            raise UserError(_("Only completed attempts can be rejected."))
+        if self.review_state != "pending":
+            raise UserError(
+                _(
+                    "This attempt has already been reviewed (%(status)s).",
+                    status=self.review_state,
+                )
+            )
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Reject Attempt"),
+            "res_model": "crowley.attempt.review.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_attempt_id": self.id,
+                "default_review_action": "reject",
+            },
+        }
 
     # ------------------------------------------------------------------
     # Post-commit helper (dual-cursor failure recovery)
@@ -452,7 +654,8 @@ class CrowleyAttempt(models.Model):
             except Exception:
                 _logger.exception(
                     "Crowley deferred task failed (attempt %s, cb %s)",
-                    rec_id, callback_name,
+                    rec_id,
+                    callback_name,
                 )
                 try:
                     registry = odoo.modules.registry.Registry(db_name)
@@ -460,14 +663,19 @@ class CrowleyAttempt(models.Model):
                         env2 = odoo.api.Environment(cr2, uid, {})
                         attempt = env2["crowley.attempt"].browse(rec_id).exists()
                         if attempt:
-                            attempt.write({
-                                "state": _STATE_FAILED,
-                                "error_code": "internal_error",
-                                "error_message": (traceback.format_exc() or "")[:8000],
-                            })
+                            attempt.write(
+                                {
+                                    "state": _STATE_FAILED,
+                                    "error_code": "internal_error",
+                                    "error_message": (traceback.format_exc() or "")[
+                                        :8000
+                                    ],
+                                }
+                            )
                 except Exception:
                     _logger.exception(
-                        "Crowley: failed to mark attempt %s as failed", rec_id,
+                        "Crowley: failed to mark attempt %s as failed",
+                        rec_id,
                     )
 
         self.env.cr.postcommit.add(_run)
@@ -531,12 +739,14 @@ class CrowleyAttempt(models.Model):
             self._fail("submit_no_id", "OpenRouter did not return a job id.")
             return
 
-        self.write({
-            "state": _STATE_PROCESSING,
-            "openrouter_job_id": job_id,
-            "openrouter_polling_url": polling_url or False,
-            "openrouter_status": resp.get("status") or "pending",
-        })
+        self.write(
+            {
+                "state": _STATE_PROCESSING,
+                "openrouter_job_id": job_id,
+                "openrouter_polling_url": polling_url or False,
+                "openrouter_status": resp.get("status") or "pending",
+            }
+        )
         self.message_post(body=_("Submitted to OpenRouter (job %s).") % job_id)
         self._push_bus()
 
@@ -559,7 +769,8 @@ class CrowleyAttempt(models.Model):
 
         try:
             resp = openrouter_client.poll_status(
-                api_key, self.openrouter_job_id,
+                api_key,
+                self.openrouter_job_id,
                 polling_url=self.openrouter_polling_url or None,
             )
         except openrouter_client.OpenRouterAuthError as e:
@@ -576,12 +787,14 @@ class CrowleyAttempt(models.Model):
             return
 
         raw_status = (resp.get("status") or "").lower()
-        self.write({
-            "poll_attempts": self.poll_attempts + 1,
-            "last_polled_at": fields.Datetime.now(),
-            "openrouter_status": raw_status,
-            "raw_response_json": json.dumps(resp)[:65536],
-        })
+        self.write(
+            {
+                "poll_attempts": self.poll_attempts + 1,
+                "last_polled_at": fields.Datetime.now(),
+                "openrouter_status": raw_status,
+                "raw_response_json": json.dumps(resp)[:65536],
+            }
+        )
 
         if raw_status in _OR_STATUS_FAILED or raw_status in _OR_STATUS_EXPIRED:
             err = self._extract_or_error(resp)
@@ -606,25 +819,6 @@ class CrowleyAttempt(models.Model):
     # ------------------------------------------------------------------
     # Pipeline — completion handler (idempotent compare-and-set)
     # ------------------------------------------------------------------
-    def _extract_fps_from_response(self, resp):
-        if not isinstance(resp, dict):
-            return 0.0
-        sources = (
-            resp,
-            resp.get("metadata") if isinstance(resp.get("metadata"), dict) else {},
-            resp.get("video") if isinstance(resp.get("video"), dict) else {},
-            resp.get("output") if isinstance(resp.get("output"), dict) else {},
-        )
-        for src in sources:
-            for key in ("fps", "frames_per_second", "frame_rate"):
-                cand = src.get(key)
-                if cand:
-                    try:
-                        return float(cand)
-                    except (TypeError, ValueError):
-                        continue
-        return 0.0
-
     def _handle_completion(self, resp):
         """Transition to downloading; trigger _run_download. Idempotent via compare-and-set."""
         self.ensure_one()
@@ -634,10 +828,11 @@ class CrowleyAttempt(models.Model):
 
         cost = float(usage.get("cost") or usage.get("cost_in_usd") or 0.0)
         tokens = int(usage.get("tokens") or 0)
-        fps_value = self._extract_fps_from_response(resp)
 
         if not video_url:
-            self._fail("no_video_url", "OpenRouter reported completed but returned no URL.")
+            self._fail(
+                "no_video_url", "OpenRouter reported completed but returned no URL."
+            )
             return
 
         # Compare-and-set: only one path (webhook OR cron) transitions to downloading.
@@ -651,7 +846,13 @@ class CrowleyAttempt(models.Model):
                WHERE id = %s
                  AND state IN ('submitting', 'processing')
                RETURNING id""",
-            (tokens, cost, video_url, fields.Datetime.now() + timedelta(days=7), self.id),
+            (
+                tokens,
+                cost,
+                video_url,
+                fields.Datetime.now() + timedelta(days=7),
+                self.id,
+            ),
         )
         if not self.env.cr.fetchone():
             _logger.info(
@@ -662,9 +863,9 @@ class CrowleyAttempt(models.Model):
 
         # Refresh ORM cache so subsequent reads see the new values
         self.invalidate_recordset()
-        if fps_value:
-            self.write({"fps": fps_value})
-        self.message_post(body=_("OpenRouter completed; downloading video (cost $%.4f).") % cost)
+        self.message_post(
+            body=_("OpenRouter completed; downloading video (cost $%.4f).") % cost
+        )
         self._push_bus()
 
         # Defer the download so this poll cursor commits the state transition first.
@@ -679,7 +880,9 @@ class CrowleyAttempt(models.Model):
         if self.state != _STATE_DOWNLOADING:
             return
         if not self.video_temporary_url:
-            self._fail("no_temporary_url", "Download phase entered without a video URL.")
+            self._fail(
+                "no_temporary_url", "Download phase entered without a video URL."
+            )
             return
 
         settings = self._get_settings()
@@ -700,7 +903,9 @@ class CrowleyAttempt(models.Model):
 
         seq_raw = self.env["ir.sequence"].next_by_code(f"crowley.attempt.{category}")
         if not seq_raw:
-            self._fail("no_sequence", f"ir.sequence crowley.attempt.{category} not found.")
+            self._fail(
+                "no_sequence", f"ir.sequence crowley.attempt.{category} not found."
+            )
             return
         try:
             seq_int = int(seq_raw)
@@ -714,9 +919,8 @@ class CrowleyAttempt(models.Model):
         # _fail() writes via a fresh cursor that commits independently). Dataset
         # consumers should filter on video_file IS NOT NULL, not on sequence_number
         # being contiguous.
-        today = datetime.utcnow().strftime("%Y%m%d")
-        video_filename = f"T2AV_{category}_{seq_int:07d}.mp4"
-        s3_key = f"generated_videos/{today}/master/{video_filename}"
+        video_filename = f"T2AV_{category}_{seq_int:06d}.mp4"
+        s3_key = f"T2AV/{category}/{video_filename}"
 
         try:
             info = s3_publisher.persist_video_to_s3(
@@ -725,8 +929,8 @@ class CrowleyAttempt(models.Model):
                 record_id=self.id,
                 record_name=video_filename.rsplit(".mp4", 1)[0],
                 mp4_url=self.video_temporary_url,
-                prefix="",                # ignored when object_key is provided
-                object_key=s3_key,        # NEW: dataset path layout
+                prefix="",  # ignored when object_key is provided
+                object_key=s3_key,  # NEW: dataset path layout
                 auth_bearer=api_key,
                 verify=settings["verify_after_upload"],
             )
@@ -748,33 +952,40 @@ class CrowleyAttempt(models.Model):
             return
 
         # Update the attempt with S3 metadata
-        self.write({
-            "state": _STATE_DONE,
-            "completed_at": fields.Datetime.now(),
-            "category": category,           # snapshot
-            "sequence_number": seq_int,     # allocated
-            "video_s3_bucket": info["s3_bucket"],
-            "video_s3_key": info["s3_key"],
-            "video_s3_url": info["s3_url"],
-            "video_s3_etag": info["etag"],
-            "video_sha256": info["sha256"],
-            "video_size_bytes": info["size"],
-        })
+        self.write(
+            {
+                "state": _STATE_DONE,
+                "completed_at": fields.Datetime.now(),
+                "category": category,  # snapshot
+                "sequence_number": seq_int,  # allocated
+                "video_s3_bucket": info["s3_bucket"],
+                "video_s3_key": info["s3_key"],
+                "video_s3_url": info["s3_url"],
+                "video_s3_etag": info["etag"],
+                "video_sha256": info["sha256"],
+                "video_size_bytes": info["size"],
+            }
+        )
 
         # Eager ir.attachment creation — appears in the job's chatter automatically.
         try:
-            with self.env.cr.savepoint():
-                attachment = self.env["ir.attachment"].sudo().create({
-                    "name": f"{self.display_name or self.job_id.name}.mp4",
-                    "res_model": "crowley.generation",
-                    "res_id": self.job_id.id,
-                    "type": "url",
-                    "url": self.video_play_url or info["s3_url"],
-                    "mimetype": "video/mp4",
-                    "crowley_job_id": self.job_id.id,
-                    "crowley_attempt_id": self.id,
-                })
-                self.write({"video_attachment_id": attachment.id})
+            attachment = (
+                self.env["ir.attachment"]
+                .sudo()
+                .create(
+                    {
+                        "name": f"{self.display_name or self.job_id.name}.mp4",
+                        "res_model": "crowley.generation",
+                        "res_id": self.job_id.id,
+                        "type": "url",
+                        "url": self.video_play_url or info["s3_url"],
+                        "mimetype": "video/mp4",
+                        "crowley_job_id": self.job_id.id,
+                        "crowley_attempt_id": self.id,
+                    }
+                )
+            )
+            self.write({"video_attachment_id": attachment.id})
         except Exception:
             _logger.exception(
                 "Crowley: failed to create ir.attachment for attempt %s "
@@ -782,9 +993,15 @@ class CrowleyAttempt(models.Model):
                 self.id,
             )
 
-        self.message_post(body=_(
-            "Completed in %ds. %d tokens, $%.4f. URL: %s"
-        ) % (self.duration_seconds or 0, self.tokens_used, self.cost_usd, info["s3_url"]))
+        self.message_post(
+            body=_("Completed in %ds. %d tokens, $%.4f. URL: %s")
+            % (
+                self.duration_seconds or 0,
+                self.tokens_used,
+                self.cost_usd,
+                info["s3_url"],
+            )
+        )
         self._push_bus()
 
     # ------------------------------------------------------------------
@@ -794,11 +1011,13 @@ class CrowleyAttempt(models.Model):
         """Process a verified OpenRouter webhook event."""
         self.ensure_one()
         status = (data.get("status") or "").lower()
-        self.write({
-            "openrouter_status": status,
-            "last_polled_at": fields.Datetime.now(),
-            "raw_response_json": json.dumps(data)[:65536],
-        })
+        self.write(
+            {
+                "openrouter_status": status,
+                "last_polled_at": fields.Datetime.now(),
+                "raw_response_json": json.dumps(data)[:65536],
+            }
+        )
         if status in _OR_STATUS_COMPLETED:
             self._handle_completion(data)
         elif status in _OR_STATUS_FAILED or status in _OR_STATUS_EXPIRED:
@@ -820,7 +1039,9 @@ class CrowleyAttempt(models.Model):
             if not partner:
                 return
             self.env["bus.bus"]._sendone(
-                _BUS_CHANNEL, _BUS_TYPE, {
+                _BUS_CHANNEL,
+                _BUS_TYPE,
+                {
                     "id": self.job_id.id,
                     "attempt_id": self.id,
                     "attempt_number": self.attempt_number,
@@ -834,7 +1055,9 @@ class CrowleyAttempt(models.Model):
                 },
             )
         except Exception:
-            _logger.exception("Crowley: failed to push bus.bus update for attempt %s", self.id)
+            _logger.exception(
+                "Crowley: failed to push bus.bus update for attempt %s", self.id
+            )
 
     # ------------------------------------------------------------------
     # Single failure path
@@ -842,13 +1065,17 @@ class CrowleyAttempt(models.Model):
     def _fail(self, error_code, error_message):
         """Mark this attempt failed and push bus."""
         self.ensure_one()
-        self.write({
-            "state": _STATE_FAILED,
-            "error_code": error_code,
-            "error_message": (error_message or "")[:2000],
-            "completed_at": fields.Datetime.now(),
-        })
-        self.message_post(body=_("Failed (%s): %s") % (error_code, (error_message or "")[:500]))
+        self.write(
+            {
+                "state": _STATE_FAILED,
+                "error_code": error_code,
+                "error_message": (error_message or "")[:2000],
+                "completed_at": fields.Datetime.now(),
+            }
+        )
+        self.message_post(
+            body=_("Failed (%s): %s") % (error_code, (error_message or "")[:500])
+        )
         self._push_bus()
 
     # ------------------------------------------------------------------
@@ -890,9 +1117,14 @@ class CrowleyAttempt(models.Model):
         return {
             "connector_id": connector_id,
             "s3_prefix": icp.get_param("crowley.s3_prefix") or "crowley/",
-            "verify_after_upload": icp.get_param("crowley.verify_after_upload") in ("True", "true", "1"),
-            "poll_interval_seconds": int(icp.get_param("crowley.poll_interval_seconds", "15") or "15"),
-            "max_poll_attempts": int(icp.get_param("crowley.max_poll_attempts", "80") or "80"),
+            "verify_after_upload": icp.get_param("crowley.verify_after_upload")
+            in ("True", "true", "1"),
+            "poll_interval_seconds": int(
+                icp.get_param("crowley.poll_interval_seconds", "15") or "15"
+            ),
+            "max_poll_attempts": int(
+                icp.get_param("crowley.max_poll_attempts", "80") or "80"
+            ),
             "http_referer": icp.get_param("crowley.http_referer") or "",
             "app_title": icp.get_param("crowley.app_title") or "Ethara Crowley",
         }
@@ -921,33 +1153,51 @@ class CrowleyAttempt(models.Model):
         now = fields.Datetime.now()
         start_ts = time.time()
         settings_icp = self.env["ir.config_parameter"].sudo()
-        poll_interval = int(settings_icp.get_param("crowley.poll_interval_seconds", "15") or "15")
-        max_poll_attempts = int(settings_icp.get_param("crowley.max_poll_attempts", "80") or "80")
+        poll_interval = int(
+            settings_icp.get_param("crowley.poll_interval_seconds", "15") or "15"
+        )
+        max_poll_attempts = int(
+            settings_icp.get_param("crowley.max_poll_attempts", "80") or "80"
+        )
 
         # 1. Watchdog: stuck submitting (no job_id assigned after 5 min)
-        stuck_submitting = self.search([
-            ("state", "=", _STATE_SUBMITTING),
-            ("submitted_at", "<", fields.Datetime.subtract(now, minutes=5)),
-            ("openrouter_job_id", "in", [False, None, ""]),
-        ], limit=50)
+        stuck_submitting = self.search(
+            [
+                ("state", "=", _STATE_SUBMITTING),
+                ("submitted_at", "<", fields.Datetime.subtract(now, minutes=5)),
+                ("openrouter_job_id", "in", [False, None, ""]),
+            ],
+            limit=50,
+        )
         for rec in stuck_submitting:
             with self.env.cr.savepoint():
-                rec._fail("submit_timeout", "Submission did not return a job id within 5 minutes.")
+                rec._fail(
+                    "submit_timeout",
+                    "Submission did not return a job id within 5 minutes.",
+                )
 
         # 2. Watchdog: stuck downloading (>30 min)
-        stuck_downloading = self.search([
-            ("state", "=", _STATE_DOWNLOADING),
-            ("last_polled_at", "<", fields.Datetime.subtract(now, minutes=30)),
-        ], limit=50)
+        stuck_downloading = self.search(
+            [
+                ("state", "=", _STATE_DOWNLOADING),
+                ("last_polled_at", "<", fields.Datetime.subtract(now, minutes=30)),
+            ],
+            limit=50,
+        )
         for rec in stuck_downloading:
             with self.env.cr.savepoint():
-                rec._fail("download_timeout", "Download did not complete within 30 minutes.")
+                rec._fail(
+                    "download_timeout", "Download did not complete within 30 minutes."
+                )
 
         # 3. Watchdog: max poll attempts exceeded
-        poll_exceeded = self.search([
-            ("state", "in", (_STATE_SUBMITTING, _STATE_PROCESSING)),
-            ("poll_attempts", ">=", max_poll_attempts),
-        ], limit=50)
+        poll_exceeded = self.search(
+            [
+                ("state", "in", (_STATE_SUBMITTING, _STATE_PROCESSING)),
+                ("poll_attempts", ">=", max_poll_attempts),
+            ],
+            limit=50,
+        )
         for rec in poll_exceeded:
             with self.env.cr.savepoint():
                 rec._fail(
@@ -957,10 +1207,16 @@ class CrowleyAttempt(models.Model):
 
         # 4. Poll active attempts whose last poll is stale
         stale_threshold = fields.Datetime.subtract(now, seconds=poll_interval)
-        active = self.search([
-            ("state", "in", (_STATE_SUBMITTING, _STATE_PROCESSING)),
-            "|", ("last_polled_at", "=", False), ("last_polled_at", "<", stale_threshold),
-        ], limit=50, order="last_polled_at asc nulls first")
+        active = self.search(
+            [
+                ("state", "in", (_STATE_SUBMITTING, _STATE_PROCESSING)),
+                "|",
+                ("last_polled_at", "=", False),
+                ("last_polled_at", "<", stale_threshold),
+            ],
+            limit=50,
+            order="last_polled_at asc nulls first",
+        )
 
         polled = 0
         completed = 0
@@ -971,7 +1227,8 @@ class CrowleyAttempt(models.Model):
                 _logger.warning(
                     "Crowley cron: wall-clock cap hit after %d records; "
                     "leaving %d more for next tick",
-                    polled, len(active) - polled,
+                    polled,
+                    len(active) - polled,
                 )
                 break
             with self.env.cr.savepoint():
@@ -984,7 +1241,8 @@ class CrowleyAttempt(models.Model):
                         failed += 1
                 except Exception:
                     _logger.exception(
-                        "Crowley cron: _run_poll raised on attempt %s", rec.id,
+                        "Crowley cron: _run_poll raised on attempt %s",
+                        rec.id,
                     )
                     failed += 1
 
@@ -993,7 +1251,11 @@ class CrowleyAttempt(models.Model):
                 "Crowley cron: polled=%d, completed=%d, failed=%d, "
                 "stuck-submitting-rescued=%d, stuck-downloading-rescued=%d, "
                 "poll-exceeded-rescued=%d, elapsed=%.1fs",
-                polled, completed, failed,
-                len(stuck_submitting), len(stuck_downloading), len(poll_exceeded),
+                polled,
+                completed,
+                failed,
+                len(stuck_submitting),
+                len(stuck_downloading),
+                len(poll_exceeded),
                 time.time() - start_ts,
             )

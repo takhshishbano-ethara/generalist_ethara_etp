@@ -68,7 +68,8 @@ def _coerce_str(value):
 
 OPENROUTER_INLINE_LIMIT_BYTES = 30 * 1024 * 1024
 COMPRESS_THRESHOLD_BYTES = 25 * 1024 * 1024
-COMPRESS_TARGET_BYTES = 22 * 1024 * 1024
+COMPRESS_TARGET_BYTES = 20 * 1024 * 1024
+COMPRESS_RETRY_BITRATE_FACTOR = 0.6
 COMPRESS_AUDIO_BITRATE_BPS = 128 * 1000
 COMPRESS_MIN_VIDEO_BITRATE_BPS = 1_000_000
 
@@ -83,12 +84,11 @@ def _compute_target_video_bitrate_bps(duration_s: float) -> int:
     return max(bps, COMPRESS_MIN_VIDEO_BITRATE_BPS)
 
 
-def _compress_for_qc(video_bytes: bytes, duration_s: float) -> bytes:
+def _compress_for_qc_at_bitrate(video_bytes: bytes, target_bps: int) -> bytes:
     ffmpeg = shutil.which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
     if not ffmpeg or not os.path.exists(ffmpeg):
         _logger.warning("ffmpeg not found; sending video uncompressed (size=%d)", len(video_bytes))
         return video_bytes
-    target_bps = _compute_target_video_bitrate_bps(duration_s)
     in_path = out_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as fh:
@@ -116,9 +116,9 @@ def _compress_for_qc(video_bytes: bytes, duration_s: float) -> bytes:
         with open(out_path, "rb") as fh:
             out_bytes = fh.read()
         _logger.info(
-            "Compressed video for QC: %.1f MB -> %.1f MB at %.1f Mbps (dur=%.1fs) in %.1fs",
+            "Compressed video for QC: %.1f MB -> %.1f MB at %.1f Mbps in %.1fs",
             len(video_bytes) / 1e6, len(out_bytes) / 1e6,
-            target_bps / 1e6, duration_s, elapsed,
+            target_bps / 1e6, elapsed,
         )
         return out_bytes
     except (subprocess.TimeoutExpired, OSError) as exc:
@@ -131,6 +131,11 @@ def _compress_for_qc(video_bytes: bytes, duration_s: float) -> bytes:
                     os.unlink(path)
                 except OSError:
                     pass
+
+
+def _compress_for_qc(video_bytes: bytes, duration_s: float) -> bytes:
+    target_bps = _compute_target_video_bitrate_bps(duration_s)
+    return _compress_for_qc_at_bitrate(video_bytes, target_bps)
 
 
 def probe_video(video_bytes: bytes) -> dict:
@@ -314,6 +319,7 @@ def _call_openrouter(*, system_prompt, user_text, video_data_url, model_id,
         "top_p": DEFAULT_TOP_P,
         "max_tokens": max_tokens,
         "reasoning": {"effort": DEFAULT_REASONING_EFFORT},
+        "usage": {"include": True},
     }
     headers = {
         "Authorization": "Bearer %s" % api_key,
@@ -336,9 +342,12 @@ def _call_openrouter(*, system_prompt, user_text, video_data_url, model_id,
     try:
         data = resp.json()
     except ValueError as exc:
-        raise UserError(_(
-            "OpenRouter returned non-JSON response: %s"
-        ) % resp.text[:400]) from exc
+        body = (resp.text or "")[:1000]
+        _logger.warning(
+            "OpenRouter returned non-JSON (status=%s ct=%s): %s",
+            resp.status_code, resp.headers.get("Content-Type", ""), body,
+        )
+        raise _RetryableHTTP(resp.status_code, body) from exc
     try:
         choice = data["choices"][0]
         message = choice.get("message") or {}
@@ -347,7 +356,13 @@ def _call_openrouter(*, system_prompt, user_text, video_data_url, model_id,
         raise UserError(_(
             "Unexpected OpenRouter response shape: %s"
         ) % (str(data)[:400],)) from exc
-    return text
+    cost_usd = 0.0
+    try:
+        usage = data.get("usage") or {}
+        cost_usd = float(usage.get("cost") or 0.0)
+    except (TypeError, ValueError):
+        cost_usd = 0.0
+    return text, cost_usd
 
 
 def evaluate_llm_qc(
@@ -396,6 +411,17 @@ def evaluate_llm_qc(
     if len(video_bytes) > COMPRESS_THRESHOLD_BYTES:
         duration_for_compress = float(probe.get("actual_duration_s") or duration_seconds or 0.0)
         video_bytes = _compress_for_qc(video_bytes, duration_for_compress)
+        if len(video_bytes) > COMPRESS_THRESHOLD_BYTES and duration_for_compress > 0:
+            fallback_bps = max(
+                int(_compute_target_video_bitrate_bps(duration_for_compress) * COMPRESS_RETRY_BITRATE_FACTOR),
+                COMPRESS_MIN_VIDEO_BITRATE_BPS,
+            )
+            _logger.warning(
+                "First compression pass overshoot (%.1f MB > %.1f MB threshold); "
+                "retrying at %.1f Mbps",
+                len(video_bytes) / 1e6, COMPRESS_THRESHOLD_BYTES / 1e6, fallback_bps / 1e6,
+            )
+            video_bytes = _compress_for_qc_at_bitrate(video_bytes, fallback_bps)
         if len(video_bytes) > OPENROUTER_INLINE_LIMIT_BYTES:
             raise UserError(_(
                 "Video is %d MB after compression, still over OpenRouter's "
@@ -411,14 +437,16 @@ def evaluate_llm_qc(
 
     last_exc = None
     text = None
+    cost_usd = 0.0
     for attempt in range(1, max_attempts + 1):
         try:
-            text = _call_openrouter(
+            text, call_cost = _call_openrouter(
                 system_prompt=seed_prompt.strip(), user_text=user_text,
                 video_data_url=video_data_url, model_id=model_id.strip(),
                 api_key=openrouter_api_key.strip(), max_tokens=max_tokens,
                 temperature=temperature,
             )
+            cost_usd += call_cost
             if text:
                 break
             last_exc = _RetryableHTTP(0, "empty response")
@@ -445,4 +473,5 @@ def evaluate_llm_qc(
     parsed = _parse_qc_response(text)
     parsed["raw_text"] = text
     parsed["probe"] = probe
+    parsed["cost_usd"] = cost_usd
     return parsed

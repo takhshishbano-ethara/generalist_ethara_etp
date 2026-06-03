@@ -74,9 +74,10 @@
             <form string="Video Project" js_class="video_editor_s3_project_form">
                 <header>
                     <button name="action_ingest_youtube" type="object" string="Fetch" class="btn-primary"/>
+                    <button name="maybe_probe_output_s3" type="object" string="Fetch Trim Info" class="btn-primary" invisible="not output_s3_url"/>
                     <button name="action_open_editor" type="object" string="Open Editor" class="btn-primary" invisible="not s3_source_url or 1"/>
                     <button name="action_copy_source_to_trimmed_url" type="object" string="Copy to Trimmed URL" invisible="not s3_source_url or 1"/>
-                    <button name="action_run_llm_qc" type="object" string="Verify" invisible="not output_s3_url or not prompt or not category or not style or (llm_evaluated_at and (llm_qc_result == 'pass' or llm_qc_force_passed))"/>
+                    <button name="action_run_llm_qc" type="object" string="Verify" invisible="not output_s3_url or not prompt or not (category_id or category) or not (sub_category_id or sub_category) or not topic_name or not style or (llm_evaluated_at and llm_qc_result == 'pass')"/>
                     <button name="action_submit_for_processing" type="object" string="Submit" class="btn-primary" invisible="state != 'draft' or not llm_evaluated_at or (llm_qc_result != 'pass' and not llm_qc_force_passed)"/>
                     <button name="action_export" type="object" string="Export to S3" invisible="not edited_file_path or state in ('exporting', 'exported') or 1"/>
                     <button name="action_approve" type="object" string="Approve" class="btn-success" groups="video_editor_s3.group_video_editor_s3_manager" invisible="state != 'processed' or review_status == 'approved' or not output_s3_url"/>
@@ -96,9 +97,10 @@
                     <group>
                         <group>
                             <field name="project_name" invisible="1"/>
-                            <field name="category" required="1"/>
+                            <field name="category_id" required="1" options="{'no_create': True, 'no_open': True}"/>
+                            <field name="category" invisible="1"/>
                             <field name="sub_category_id" required="1" options="{'no_create': True, 'no_open': True}"/>
-                            <field name="sub_category" invisible="1" required="1"/>
+                            <field name="sub_category" invisible="1"/>
                             <field name="topic_name" required="1"/>
                             <field name="style" required="1"/>
                         </group>
@@ -140,6 +142,12 @@
                                                 <div class="d-flex align-items-center">
                                                     <span class="text-muted small text-uppercase fw-bold me-2">Evaluated</span>
                                                     <field name="llm_evaluated_at" readonly="1" nolabel="1" class="text-body"/>
+                                                </div>
+                                                <div class="vr d-none d-md-block"/>
+                                                <div class="d-flex align-items-center">
+                                                    <span class="text-muted small text-uppercase fw-bold me-2">Cost</span>
+                                                    <span class="text-body me-1">$</span>
+                                                    <field name="llm_qc_cost_usd" readonly="1" nolabel="1" class="text-body"/>
                                                 </div>
                                                 <div class="ms-md-auto">
                                                     <button name="action_clear_llm_qc" type="object" string="Clear QC" icon="fa-trash"
