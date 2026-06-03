@@ -29,7 +29,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from odoo import _, api, fields, models, SUPERUSER_ID
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
@@ -113,23 +113,24 @@ def _get_pool(db_name):
 
 _DEFAULT_TIMEOUT_MIN = 15
 _DEFAULT_MAX_FILE_MB = 1
-# The reaper cron interval, in minutes. MUST stay in sync with data/ir_cron_data.xml
-# (interval_number/interval_type for the reap cron). Mirrored here so the invariant below is
-# explicit and self-checking.
-_REAPER_CRON_INTERVAL_MIN = 5
-# Extra minutes the reaper waits beyond the run timeout before forcing a 'running' run to
-# 'failed'. It must exceed the reaper cron interval so the reaper only ever fires AFTER a healthy
-# worker has already self-terminated at the wall-clock budget — that keeps the reaper from freeing a
-# slot for a worker that is still holding a live Bedrock connection (would overshoot N).
+# Hard ceilings for admin-configurable values. An admin who fat-fingers Settings (or a hostile
+# admin) could otherwise set a multi-day timeout that pins a worker slot for days, or a 10 GB
+# file-size cap that lets a user OOM the process by uploading huge rubrics. The cap is enforced
+# in the config getters, so it covers every reader at once.
+_MAX_TIMEOUT_MIN = 60
+_MAX_FILE_SIZE_MB = 50
+# Per-user cap on concurrent queued+running runs. Without this, one careless user (or a runaway
+# client) could fill the entire global pool with their own runs and starve everyone else.
+# Admins are exempt (they routinely operate on the whole queue).
+_MAX_USER_INFLIGHT = 50
+# Per-row cap on user_prompt size. Text fields have no DB-level cap; a user could otherwise paste
+# a multi-MB prompt that bloats the table, the bus payload, and Bedrock's input-token bill.
+_MAX_USER_PROMPT_BYTES = 200 * 1024
+# Static minimum grace beyond the run timeout before the reaper forces a 'running' row to
+# 'failed'. The reap cron interval is also read at reap time (_reaper_grace_minutes) so the
+# effective grace is always strictly greater than the cron interval — even if an admin lengthens
+# the cron in the UI — and a healthy worker is never reaped mid-call.
 _REAPER_GRACE_MIN = 6
-
-# Fail loud at import if someone breaks the invariant by editing a constant (the XML interval still
-# has to be kept in sync by hand — that coupling is documented on _REAPER_CRON_INTERVAL_MIN).
-assert _REAPER_GRACE_MIN > _REAPER_CRON_INTERVAL_MIN, (
-    "prompt_qc: _REAPER_GRACE_MIN (%s) must exceed the reaper cron interval (%s min), else the "
-    "reaper can fire while a healthy worker is still mid-call and overshoot the concurrency cap."
-    % (_REAPER_GRACE_MIN, _REAPER_CRON_INTERVAL_MIN)
-)
 
 # Live-streaming over the bus. The worker pushes judge tokens to the run owner's bus channel as
 # they arrive, batched so we do not open a cursor per token. Each flush commits in its own short
@@ -247,27 +248,103 @@ def _dispatch_pending(db_name):
         try:
             _get_pool(db_name).submit(_process_run, db_name, rec_id)
         except Exception:
-            # Pool refused the task (shutdown): leave the run 'running' for the reaper, which
-            # will time it out, and for the next dispatch tick.
+            # Pool refused the submit (typically a torn-down or broken pool). The row is already
+            # flipped to 'running' at this point, so without a revert it would sit 'running' with
+            # no worker until the reaper times it out (timeout + grace later). Revert it now so
+            # the next dispatch tick (postcommit kick or 1-min cron) picks it back up.
             _logger.exception("prompt_qc: could not submit run %s to the pool", rec_id)
+            _revert_to_queued(db_name, rec_id)
+
+
+def _revert_to_queued(db_name, rec_id):
+    """Flip a 'running' row back to 'queued' after pool.submit() refused it. Idempotent — a no-op
+    on rows that have since become terminal or already moved back to 'queued'."""
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            run = env["prompt.qc.run"].browse(rec_id)
+            if run.exists() and run.state == "running":
+                run.write({"state": "queued", "started_at": False})
+            cr.commit()
+    except Exception:
+        _logger.exception("prompt_qc: revert-to-queued failed for run %s", rec_id)
 
 
 def _process_run(db_name, rec_id):
-    """Worker body: run one judge call in its own cursor, persist, commit, then refill the slot."""
+    """Worker body. Split into three phases so we DO NOT hold a Postgres cursor across the
+    multi-minute Bedrock streaming call.
+
+    Phase 1 (gather)  : short cursor — read inputs from the row and close.
+    Phase 2 (Bedrock) : NO cursor open — make the streaming call.
+    Phase 3 (write)   : short cursor — write the terminal state and commit.
+
+    Why this matters: at pool_size = 16 a cursor held for a 10-minute call would pin 16 Postgres
+    connections solid, starving every other tenant of the same DB pool (logins, list views, the
+    bus itself). The split returns the connection to the pool the instant we are done reading.
+    """
+    inputs = None
+    early_err = None
+    t0 = time.time()
     try:
         with Registry(db_name).cursor() as cr:
             env = api.Environment(cr, SUPERUSER_ID, {})
             run = env["prompt.qc.run"].browse(rec_id)
             if not run.exists() or run.state != "running":
-                # Already terminal, reaped, or vanished — nothing to do.
                 return
-            run._execute_judge()
+            inputs, early_err = run._gather_judge_inputs()
+            if early_err:
+                run._mark_failed(
+                    early_err,
+                    round(time.time() - t0, 2),
+                    (inputs or {}).get("model_label"),
+                )
+                cr.commit()
+                return
+    except Exception:
+        _logger.exception("prompt_qc: gather phase failed for run %s", rec_id)
+        _safe_mark_failed(db_name, rec_id, "Worker gather phase crashed; see server log.")
+        _dispatch_pending(db_name)
+        return
+
+    result = None
+    try:
+        from ..services import bedrock_judge
+        publisher = _StreamPublisher(inputs["db_name"], inputs["partner_id"], inputs["run_id"])
+        result = bedrock_judge.collect_judge(
+            inputs["api_key"], inputs["inference_arn"], inputs["region"],
+            inputs["system_prompt"], inputs["user_prompt"],
+            rubric_text=inputs["rubric_text"],
+            max_tokens=bedrock_judge.JUDGE_MAX_TOKENS,
+            temperature=bedrock_judge.JUDGE_TEMPERATURE,
+            timeout=inputs["budget"], max_seconds=inputs["budget"],
+            on_delta=publisher.push,
+            should_continue=lambda: not _SHUTTING_DOWN.is_set(),
+        )
+        publisher.flush()
+    except Exception:
+        _logger.exception("prompt_qc: Bedrock phase crashed for run %s", rec_id)
+        _safe_mark_failed(db_name, rec_id, "Bedrock call crashed; see server log.")
+        _dispatch_pending(db_name)
+        return
+
+    duration = round(time.time() - t0, 2)
+    try:
+        with Registry(db_name).cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            run = env["prompt.qc.run"].browse(rec_id)
+            if run.exists():
+                if result.get("ok"):
+                    run._mark_done(
+                        result["text"], result["usage"], duration, inputs["model_label"])
+                else:
+                    run._mark_failed(
+                        result.get("error") or _("Stream ended before completion."),
+                        duration, inputs["model_label"])
             cr.commit()
     except Exception:
-        _logger.exception("prompt_qc: worker crashed for run %s", rec_id)
-        _safe_mark_failed(db_name, rec_id, "Worker crashed unexpectedly; see server log.")
+        _logger.exception("prompt_qc: terminal write failed for run %s", rec_id)
+        _safe_mark_failed(db_name, rec_id, "Worker terminal write crashed; see server log.")
     finally:
-        # A slot just freed: pull the next queued run without waiting for the cron tick.
         _dispatch_pending(db_name)
 
 
@@ -506,6 +583,7 @@ class PromptQcRun(models.Model):
         Runs already in flight ('queued'/'running') are left untouched."""
         to_queue = self.filtered(lambda r: r.state not in ("queued", "running"))
         if to_queue:
+            self._check_user_inflight_cap(len(to_queue))
             to_queue.write({
                 "state": "queued",
                 "response": False,
@@ -539,11 +617,73 @@ class PromptQcRun(models.Model):
 
     @api.model
     def _get_run_timeout_minutes(self):
-        return self._icp_int("prompt_qc.run_timeout_minutes", _DEFAULT_TIMEOUT_MIN, minimum=1)
+        return self._icp_int(
+            "prompt_qc.run_timeout_minutes", _DEFAULT_TIMEOUT_MIN,
+            minimum=1, maximum=_MAX_TIMEOUT_MIN)
 
     @api.model
     def _get_max_file_size_mb(self):
-        return self._icp_int("prompt_qc.max_file_size_mb", _DEFAULT_MAX_FILE_MB, minimum=1)
+        return self._icp_int(
+            "prompt_qc.max_file_size_mb", _DEFAULT_MAX_FILE_MB,
+            minimum=1, maximum=_MAX_FILE_SIZE_MB)
+
+    @api.model
+    def _reaper_grace_minutes(self):
+        """Effective grace window before the reaper forces a 'running' row to 'failed': the larger
+        of the static minimum (_REAPER_GRACE_MIN) and the actual reap-cron interval + 1.
+
+        Reading the live cron interval here means an admin can lengthen the cron in the UI without
+        also having to touch source code — the reaper will not fire while a healthy worker is
+        still mid-call. If the cron record is missing or its interval_type is unknown, we keep the
+        static minimum, which stays correct against the default 5-minute interval shipped in
+        data/ir_cron_data.xml.
+        """
+        grace = _REAPER_GRACE_MIN
+        cron = self.env.ref("prompt_qc.cron_prompt_qc_reap", raise_if_not_found=False)
+        if cron and cron.interval_number and cron.interval_type:
+            multipliers = {"minutes": 1, "hours": 60, "days": 1440, "weeks": 10080}
+            mult = multipliers.get(cron.interval_type)
+            if mult:
+                grace = max(grace, cron.interval_number * mult + 1)
+        return grace
+
+    @api.model
+    def _check_user_inflight_cap(self, additional=0):
+        """Per-user concurrency cap. Raises UserError if creating ``additional`` more runs would
+        push this user above _MAX_USER_INFLIGHT queued+running runs. Admins are exempt — they
+        routinely operate on the whole queue and the cap is about isolating one careless
+        non-admin user from saturating the global pool, not about admins.
+
+        sudo'd because a non-admin user's record rules normally hide other users' runs, but the
+        cap is per-user so we only ever count one user's own runs anyway.
+        """
+        user = self.env.user
+        if user.has_group("prompt_qc.group_prompt_qc_admin"):
+            return
+        inflight = self.sudo().search_count([
+            ("create_uid", "=", user.id),
+            ("state", "in", ("queued", "running")),
+        ])
+        if inflight + max(0, int(additional)) > _MAX_USER_INFLIGHT:
+            raise UserError(_(
+                "You already have %(n)s Prompt QC runs in flight; the per-user cap is "
+                "%(cap)s. Wait for some to finish before queueing more."
+            ) % {"n": inflight, "cap": _MAX_USER_INFLIGHT})
+
+    @api.constrains("user_prompt")
+    def _check_user_prompt_size(self):
+        for run in self:
+            if not run.user_prompt:
+                continue
+            size = len(run.user_prompt.encode("utf-8"))
+            if size > _MAX_USER_PROMPT_BYTES:
+                raise ValidationError(_(
+                    "The user prompt is %(size).1f KB, over the %(cap).1f KB limit. "
+                    "Trim it before submitting."
+                ) % {
+                    "size": size / 1024.0,
+                    "cap": _MAX_USER_PROMPT_BYTES / 1024.0,
+                })
 
     # ------------------------------------------------------------------
     # Bulk row validation (shared, non-raising — one error per row, valid rows untouched).
@@ -568,6 +708,19 @@ class PromptQcRun(models.Model):
 
         if not user_prompt:
             return None, _("User prompt is required.")
+
+        # Mirror the @api.constrains('user_prompt') size cap here so a too-big prompt surfaces as
+        # a per-row error (the bulk UI highlights row N) instead of a JSON-RPC server error when
+        # create() later trips the constraint.
+        prompt_size = len(user_prompt.encode("utf-8"))
+        if prompt_size > _MAX_USER_PROMPT_BYTES:
+            return None, _(
+                "The user prompt is %(size).1f KB, over the %(cap).1f KB limit. "
+                "Trim it before submitting."
+            ) % {
+                "size": prompt_size / 1024.0,
+                "cap": _MAX_USER_PROMPT_BYTES / 1024.0,
+            }
 
         vals = {"user_prompt": user_prompt, "state": "queued"}
         if rub_b64:
@@ -636,14 +789,15 @@ class PromptQcRun(models.Model):
         this keeps the reaper from freeing a slot for a worker that is still mid-call. Runs sudo so
         the 'no run is ever stuck' guarantee never depends on the cron's Scheduler User."""
         timeout_min = self._get_run_timeout_minutes()
-        cutoff = fields.Datetime.now() - timedelta(minutes=timeout_min + _REAPER_GRACE_MIN)
+        grace_min = self._reaper_grace_minutes()
+        cutoff = fields.Datetime.now() - timedelta(minutes=timeout_min + grace_min)
         Model = self.sudo()
         stuck = Model.search([("state", "=", "running"), ("started_at", "<", cutoff)])
         if not stuck:
             return
         for run in stuck:
             _logger.warning("prompt_qc: reaping run %s stuck in 'running' > %s min",
-                            run.id, timeout_min + _REAPER_GRACE_MIN)
+                            run.id, timeout_min + grace_min)
             run._mark_failed(
                 _("Timed out: no completion within %s minutes.") % timeout_min,
                 0.0, run.model_label,
@@ -657,64 +811,48 @@ class PromptQcRun(models.Model):
     # ------------------------------------------------------------------
     # Judge execution + terminal-state writers (shared single + bulk).
     # ------------------------------------------------------------------
-    def _execute_judge(self):
-        """Run one Bedrock judge call for this (already 'running') run, stream it, and persist.
+    def _gather_judge_inputs(self):
+        """Phase 1 of the worker: read everything the Bedrock call needs into a plain dict so the
+        cursor can be CLOSED before the multi-minute streaming call. Returns ``(inputs, error)``;
+        on early failure ``error`` is the user-facing message and the caller writes the terminal
+        failure inside the same gather cursor (so we still consume zero cursor time during the
+        actual network call).
 
-        Called by the background worker on its own cursor. Tokens are accumulated server-side AND
-        pushed live to the run owner over the bus (via _StreamPublisher); the full verdict is
-        written exactly once, on completion (persist-only-on-completion, decision D1).
+        The hard wall-clock budget computed here is what stops a stuck Bedrock stream from
+        outliving the reaper window: the call self-terminates at the budget, the reaper only fires
+        after budget + grace, so a healthy worker is never reaped mid-call.
         """
         self.ensure_one()
         from ..services import bedrock_judge
-
-        t0 = time.time()
         ICP = self.env["ir.config_parameter"].sudo()
         api_key = bedrock_judge.get_api_key(ICP)
         inference_arn, region = bedrock_judge.resolve_arn_and_region(ICP)
         model_label = (inference_arn.rsplit("/", 1)[-1][:120] if inference_arn else "") or False
-
-        def _fail(msg):
-            self._mark_failed(msg, round(time.time() - t0, 2), model_label)
-
+        partner = self.create_uid.partner_id
+        inputs = {
+            "api_key": api_key,
+            "inference_arn": inference_arn,
+            "region": region,
+            "model_label": model_label,
+            "user_prompt": self.user_prompt or "",
+            "system_prompt": self._get_system_prompt(),
+            "rubric_text": self._get_rubric(),
+            "budget": float(self._get_run_timeout_minutes() * 60),
+            "db_name": self.env.cr.dbname,
+            "partner_id": partner.id if partner else False,
+            "run_id": self.id,
+        }
         if not api_key:
-            return _fail(_("Missing Bedrock API key. Set prompt_qc.bedrock_api_key in Settings "
-                           "or AWS_BEARER_TOKEN_BEDROCK in .env."))
+            return inputs, _("Missing Bedrock API key. Set prompt_qc.bedrock_api_key in "
+                             "Settings or AWS_BEARER_TOKEN_BEDROCK in .env.")
         if not inference_arn:
-            return _fail(_("Missing prompt_qc.bedrock_inference_arn in Settings."))
-        if not (self.user_prompt and self.user_prompt.strip()):
-            return _fail(_("The user prompt is empty."))
-        system_prompt = self._get_system_prompt()
-        if not (system_prompt and system_prompt.strip()):
-            return _fail(_("No system prompt configured. Upload a .md judge prompt in "
-                           "Settings -> Prompt QC."))
-
-        # Hard wall-clock budget for this run. The worker self-terminates at this budget — well
-        # before the reaper window (budget + grace) — so a healthy worker is never reaped mid-call
-        # and the global concurrency cap N is never overshot. The Bedrock client uses tight
-        # per-operation timeouts of its own (connect/read/write); `max_seconds` here bounds the
-        # TOTAL elapsed time even for a slow-trickle stream that never trips a per-op timeout.
-        budget = float(self._get_run_timeout_minutes() * 60)
-        # Stream tokens live to the run owner over the bus while accumulating server-side. The bus
-        # push is fire-forward; the durable verdict is still written only once, on completion.
-        publisher = _StreamPublisher(
-            self.env.cr.dbname, self.create_uid.partner_id.id, self.id)
-        result = bedrock_judge.collect_judge(
-            api_key, inference_arn, region, system_prompt, self.user_prompt,
-            rubric_text=self._get_rubric(),
-            max_tokens=bedrock_judge.JUDGE_MAX_TOKENS,
-            temperature=bedrock_judge.JUDGE_TEMPERATURE,
-            timeout=budget, max_seconds=budget,
-            on_delta=publisher.push,
-            # Abort cleanly if the process is shutting down (deploy/restart) instead of hanging.
-            should_continue=lambda: not _SHUTTING_DOWN.is_set(),
-        )
-        publisher.flush()  # emit any buffered tail before the terminal event
-        duration = round(time.time() - t0, 2)
-        if result["ok"]:
-            self._mark_done(result["text"], result["usage"], duration, model_label)
-        else:
-            self._mark_failed(result["error"] or _("Stream ended before completion."),
-                              duration, model_label)
+            return inputs, _("Missing prompt_qc.bedrock_inference_arn in Settings.")
+        if not inputs["user_prompt"].strip():
+            return inputs, _("The user prompt is empty.")
+        if not (inputs["system_prompt"] and inputs["system_prompt"].strip()):
+            return inputs, _("No system prompt configured. Upload a .md judge prompt in "
+                             "Settings -> Prompt QC.")
+        return inputs, None
 
     def _is_already_terminal_locked(self):
         """Lock this run's row and read its COMMITTED state. Returns True if the row is gone or

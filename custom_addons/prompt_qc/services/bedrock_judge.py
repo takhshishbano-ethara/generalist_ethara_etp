@@ -202,6 +202,9 @@ def _parse_event_headers(data):
     return headers
 
 
+_MAX_FRAME_BYTES = 16 * 1024 * 1024
+
+
 def _iter_event_stream(raw_iter):
     buf = b""
     for chunk in raw_iter:
@@ -211,6 +214,9 @@ def _iter_event_stream(raw_iter):
         while len(buf) >= 12:
             total_len = struct.unpack(">I", buf[0:4])[0]
             headers_len = struct.unpack(">I", buf[4:8])[0]
+            if total_len > _MAX_FRAME_BYTES:
+                raise ValueError(
+                    "eventstream frame size %d exceeds %d-byte cap" % (total_len, _MAX_FRAME_BYTES))
             if total_len < 16 or len(buf) < total_len:
                 break
             # A frame is 12-byte prelude + headers + payload + 4-byte CRC, so the headers can be at
@@ -316,14 +322,16 @@ def iter_judge_events(api_key, inference_arn, region, system_prompt, user_messag
                     yield ("done", None)
                     return
 
-                # Non-200: read a bounded slice of the body for the error message.
+                # Non-200: read a bounded slice of the body for the error message. A 500-byte cap
+                # is enough to surface Bedrock's structured error (code + brief message); going
+                # larger only inflates the row we then write to error_message and the bus payload.
                 raw = b""
                 for chunk in resp.iter_raw():
                     raw += chunk
-                    if len(raw) > 2000:
+                    if len(raw) > 500:
                         break
                 last_error = "Bedrock %s: %s" % (
-                    resp.status_code, raw[:2000].decode("utf-8", errors="replace"))
+                    resp.status_code, raw[:500].decode("utf-8", errors="replace"))
                 if resp.status_code in _RETRYABLE_STATUS and attempt < _MAX_ATTEMPTS - 1:
                     _logger.warning(
                         "prompt_qc: Bedrock %s (attempt %d/%d) — backing off",

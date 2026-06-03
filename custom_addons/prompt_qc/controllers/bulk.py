@@ -87,6 +87,15 @@ class PromptQcBulkController(http.Controller):
             return {"created": 0, "ids": [],
                     "errors": [{"row": 0, "message": _("Add at least one row with a user prompt.")}]}
 
+        # Per-user concurrency cap: refuse the WHOLE submit if it would push the user past
+        # _MAX_USER_INFLIGHT queued+running runs. Single-form 'Start QC' is gated by the same
+        # helper (in action_enqueue), so the two entry points share one ceiling.
+        try:
+            Model._check_user_inflight_cap(len(valid_vals))
+        except Exception as exc:
+            msg = exc.args[0] if getattr(exc, "args", None) else str(exc)
+            return {"created": 0, "ids": [], "errors": [{"row": 0, "message": msg}]}
+
         # Create in bounded batches so a very large submit is not one giant in-memory create().
         runs = Model.create_runs_chunked(valid_vals)
         # Kick the worker AFTER this request commits, so the 'queued' rows are durably visible.
