@@ -319,6 +319,7 @@ def _call_openrouter(*, system_prompt, user_text, video_data_url, model_id,
         "top_p": DEFAULT_TOP_P,
         "max_tokens": max_tokens,
         "reasoning": {"effort": DEFAULT_REASONING_EFFORT},
+        "usage": {"include": True},
     }
     headers = {
         "Authorization": "Bearer %s" % api_key,
@@ -355,7 +356,13 @@ def _call_openrouter(*, system_prompt, user_text, video_data_url, model_id,
         raise UserError(_(
             "Unexpected OpenRouter response shape: %s"
         ) % (str(data)[:400],)) from exc
-    return text
+    cost_usd = 0.0
+    try:
+        usage = data.get("usage") or {}
+        cost_usd = float(usage.get("cost") or 0.0)
+    except (TypeError, ValueError):
+        cost_usd = 0.0
+    return text, cost_usd
 
 
 def evaluate_llm_qc(
@@ -430,14 +437,16 @@ def evaluate_llm_qc(
 
     last_exc = None
     text = None
+    cost_usd = 0.0
     for attempt in range(1, max_attempts + 1):
         try:
-            text = _call_openrouter(
+            text, call_cost = _call_openrouter(
                 system_prompt=seed_prompt.strip(), user_text=user_text,
                 video_data_url=video_data_url, model_id=model_id.strip(),
                 api_key=openrouter_api_key.strip(), max_tokens=max_tokens,
                 temperature=temperature,
             )
+            cost_usd += call_cost
             if text:
                 break
             last_exc = _RetryableHTTP(0, "empty response")
@@ -464,4 +473,5 @@ def evaluate_llm_qc(
     parsed = _parse_qc_response(text)
     parsed["raw_text"] = text
     parsed["probe"] = probe
+    parsed["cost_usd"] = cost_usd
     return parsed

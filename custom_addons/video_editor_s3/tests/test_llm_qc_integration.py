@@ -245,3 +245,118 @@ class TestLLMQCConfigResolver(TransactionCase):
         ICP.set_param("video_editor_s3.llm_qc_model_id", "")
         cfg = self.env["video.editor.s3.settings"].get_llm_qc_config()
         self.assertIn("gemini", cfg.get("model_id", "").lower())
+
+
+class _FakeRecord:
+
+    def __init__(self, code=""):
+        self.code = code
+
+    def __bool__(self):
+        return bool(self.code)
+
+
+class _FakeProject:
+
+    def __init__(self, **kwargs):
+        self.category_id = _FakeRecord()
+        self.sub_category_id = _FakeRecord()
+        self.category = ""
+        self.sub_category = ""
+        self.topic_name = ""
+        self.topic = ""
+        self.style = ""
+        self.source_metadata = {}
+        self.output_resolution = ""
+        self.output_duration_seconds = 0.0
+        self.output_fps = 0.0
+        self.resolution = ""
+        self.duration_seconds = 0.0
+        self.source_fps = 0.0
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+
+@tagged("post_install", "-at_install", "video_editor_s3")
+class TestExtractQCMetadata(TransactionCase):
+
+    def setUp(self):
+        super().setUp()
+        from odoo.addons.video_editor_s3.models.video_editor_job import _extract_qc_metadata
+        self.extract = _extract_qc_metadata
+
+    def test_category_id_preferred_over_selection(self):
+        p = _FakeProject(category_id=_FakeRecord("test_category_code"), category="sports")
+        self.assertEqual(self.extract(p)["category"], "test_category_code")
+
+    def test_falls_back_to_category_selection_when_no_m2o(self):
+        p = _FakeProject(category="sports")
+        self.assertEqual(self.extract(p)["category"], "sports")
+
+    def test_category_empty_when_neither_set(self):
+        p = _FakeProject()
+        self.assertEqual(self.extract(p)["category"], "")
+
+    def test_sub_category_id_preferred_over_selection(self):
+        p = _FakeProject(
+            sub_category_id=_FakeRecord("test_sub_code"),
+            sub_category="legacy_sub",
+        )
+        self.assertEqual(self.extract(p)["sub_category"], "test_sub_code")
+
+    def test_topic_name_extracted(self):
+        p = _FakeProject(topic_name="Snowboarding Trick")
+        self.assertEqual(self.extract(p)["topic"], "Snowboarding Trick")
+
+    def test_style_unchanged_path(self):
+        p = _FakeProject(style="precise")
+        self.assertEqual(self.extract(p)["style"], "precise")
+
+    def test_output_resolution_preferred(self):
+        p = _FakeProject(
+            output_resolution="1920x1080",
+            source_metadata={"resolution": "3840x2160"},
+        )
+        self.assertEqual(self.extract(p)["resolution"], "1920x1080")
+
+    def test_resolution_falls_back_to_source_metadata(self):
+        p = _FakeProject(source_metadata={"resolution": "1280x720"})
+        self.assertEqual(self.extract(p)["resolution"], "1280x720")
+
+    def test_output_duration_preferred(self):
+        p = _FakeProject(
+            output_duration_seconds=12.5,
+            source_metadata={"duration": 300.0},
+        )
+        self.assertEqual(self.extract(p)["duration_seconds"], 12.5)
+
+    def test_duration_falls_back_to_source_metadata(self):
+        p = _FakeProject(source_metadata={"duration": 45.0})
+        self.assertEqual(self.extract(p)["duration_seconds"], 45.0)
+
+    def test_output_fps_preferred(self):
+        p = _FakeProject(
+            output_fps=24.0,
+            source_metadata={"fps": 60.0},
+        )
+        self.assertEqual(self.extract(p)["fps"], 24.0)
+
+    def test_fps_falls_back_to_source_metadata(self):
+        p = _FakeProject(source_metadata={"fps": 30.0})
+        self.assertEqual(self.extract(p)["fps"], 30.0)
+
+    def test_invalid_duration_in_source_meta_returns_zero(self):
+        p = _FakeProject(source_metadata={"duration": "not-a-number"})
+        self.assertEqual(self.extract(p)["duration_seconds"], 0.0)
+
+    def test_invalid_fps_in_source_meta_returns_zero(self):
+        p = _FakeProject(source_metadata={"fps": "garbage"})
+        self.assertEqual(self.extract(p)["fps"], 0.0)
+
+    def test_full_priority_chain_for_resolution(self):
+        p = _FakeProject(
+            output_resolution="1920x1080",
+            source_metadata={"resolution": "3840x2160"},
+            resolution="640x480",
+        )
+        self.assertEqual(self.extract(p)["resolution"], "1920x1080")

@@ -405,6 +405,7 @@ class VideoEditorProject(models.Model):
     llm_failure_reason = fields.Text(string="T2AV Failure Reason", readonly=True)
     llm_fixed_prompt = fields.Text(string="T2AV Fixed Prompt", readonly=True)
     llm_evaluated_at = fields.Datetime(string="T2AV Evaluated At", readonly=True)
+    llm_qc_cost_usd = fields.Float(string="QC Cost (USD)", readonly=True, digits=(12, 6))
 
     llm_qc_force_passed = fields.Boolean(
         string="LLM QC Force Passed",
@@ -928,8 +929,12 @@ class VideoEditorProject(models.Model):
             ))
         if not self.prompt:
             raise UserError(_("Write a prompt before running LLM QC."))
-        if not self.category:
+        if not (self.category_id or self.category):
             raise UserError(_("Pick a category before running LLM QC."))
+        if not (self.sub_category_id or self.sub_category):
+            raise UserError(_("Pick a sub-category before running LLM QC."))
+        if not self.topic_name:
+            raise UserError(_("Set a topic before running LLM QC."))
         if not self.style:
             raise UserError(_("Pick a style before running LLM QC."))
         job = self._kick_job("llm_qc")
