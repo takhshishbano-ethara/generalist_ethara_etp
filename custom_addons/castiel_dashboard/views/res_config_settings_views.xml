@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_castiel" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.castiel.dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Castiel Dashboard" string="Castiel Dashboard" name="castiel_dashboard">
+                    <block title="Castiel Dashboard Settings">
+                        <setting string="Repository URL"
+                                 help="URL pointing to the Castiel project / Ethara site">
+                            <field name="castiel_repo_url"/>
+                        </setting>
+                        <setting string="Paper URL"
+                                 help="URL pointing to the primary research paper">
+                            <field name="castiel_paper_url"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+</odoo>

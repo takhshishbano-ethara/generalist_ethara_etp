@@ -1,0 +1,78 @@
+{
+  "meta": {
+    "project": "Castiel",
+    "owner": "Ethara AI",
+    "stage": "seed",
+    "note": "All figures quoted from the Castiel research repo. Castiel's own model baselines are not yet run (roadmap); competitor figures describe other benchmarks, not Castiel results."
+  },
+  "corpus": {
+    "instances": 20,
+    "categories": {
+      "audio": 4, "image": 3, "document": 3, "network": 3,
+      "compression": 2, "binary-parser": 2, "xml-json": 2, "crypto": 1
+    },
+    "bug_classes": {
+      "heap-buffer-overflow": 6, "stack-buffer-overflow": 3, "use-after-free": 3,
+      "null-deref": 2, "uninit-memory": 2, "global-buffer-overflow": 1,
+      "double-free": 1, "integer-overflow → OOB": 1, "negative-size-param": 1
+    },
+    "languages": { "C": 14, "C++": 5, "Rust": 1 },
+    "attack_surface": { "local-file-parse": 17, "network": 2, "cli": 1 },
+    "difficulty": { "Easy": 8, "Medium": 8, "Hard": 4 },
+    "difficulty_bands": { "Easy": "20–40% frontier pass@1", "Medium": "5–20% frontier pass@1", "Hard": "0–5% frontier pass@1" }
+  },
+  "verifier_tiers": [
+    { "tier": "input_valid", "check": "Parses far enough to reach the harness", "defeats": "Garbage-input farming" },
+    { "tier": "reaches_target", "check": "Executes the vulnerable function / patched hunk (coverage probe)", "defeats": "Crashed somewhere else" },
+    { "tier": "matches_sanitizer", "check": "Sanitizer report class == declared (ASAN-heap vs UBSAN vs SEGV)", "defeats": "Wrong-bug reward" },
+    { "tier": "matches_stack", "check": "Crash stack fingerprint == vulnerable-build fingerprint", "defeats": "Unrelated coincidental crash" },
+    { "tier": "vul_crashes", "check": "Original differential pre-patch condition", "defeats": "(baseline)" },
+    { "tier": "fix_safe", "check": "Post-patch clean; fix_timeout / fix_resource_failure are separate labels", "defeats": "Patch-regression masking" },
+    { "tier": "exploit_primitive", "check": "Controlled IP / fault address / overwrite marker / leak marker", "defeats": "Crash-only criticism" }
+  ],
+  "contamination_splits": [
+    { "split": "public_train", "source": "ARVO / CyberGym / OSS-Fuzz, canary-mutated", "purpose": "Training only" },
+    { "split": "private_eval", "source": "Recent OSS-Fuzz + embargoed partner reports + synthetic patches, network-banned", "purpose": "Honest leaderboard" },
+    { "split": "live_eval", "source": "Continuously-updated, post-knowledge-cutoff (LiveCVEBench pattern)", "purpose": "Contamination-proof headline number" }
+  ],
+  "benchmarks": [
+    { "name": "CyberGym", "instances": 1507, "projects": 188, "verifier": "partial", "target_binding": "no", "live_split": "auto-update", "factory": "no", "rl_env": "no", "self_play": "no" },
+    { "name": "ARVO", "instances": 5000, "projects": null, "verifier": "yes", "target_binding": "no", "live_split": "auto-update", "factory": "yes (rebuild)", "rl_env": "no", "self_play": "no" },
+    { "name": "CyberSecEval", "instances": null, "projects": null, "verifier": "LLM-judge hybrid", "target_binding": "no", "live_split": "no", "factory": "no", "rl_env": "no", "self_play": "no" },
+    { "name": "BountyBench", "instances": 40, "projects": 25, "verifier": "partial", "target_binding": "partial", "live_split": "no", "factory": "no", "rl_env": "no", "self_play": "no" },
+    { "name": "Castiel (seed)", "instances": 20, "projects": null, "verifier": "yes (evidence-tier)", "target_binding": "yes", "live_split": "yes", "factory": "yes", "rl_env": "yes", "self_play": "yes" }
+  ],
+  "cybergym_models": [
+    { "model": "Claude-Sonnet-4", "success": 17.9 },
+    { "model": "Claude-3.7-Sonnet", "success": 11.9 },
+    { "model": "GPT-4.1", "success": 9.4 },
+    { "model": "GPT-5 (minimal)", "success": 7.8 },
+    { "model": "Gemini-2.5-Flash", "success": 4.8 },
+    { "model": "DeepSeek-V3", "success": 3.6 },
+    { "model": "o4-mini", "success": 2.5 },
+    { "model": "R2E-Gym-32B", "success": 2.0 },
+    { "model": "Qwen3-235B-A22B", "success": 1.9 },
+    { "model": "OpenHands-LM-32B", "success": 1.7 },
+    { "model": "SWE-Gym-32B", "success": 0.1 }
+  ],
+  "cybergym_union_success": 27.2,
+  "cybergym_difficulty": [
+    { "level": "Level 0", "desc": "no vuln description", "success": 3.5 },
+    { "level": "Level 1", "desc": "+ text description", "success": 9.4 },
+    { "level": "Level 2", "desc": "+ crash trace", "success": 13.1 },
+    { "level": "Level 3", "desc": "+ ground-truth patch", "success": 17.1 }
+  ],
+  "roadmap": [
+    { "phase": "P0", "status": "built", "title": "Validated seed", "milestone": "20 Harbor tasks; differential reward; complete schema" },
+    { "phase": "P1", "status": "roadmap", "title": "Evidence-tier verifier + factory", "milestone": "200 auto-ingested tasks; populated baselines" },
+    { "phase": "P2", "status": "roadmap", "title": "Contamination splits + protocolized PoC", "milestone": "Held-out mutated/private number frontier models can't recall" },
+    { "phase": "P3", "status": "roadmap", "title": "Reach/trigger shaping + non-LLM actors", "milestone": "GRPO learning curve on the private split" },
+    { "phase": "P4", "status": "roadmap", "title": "Castiel ⇄ Valkyrie self-play", "milestone": "One loop on 5 tasks → measurable cross-generation improvement + transfer" }
+  ],
+  "resources": [
+    { "label": "Paper", "title": "CyberGym (UC Berkeley)", "url": "https://arxiv.org/abs/2506.02548" },
+    { "label": "Paper", "title": "ARVO (ASU/NYU)", "url": "https://arxiv.org/abs/2408.02153" },
+    { "label": "Docs", "title": "Harbor Framework", "url": "https://www.harborframework.com/docs" },
+    { "label": "Paper", "title": "BountyBench", "url": "https://arxiv.org/abs/2505.15216" }
+  ]
+}

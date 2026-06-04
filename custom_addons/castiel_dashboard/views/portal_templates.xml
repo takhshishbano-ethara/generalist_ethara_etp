@@ -1,0 +1,372 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <template id="portal_showcase" name="Castiel Showcase">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>Castiel — Exploit-Evidence Cyber Range · ETHARA AI</title>
+      <meta name="description" content="Castiel is a deterministic, contamination-resistant cyber range for training and evaluating AI models that produce exploit-evidence Proof-of-Concept artifacts against vulnerable code. Seed corpus composition, evidence-tier verifier, and the competitive benchmark landscape."/>
+      <meta name="theme-color" content="#F5F3F8" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('castiel:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <link rel="stylesheet" href="/castiel_dashboard/static/src/portal/css/castiel_portal.css"/>
+
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js" defer="defer"/>
+      <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/castiel_dashboard/static/src/portal/js/castiel_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+      <div class="scroll-progress" aria-hidden="true"/>
+
+      <button type="button" id="theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode" title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page">
+
+        <header class="masthead">
+          <div class="mast-top">
+            <h1 class="wordmark">CASTIEL</h1>
+            <span class="badge">Exploit-Evidence Cyber Range</span>
+          </div>
+          <hr class="rule"/>
+          <p class="thesis">Can two AI agents write their own security curriculum?</p>
+          <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
+        </header>
+
+        <main id="main">
+
+          <!-- ===================== §01 OVERVIEW ===================== -->
+          <section class="section" id="overview" aria-labelledby="overview-label">
+            <p class="section-label" id="overview-label">§01 · Overview</p>
+            <div class="overview-grid">
+              <div class="prose">
+                <p>Castiel hands a model a pre-patch source tree, a build harness, and a brief, and asks it to produce a <b>Proof-of-Concept artifact</b> that provably triggers the targeted defect on the vulnerable build and provably does <b>not</b> on the patched build — scored by a deterministic, no-LLM-in-the-loop verifier.</p>
+                <p>It validates <b>target binding</b> (the right bug, by sanitizer class + stack fingerprint + patch-hunk reachability), resists data contamination via public / private / live splits, and is designed to co-evolve against its defender sibling <em>Valkyrie</em> so the curriculum generates itself.</p>
+                <p class="teaser">The numbers below are the validated seed and the competitive landscape it is measured against. See the <a href="#roadmap">roadmap</a> for what is built vs. planned.</p>
+              </div>
+
+              <aside class="glance" aria-label="At a glance">
+                <p class="glance-label mono">At a glance</p>
+                <dl class="glance-list">
+                  <div class="glance-row"><dt>Seed instances</dt><dd><b>20</b></dd></div>
+                  <div class="glance-row"><dt>Project categories</dt><dd><b>8</b></dd></div>
+                  <div class="glance-row"><dt>Bug classes</dt><dd><b>9</b></dd></div>
+                  <div class="glance-row"><dt>Languages</dt><dd><b>3</b></dd></div>
+                  <div class="glance-row"><dt>Verifier tiers</dt><dd><b>7</b></dd></div>
+                  <div class="glance-row"><dt>Reward</dt><dd>Deterministic</dd></div>
+                </dl>
+              </aside>
+            </div>
+          </section>
+
+          <!-- ===================== §02 KEY METRICS ===================== -->
+          <section class="section" id="metrics" aria-labelledby="metrics-label">
+            <p class="section-label" id="metrics-label">§02 · Key metrics</p>
+            <div class="kpi-row" style="grid-template-columns: repeat(6, 1fr);">
+              <div class="kpi-card">
+                <p class="kpi-label">Seed Instances</p>
+                <p class="kpi-value"><span class="kpi-big">20</span></p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">Bug Classes</p>
+                <p class="kpi-value"><span class="kpi-big">9</span></p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">Categories</p>
+                <p class="kpi-value"><span class="kpi-big">8</span></p>
+              </div>
+              <div class="kpi-card">
+                <p class="kpi-label">Languages</p>
+                <p class="kpi-value"><span class="kpi-big">3</span></p>
+              </div>
+              <div class="kpi-card kpi-card--accent">
+                <p class="kpi-label">Verifier Tiers</p>
+                <p class="kpi-value"><span class="kpi-big">7</span></p>
+              </div>
+              <div class="kpi-card kpi-card--accent">
+                <p class="kpi-label">Difficulty Tiers</p>
+                <p class="kpi-value"><span class="kpi-big">3</span></p>
+              </div>
+            </div>
+          </section>
+
+          <!-- ===================== §03 CORPUS COMPOSITION ===================== -->
+          <section class="section" id="corpus" aria-labelledby="corpus-label">
+            <p class="section-label" id="corpus-label">§03 · Corpus composition</p>
+            <p class="section-desc">The validated 20-task Harbor seed, characterized honestly. Every distribution below sums to the 20 instances. Source: Castiel data specification.</p>
+
+            <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="Bug-class distribution full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/01_bug_classes.png" alt="Bug-class distribution of the seed corpus" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/01_bug_classes_dark.png" alt="Bug-class distribution of the seed corpus" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 1 — Bug classes</figcaption>
+              </figure>
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="Project categories full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/05_categories.png" alt="Project category distribution" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/05_categories_dark.png" alt="Project category distribution" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 2 — Project categories</figcaption>
+              </figure>
+            </div>
+
+            <div class="charts charts-3">
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="Language split full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/02_languages.png" alt="Language split" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/02_languages_dark.png" alt="Language split" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 3 — Languages</figcaption>
+              </figure>
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="Difficulty distribution full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/03_difficulty.png" alt="Difficulty distribution" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/03_difficulty_dark.png" alt="Difficulty distribution" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 4 — Difficulty</figcaption>
+              </figure>
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="Attack surface full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/04_attack_surface.png" alt="Attack surface distribution" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/04_attack_surface_dark.png" alt="Attack surface distribution" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 5 — Attack surface</figcaption>
+              </figure>
+            </div>
+            <p class="caption">The seed is <b>memory-safety-dominant by construction</b> (sanitizer-detectable, deterministic crash). Difficulty is calibrated to a 0–40% frontier pass@1 band: Easy 20–40%, Medium 5–20%, Hard 0–5%.</p>
+          </section>
+
+          <!-- ===================== §04 METHODOLOGY ===================== -->
+          <section class="section" id="methodology" aria-labelledby="methodology-label">
+            <p class="section-label" id="methodology-label">§04 · Methodology</p>
+            <p class="section-desc">The <b>Evidence-Tier Verifier</b> scores layered deterministic tiers against per-task expected-bug metadata. No LLM judges success — the tiers feed dense reward shaping while the leaderboard bit stays binary.</p>
+
+            <div class="pipeline" style="grid-template-columns: repeat(4, 1fr); border-top:2px solid var(--accent);">
+              <article class="phase">
+                <p class="phase-label">Tier 01</p><h4 class="phase-title">input_valid</h4>
+                <ul class="phase-body"><li>Parses far enough to reach the harness</li><li>Defeats garbage-input farming</li></ul>
+              </article>
+              <article class="phase">
+                <p class="phase-label">Tier 02</p><h4 class="phase-title">reaches_target</h4>
+                <ul class="phase-body"><li>Executes the vulnerable function / patched hunk</li><li>Defeats "crashed somewhere else"</li></ul>
+              </article>
+              <article class="phase">
+                <p class="phase-label">Tier 03</p><h4 class="phase-title">matches_sanitizer</h4>
+                <ul class="phase-body"><li>Sanitizer report class == declared</li><li>Defeats wrong-bug reward</li></ul>
+              </article>
+              <article class="phase">
+                <p class="phase-label">Tier 04</p><h4 class="phase-title">matches_stack</h4>
+                <ul class="phase-body"><li>Crash stack fingerprint == vulnerable build</li><li>Defeats coincidental crashes</li></ul>
+              </article>
+            </div>
+            <div class="pipeline" style="grid-template-columns: repeat(3, 1fr); border-top:2px solid var(--accent); margin-top:-1px;">
+              <article class="phase">
+                <p class="phase-label">Tier 05</p><h4 class="phase-title">vul_crashes</h4>
+                <ul class="phase-body"><li>Original differential pre-patch condition</li><li>Baseline reward</li></ul>
+              </article>
+              <article class="phase">
+                <p class="phase-label">Tier 06</p><h4 class="phase-title">fix_safe</h4>
+                <ul class="phase-body"><li>Post-patch clean</li><li>fix_timeout / fix_resource_failure are separate labels</li></ul>
+              </article>
+              <article class="phase phase-exec">
+                <p class="phase-label">Tier 07</p><h4 class="phase-title">exploit_primitive</h4>
+                <ul class="phase-body"><li>Controlled IP / fault address / overwrite / leak marker</li><li>Answers the crash-only criticism</li></ul>
+              </article>
+            </div>
+
+            <p class="section-desc" style="margin-top:40px;"><b>Contamination resistance.</b> A strict three-split provenance regime keeps the headline number honest — frontier models cannot fake it by recall.</p>
+            <div style="display:grid; grid-template-columns:repeat(3,1fr); gap:16px;">
+              <div class="glance"><p class="glance-label mono">public_train</p><dl class="glance-list"><div class="glance-row"><dt>Source</dt><dd>ARVO / CyberGym / OSS-Fuzz, canary-mutated</dd></div><div class="glance-row"><dt>Use</dt><dd>Training only</dd></div></dl></div>
+              <div class="glance"><p class="glance-label mono">private_eval</p><dl class="glance-list"><div class="glance-row"><dt>Source</dt><dd>Recent OSS-Fuzz + embargoed reports, network-banned</dd></div><div class="glance-row"><dt>Use</dt><dd>Honest leaderboard</dd></div></dl></div>
+              <div class="glance"><p class="glance-label mono">live_eval</p><dl class="glance-list"><div class="glance-row"><dt>Source</dt><dd>Continuously-updated, post-cutoff (LiveCVEBench)</dd></div><div class="glance-row"><dt>Use</dt><dd>Contamination-proof number</dd></div></dl></div>
+            </div>
+          </section>
+
+          <!-- ===================== §05 BENCHMARK LANDSCAPE ===================== -->
+          <section class="section" id="landscape" aria-labelledby="landscape-label">
+            <p class="section-label" id="landscape-label">§05 · Benchmark landscape</p>
+            <p class="section-desc">Where Castiel sits among the benchmarks it is measured against. <b>These are competitor capabilities and scores — not Castiel results.</b> Source: Castiel executive comparison + CyberGym paper.</p>
+
+            <div class="matrix-wrap" style="overflow-x:auto;">
+              <table class="matrix bench-matrix" style="min-width:760px;">
+                <thead>
+                  <tr>
+                    <th scope="col">Capability</th>
+                    <th scope="col" class="matrix-th-meta">CyberGym</th>
+                    <th scope="col" class="matrix-th-meta">ARVO</th>
+                    <th scope="col" class="matrix-th-meta">CyberSecEval</th>
+                    <th scope="col" class="matrix-th-meta">BountyBench</th>
+                    <th scope="col" class="matrix-th-meta">Castiel</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td class="cmp-name">Real-world vulns</td><td class="cmp">1,507</td><td class="cmp">5,000+</td><td class="cmp">partial</td><td class="cmp">40</td><td class="cmp">20 (seed)</td></tr>
+                  <tr><td class="cmp-name">Deterministic verifier</td><td class="cmp"><span class="ct-tag ct-tag--partial">partial</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">yes</span></td><td class="cmp"><span class="ct-tag ct-tag--partial">LLM hybrid</span></td><td class="cmp"><span class="ct-tag ct-tag--partial">partial</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">evidence-tier</span></td></tr>
+                  <tr><td class="cmp-name">Target binding</td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--partial">partial</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">yes</span></td></tr>
+                  <tr><td class="cmp-name">Contamination-resistant live split</td><td class="cmp"><span class="ct-tag ct-tag--partial">auto-update</span></td><td class="cmp"><span class="ct-tag ct-tag--partial">auto-update</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">yes</span></td></tr>
+                  <tr><td class="cmp-name">Automated task factory</td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--partial">rebuild</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">yes</span></td></tr>
+                  <tr><td class="cmp-name">RL environment</td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">yes</span></td></tr>
+                  <tr class="is-castiel"><td class="cmp-name">Attacker–defender self-play</td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--no">no</span></td><td class="cmp"><span class="ct-tag ct-tag--yes">unique</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="charts" style="grid-template-columns: repeat(2, 1fr); margin-top:28px;">
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="Benchmark scale full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/06_benchmark_scale.png" alt="Benchmark scale comparison" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/06_benchmark_scale_dark.png" alt="Benchmark scale comparison" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 6 — Benchmark scale (instances)</figcaption>
+              </figure>
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="CyberGym difficulty curve full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/08_cybergym_difficulty.png" alt="CyberGym success by difficulty level" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/08_cybergym_difficulty_dark.png" alt="CyberGym success by difficulty level" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 7 — CyberGym success by difficulty</figcaption>
+              </figure>
+            </div>
+            <div class="charts" style="grid-template-columns: 1fr;">
+              <figure class="chart">
+                <button type="button" class="chart-trigger" aria-label="CyberGym model leaderboard full size">
+                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/07_cybergym_models.png" alt="CyberGym model leaderboard" loading="lazy"/>
+                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/07_cybergym_models_dark.png" alt="CyberGym model leaderboard" loading="lazy"/>
+                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+                </button>
+                <figcaption>Fig. 8 — CyberGym Level-1 success rate (OpenHands)</figcaption>
+              </figure>
+            </div>
+            <p class="caption">CyberGym reports a best single-model success of <b>17.9%</b> (Claude-Sonnet-4); the union across all models reaches <b>27.2%</b>, revealing low task overlap.</p>
+          </section>
+
+          <!-- ===================== §06 LEADERBOARD ===================== -->
+          <section class="section" id="leaderboard" aria-labelledby="leaderboard-label">
+            <p class="section-label" id="leaderboard-label">§06 · CyberGym leaderboard</p>
+            <p class="section-desc">Per-model Level-1 success rate (OpenHands agent) on CyberGym's 1,507-instance benchmark. Search and sort the table. <b>This is the competitive baseline Castiel targets — not a Castiel score.</b></p>
+
+            <div class="ct-table__controls">
+              <input type="text" class="ct-table__search" placeholder="Search models..." aria-label="Search models"/>
+            </div>
+
+            <div class="matrix-wrap">
+              <table class="matrix" style="table-layout:fixed; width:100%;">
+                <colgroup><col style="width:48%;"/><col style="width:22%;"/><col style="width:30%;"/></colgroup>
+                <thead>
+                  <tr>
+                    <th scope="col" class="matrix-th-id" data-sort="model">Model</th>
+                    <th scope="col" class="matrix-th-meta" data-sort="success">Success</th>
+                    <th scope="col" class="matrix-th-cell">Relative</th>
+                  </tr>
+                </thead>
+                <tbody id="lb-tbody" aria-live="polite"></tbody>
+              </table>
+            </div>
+            <div class="ct-table__pagination"></div>
+          </section>
+
+          <!-- ===================== §07 ROADMAP ===================== -->
+          <section class="section" id="roadmap" aria-labelledby="roadmap-label">
+            <p class="section-label" id="roadmap-label">§07 · Roadmap</p>
+            <p class="section-desc">Described as it is today, with an explicit forward path. Only <b>P0</b> is built; P1–P4 are committed milestones, not present capability.</p>
+
+            <div class="matrix-wrap">
+              <table class="matrix" style="width:100%;">
+                <thead><tr><th scope="col" style="width:90px;">Phase</th><th scope="col" style="width:120px;">Status</th><th scope="col">Milestone</th></tr></thead>
+                <tbody>
+                  <tr class="matrix-row"><td class="matrix-id"><b>P0</b> · Validated seed</td><td class="matrix-meta"><span class="ct-tag ct-tag--built">Built</span></td><td>20 Harbor tasks; differential reward; complete schema</td></tr>
+                  <tr class="matrix-row"><td class="matrix-id"><b>P1</b> · Verifier + factory</td><td class="matrix-meta"><span class="ct-tag ct-tag--roadmap">Roadmap</span></td><td>Evidence-tier verifier; 200 auto-ingested tasks; populated baselines</td></tr>
+                  <tr class="matrix-row"><td class="matrix-id"><b>P2</b> · Contamination splits</td><td class="matrix-meta"><span class="ct-tag ct-tag--roadmap">Roadmap</span></td><td>Protocolized PoC runner; held-out mutated/private number</td></tr>
+                  <tr class="matrix-row"><td class="matrix-id"><b>P3</b> · Reward shaping</td><td class="matrix-meta"><span class="ct-tag ct-tag--roadmap">Roadmap</span></td><td>Reach/trigger shaping; non-LLM actors; GRPO curve on private split</td></tr>
+                  <tr class="matrix-row"><td class="matrix-id"><b>P4</b> · Self-play</td><td class="matrix-meta"><span class="ct-tag ct-tag--roadmap">Roadmap</span></td><td>Castiel ⇄ Valkyrie loop; measurable cross-generation improvement + transfer</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="ct-note"><b>Honesty note.</b> Castiel's own baseline model runs (e.g. Kimi K2.5 / Nova 2 Lite) are not yet populated in the source material, so no Castiel per-model scores are shown. They will appear here once P1 completes.</p>
+          </section>
+
+          <!-- ===================== §08 RESOURCES ===================== -->
+          <section class="section" id="resources" aria-labelledby="resources-label">
+            <p class="section-label" id="resources-label">§08 · Resources</p>
+            <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+              <a class="resource" href="https://arxiv.org/abs/2506.02548" target="_blank" rel="noopener">
+                <p class="res-label mono">Paper</p><p class="res-title">CyberGym</p>
+                <p class="res-url mono">arxiv.org/abs/2506.02548</p><span class="res-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="resource" href="https://arxiv.org/abs/2408.02153" target="_blank" rel="noopener">
+                <p class="res-label mono">Paper</p><p class="res-title">ARVO</p>
+                <p class="res-url mono">arxiv.org/abs/2408.02153</p><span class="res-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="resource" href="https://www.harborframework.com/docs" target="_blank" rel="noopener">
+                <p class="res-label mono">Docs</p><p class="res-title">Harbor Framework</p>
+                <p class="res-url mono">harborframework.com/docs</p><span class="res-arrow" aria-hidden="true">↗</span>
+              </a>
+            </div>
+            <p class="ct-note" style="margin-top:16px;">Castiel HuggingFace dataset, public dashboard, and trajectory runs are roadmap items (P1–P4) and not yet published.</p>
+          </section>
+
+        </main>
+
+        <footer class="foot">
+          <div class="foot-inner">
+            <p class="mono"><a href="https://www.ethara.ai">ethara.ai</a> · project castiel</p>
+          </div>
+        </footer>
+
+      </div>
+
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true" aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close" aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+        </figure>
+      </div>
+
+      <script type="application/json" id="castiel-data" t-out="data_json"/>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>
