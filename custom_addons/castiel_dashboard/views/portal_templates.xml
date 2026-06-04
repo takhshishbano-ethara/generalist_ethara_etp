@@ -206,7 +206,7 @@
                 <p class="phase-label">Tier 06</p><h4 class="phase-title">fix_safe</h4>
                 <ul class="phase-body"><li>Post-patch clean</li><li>fix_timeout / fix_resource_failure are separate labels</li></ul>
               </article>
-              <article class="phase phase-exec">
+              <article class="phase">
                 <p class="phase-label">Tier 07</p><h4 class="phase-title">exploit_primitive</h4>
                 <ul class="phase-body"><li>Controlled IP / fault address / overwrite / leak marker</li><li>Answers the crash-only criticism</li></ul>
               </article>

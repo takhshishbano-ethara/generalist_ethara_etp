@@ -600,8 +600,11 @@ hr.rule {
 .phase:hover {
   background: color-mix(in oklab, var(--accent) 8%, transparent);
 }
-.phase-exec { background: color-mix(in oklab, var(--accent) 6%, transparent); }
-.phase-exec:hover { background: color-mix(in oklab, var(--accent) 14%, transparent); }
+/* .phase-exec emphasis intentionally disabled — every verifier tier (§04) renders
+   uniformly. Neutralised in CSS (not just removed from markup) so the tint is gone
+   even before a module upgrade reloads the template. */
+.phase-exec { background: transparent; }
+.phase-exec:hover { background: color-mix(in oklab, var(--accent) 8%, transparent); }
 
 /* connector dot between phases */
 .phase:not(:last-child)::after {
@@ -1364,7 +1367,9 @@ body.drawer-open {
 .expand-icon svg { width: 14px; height: 14px; color: var(--ink-3); }
 .matrix-row.row-expanded .expand-icon { transform: rotate(90deg); }
 .matrix-row.row-expanded .expand-icon svg { color: var(--accent); }
-.matrix-row { cursor: pointer; }
+/* Castiel tables (roadmap §07, leaderboard §06) are not click-to-expand, so the
+   rows must not advertise a click affordance. Keep the subtle hover highlight. */
+.matrix-row { cursor: default; }
 .matrix-row:hover { background: var(--bg-3); }
 
 .chart img.chart-dark { display: none; }
