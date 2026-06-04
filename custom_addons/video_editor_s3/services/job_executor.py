@@ -46,6 +46,10 @@ class LambdaDispatched(Exception):
     pass
 
 
+class Ec2Dispatched(Exception):
+    pass
+
+
 def _register_cancel_event(job_id):
     event = threading.Event()
     with _cancel_lock:
@@ -125,6 +129,8 @@ def _safe_worker(fn):
                 return fn(db, uid, job_id, *args, **kwargs)
             except LambdaDispatched:
                 _logger.info("video_editor_s3 job %s dispatched to lambda; callback will set status", job_id)
+            except Ec2Dispatched:
+                _logger.info("video_editor_s3 job %s dispatched to EC2; callback will set status", job_id)
             except JobCancelled:
                 _logger.info("video_editor_s3 job %s cancelled", job_id)
                 _mark_status(db, job_id, "cancelled", error=None)
@@ -144,6 +150,11 @@ def _mark_status(db, job_id, status, error=None):
     from datetime import datetime
     try:
         with _open_cursor(db) as cr:
+            cr.execute("SELECT status FROM video_editor_job WHERE id = %s", (job_id,))
+            row = cr.fetchone()
+            if row and row[0] == "cancelled" and status != "cancelled":
+                _logger.info("skip status=%s on job %s: already cancelled by user", status, job_id)
+                return
             vals = {"status": status, "finished_at": datetime.utcnow()}
             if error:
                 vals["error_message"] = error
@@ -196,11 +207,13 @@ def _build_notification_payload(job):
             message = _("Project: %s") % (project.name or "")
         elif job_type == "export":
             message = job.output_s3_url or (project.name or "")
-        elif job_type == "prompt_qc":
-            message = _("Quality: %s (score: %s)") % (
-                project.qc_quality or _("(unknown)"),
-                project.qc_score or 0,
-            )
+        elif job_type == "llm_qc":
+            verdict = (project.llm_qc_result or _("unknown")).upper()
+            reason = project.llm_failure_reason or ""
+            if reason:
+                message = _("Verdict: %s. %s") % (verdict, reason[:200])
+            else:
+                message = _("Verdict: %s.") % verdict
         else:
             message = project.name or ""
         return {

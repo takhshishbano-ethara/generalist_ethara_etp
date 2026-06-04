@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_prompt_qc_root"
+              name="Prompt QC"
+              sequence="80"/>
+
+    <menuitem id="menu_prompt_qc_runs"
+              name="QC Runs"
+              parent="menu_prompt_qc_root"
+              action="action_prompt_qc_run"
+              sequence="10"/>
+
+    <menuitem id="menu_prompt_qc_config"
+              name="Configuration"
+              parent="menu_prompt_qc_root"
+              groups="prompt_qc.group_prompt_qc_admin"
+              sequence="90"/>
+
+    <menuitem id="menu_prompt_qc_settings"
+              name="Settings"
+              parent="menu_prompt_qc_config"
+              action="action_prompt_qc_config"
+              sequence="10"/>
+
+</odoo>

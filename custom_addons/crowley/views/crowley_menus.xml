@@ -13,41 +13,28 @@
                   action="action_crowley_generation"
                   sequence="10"/>
 
-        <menuitem id="menu_crowley_sheets"
-                  name="Sequence Sheets"
-                  parent="menu_crowley_root"
-                  sequence="20"
-                  groups="crowley.group_crowley_user"/>
-
-        <menuitem id="menu_crowley_sheet_rows"
-                  name="All Rows"
-                  parent="menu_crowley_sheets"
-                  action="action_crowley_sequence_sheet_row"
-                  sequence="10"/>
-
-        <menuitem id="menu_crowley_sheet_export"
-                  name="Export to XLSX"
-                  parent="menu_crowley_sheets"
-                  action="action_crowley_sequence_sheet_export"
-                  sequence="20"
-                  groups="crowley.group_crowley_manager"/>
-
         <menuitem id="menu_crowley_config"
                   name="Configuration"
                   parent="menu_crowley_root"
                   sequence="90"
                   groups="crowley.group_crowley_manager"/>
 
-        <menuitem id="menu_crowley_import"
-                  name="Import Generations"
-                  parent="menu_crowley_config"
-                  action="action_crowley_import_wizard"
-                  sequence="5"/>
-
         <menuitem id="menu_crowley_settings"
                   name="Settings"
                   parent="menu_crowley_config"
                   action="action_crowley_config_settings"
                   sequence="10"/>
+
+        <menuitem id="menu_crowley_csv_import"
+                  name="Import CSV"
+                  parent="menu_crowley_config"
+                  action="action_crowley_csv_import_wizard"
+                  sequence="20"/>
+
+        <menuitem id="menu_crowley_csv_export"
+                  name="Export for Migration"
+                  parent="menu_crowley_config"
+                  action="action_crowley_csv_export_wizard"
+                  sequence="30"/>
     </data>
 </odoo>

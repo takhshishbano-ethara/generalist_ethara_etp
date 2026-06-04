@@ -16,3 +16,27 @@
     width: 100%;
     border-radius: 8px;
 }
+
+.o_crowley_btn_approve {
+    background-color: #198754 !important;
+    color: #fff !important;
+    border: none !important;
+    padding: 4px 12px !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    &:hover {
+        background-color: #157347 !important;
+    }
+}
+
+.o_crowley_btn_reject {
+    background-color: #dc3545 !important;
+    color: #fff !important;
+    border: none !important;
+    padding: 4px 12px !important;
+    border-radius: 4px !important;
+    font-weight: 600 !important;
+    &:hover {
+        background-color: #bb2d3b !important;
+    }
+}

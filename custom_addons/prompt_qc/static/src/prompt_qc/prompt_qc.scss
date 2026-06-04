@@ -1,0 +1,167 @@
+.o_field_prompt_qc_result {
+    .prompt-qc-action-bar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+    }
+
+    .prompt-qc-running {
+        font-style: italic;
+        color: var(--text-muted, #6c757d);
+    }
+
+    .prompt-qc-streaming,
+    .prompt-qc-result {
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 60vh;
+        overflow-y: auto;
+        padding: 10px 12px;
+        border: 1px solid var(--border-color, #dee2e6);
+        border-radius: 4px;
+        background: var(--gray-100, #f8f9fa);
+        font-family: var(--font-family-monospace, monospace);
+        font-size: 13px;
+        margin: 0;
+    }
+
+    .prompt-qc-empty {
+        padding: 12px;
+        border: 1px dashed var(--border-color, #dee2e6);
+        border-radius: 4px;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Import modal (Stage 2)
+// ---------------------------------------------------------------------------
+.o_prompt_qc_bulk_dialog {
+    .o_prompt_qc_bulk_rows {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        max-height: 55vh;
+        overflow-y: auto;
+    }
+
+    .o_prompt_qc_bulk_row {
+        border: 1px solid var(--border-color, #dee2e6);
+        border-radius: 4px;
+        padding: 10px 12px;
+        background: var(--gray-100, #f8f9fa);
+
+        &.o_prompt_qc_row_error {
+            border-color: var(--danger, #dc3545);
+        }
+    }
+
+    .o_prompt_qc_row_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+    }
+
+    .o_prompt_qc_row_index {
+        font-weight: 600;
+        color: var(--text-muted, #6c757d);
+    }
+
+    .o_prompt_qc_row_fields {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 10px;
+        // Equal-height columns so the rubric input can line up with the bottom of the
+        // (taller) user-prompt textarea instead of floating at the top.
+        align-items: stretch;
+
+        @media (max-width: 768px) {
+            grid-template-columns: 1fr;
+        }
+    }
+
+    .o_prompt_qc_field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    // Keep the rubric label pinned to the top of its column but push the file input to the
+    // bottom, so its baseline matches the bottom line of the user-prompt textarea beside it.
+    .o_prompt_qc_field:not(.o_prompt_qc_field_prompt) .o_prompt_qc_label {
+        margin-bottom: auto;
+    }
+
+    .o_prompt_qc_label {
+        font-size: 12px;
+        font-weight: 600;
+        margin: 0;
+        color: var(--text-muted, #6c757d);
+    }
+
+    .o_prompt_qc_prompt_input {
+        width: 100%;
+        resize: vertical;
+        font-family: var(--font-family-monospace, monospace);
+        font-size: 13px;
+    }
+
+    .o_prompt_qc_filehint {
+        font-size: 12px;
+        word-break: break-all;
+    }
+
+    .o_prompt_qc_row_msg {
+        margin-top: 6px;
+    }
+
+    .o_prompt_qc_bulk_addbar {
+        display: flex;
+        align-items: center;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Markdown prompt field (user_prompt): autoresizing monospace editor + preview
+// ---------------------------------------------------------------------------
+.o_field_prompt_qc_markdown {
+    width: 100%;
+
+    .o_prompt_qc_markdown_input {
+        width: 100%;
+        resize: vertical;
+        font-family: var(--font-family-monospace, monospace);
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .o_prompt_qc_markdown_content {
+        padding: 8px 12px;
+        border: 1px solid var(--border-color, #dee2e6);
+        border-radius: 6px;
+        background: var(--gray-100, #fafafa);
+        max-height: 400px;
+        overflow-y: auto;
+        word-break: break-word;
+
+        > :first-child { margin-top: 0; }
+        > :last-child { margin-bottom: 0; }
+
+        code {
+            font-family: var(--font-family-monospace, monospace);
+        }
+
+        pre {
+            background: var(--gray-200, #f1f3f5);
+            padding: 8px 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+
+            code {
+                background: transparent;
+                padding: 0;
+            }
+        }
+    }
+}

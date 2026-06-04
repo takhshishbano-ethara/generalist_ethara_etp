@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Kaiju Commit0",
-    "version": "19.0.6.0.0",
+    "version": "19.0.7.0.0",
     "category": "Technical",
-    "summary": "Commit0 evaluation runner — 2-phase pipeline (Build → Run) with Argo integration",
+    "summary": "Commit0 evaluation runner — 2-phase pipeline (Build → Run) with Argo integration. Requires Argo Workflows controller ≥ v3.4 (expression-tag podSpecPatch).",
     "license": "LGPL-3",
     "depends": ["base", "web"],
     "data": [

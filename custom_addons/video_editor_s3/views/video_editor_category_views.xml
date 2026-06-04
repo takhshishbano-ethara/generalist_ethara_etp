@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_video_editor_category_list" model="ir.ui.view">
+        <field name="name">video.editor.category.list</field>
+        <field name="model">video.editor.category</field>
+        <field name="arch" type="xml">
+            <list editable="bottom">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="code"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_video_editor_category_form" model="ir.ui.view">
+        <field name="name">video.editor.category.form</field>
+        <field name="model">video.editor.category</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="name"/>
+                        <field name="code"/>
+                        <field name="sequence"/>
+                        <field name="active"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_video_editor_category_search" model="ir.ui.view">
+        <field name="name">video.editor.category.search</field>
+        <field name="model">video.editor.category</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="code"/>
+                <filter string="Archived" name="inactive" domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_video_editor_category" model="ir.actions.act_window">
+        <field name="name">Categories</field>
+        <field name="res_model">video.editor.category</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_video_editor_category_search"/>
+    </record>
+
+    <menuitem id="menu_video_editor_s3_categories"
+              name="Categories"
+              parent="menu_video_editor_s3_config"
+              action="action_video_editor_category"
+              sequence="15"
+              groups="video_editor_s3.group_video_editor_s3_manager"/>
+
+</odoo>

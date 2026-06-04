@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="prompt_qc.BulkImportDialog">
+        <Dialog title="'Bulk Import QC Runs'" size="'xl'" contentClass="'o_prompt_qc_bulk_dialog'">
+
+            <div class="o_prompt_qc_bulk_body">
+                <p class="text-muted small mb-2">
+                    Each row becomes its own QC run. The user prompt is required; the rubric
+                    (.json) is optional. Empty rows are ignored. The judge's system prompt is
+                    configured globally in <b>Settings → Prompt QC</b> and applied to every run.
+                </p>
+
+                <div t-if="state.globalError" class="alert alert-danger py-2 px-3" role="alert">
+                    <t t-esc="state.globalError"/>
+                </div>
+
+                <div class="o_prompt_qc_bulk_rows">
+                    <div t-foreach="state.rows" t-as="row" t-key="row.key"
+                         class="o_prompt_qc_bulk_row"
+                         t-att-class="{ 'o_prompt_qc_row_error': row.error }">
+
+                        <div class="o_prompt_qc_row_head">
+                            <span class="o_prompt_qc_row_index" t-esc="'#' + (row_index + 1)"/>
+                            <button t-if="showRemove" type="button"
+                                    class="btn btn-link btn-sm text-danger o_prompt_qc_row_remove"
+                                    title="Remove this row"
+                                    t-on-click="() => this.removeRow(row.key)">
+                                <i class="fa fa-times"/>
+                            </button>
+                        </div>
+
+                        <div class="o_prompt_qc_row_fields">
+                            <div class="o_prompt_qc_field o_prompt_qc_field_prompt">
+                                <label class="o_prompt_qc_label">User Prompt <span class="text-danger">*</span></label>
+                                <textarea class="o_input o_prompt_qc_prompt_input" rows="3"
+                                          placeholder="Paste the prompt to be evaluated…"
+                                          t-att-value="row.user_prompt"
+                                          t-on-input="(ev) => this.onPromptInput(row, ev)"/>
+                            </div>
+
+                            <div class="o_prompt_qc_field">
+                                <label class="o_prompt_qc_label">Rubric (.json)</label>
+                                <input type="file" accept=".json,application/json"
+                                       class="o_input o_prompt_qc_file"
+                                       t-on-change="(ev) => this.onRubricChange(row, ev)"/>
+                                <span t-if="row.rubric_filename" class="o_prompt_qc_filehint text-success">
+                                    <i class="fa fa-check me-1"/><t t-esc="row.rubric_filename"/>
+                                </span>
+                            </div>
+                        </div>
+
+                        <div t-if="row.error" class="o_prompt_qc_row_msg text-danger small">
+                            <i class="fa fa-exclamation-triangle me-1"/><t t-esc="row.error"/>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="o_prompt_qc_bulk_addbar mt-2">
+                    <button type="button" class="btn btn-outline-primary btn-sm"
+                            t-on-click="() => this.addRow()">
+                        <i class="fa fa-plus me-1"/>Add row
+                    </button>
+                    <span class="text-muted small ms-2">
+                        <t t-esc="state.rows.length"/> rows
+                    </span>
+                </div>
+            </div>
+
+            <t t-set-slot="footer">
+                <button type="button" class="btn btn-primary o_prompt_qc_start"
+                        t-att-disabled="state.submitting"
+                        t-on-click="() => this.onStart()">
+                    <i t-if="state.submitting" class="fa fa-spinner fa-spin me-1"/>
+                    <i t-else="" class="fa fa-play-circle me-1"/>
+                    Start QC
+                </button>
+                <button type="button" class="btn btn-secondary"
+                        t-att-disabled="state.submitting"
+                        t-on-click="() => this.onCancel()">
+                    Cancel
+                </button>
+            </t>
+
+        </Dialog>
+    </t>
+
+</templates>

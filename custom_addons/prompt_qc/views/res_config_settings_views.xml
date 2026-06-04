@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_prompt_qc" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.prompt.qc</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="priority">90</field>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Prompt QC" string="Prompt QC" name="prompt_qc">
+                    <block title="AWS Bedrock (Judge Model)"
+                           help="The judge model is selected by the inference ARN. The bearer token may be set here or read from AWS_BEARER_TOKEN_BEDROCK in the .env next to odoo.conf.">
+                        <setting string="Bedrock Settings" help="Connection settings for the converse-stream judge call.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="prompt_qc_bedrock_region" class="col-lg-3"/>
+                                    <field name="prompt_qc_bedrock_region" class="col-lg-3" placeholder="ap-south-1"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="prompt_qc_bedrock_inference_arn" class="col-lg-3"/>
+                                    <field name="prompt_qc_bedrock_inference_arn" class="col-lg-6" placeholder="arn:aws:bedrock:..."/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="prompt_qc_bedrock_api_key" class="col-lg-3"/>
+                                    <field name="prompt_qc_bedrock_api_key" class="col-lg-6" password="True"/>
+                                </div>
+                            </div>
+                        </setting>
+                        <setting string="Judge System Prompt (.md)"
+                                 help="Uploaded once and used as the judge's instructions for EVERY QC run (single and bulk). If left empty, a packaged default prompt is used.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="prompt_qc_system_prompt_file" class="col-lg-3"/>
+                                    <field name="prompt_qc_system_prompt_file" widget="binary"
+                                           filename="prompt_qc_system_prompt_filename" class="col-lg-6"/>
+                                    <field name="prompt_qc_system_prompt_filename" invisible="1"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Bulk Import"
+                           help="Timeout and upload limits for the Bulk Import action. Each row queued there becomes one independent background QC run.">
+                        <setting string="Bulk Processing" help="Protect runs from getting stuck and bound each uploaded file's size.">
+                            <div class="content-group">
+                                <div class="row mt8">
+                                    <label for="prompt_qc_run_timeout_minutes" class="col-lg-6"/>
+                                    <field name="prompt_qc_run_timeout_minutes" class="col-lg-2"/>
+                                </div>
+                                <div class="row mt8">
+                                    <label for="prompt_qc_max_file_size_mb" class="col-lg-6"/>
+                                    <field name="prompt_qc_max_file_size_mb" class="col-lg-2"/>
+                                </div>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_prompt_qc_config" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">main</field>
+        <field name="context">{'module': 'prompt_qc'}</field>
+    </record>
+
+</odoo>

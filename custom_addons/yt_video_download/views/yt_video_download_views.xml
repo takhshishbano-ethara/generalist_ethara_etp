@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_yt_video_download_form" model="ir.ui.view">
+        <field name="name">yt.video.download.form</field>
+        <field name="model">yt.video.download</field>
+        <field name="arch" type="xml">
+            <form string="YouTube Video Download">
+                <header>
+                    <button name="action_probe"
+                            type="object"
+                            string="Test on Server"
+                            help="Dry-run every strategy with --simulate. Shows which ones pass on this host."/>
+                    <button name="action_download"
+                            type="object"
+                            string="Submit / Download"
+                            class="oe_highlight"
+                            invisible="state == 'done'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name" placeholder="e.g. My clip"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Video">
+                            <field name="youtube_url" placeholder="https://www.youtube.com/watch?v=..."/>
+                            <field name="start_time" placeholder="00:00:10"/>
+                            <field name="end_time" placeholder="00:00:30"/>
+                            <field name="format_spec"/>
+                            <field name="output_dir"/>
+                            <field name="output_path" readonly="1"/>
+                        </group>
+                        <group string="Bot Evasion">
+                            <field name="user_agent"/>
+                            <field name="extractor_args"/>
+                            <field name="extra_args" placeholder="--proxy http://..."/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Log" name="log">
+                            <field name="log" readonly="1" widget="text"/>
+                        </page>
+                        <page string="Probe Result" name="probe">
+                            <field name="probe_result" readonly="1" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_yt_video_download_list" model="ir.ui.view">
+        <field name="name">yt.video.download.list</field>
+        <field name="model">yt.video.download</field>
+        <field name="arch" type="xml">
+            <list string="YouTube Video Downloads">
+                <field name="name"/>
+                <field name="youtube_url"/>
+                <field name="start_time"/>
+                <field name="end_time"/>
+                <field name="state"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_yt_video_download" model="ir.actions.act_window">
+        <field name="name">YouTube Downloads</field>
+        <field name="res_model">yt.video.download</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a new YouTube download job.
+            </p>
+        </field>
+    </record>
+
+    <menuitem id="menu_yt_video_download_root"
+              name="YT Download"
+              sequence="80"/>
+
+    <menuitem id="menu_yt_video_download_list"
+              name="Downloads"
+              parent="menu_yt_video_download_root"
+              action="action_yt_video_download"
+              sequence="10"/>
+
+</odoo>

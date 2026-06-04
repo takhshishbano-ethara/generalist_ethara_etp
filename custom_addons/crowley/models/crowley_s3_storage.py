@@ -237,33 +237,6 @@ class CrowleyS3Storage(models.AbstractModel):
     # Error translation
     # ------------------------------------------------------------------
     @api.model
-    def copy_object(self, connector_id, src_key, dst_key):
-        """Server-side copy within the same bucket. Returns the destination ETag."""
-        connector = self.env["s3.connector"].sudo().browse(connector_id)
-        bucket = self._bucket_for(connector)
-        try:
-            resp = self._client_for(connector).copy_object(
-                Bucket=bucket,
-                Key=dst_key,
-                CopySource={"Bucket": bucket, "Key": src_key},
-                MetadataDirective="COPY",
-            )
-        except (ClientError, BotoCoreError) as e:
-            raise self._translate(e, "copy_object") from e
-        return (resp.get("CopyObjectResult") or {}).get("ETag") or ""
-
-    @api.model
-    def delete_object(self, connector_id, key):
-        """Hard-delete a single object."""
-        connector = self.env["s3.connector"].sudo().browse(connector_id)
-        bucket = self._bucket_for(connector)
-        try:
-            self._client_for(connector).delete_object(Bucket=bucket, Key=key)
-        except (ClientError, BotoCoreError) as e:
-            raise self._translate(e, "delete_object") from e
-        return True
-
-    @api.model
     def _translate(self, exc, action):
         if isinstance(exc, NoCredentialsError):
             msg = "S3 credentials are not available"

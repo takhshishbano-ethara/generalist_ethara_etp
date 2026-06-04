@@ -2,44 +2,52 @@
 <odoo noupdate="1">
     <!--
         Per-category sequences for the dataset filename convention
-        T2AV_<category>_<NNNNNNN>.mp4 (padding 7 since v19.0.1.14.0 to match
-        the published 523 master/failures dataset). Each category has its own
-        counter starting at 0000001. `implementation=no_gap` guarantees no
-        gaps even on rollback (uses a row-level lock instead of a PG sequence)
-        — critical for dataset integrity: a failed upload releases the slot.
+        T2AV_<category>_<NNNNNN>.mp4. Each category has its own counter
+        starting at 000001. `implementation=no_gap` guarantees no gaps even
+        on rollback (uses a row-level lock instead of a PG sequence) — critical
+        for dataset integrity: a failed upload releases the slot.
     -->
+
+    <record id="seq_crowley_attempt_animals_wildlife" model="ir.sequence">
+        <field name="name">Crowley Attempt: Animals Wildlife</field>
+        <field name="code">crowley.attempt.animals_wildlife</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_animated_styles" model="ir.sequence">
+        <field name="name">Crowley Attempt: Animated Styles</field>
+        <field name="code">crowley.attempt.animated_styles</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_animated_text" model="ir.sequence">
+        <field name="name">Crowley Attempt: Animated Text</field>
+        <field name="code">crowley.attempt.animated_text</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
 
     <record id="seq_crowley_attempt_av_sync_sound_effects" model="ir.sequence">
         <field name="name">Crowley Attempt: AV Sync Sound Effects</field>
         <field name="code">crowley.attempt.av_sync_sound_effects</field>
-        <field name="padding">7</field>
+        <field name="padding">6</field>
         <field name="number_increment">1</field>
         <field name="number_next">1</field>
         <field name="implementation">no_gap</field>
     </record>
 
-    <record id="seq_crowley_attempt_multi_speaker_dialogue" model="ir.sequence">
-        <field name="name">Crowley Attempt: Multi-Speaker Dialogue</field>
-        <field name="code">crowley.attempt.multi_speaker_dialogue</field>
-        <field name="padding">7</field>
-        <field name="number_increment">1</field>
-        <field name="number_next">1</field>
-        <field name="implementation">no_gap</field>
-    </record>
-
-    <record id="seq_crowley_attempt_human_activities" model="ir.sequence">
-        <field name="name">Crowley Attempt: Human Activities</field>
-        <field name="code">crowley.attempt.human_activities</field>
-        <field name="padding">7</field>
-        <field name="number_increment">1</field>
-        <field name="number_next">1</field>
-        <field name="implementation">no_gap</field>
-    </record>
-
-    <record id="seq_crowley_attempt_high_motion_action" model="ir.sequence">
-        <field name="name">Crowley Attempt: High Motion Action</field>
-        <field name="code">crowley.attempt.high_motion_action</field>
-        <field name="padding">7</field>
+    <record id="seq_crowley_attempt_camera_motion" model="ir.sequence">
+        <field name="name">Crowley Attempt: Camera Motion</field>
+        <field name="code">crowley.attempt.camera_motion</field>
+        <field name="padding">6</field>
         <field name="number_increment">1</field>
         <field name="number_next">1</field>
         <field name="implementation">no_gap</field>
@@ -48,7 +56,124 @@
     <record id="seq_crowley_attempt_educational_videos" model="ir.sequence">
         <field name="name">Crowley Attempt: Educational Videos</field>
         <field name="code">crowley.attempt.educational_videos</field>
-        <field name="padding">7</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_fantasy_surreal" model="ir.sequence">
+        <field name="name">Crowley Attempt: Fantasy Surreal</field>
+        <field name="code">crowley.attempt.fantasy_surreal</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_fine_grained_motion" model="ir.sequence">
+        <field name="name">Crowley Attempt: Fine Grained Motion</field>
+        <field name="code">crowley.attempt.fine_grained_motion</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_high_motion_action" model="ir.sequence">
+        <field name="name">Crowley Attempt: High Motion Action</field>
+        <field name="code">crowley.attempt.high_motion_action</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_human_activities" model="ir.sequence">
+        <field name="name">Crowley Attempt: Human Activities</field>
+        <field name="code">crowley.attempt.human_activities</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_multi_speaker_dialogue" model="ir.sequence">
+        <field name="name">Crowley Attempt: Multi-Speaker Dialogue</field>
+        <field name="code">crowley.attempt.multi_speaker_dialogue</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_music_performance" model="ir.sequence">
+        <field name="name">Crowley Attempt: Music Performance</field>
+        <field name="code">crowley.attempt.music_performance</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_narrative_cinematic" model="ir.sequence">
+        <field name="name">Crowley Attempt: Narrative Cinematic</field>
+        <field name="code">crowley.attempt.narrative_cinematic</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_natural_patterns" model="ir.sequence">
+        <field name="name">Crowley Attempt: Natural Patterns</field>
+        <field name="code">crowley.attempt.natural_patterns</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_nature_weather" model="ir.sequence">
+        <field name="name">Crowley Attempt: Nature Weather</field>
+        <field name="code">crowley.attempt.nature_weather</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_person_emoting" model="ir.sequence">
+        <field name="name">Crowley Attempt: Person Emoting</field>
+        <field name="code">crowley.attempt.person_emoting</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_speech_styles" model="ir.sequence">
+        <field name="name">Crowley Attempt: Speech Styles</field>
+        <field name="code">crowley.attempt.speech_styles</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_urban_scenes" model="ir.sequence">
+        <field name="name">Crowley Attempt: Urban Scenes</field>
+        <field name="code">crowley.attempt.urban_scenes</field>
+        <field name="padding">6</field>
+        <field name="number_increment">1</field>
+        <field name="number_next">1</field>
+        <field name="implementation">no_gap</field>
+    </record>
+
+    <record id="seq_crowley_attempt_vehicles_machines" model="ir.sequence">
+        <field name="name">Crowley Attempt: Vehicles Machines</field>
+        <field name="code">crowley.attempt.vehicles_machines</field>
+        <field name="padding">6</field>
         <field name="number_increment">1</field>
         <field name="number_next">1</field>
         <field name="implementation">no_gap</field>

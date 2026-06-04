@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!--
+        Rendered by web.ListView right AFTER the native "New" button (the buttonTemplate is an
+        empty extension point at that spot), so "Bulk Import" sits next to "New". `this` is the
+        PromptQcListController.
+    -->
+    <t t-name="prompt_qc.ListButtons">
+        <button type="button"
+                class="btn btn-secondary o_prompt_qc_bulk_import"
+                t-on-click="() => this.onBulkImport()"
+                title="Queue several QC runs at once">
+            <i class="fa fa-layer-group me-1"/>Bulk Import
+        </button>
+    </t>
+
+</templates>

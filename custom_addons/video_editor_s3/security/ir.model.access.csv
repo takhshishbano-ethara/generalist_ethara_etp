@@ -5,5 +5,9 @@ access_job_user,video.editor.job.user,model_video_editor_job,group_video_editor_
 access_job_manager,video.editor.job.manager,model_video_editor_job,group_video_editor_s3_manager,1,1,1,1
 access_log_user,video.editor.processing.log.user,model_video_editor_processing_log,group_video_editor_s3_user,1,0,0,0
 access_log_manager,video.editor.processing.log.manager,model_video_editor_processing_log,group_video_editor_s3_manager,1,1,1,1
-access_yt_multi_user,video.editor.youtube.multi.ingest.wizard.user,model_video_editor_youtube_multi_ingest_wizard,group_video_editor_s3_user,1,1,1,1
-access_yt_multi_manager,video.editor.youtube.multi.ingest.wizard.manager,model_video_editor_youtube_multi_ingest_wizard,group_video_editor_s3_manager,1,1,1,1
+access_llm_force_pass_user,video.editor.llm.qc.force.pass.wizard.user,model_video_editor_llm_qc_force_pass_wizard,group_video_editor_s3_user,1,1,1,1
+access_llm_force_pass_manager,video.editor.llm.qc.force.pass.wizard.manager,model_video_editor_llm_qc_force_pass_wizard,group_video_editor_s3_manager,1,1,1,1
+access_category_user,video.editor.category.user,model_video_editor_category,group_video_editor_s3_user,1,0,0,0
+access_category_manager,video.editor.category.manager,model_video_editor_category,group_video_editor_s3_manager,1,1,1,1
+access_sub_category_user,video.editor.sub.category.user,model_video_editor_sub_category,group_video_editor_s3_user,1,0,0,0
+access_sub_category_manager,video.editor.sub.category.manager,model_video_editor_sub_category,group_video_editor_s3_manager,1,1,1,1

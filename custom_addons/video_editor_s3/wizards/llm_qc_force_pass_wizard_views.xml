@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_llm_qc_force_pass_wizard_form" model="ir.ui.view">
+        <field name="name">video.editor.llm.qc.force.pass.wizard.form</field>
+        <field name="model">video.editor.llm.qc.force.pass.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Force Pass LLM QC">
+                <sheet>
+                    <div class="alert alert-warning d-flex align-items-start mb-3" role="alert">
+                        <i class="fa fa-shield fa-2x me-3 text-warning"/>
+                        <div class="flex-grow-1">
+                            <h5 class="alert-heading mb-2"><strong>Force-pass this QC verdict?</strong></h5>
+                            <div class="small text-muted">
+                                The reviewer's original verdict is preserved on the project. Your user, the timestamp, and the reason below are recorded on the project record and posted to the project chatter for audit.
+                            </div>
+                        </div>
+                    </div>
+                    <group>
+                        <field name="project_id" readonly="1"/>
+                        <field name="original_verdict" widget="badge"
+                               decoration-success="original_verdict == 'pass'"
+                               decoration-danger="original_verdict == 'fail'"
+                               decoration-warning="original_verdict == 'flag'"/>
+                    </group>
+                    <group string="Original Failure Reason" invisible="not original_failure_reason">
+                        <field name="original_failure_reason" nolabel="1" widget="text" class="w-100" readonly="1"/>
+                    </group>
+                    <group string="Your Reason (required)">
+                        <field name="reason" nolabel="1" widget="text" class="w-100"
+                               placeholder="e.g. Reviewer flagged identity-drift but visual inspection confirmed the artifact is acceptable for our dataset tier."/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" type="object" string="Force Pass" class="btn-warning" icon="fa-shield"/>
+                    <button special="cancel" string="Cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
