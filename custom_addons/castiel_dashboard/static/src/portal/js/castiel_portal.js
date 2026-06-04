@@ -72,8 +72,13 @@
     const raw = thesisEl.textContent.trim();
     const words = raw.split(/\s+/);
     thesisEl.innerHTML = words.map((w) => {
-      const isEm = /curriculum/i.test(w);
-      const inner = isEm ? `<span class="thesis-em">${w}</span>` : w;
+      // Split trailing punctuation so it stays upright (and unclipped) even
+      // when the core word is italicised.
+      const m = w.match(/^(.*?)([.,!?;:]+)$/);
+      const core = m ? m[1] : w;
+      const punct = m ? m[2] : '';
+      const isEm = /curriculum/i.test(core);
+      const inner = isEm ? `<span class="thesis-em">${core}</span>${punct}` : w;
       return `<span class="thesis-word"><span class="thesis-word-inner">${inner}</span></span>`;
     }).join(' ');
   }
