@@ -72,6 +72,7 @@ class T2AVEnrichment(models.Model):
 
     model_id = fields.Char(
         string="Model ID", readonly=True, copy=False,
+        groups="t2av.group_t2av_manager",
     )
     model_id_display = fields.Char(
         string="Model", compute="_compute_model_id_display",
@@ -263,7 +264,8 @@ class T2AVEnrichment(models.Model):
         except (TypeError, ValueError):
             max_attempts = 5
 
-        self.write({
+        # sudo: bot is a system actor; model_id is Manager-gated for AWS-account-id confidentiality.
+        self.sudo().write({
             "state": _STATE_SUBMITTING,
             "submitted_at": fields.Datetime.now(),
             "model_id": model_id,

@@ -15,20 +15,24 @@ _PASSED_COLUMNS = [
     "language", "topic", "prompt", "video_file", "duration_seconds",
     "resolution", "fps", "audio_description", "contains_dialogue",
     "speaker_count", "dialogue_transcript", "visual_description",
+    "enriched_prompt",
 ]
 _PASSED_HEADERS = [
     "item_id", "category", "sub-category", "Style", "Priority", "Complexity",
     "Language", "topic", "prompt", "video_file", "duration_seconds",
     "resolution", "fps", "audio_description", "contains_dialogue",
     "speaker_count", "dialogue_transcript", "visual_description",
+    "enriched_prompt",
 ]
 _FAILED_COLUMNS = [
     "item_id", "category", "sub_category", "style", "priority", "complexity",
     "language", "topic", "prompt", "video_file", "issues",
+    "enriched_prompt",
 ]
 _FAILED_HEADERS = [
     "item_id", "category", "sub-category", "Style", "Priority", "Complexity",
     "Language", "topic", "prompt", "video_file", "Issues",
+    "enriched_prompt",
 ]
 
 _MAX_EXPORT_ROWS = 10000

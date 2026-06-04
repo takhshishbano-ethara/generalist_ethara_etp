@@ -60,12 +60,13 @@
                         <button name="action_run_review" string="Run Review" type="object"
                                 class="btn-info"
                                 groups="t2av.group_t2av_manager"
-                                invisible="state != 'done' or ui_retry_pending"
+                                invisible="state != 'done' or ui_retry_pending or not gemini_qc_active"
                                 confirm="Send this video to the multimodal reviewer? An AWS Bedrock call will incur usage cost."/>
                         <button name="action_retry_pipeline" string="Retry Pipeline" type="object"
                                 class="btn-warning"
                                 invisible="pipeline_status not in ('failed', 'not_published')"/>
 
+                        <field name="gemini_qc_active" invisible="1"/>
                         <field name="state" widget="statusbar"
                                statusbar_visible="draft,queued,processing,done"/>
                     </header>
@@ -239,20 +240,21 @@
                                     </list>
                                     <form>
                                         <header>
+                                            <field name="provider" invisible="1"/>
                                             <button name="action_override_accept" type="object"
                                                     string="Mark Accepted" class="btn-success"
                                                     groups="t2av.group_t2av_manager"
-                                                    invisible="state != 'done'"
+                                                    invisible="state != 'done' or provider == 'human'"
                                                     confirm="Override this review's verdict to ACCEPT? You will be asked for a reason."/>
                                             <button name="action_override_reject" type="object"
                                                     string="Mark Rejected" class="btn-danger"
                                                     groups="t2av.group_t2av_manager"
-                                                    invisible="state != 'done'"
+                                                    invisible="state != 'done' or provider == 'human'"
                                                     confirm="Override this review's verdict to REJECT? You will be asked for a reason."/>
                                             <button name="action_override_clear" type="object"
                                                     string="Clear Override" class="btn-secondary"
                                                     groups="t2av.group_t2av_manager"
-                                                    invisible="state != 'done' or not human_verdict"
+                                                    invisible="state != 'done' or not human_verdict or provider == 'human'"
                                                     confirm="Clear the human override and revert to the model's verdict? You will be asked for a reason."/>
                                         </header>
                                         <sheet>

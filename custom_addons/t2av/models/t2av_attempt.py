@@ -789,6 +789,30 @@ class T2AVAttempt(models.Model):
             "Completed in %ds. %d tokens, $%.4f. URL: %s"
         ) % (self.duration_seconds or 0, self.tokens_used, self.cost_usd, info["s3_url"]))
         self._push_bus()
+        self._on_state_done()
+
+    def _on_state_done(self):
+        self.ensure_one()
+        icp = self.env["ir.config_parameter"].sudo()
+        raw = (icp.get_param("t2av.enable_gemini_qc", "False") or "").strip().lower()
+        gemini_qc_active = raw in ("1", "true", "yes", "on")
+        if gemini_qc_active:
+            return
+        if self.review_ids:
+            return
+        try:
+            with self.env.cr.savepoint():
+                self.env["t2av.video.review"].sudo().create({
+                    "attempt_id": self.id,
+                    "provider": "human",
+                    "state": "queued",
+                })
+        except Exception:
+            _logger.exception(
+                "T2AV: failed to auto-enqueue human review for attempt %s "
+                "(non-fatal; download already persisted)",
+                self.id,
+            )
 
     # ------------------------------------------------------------------
     # Webhook entrypoint — called from controllers/webhook.py

@@ -32,6 +32,13 @@
             <field name="user_ids" eval="[(4, ref('base.user_root')), (4, ref('base.user_admin'))]"/>
         </record>
 
+        <!-- Reviewer Group (Human QC Stack — separate from User/Manager) -->
+        <record id="group_t2av_reviewer" model="res.groups">
+            <field name="name">Reviewer</field>
+            <field name="privilege_id" ref="res_groups_privilege_t2av"/>
+            <field name="implied_ids" eval="[(4, ref('group_t2av_user'))]"/>
+        </record>
+
         <!-- Record Rules: Users see own generations -->
         <record id="rule_t2av_generation_user" model="ir.rule">
             <field name="name">T2AV Generation: User sees own</field>
@@ -77,6 +84,30 @@
             <field name="perm_write" eval="True"/>
             <field name="perm_create" eval="True"/>
             <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <!-- Reviewer scope: read-only access to generations linked to human reviews
+             they are assigned to OR queued-unassigned human reviews (the pickable pool). -->
+        <record id="rule_t2av_generation_reviewer" model="ir.rule">
+            <field name="name">T2AV Generation: Reviewer sees jobs with assigned/pickable human reviews</field>
+            <field name="model_id" ref="model_t2av_generation"/>
+            <field name="domain_force">['|', ('attempt_ids.review_ids.assigned_to_id', '=', user.id), '&amp;', '&amp;', ('attempt_ids.review_ids.provider', '=', 'human'), ('attempt_ids.review_ids.state', '=', 'queued'), ('attempt_ids.review_ids.assigned_to_id', '=', False)]</field>
+            <field name="groups" eval="[(4, ref('group_t2av_reviewer'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_t2av_attempt_reviewer" model="ir.rule">
+            <field name="name">T2AV Attempt: Reviewer sees attempts of jobs with assigned/pickable human reviews</field>
+            <field name="model_id" ref="model_t2av_attempt"/>
+            <field name="domain_force">['|', ('review_ids.assigned_to_id', '=', user.id), '&amp;', '&amp;', ('review_ids.provider', '=', 'human'), ('review_ids.state', '=', 'queued'), ('review_ids.assigned_to_id', '=', False)]</field>
+            <field name="groups" eval="[(4, ref('group_t2av_reviewer'))]"/>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
         </record>
     </data>
 </odoo>

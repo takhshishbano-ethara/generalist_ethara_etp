@@ -11,6 +11,7 @@ from . import (
     test_reconcile as test_reconcile,
     test_review_client as test_review_client,
     test_s3_integrity as test_s3_integrity,
+    test_stack_flow as test_stack_flow,
     test_state_machine as test_state_machine,
     test_template_fallback as test_template_fallback,
     test_webhook_verifier as test_webhook_verifier,

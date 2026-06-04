@@ -57,6 +57,12 @@ class T2AVSequenceSheetRow(models.Model):
     language = fields.Char(readonly=True, default="English")
     topic = fields.Char(readonly=True)
     prompt = fields.Text(readonly=True)
+    enriched_prompt = fields.Text(
+        string="Enriched Prompt", readonly=True,
+        help="Snapshot of the Bedrock-enriched prompt (raw, pre-validator). "
+             "Distinct from the 'prompt' column, which stores the best-available "
+             "golden / enriched / raw fallback used at generation time.",
+    )
     video_file = fields.Char(
         string="Video URL", readonly=True,
         help="Direct (non-presigned) S3 URL for the video file backing this sheet row.",
@@ -226,6 +232,7 @@ class T2AVSequenceSheetRow(models.Model):
             "language": language,
             "topic": topic,
             "prompt": prompt,
+            "enriched_prompt": job.enriched_prompt or "",
             "video_file": video_url,
             "duration_seconds": duration_seconds,
             "resolution": resolution,

@@ -16,8 +16,11 @@ def migrate(cr, version):
     if not version:
         return
     cr.execute(
-        'ALTER TABLE t2av_generation '
-        'ADD COLUMN IF NOT EXISTS pipeline_last_heartbeat_at TIMESTAMP'
+        """
+        ALTER TABLE IF EXISTS t2av_stack_review_wizard
+            ALTER COLUMN qc_status      DROP NOT NULL,
+            ALTER COLUMN reviewer_notes DROP NOT NULL
+        """
     )
     _logger.info(
         "t2av 19.0.1.18.1: ensured pipeline_last_heartbeat_at column on t2av_generation."
