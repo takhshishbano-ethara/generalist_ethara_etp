@@ -1124,6 +1124,21 @@ class VideoEditorProject(models.Model):
             },
         }
 
+    def action_download_delivery_sheet(self):
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can download the delivery sheet."))
+        if not self:
+            raise UserError(_("Select at least one Done project to download the delivery sheet."))
+        eligible = self.filtered(lambda p: p.state == "exported")
+        if not eligible:
+            raise UserError(_("Only Done projects can be included in the delivery sheet."))
+        ids_str = ",".join(str(pid) for pid in eligible.ids)
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/video_editor_s3/final_data/delivery_sheet?ids=%s" % ids_str,
+            "target": "self",
+        }
+
     def _maybe_run_llm_qc(self):
         for rec in self:
             if not rec.prompt:

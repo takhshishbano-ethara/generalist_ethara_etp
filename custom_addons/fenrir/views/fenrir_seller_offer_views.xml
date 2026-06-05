@@ -10,12 +10,17 @@
                 <field name="category_id" optional="show"/>
                 <field name="seller_no" string="#"/>
                 <field name="seller"/>
+                <field name="seller_username" optional="show"/>
+                <field name="seller_level" optional="hide"/>
                 <field name="received_custom_offer"/>
                 <field name="sellers_initial_ask"/>
                 <field name="negotiated_offer"/>
                 <field name="accepted"/>
                 <field name="final_payment_amount"/>
                 <field name="final_payment_currency"/>
+                <field name="price_paid_usd" optional="hide"/>
+                <field name="order_date" optional="hide"/>
+                <field name="delivery_time_days" optional="hide"/>
                 <field name="delivery_received"/>
                 <field name="accepted_delivery"/>
                 <field name="overall_rating" optional="show"/>
@@ -44,6 +49,23 @@
                             <field name="task_id" options="{'no_create': True}"/>
                             <field name="task_code" readonly="1"/>
                             <field name="category_id" readonly="1"/>
+                        </group>
+                    </group>
+
+                    <separator string="Order Info"/>
+                    <group>
+                        <group>
+                            <field name="seller_username" placeholder="@handle"/>
+                            <field name="seller_level"/>
+                            <field name="seller_profile_url" widget="url"/>
+                        </group>
+                        <group>
+                            <field name="order_id" placeholder="FO..."/>
+                            <field name="order_date"/>
+                            <field name="delivery_date"/>
+                            <field name="delivery_time_days" readonly="1"/>
+                            <field name="revisions_requested"/>
+                            <field name="price_paid_usd"/>
                         </group>
                     </group>
 

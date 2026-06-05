@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_etp_reimbursement_user,reimbursement user,model_etp_reimbursement,etp_reimbursement.group_reimbursement_user,1,1,1,1
+access_etp_reimbursement_line_user,reimbursement line user,model_etp_reimbursement_line,etp_reimbursement.group_reimbursement_user,1,1,1,1
+access_etp_reimbursement_manager,reimbursement manager,model_etp_reimbursement,etp_reimbursement.group_reimbursement_manager,1,1,1,1
+access_etp_reimbursement_line_manager,reimbursement line manager,model_etp_reimbursement_line,etp_reimbursement.group_reimbursement_manager,1,1,1,1
+access_etp_reimbursement_hr_admin,reimbursement hr admin,model_etp_reimbursement,etp_user_roles.group_hr_admin,1,1,1,1
+access_etp_reimbursement_line_hr_admin,reimbursement line hr admin,model_etp_reimbursement_line,etp_user_roles.group_hr_admin,1,1,1,1

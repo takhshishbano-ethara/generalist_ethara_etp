@@ -21,6 +21,7 @@ class FenrirTaskAttachment(models.Model):
                               help="Optional short description / caption")
     folder = fields.Selection(
         selection=[
+            ("root", "Root"),
             ("resources", "Resources"),
             ("tests", "Tests"),
             ("environment", "Environment"),
@@ -28,7 +29,15 @@ class FenrirTaskAttachment(models.Model):
         string="Export Folder",
         default="resources",
         required=True,
-        help="Target subfolder in the strict task export.",
+        help="Target subfolder in the strict task export. "
+             "Use 'Root' for files that belong at the top of the task tree "
+             "(e.g. task_metadata.json, licenses.json).",
+    )
+    is_generated = fields.Boolean(
+        string="Auto-generated",
+        default=False,
+        help="True for files produced by the submit-time generator. "
+             "These are wiped and rebuilt on every (re)submit.",
     )
     license = fields.Selection(
         selection=[

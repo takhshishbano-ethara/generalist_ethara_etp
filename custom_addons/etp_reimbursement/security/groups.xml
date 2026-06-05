@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="group_reimbursement_user" model="res.groups">
+            <field name="name">Reimbursement / User</field>
+            <field name="comment">Can raise and view own reimbursement claims.</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <record id="group_reimbursement_manager" model="res.groups">
+            <field name="name">Reimbursement / HR Manager</field>
+            <field name="comment">Can approve / reject reimbursement claims.</field>
+            <field name="implied_ids" eval="[(4, ref('etp_reimbursement.group_reimbursement_user')), (4, ref('etp_user_roles.group_hr_admin'))]"/>
+        </record>
+
+    </data>
+</odoo>

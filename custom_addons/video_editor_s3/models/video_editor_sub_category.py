@@ -22,6 +22,11 @@ class VideoEditorSubCategory(models.Model):
     )
     sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True)
+    description = fields.Text(
+        string="Description",
+        translate=True,
+        help="Description used in the Final Data delivery sheet CSV for projects linked to this sub-category.",
+    )
 
     _sql_constraints = [
         ("code_uniq", "unique(code)", "Sub-category code must be unique."),

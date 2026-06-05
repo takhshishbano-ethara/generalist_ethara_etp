@@ -1,0 +1,26 @@
+{
+    'name': 'ETP Reimbursement',
+    'version': '19.0.1.0.1',
+    'category': 'Human Resources',
+    'summary': 'Reimbursement claim raise / review / approve workflow for ETP',
+    'description': 'Employees raise reimbursement claims (multi-ride). HR reviews, approves or rejects. Emails are triggered on each transition and exports are pushed to S3.',
+    'depends': [
+        'base',
+        'mail',
+        'hr',
+        'api_auth_gateway',
+        'etp_user_roles',
+        's3_connector',
+    ],
+    'data': [
+        'security/groups.xml',
+        'security/ir.model.access.csv',
+        'security/rules.xml',
+        'data/sequence.xml',
+        'data/mail_templates.xml',
+        'views/reimbursement_views.xml',
+        'views/menu.xml',
+    ],
+    'installable': True,
+    'application': True,
+}

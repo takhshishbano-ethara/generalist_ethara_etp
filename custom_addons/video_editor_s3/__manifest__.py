@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Crowley Sourcing",
-    "version": "19.0.1.0.35",
+    "version": "19.0.1.0.39",
     "summary": "Import S3 videos, edit (trim/crop/rotate/resize/filters) via FFmpeg, "
                "render asynchronously and export back to S3.",
     "description": """
@@ -49,6 +49,7 @@ intentionally independent so each can evolve on its own schedule.
         "views/menus.xml",
         "views/video_editor_category_views.xml",
         "views/video_editor_sub_category_views.xml",
+        "views/video_editor_final_data_views.xml",
     ],
     "post_init_hook": "post_init_hook",
     "assets": {
