@@ -341,8 +341,15 @@
                 <p class="res-label mono">Docs</p><p class="res-title">Harbor Framework</p>
                 <p class="res-url mono">harborframework.com/docs</p><span class="res-arrow" aria-hidden="true">↗</span>
               </a>
+              <a class="resource" href="https://huggingface.co/datasets/ethara/castiel" target="_blank" rel="noopener">
+                <p class="res-label mono">Dataset</p><p class="res-title">Castiel · HuggingFace</p>
+                <p class="res-url mono">huggingface.co/datasets/ethara/castiel</p><span class="res-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="resource" href="https://github.com/Ethara-Ai/castiel" target="_blank" rel="noopener">
+                <p class="res-label mono">Harness</p><p class="res-title">Castiel · GitHub</p>
+                <p class="res-url mono">github.com/Ethara-Ai/castiel</p><span class="res-arrow" aria-hidden="true">↗</span>
+              </a>
             </div>
-            <p class="ct-note" style="margin-top:16px;">Castiel HuggingFace dataset, public dashboard, and trajectory runs are roadmap items (P1–P4) and not yet published.</p>
           </section>
 
         </main>

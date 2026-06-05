@@ -73,6 +73,8 @@
     { "label": "Paper", "title": "CyberGym (UC Berkeley)", "url": "https://arxiv.org/abs/2506.02548" },
     { "label": "Paper", "title": "ARVO (ASU/NYU)", "url": "https://arxiv.org/abs/2408.02153" },
     { "label": "Docs", "title": "Harbor Framework", "url": "https://www.harborframework.com/docs" },
-    { "label": "Paper", "title": "BountyBench", "url": "https://arxiv.org/abs/2505.15216" }
+    { "label": "Paper", "title": "BountyBench", "url": "https://arxiv.org/abs/2505.15216" },
+    { "label": "Dataset", "title": "Castiel · HuggingFace", "url": "https://huggingface.co/datasets/ethara/castiel" },
+    { "label": "Harness", "title": "Castiel · GitHub", "url": "https://github.com/Ethara-Ai/castiel" }
   ]
 }
