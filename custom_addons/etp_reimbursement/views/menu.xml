@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <menuitem id="menu_reimbursement_root"
+                  name="Reimbursements"
+                  sequence="55"
+                  web_icon="etp_reimbursement,static/description/icon.png"/>
+
+        <menuitem id="menu_reimbursement_list"
+                  name="Reimbursements"
+                  parent="menu_reimbursement_root"
+                  action="action_etp_reimbursement"
+                  sequence="10"/>
+
+    </data>
+</odoo>

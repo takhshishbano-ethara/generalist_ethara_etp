@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- 1. New reimbursement raised → HR -->
+        <record id="email_template_reimbursement_new" model="mail.template">
+            <field name="name">Reimbursement: New Request (HR)</field>
+            <field name="model_id" ref="model_etp_reimbursement"/>
+            <field name="email_from">{{ (object.company_id.email or 'no-reply@ethara.ai') }}</field>
+            <field name="subject">[Reimbursement] {{ object.name }} raised by {{ object.employee_id.name }}</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color:#1B2A4A; margin-bottom: 4px;">New Reimbursement Request</h2>
+                    <p style="color:#475569; margin-top:0;">A new claim is awaiting your review.</p>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 16px;">
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Claim</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#1E293B;"><strong t-out="object.name"/></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Employee</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#1E293B;" t-out="object.employee_id.name or ''"/>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Department</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#1E293B;" t-out="object.department_id.name or ''"/>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Request Date</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#1E293B;" t-out="object.request_date or ''"/>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Total Amount</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#1E293B;">
+                                <strong>
+                                    <t t-out="object.currency_id.symbol or ''"/><t t-out="object.total_amount or 0"/>
+                                </strong>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; color:#475569;">Line Items</td>
+                            <td style="padding: 8px; color:#1E293B;" t-out="len(object.line_ids)"/>
+                        </tr>
+                    </table>
+
+                    <p style="margin-top:24px; color:#475569; font-size:13px;">
+                        Please review and take action from the HR portal.
+                    </p>
+                    <hr style="border:none; border-top:1px solid #E2E8F0; margin:20px 0;"/>
+                    <p style="color:#94A3B8; font-size:11px;">Ethara HR · Reimbursements</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- 2. Approved → Requester -->
+        <record id="email_template_reimbursement_approved" model="mail.template">
+            <field name="name">Reimbursement: Approved (Requester)</field>
+            <field name="model_id" ref="model_etp_reimbursement"/>
+            <field name="email_from">{{ (object.company_id.email or 'no-reply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.user_id.email or object.user_id.login }}</field>
+            <field name="subject">[Reimbursement] {{ object.name }} — Approved</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color:#27AE60; margin-bottom: 4px;">Reimbursement Approved</h2>
+                    <p style="color:#475569; margin-top:0;">
+                        Hi <t t-out="object.employee_id.name or ''"/>, your claim has been approved.
+                    </p>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 16px;">
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Claim</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;"><strong t-out="object.name"/></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Total Amount</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;">
+                                <strong>
+                                    <t t-out="object.currency_id.symbol or ''"/><t t-out="object.total_amount or 0"/>
+                                </strong>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Approved By</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;" t-out="object.approved_by.name or ''"/>
+                        </tr>
+                        <tr t-if="object.hr_comment">
+                            <td style="padding: 8px; color:#475569;">HR Comment</td>
+                            <td style="padding: 8px; color:#1E293B;" t-out="object.hr_comment or ''"/>
+                        </tr>
+                    </table>
+
+                    <hr style="border:none; border-top:1px solid #E2E8F0; margin:20px 0;"/>
+                    <p style="color:#94A3B8; font-size:11px;">Ethara HR · Reimbursements</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- 3. Rejected → Requester -->
+        <record id="email_template_reimbursement_rejected" model="mail.template">
+            <field name="name">Reimbursement: Rejected (Requester)</field>
+            <field name="model_id" ref="model_etp_reimbursement"/>
+            <field name="email_from">{{ (object.company_id.email or 'no-reply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.user_id.email or object.user_id.login }}</field>
+            <field name="subject">[Reimbursement] {{ object.name }} — Rejected</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color:#E74C3C; margin-bottom: 4px;">Reimbursement Rejected</h2>
+                    <p style="color:#475569; margin-top:0;">
+                        Hi <t t-out="object.employee_id.name or ''"/>, unfortunately your claim has been rejected.
+                    </p>
+
+                    <table style="width:100%; border-collapse: collapse; margin-top: 16px;">
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Claim</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;"><strong t-out="object.name"/></td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Total Amount</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;">
+                                <t t-out="object.currency_id.symbol or ''"/><t t-out="object.total_amount or 0"/>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; color:#475569;">Rejected By</td>
+                            <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;" t-out="object.rejected_by.name or ''"/>
+                        </tr>
+                        <tr>
+                            <td style="padding: 8px; color:#475569;">Reason</td>
+                            <td style="padding: 8px; color:#1E293B;" t-out="object.rejection_reason or ''"/>
+                        </tr>
+                    </table>
+
+                    <p style="margin-top:18px; color:#475569; font-size:13px;">
+                        If you believe this was a mistake, please reach out to HR.
+                    </p>
+                    <hr style="border:none; border-top:1px solid #E2E8F0; margin:20px 0;"/>
+                    <p style="color:#94A3B8; font-size:11px;">Ethara HR · Reimbursements</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+    </data>
+</odoo>
