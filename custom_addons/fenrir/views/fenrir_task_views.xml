@@ -85,6 +85,12 @@
                         </group>
                     </group>
 
+                    <group invisible="not drive_folder_id" string="Google Drive"
+                           name="group_drive">
+                        <field name="drive_folder_url" widget="url"/>
+                        <field name="drive_last_uploaded_at"/>
+                    </group>
+
                     <separator string="Recreation Notes" name="sep_recreation"/>
                     <field name="recreation_notes" nolabel="1"
                            placeholder="How the original gig concept was adapted, what was fictionalized, confirmation that no proprietary assets were used..."/>
@@ -114,14 +120,55 @@
 
                     <separator string="Resources" name="sep_resources"/>
                     <group>
-                        <field name="assets_url" widget="url" placeholder="https://..."/>
-                        <field name="rubrics_url" widget="url" placeholder="https://..."/>
-                        <field name="instruction_md_url" widget="url" placeholder="https://..."/>
+                        <label for="assets_url" string="Assets"/>
+                        <div class="o_row">
+                            <field name="assets_url" widget="url"
+                                   placeholder="https://..." nolabel="1"/>
+                            <field name="assets_file" filename="assets_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="assets_filename" invisible="1"/>
+                        </div>
+                        <label for="rubrics_url" string="Rubrics"/>
+                        <div class="o_row">
+                            <field name="rubrics_url" widget="url"
+                                   placeholder="https://..." nolabel="1"/>
+                            <field name="rubrics_file" filename="rubrics_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="rubrics_filename" invisible="1"/>
+                        </div>
+                        <label for="instruction_md_url" string="Instruction.md"/>
+                        <div class="o_row">
+                            <field name="instruction_md_url" widget="url"
+                                   placeholder="https://..." nolabel="1"/>
+                            <field name="instruction_md_file"
+                                   filename="instruction_md_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="instruction_md_filename" invisible="1"/>
+                        </div>
                     </group>
                     <field name="instruction_notes"
                            placeholder="Notes about instruction.md (used in license.json)..."/>
 
                     <separator string="Rubrics" name="sep_rubrics"/>
+                    <div class="mb-2 d-flex gap-2 align-items-center">
+                        <button name="%(fenrir.fenrir_rubric_import_wizard_action)d"
+                                type="action"
+                                string="Import from CSV"
+                                class="btn-secondary"
+                                context="{'default_task_id': id}"
+                                icon="fa-upload"/>
+                        <a href="/fenrir/static/src/sample_rubrics.csv"
+                           download="sample_rubrics.csv"
+                           class="btn btn-link btn-sm">
+                            <i class="fa fa-download me-1"
+                               title="Download" aria-label="Download"
+                               role="img"/>
+                            Download sample CSV
+                        </a>
+                        <span class="text-muted small">
+                            (clicking Import on a new task saves it first)
+                        </span>
+                    </div>
                     <field name="rubric_ids" nolabel="1" mode="kanban,list">
                         <kanban class="o_kanban_dashboard">
                             <field name="name"/>
@@ -174,7 +221,8 @@
                                 <t t-name="card">
                                     <div class="oe_kanban_card oe_kanban_global_click p-2">
                                         <div class="d-flex align-items-center gap-2">
-                                            <i class="fa fa-paperclip fa-lg text-primary"/>
+                                            <i class="fa fa-paperclip fa-lg text-primary"
+                                               title="Attachment" aria-label="Attachment" role="img"/>
                                             <strong class="text-truncate flex-grow-1">
                                                 <field name="file_name" placeholder="File name"/>
                                             </strong>
@@ -284,7 +332,8 @@
                                             <span>Accepted: <field name="accepted_delivery"/></span>
                                         </div>
                                         <div class="small mt-1" t-if="record.overall_rating.raw_value">
-                                            <i class="fa fa-star text-warning me-1"/>
+                                            <i class="fa fa-star text-warning me-1"
+                                               title="Overall rating" aria-label="Overall rating" role="img"/>
                                             Overall: <strong><field name="overall_rating"/></strong>
                                         </div>
                                     </div>
@@ -536,7 +585,8 @@
                             <div class="o_kanban_record_bottom">
                                 <span>Buyer: <field name="buyer_id"/></span>
                                 <span class="float-end">
-                                    <i class="fa fa-handshake-o"/>
+                                    <i class="fa fa-handshake-o"
+                                       title="Seller offers" aria-label="Seller offers" role="img"/>
                                     <field name="seller_offer_count"/>
                                 </span>
                             </div>

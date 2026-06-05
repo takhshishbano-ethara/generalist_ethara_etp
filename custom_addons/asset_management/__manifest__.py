@@ -1,0 +1,28 @@
+{
+    'name': 'Asset Management',
+    'version': '19.0.1.0.0',
+    'summary': 'Company asset inventory, requests, assignment & history',
+    'category': 'Human Resources',
+    'author': 'Ethara',
+    'license': 'LGPL-3',
+    'application': True,
+    'depends': [
+        'base', 'mail', 'hr', 'project',
+        'api_auth_gateway',
+        'task_forge_bridge',
+    ],
+    'data': [
+        'security/asset_security.xml',
+        'security/ir.model.access.csv',
+        'data/ir_sequence_data.xml',
+        'data/asset_category_data.xml',
+        'data/ir_cron_data.xml',
+        'data/mail_template_data.xml',
+        'views/asset_asset_views.xml',
+        'views/asset_assignment_views.xml',
+        'views/asset_request_views.xml',
+        'views/asset_category_views.xml',
+        'views/asset_menus.xml',
+    ],
+    'installable': True,
+}

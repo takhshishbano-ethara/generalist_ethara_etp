@@ -11,3 +11,6 @@ access_fenrir_rubric_score_user,fenrir.rubric.score.user,model_fenrir_rubric_sco
 access_fenrir_rubric_score_manager,fenrir.rubric.score.manager,model_fenrir_rubric_score,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_task_attachment_user,fenrir.task.attachment.user,model_fenrir_task_attachment,base.group_user,1,1,1,1
 access_fenrir_task_attachment_manager,fenrir.task.attachment.manager,model_fenrir_task_attachment,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_drive_config_manager,fenrir.drive.config.manager,model_fenrir_drive_config,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_rubric_import_wizard_user,fenrir.rubric.import.wizard.user,model_fenrir_rubric_import_wizard,base.group_user,1,1,1,1
+access_fenrir_rubric_import_wizard_manager,fenrir.rubric.import.wizard.manager,model_fenrir_rubric_import_wizard,fenrir.group_fenrir_manager,1,1,1,1

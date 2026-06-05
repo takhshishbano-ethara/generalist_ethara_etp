@@ -21,12 +21,8 @@ class FenrirTask(models.Model):
     _order = "code"
     _rec_name = "code"
 
-    CODE_PATTERN = re.compile(r"^(3D|GD|GDV|WD|SD)-\d{3,}$")
-
     code = fields.Char(string="Task Code", required=True, copy=False, tracking=True,
-                       help="Unique project reference, e.g. GDV-002. "
-                            "Format: <PREFIX>-<NNN> where prefix ∈ "
-                            "{3D, GD, GDV, WD, SD}.")
+                       help="Unique project reference, e.g. GDV-002.")
     category_id = fields.Many2one(
         comodel_name="fenrir.category",
         string="Category",
@@ -93,9 +89,23 @@ class FenrirTask(models.Model):
     company_details = fields.Text(string="Company Details")
 
     assets_url = fields.Char(string="Assets")
+    assets_file = fields.Binary(string="Assets File", attachment=True,
+                                help="Optional file alternative to the assets URL.")
+    assets_filename = fields.Char(string="Assets Filename")
+
     rubrics_url = fields.Char(string="Rubrics URL",
                               help="External link to a rubric spec / doc")
+    rubrics_file = fields.Binary(string="Rubrics File", attachment=True,
+                                 help="Optional file alternative to the rubrics URL.")
+    rubrics_filename = fields.Char(string="Rubrics Filename")
+
     instruction_md_url = fields.Char(string="Instruction.md")
+    instruction_md_file = fields.Binary(
+        string="Instruction.md File", attachment=True,
+        help="Optional uploaded markdown file. When set, it overrides the "
+             "instruction.md auto-generated from the text fields.")
+    instruction_md_filename = fields.Char(
+        string="Instruction.md Filename", default="instruction.md")
     instruction_notes = fields.Text(
         string="Instruction.md Notes",
         help="Notes about instruction.md; emitted as the 'notes' field for "
@@ -132,10 +142,30 @@ class FenrirTask(models.Model):
         tracking=True,
     )
 
+    drive_folder_id = fields.Char(
+        string="Drive Folder ID",
+        readonly=True, copy=False, tracking=True,
+        help="Google Drive folder ID where this task's package was uploaded.")
+    drive_folder_url = fields.Char(
+        string="Open in Drive",
+        compute="_compute_drive_folder_url")
+    drive_last_uploaded_at = fields.Datetime(
+        string="Last Uploaded to Drive",
+        readonly=True, copy=False, tracking=True)
+
+    @api.depends("drive_folder_id")
+    def _compute_drive_folder_url(self):
+        for rec in self:
+            rec.drive_folder_url = (
+                f"https://drive.google.com/drive/folders/{rec.drive_folder_id}"
+                if rec.drive_folder_id else False)
+
     def action_approve_task(self):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
             raise UserError("Only managers can approve tasks.")
+        drive = self.env["fenrir.drive.service"]
         for rec in self:
+            drive.upload_task(rec)
             rec.status = "completed"
 
     def action_reject_task(self):
@@ -305,15 +335,6 @@ class FenrirTask(models.Model):
             prefix = (rec.code or "").split("-", 1)[0]
             rec.environment_type = "dev" if prefix in dev_prefixes else "non_dev"
 
-    @api.constrains("code")
-    def _check_code_pattern(self):
-        for rec in self:
-            if rec.code and not self.CODE_PATTERN.match(rec.code):
-                raise UserError(
-                    f"Task code '{rec.code}' is invalid. "
-                    "Expected format <PREFIX>-<NNN> where prefix ∈ "
-                    "{3D, GD, GDV, WD, SD}, e.g. 'GDV-002'.")
-
     def action_open_seller_offers(self):
         self.ensure_one()
         return {
@@ -348,16 +369,49 @@ class FenrirTask(models.Model):
 
     def _write_rich_export(self, zf, root):
         self.ensure_one()
+        for rel_path, content, _mime in self._collect_export_files():
+            zf.writestr(f"{root}/{rel_path}", content)
 
-        zf.writestr(f"{root}/instruction.md",
-                   self._build_instruction_md(include_remarks=True))
-        zf.writestr(f"{root}/rubrics.json",
-                   json.dumps([
-                       {"sequence": r.sequence,
-                        "name": r.name or "",
-                        "description": r.description or ""}
-                       for r in self.rubric_ids.sorted("sequence")
-                   ], indent=2))
+    def _collect_export_files(self):
+        """Return [(relative_path, bytes_content, mime_type), ...] for the package.
+
+        Shared by ZIP export and the Google Drive uploader so the resulting
+        folder structure is identical in both destinations.
+        """
+        self.ensure_one()
+        import mimetypes
+        files = []
+
+        # instruction.md — annotator-uploaded file wins; otherwise build from text.
+        if self.instruction_md_file:
+            files.append(("instruction.md",
+                          base64.b64decode(self.instruction_md_file),
+                          "text/markdown"))
+        else:
+            files.append(("instruction.md",
+                          self._build_instruction_md(include_remarks=True).encode("utf-8"),
+                          "text/markdown"))
+
+        files.append(("rubrics.json",
+                      json.dumps([
+                          {"sequence": r.sequence,
+                           "name": r.name or "",
+                           "description": r.description or ""}
+                          for r in self.rubric_ids.sorted("sequence")
+                      ], indent=2).encode("utf-8"),
+                      "application/json"))
+
+        # Optional rubrics source file (e.g. rubrics.csv) shipped alongside rubrics.json
+        if self.rubrics_file:
+            name = _slug(self.rubrics_filename or "rubrics_source")
+            mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            files.append((name, base64.b64decode(self.rubrics_file), mime))
+
+        # Optional assets file goes under resources/
+        if self.assets_file:
+            name = _slug(self.assets_filename or "assets")
+            mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+            files.append((f"resources/{name}", base64.b64decode(self.assets_file), mime))
 
         generated_env_names = set()
         generated_test_names = set()
@@ -370,46 +424,48 @@ class FenrirTask(models.Model):
             file_bytes = base64.b64decode(att.attachment)
             safe_name = _slug(att.file_name or f"attachment_{att.id}")
             folder = att.folder or "resources"
+            mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
             if folder == "root":
-                zf.writestr(f"{root}/{safe_name}", file_bytes)
+                rel = safe_name
                 if safe_name == "task_metadata.json":
                     wrote_task_metadata = True
                 elif safe_name == "licenses.json":
                     wrote_licenses = True
             else:
-                zf.writestr(f"{root}/{folder}/{safe_name}", file_bytes)
+                rel = f"{folder}/{safe_name}"
                 if folder == "environment" and att.is_generated:
                     generated_env_names.add(safe_name)
                 elif folder == "tests" and att.is_generated:
                     generated_test_names.add(safe_name)
+            files.append((rel, file_bytes, mime))
 
-        # Fallbacks for legacy tasks that haven't been (re)submitted under the
-        # new generator yet — emit a minimal task_metadata.json / licenses.json
-        # so the export tree is never missing those top-level files.
+        # Fallbacks for legacy tasks (never resubmitted under the generator).
         if not wrote_task_metadata:
-            zf.writestr(f"{root}/task_metadata.json",
-                       json.dumps(gen.build_task_metadata(self), indent=2))
+            files.append(("task_metadata.json",
+                          json.dumps(gen.build_task_metadata(self), indent=2).encode("utf-8"),
+                          "application/json"))
         if not wrote_licenses:
-            zf.writestr(f"{root}/licenses.json",
-                       json.dumps(self._build_license_doc(), indent=2))
+            files.append(("licenses.json",
+                          json.dumps(self._build_license_doc(), indent=2).encode("utf-8"),
+                          "application/json"))
 
-        # Legacy per-task binary uploads (Dockerfile, nginx.conf, …) — only
-        # emit if the generator hasn't already produced a file by that name.
+        # Legacy per-task binary uploads, skipping ones already generated.
         for filename, content in self._environment_files():
             if filename in generated_env_names:
                 continue
-            zf.writestr(f"{root}/environment/{filename}", content)
+            mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            files.append((f"environment/{filename}", content, mime))
 
         for filename, content in self._test_files():
             if filename in generated_test_names:
                 continue
-            zf.writestr(f"{root}/tests/{filename}", content)
+            mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            files.append((f"tests/{filename}", content, mime))
 
         for offer in self.seller_offer_ids.sorted("seller_no"):
-            seller_dir = f"{root}/submissions/seller_{offer.seller_no or offer.id}"
+            seller_dir = f"submissions/seller_{offer.seller_no or offer.id}"
             if offer.metadata_json:
-                # Generated schema-compliant payload (set at submit time).
-                zf.writestr(f"{seller_dir}/metadata.json", offer.metadata_json)
+                meta_bytes = offer.metadata_json.encode("utf-8")
             else:
                 fallback = {
                     "task_id": self.code,
@@ -427,14 +483,21 @@ class FenrirTask(models.Model):
                     "order_date": offer.order_date.isoformat() if offer.order_date else None,
                     "notes": offer.notes or "",
                 }
-                zf.writestr(f"{seller_dir}/metadata.json",
-                           json.dumps(fallback, indent=2, default=str))
-            zf.writestr(f"{seller_dir}/ratings.json",
-                       json.dumps(self._build_ratings(offer), indent=2, default=str))
+                meta_bytes = json.dumps(fallback, indent=2, default=str).encode("utf-8")
+            files.append((f"{seller_dir}/metadata.json", meta_bytes, "application/json"))
+            files.append((f"{seller_dir}/ratings.json",
+                          json.dumps(self._build_ratings(offer), indent=2, default=str).encode("utf-8"),
+                          "application/json"))
             if offer.conversation:
-                zf.writestr(f"{seller_dir}/conversation.txt", offer.conversation)
+                files.append((f"{seller_dir}/conversation.txt",
+                              offer.conversation.encode("utf-8"),
+                              "text/plain"))
             if offer.automated_checks:
-                zf.writestr(f"{seller_dir}/automated_checks.txt", offer.automated_checks)
+                files.append((f"{seller_dir}/automated_checks.txt",
+                              offer.automated_checks.encode("utf-8"),
+                              "text/plain"))
+
+        return files
 
     def _build_license_doc(self):
         """licenses.json — annotator-supplied INPUT assets only.
@@ -463,6 +526,22 @@ class FenrirTask(models.Model):
                 "license": att.license_label(),
                 "source_url": att.source_url or None,
                 "notes": att.notes or "",
+            })
+        if self.rubrics_file:
+            assets.append({
+                "file_name": self.rubrics_filename or "rubrics_source",
+                "location": "root",
+                "license": "Self-created",
+                "source_url": self.rubrics_url or None,
+                "notes": "",
+            })
+        if self.assets_file:
+            assets.append({
+                "file_name": self.assets_filename or "assets",
+                "location": "resources/",
+                "license": "Self-created",
+                "source_url": self.assets_url or None,
+                "notes": "",
             })
         return {"task_id": self.code, "assets": assets}
 

@@ -31,4 +31,11 @@
               groups="fenrir.group_fenrir_manager"
               sequence="10"/>
 
+    <menuitem id="fenrir_config_drive_menu"
+              name="Google Drive"
+              parent="fenrir_config_menu"
+              action="fenrir_drive_config_action"
+              groups="fenrir.group_fenrir_manager"
+              sequence="20"/>
+
 </odoo>
