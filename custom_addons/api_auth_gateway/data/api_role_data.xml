@@ -13,13 +13,6 @@
             <field name="project_type">technical</field>
             <field name="user_type">TPM</field>
         </record>
-        
-        <record id="role_hr_technical" model="api.role">
-            <field name="name">HR</field>
-            <field name="project_type">technical</field>
-            <field name="user_type">HR</field>
-        </record>
-
 
         <record id="role_hr_technical" model="api.role">
             <field name="name">HR</field>
