@@ -40,8 +40,13 @@ def _ist(dt, fmt='%Y-%m-%d %H:%M:%S'):
     return ''
 
 
+HR_ROLE_NAMES = {'hr', 'hr admin'}
+
+
 def _is_hr(user):
-    return user.has_group('etp_user_roles.group_hr_admin') \
+    role_name = (user.user_role.name or '').strip().lower() if user.user_role else ''
+    return role_name in HR_ROLE_NAMES \
+        or user.has_group('etp_user_roles.group_hr_admin') \
         or user.has_group('etp_reimbursement.group_reimbursement_manager') \
         or user.has_group('base.group_system')
 

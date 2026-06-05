@@ -177,15 +177,25 @@ class EtpReimbursement(models.Model):
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _ensure_hr_user(self):
-        if not self.env.user.has_group('etp_user_roles.group_hr_admin') and not self.env.user.has_group('base.group_system'):
-            raise UserError(_('Only HR users can perform this action.'))
+        user = self.env.user
+        role_name = (user.user_role.name or '').strip().lower() if user.user_role else ''
+        if role_name in {'hr', 'hr admin'}:
+            return
+        if user.has_group('etp_user_roles.group_hr_admin') \
+                or user.has_group('etp_reimbursement.group_reimbursement_manager') \
+                or user.has_group('base.group_system'):
+            return
+        raise UserError(_('Only HR users can perform this action.'))
 
     def _hr_recipient_emails(self):
+        Users = self.env['res.users'].sudo()
+        users = Users.browse()
         hr_group = self.env.ref('etp_user_roles.group_hr_admin', raise_if_not_found=False)
-        if not hr_group:
-            return []
+        if hr_group:
+            users |= hr_group.sudo().user_ids
+        users |= Users.search([('user_role.name', 'in', ['HR', 'hr', 'HR Admin', 'hr admin'])])
         emails = []
-        for user in hr_group.sudo().user_ids:
+        for user in users:
             email = user.email or user.login
             if email:
                 emails.append(email)
