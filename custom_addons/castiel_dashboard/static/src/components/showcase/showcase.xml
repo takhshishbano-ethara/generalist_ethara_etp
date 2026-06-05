@@ -51,6 +51,12 @@
                 <a href="/castiel" target="_blank" class="ct-backend-link">
                     📊 Portal View
                 </a>
+                <a href="https://huggingface.co/datasets/ethara/castiel" target="_blank" class="ct-backend-link">
+                    🤗 Dataset
+                </a>
+                <a href="https://github.com/Ethara-Ai/castiel" target="_blank" class="ct-backend-link">
+                    🛠 Harness
+                </a>
             </div>
         </div>
     </t>

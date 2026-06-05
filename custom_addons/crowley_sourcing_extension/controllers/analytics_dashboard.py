@@ -9,7 +9,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-COMPLETED_STATES = ("done",)
+COMPLETED_STATES = ("exported",)
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 HEATMAP_INTENSITY_LEVELS = 4
 LEADERBOARD_WINDOW_DAYS = 30
@@ -99,9 +99,9 @@ def _scope(env):
         projects = Project.search([(field, "in", employee.ids)])
         taskers = projects.mapped("project_tasker")
         user_ids = (taskers.mapped("user_id") | user).ids
-        return tag, [("user_id", "in", user_ids)], projects
+        return tag, [("assigned_to", "in", user_ids)], projects
     projects = Project.search([("project_tasker", "in", employee.ids)])
-    return "tasker", [("user_id", "=", user.id)], projects
+    return "tasker", [("assigned_to", "=", user.id)], projects
 
 
 def _parse_date(raw, label):
@@ -187,18 +187,18 @@ def _period_windows(start, end):
 def _completed_day_counts(env, scope, win_start, win_end):
     start_dt = datetime.combine(win_start, datetime.min.time())
     end_dt = datetime.combine(win_end, datetime.min.time()) + timedelta(days=1)
-    rows = env["crowley.generation"].sudo().search_read(
+    rows = env["video.editor.project"].sudo().search_read(
         scope
         + [
             ("state", "in", list(COMPLETED_STATES)),
-            ("completed_at", ">=", start_dt),
-            ("completed_at", "<", end_dt),
+            ("write_date", ">=", start_dt),
+            ("write_date", "<", end_dt),
         ],
-        ["completed_at"],
+        ["write_date"],
     )
     counts = {}
     for row in rows:
-        when = row.get("completed_at")
+        when = row.get("write_date")
         if not when:
             continue
         day = when.date()
@@ -238,7 +238,7 @@ def _timeline_window(filters):
 
 
 def _build_total_task(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     total = Gen.search_count(
         scope + _create_date_domain(filters["start"], filters["end"])
     )
@@ -271,13 +271,13 @@ def _build_total_task(env, scope, filters):
 
 
 def _build_avg_cost(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     domain = (
         scope
         + _create_date_domain(filters["start"], filters["end"])
-        + [("total_cost_usd", ">", 0)]
+        + [("llm_qc_cost_usd", ">", 0)]
     )
-    groups = Gen._read_group(domain, [], ["__count", "total_cost_usd:sum"])
+    groups = Gen._read_group(domain, [], ["__count", "llm_qc_cost_usd:sum"])
     counted, total_cost = groups[0] if groups else (0, 0.0)
     counted = counted or 0
     total_cost = total_cost or 0.0
@@ -290,7 +290,7 @@ def _build_avg_cost(env, scope, filters):
 
 
 def _build_avg_duration(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     domain = (
         scope
         + _create_date_domain(filters["start"], filters["end"])
@@ -309,10 +309,10 @@ def _build_avg_duration(env, scope, filters):
 
 
 def _build_failed_task(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     base = scope + _create_date_domain(filters["start"], filters["end"])
     total = Gen.search_count(base)
-    failed = Gen.search_count(base + [("state", "=", "failed")])
+    failed = Gen.search_count(base + [("state", "=", "error")])
     return {
         "failed_task_count": failed,
         "total_task_count": total,
@@ -368,9 +368,9 @@ def _build_heatmap(env, scope, filters):
 
 
 def _build_review_state(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     domain = scope + _create_date_domain(filters["start"], filters["end"])
-    groups = Gen._read_group(domain, ["review_state"], ["__count"])
+    groups = Gen._read_group(domain, ["review_status"], ["__count"])
     counts = {}
     no_state = 0
     for key, count in groups:
@@ -387,7 +387,7 @@ def _build_review_state(env, scope, filters):
             "count": counts.get(key, 0),
             "percentage": _pct(counts.get(key, 0), total),
         }
-        for key, label in Gen._fields["review_state"].selection
+        for key, label in Gen._fields["review_status"].selection
     ]
     return {
         "total_task_count": total,
@@ -397,7 +397,7 @@ def _build_review_state(env, scope, filters):
 
 
 def _build_qc_leaderboard(env, projects, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     today = fields.Datetime.now().date()
     window_end = filters["end"] or today
     window_start = filters["start"] or (
@@ -427,15 +427,15 @@ def _build_qc_leaderboard(env, projects, filters):
     total_by_user = {}
     completed_by_user = {}
     if user_ids:
-        base_domain = [("user_id", "in", user_ids)] + date_domain
+        base_domain = [("assigned_to", "in", user_ids)] + date_domain
         for user, count in Gen._read_group(
-            base_domain, ["user_id"], ["__count"]
+            base_domain, ["assigned_to"], ["__count"]
         ):
             if user:
                 total_by_user[user.id] = count
         for user, count in Gen._read_group(
             base_domain + [("state", "in", list(COMPLETED_STATES))],
-            ["user_id"],
+            ["assigned_to"],
             ["__count"],
         ):
             if user:
@@ -528,7 +528,7 @@ def _cache_set(key, payload):
 
 
 def _build_aht_overview_aligned(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     domain = (
         scope
         + _create_date_domain(filters["start"], filters["end"])
@@ -556,13 +556,13 @@ def _build_aht_overview_aligned(env, scope, filters):
 
 
 def _build_video_overview_aligned(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     base = scope + _create_date_domain(filters["start"], filters["end"])
     return {
         "tasks_with_video": Gen.search_count(
-            base + [("state", "=", "done"), ("video_s3_url", "!=", False)]
+            base + [("state", "=", "exported"), ("output_s3_url", "!=", False)]
         ),
-        "rejected_at_validation": Gen.search_count(base + [("state", "=", "failed")]),
+        "rejected_at_validation": Gen.search_count(base + [("state", "=", "error")]),
     }
 
 
@@ -595,7 +595,7 @@ def _build_team_overview_aligned(env, projects):
 
 
 def _build_status_chart_aligned(env, scope, filters):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     domain = scope + _create_date_domain(filters["start"], filters["end"])
     groups = Gen._read_group(domain, ["state"], ["__count"])
     counts = {}
@@ -615,7 +615,7 @@ def _build_status_chart_aligned(env, scope, filters):
     return {"total_task_count": total, "status_chart": chart}
 
 
-DONE_STATE = "done"
+DONE_STATE = "exported"
 RANGE_DAYS = {"7d": 7, "30d": 30, "90d": 90}
 DEFAULT_RANGE = "30d"
 COLOR_TOKENS = ("primary", "success", "info", "warn", "danger", "muted")
@@ -769,15 +769,15 @@ def _resolve_context(env, params):
 
     ctx = {"project": project, "role": role, "rng": rng, "taskers": taskers}
     ctx.update(_build_ql_maps(taskers))
-    ctx["scope"] = [("user_id", "in", ctx["user_ids"])] + _range_domain(rng)
+    ctx["scope"] = [("assigned_to", "in", ctx["user_ids"])] + _range_domain(rng)
     return ctx, None
 
 
 def _counts_by_user(Gen, scope, extra=None):
-    rows = Gen.formatted_read_group(scope + (extra or []), ["user_id"], ["__count"])
+    rows = Gen.formatted_read_group(scope + (extra or []), ["assigned_to"], ["__count"])
     out = {}
     for r in rows:
-        user = r["user_id"]
+        user = r["assigned_to"]
         if user:
             out[user[0]] = r["__count"]
     return out
@@ -794,38 +794,26 @@ def _kpi(key, label, value, sub_string="", pattern="", sign=""):
     }
 
 
-def _attempt_scope(scope):
-    out = []
-    for leaf in scope:
-        if isinstance(leaf, (list, tuple)) and len(leaf) == 3:
-            field, op, value = leaf
-            out.append((f"job_id.{field}", op, value))
-        else:
-            out.append(leaf)
-    return out
-
-
 def _build_kpi_v2(env, ctx):
-    Gen = env["crowley.generation"].sudo()
-    Attempt = env["crowley.attempt"].sudo()
+    Gen = env["video.editor.project"].sudo()
     scope = ctx["scope"]
-    attempt_scope = _attempt_scope(scope)
 
     gens_count = Gen.search_count(scope)
 
-    spend_rows = Gen.formatted_read_group(scope, [], ["total_cost_usd:sum"])
-    total_spend = (spend_rows[0]["total_cost_usd:sum"] if spend_rows else 0.0) or 0.0
+    spend_rows = Gen.formatted_read_group(scope, [], ["llm_qc_cost_usd:sum"])
+    total_spend = (spend_rows[0]["llm_qc_cost_usd:sum"] if spend_rows else 0.0) or 0.0
     avg_per_task = (total_spend / gens_count) if gens_count else 0.0
 
-    approved = Gen.search_count(scope + [("review_state", "=", "approved")])
-    reviewed = approved + Gen.search_count(scope + [("review_state", "=", "rejected")])
+    approved = Gen.search_count(scope + [("review_status", "=", "approved")])
+    reviewed = approved + Gen.search_count(scope + [("review_status", "=", "rejected")])
     pass_rate = _pct1(approved, reviewed)
 
-    token_rows = Attempt.formatted_read_group(attempt_scope, [], ["tokens_used:avg"])
-    avg_tokens = round((token_rows[0]["tokens_used:avg"] if token_rows else 0.0) or 0.0)
+    avg_tokens = 0
 
-    dur_rows = Attempt.formatted_read_group(
-        attempt_scope + [("state", "=", DONE_STATE)], [], ["duration_seconds:avg"]
+    dur_rows = Gen.formatted_read_group(
+        scope + [("state", "=", DONE_STATE), ("duration_seconds", ">", 0)],
+        [],
+        ["duration_seconds:avg"],
     )
     avg_wall = (dur_rows[0]["duration_seconds:avg"] if dur_rows else 0.0) or 0.0
 
@@ -863,13 +851,13 @@ def _build_kpi_v2(env, ctx):
 
 
 def _build_spend_by_category(env, ctx):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     rows = Gen.formatted_read_group(
         ctx["scope"] + [("category", "!=", False)],
         ["category"],
-        ["total_cost_usd:sum"],
+        ["llm_qc_cost_usd:sum"],
     )
-    amount_by_cat = {r["category"]: round(r["total_cost_usd:sum"] or 0.0, 4) for r in rows}
+    amount_by_cat = {r["category"]: round(r["llm_qc_cost_usd:sum"] or 0.0, 4) for r in rows}
     total = round(sum(amount_by_cat.values()), 4)
 
     selection = list(Gen._fields["category"].selection)
@@ -883,7 +871,7 @@ def _build_spend_by_category(env, ctx):
             "key": key,
             "label": label,
             "value": f"{_money(amount)} ({percentage:.0f}%)",
-            "amount": amount,
+            "amount": amount or 100,
             "percentage": percentage,
             "color_token": _color(idx),
         })
@@ -898,15 +886,15 @@ def _build_spend_by_category(env, ctx):
 
 
 def _build_pass_rate_by_ql(env, ctx):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     scope = ctx["scope"]
     ql_taskers = ctx["ql_taskers"]
     ql_name = ctx["ql_name"]
 
     totals = _counts_by_user(Gen, scope)
-    approved = _counts_by_user(Gen, scope, [("review_state", "=", "approved")])
+    approved = _counts_by_user(Gen, scope, [("review_status", "=", "approved")])
     reviewed = _counts_by_user(
-        Gen, scope, [("review_state", "in", ["approved", "rejected"])]
+        Gen, scope, [("review_status", "in", ["approved", "rejected"])]
     )
 
     items = []
@@ -938,7 +926,7 @@ def _build_pass_rate_by_ql(env, ctx):
 
 
 def _build_daily_burn_rate(env, ctx):
-    Gen = env["crowley.generation"].sudo()
+    Gen = env["video.editor.project"].sudo()
     rng = ctx["rng"]
     ql_of_user = ctx["ql_of_user"]
     ql_name = ctx["ql_name"]
@@ -952,9 +940,9 @@ def _build_daily_burn_rate(env, ctx):
         day = gen.create_date.date() if gen.create_date else None
         if not day:
             continue
-        ql_id = ql_of_user.get(gen.user_id.id, UNASSIGNED_QL)
+        ql_id = ql_of_user.get(gen.assigned_to.id, UNASSIGNED_QL)
         ql_ids.add(ql_id)
-        cost = gen.total_cost_usd or 0.0
+        cost = gen.llm_qc_cost_usd or 0.0
         per_day.setdefault(day, {})
         per_day[day][ql_id] = per_day[day].get(ql_id, 0.0) + cost
         per_ql_total[ql_id] = per_ql_total.get(ql_id, 0.0) + cost
@@ -1010,10 +998,10 @@ def _build_analytics(env, ctx):
     }
 
 
-class CrowleyAnalyticsDashboardController(http.Controller):
+class CrowleySourcingAnalyticsDashboardController(http.Controller):
 
     @http.route(
-        "/api/v1/crowley_ext/analytics_dashboard",
+        "/api/v1/crowley_sourcing_ext/analytics_dashboard",
         type="http",
         auth="none",
         methods=["GET"],
@@ -1021,7 +1009,7 @@ class CrowleyAnalyticsDashboardController(http.Controller):
         cors="*",
     )
     @validate_token
-    def crowley_ext_analytics_dashboard(self, **kwargs):
+    def crowley_sourcing_ext_analytics_dashboard(self, **kwargs):
         env = request.env
         ctx, error = _resolve_context(env, request.params or {})
         if error is not None:

@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import base64
+import csv
+import io
 import json
 import logging
 import os
 
-from odoo import _, http
+from odoo import _, fields, http
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
 
@@ -43,6 +45,80 @@ class _VideoEditorS3SeedDownload(http.Controller):
             content,
             headers=[
                 ("Content-Type", "text/markdown; charset=utf-8"),
+                ("Content-Disposition", 'attachment; filename="%s"' % filename),
+                ("Content-Length", str(len(content))),
+            ],
+        )
+
+    @http.route(
+        "/video_editor_s3/final_data/delivery_sheet",
+        type="http", auth="user", methods=["GET"],
+    )
+    def download_delivery_sheet(self, ids=None, **_kwargs):
+        if not request.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can download the delivery sheet."))
+        raw_ids = (ids or "").strip()
+        if not raw_ids:
+            raise UserError(_("No records selected for the delivery sheet."))
+        try:
+            project_ids = [int(x) for x in raw_ids.split(",") if x.strip()]
+        except ValueError:
+            raise UserError(_("Invalid record selection for the delivery sheet."))
+        if not project_ids:
+            raise UserError(_("No records selected for the delivery sheet."))
+        projects = request.env["video.editor.project"].browse(project_ids).exists()
+        if not projects:
+            raise UserError(_("No matching projects found for the delivery sheet."))
+        projects.check_access("read")
+        projects = projects.filtered(lambda p: p.state == "exported")
+        if not projects:
+            raise UserError(_("Only Done projects can be exported to the delivery sheet."))
+
+        buf = io.StringIO()
+        writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
+        writer.writerow([
+            "Category", "Sub Category", "Description", "Duration Seconds",
+            "Resolution", "FPS", "Topic", "Style", "Prompt", "Video File",
+        ])
+        for project in projects:
+            category_val = (
+                project.category_id.code
+                or project.category_id.name
+                or project.category
+                or ""
+            )
+            sub_category_val = (
+                project.sub_category_id.code
+                or project.sub_category_id.name
+                or project.sub_category
+                or ""
+            )
+            description_val = project.sub_category_id.description or ""
+            duration_val = project.output_duration_seconds or 0.0
+            resolution_val = project.output_resolution or ""
+            fps_val = project.output_fps or 0.0
+            topic_val = project.topic_name or ""
+            style_val = project.style or ""
+            prompt_val = project.prompt or ""
+            video_val = project.output_s3_url or ""
+            writer.writerow([
+                category_val,
+                sub_category_val,
+                description_val,
+                "%g" % duration_val if duration_val else "",
+                resolution_val,
+                "%g" % fps_val if fps_val else "",
+                topic_val,
+                style_val,
+                prompt_val,
+                video_val,
+            ])
+        content = buf.getvalue().encode("utf-8-sig")
+        filename = "delivery_sheet_%s.csv" % fields.Datetime.now().strftime("%Y%m%d_%H%M%S")
+        return request.make_response(
+            content,
+            headers=[
+                ("Content-Type", "text/csv; charset=utf-8"),
                 ("Content-Disposition", 'attachment; filename="%s"' % filename),
                 ("Content-Length", str(len(content))),
             ],
