@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="cron_asset_warranty_reminder" model="ir.cron">
+            <field name="name">Asset Management: Warranty Expiry Reminder</field>
+            <field name="model_id" ref="model_asset_asset"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_warranty_reminder()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(DateTime.now() + timedelta(days=1)).strftime('%Y-%m-%d 03:00:00')"/>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <record id="cron_asset_subscription_renewal" model="ir.cron">
+            <field name="name">Asset Management: Subscription Renewal Reminder</field>
+            <field name="model_id" ref="model_asset_asset"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_subscription_renewal()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(DateTime.now() + timedelta(days=1)).strftime('%Y-%m-%d 03:00:00')"/>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+        <record id="cron_asset_overdue_assignments" model="ir.cron">
+            <field name="name">Asset Management: Overdue Assignment Alert</field>
+            <field name="model_id" ref="model_asset_assignment"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_overdue_assignments()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="nextcall" eval="(DateTime.now() + timedelta(days=1)).strftime('%Y-%m-%d 03:00:00')"/>
+            <field name="active" eval="True"/>
+            <field name="priority">5</field>
+        </record>
+
+    </data>
+</odoo>

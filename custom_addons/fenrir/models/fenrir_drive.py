@@ -1,0 +1,233 @@
+"""Google Drive upload service for Fenrir tasks.
+
+The service is an AbstractModel so it can be obtained via
+self.env["fenrir.drive.service"] and reused without instantiation overhead.
+
+Configuration is stored in ir.config_parameter and edited through the
+Fenrir → Configuration → Google Drive screen.
+"""
+
+import io
+import json
+import logging
+
+from odoo import _, fields, models
+from odoo.exceptions import UserError
+
+
+_logger = logging.getLogger(__name__)
+
+PARAM_SERVICE_ACCOUNT = "fenrir.drive.service_account_json"
+PARAM_PARENT_FOLDER = "fenrir.drive.parent_folder_id"
+PARAM_OAUTH_CLIENT_ID = "fenrir.drive.oauth_client_id"
+PARAM_OAUTH_CLIENT_SECRET = "fenrir.drive.oauth_client_secret"
+PARAM_OAUTH_REFRESH_TOKEN = "fenrir.drive.oauth_refresh_token"
+
+DRIVE_FOLDER_MIME = "application/vnd.google-apps.folder"
+DEFAULT_FILE_MIME = "application/octet-stream"
+DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive"]
+GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token"
+
+
+class FenrirDriveService(models.AbstractModel):
+    _name = "fenrir.drive.service"
+    _description = "Fenrir — Google Drive Upload Service"
+
+    # ── Config + client ──────────────────────────────────────────────────
+    def _build_client(self):
+        """Return (drive_v3_service, parent_folder_id).
+
+        Prefers OAuth-user credentials when a refresh token is configured
+        (works for personal / free Gmail Drives). Falls back to service
+        account auth (only works for Shared Drives).
+        """
+        config = self.env["fenrir.drive.config"].sudo().get_singleton()
+        parent_id = (config.parent_folder_id or "").strip()
+        if not parent_id:
+            raise UserError(_(
+                "Google Drive parent folder ID is not configured.\n"
+                "Set it under Fenrir → Configuration → Google Drive."))
+
+        try:
+            from googleapiclient.discovery import build
+        except ImportError as exc:
+            raise UserError(_(
+                "Python packages 'google-api-python-client' and 'google-auth' "
+                "are not installed in the Odoo environment.\n"
+                "Run:  pip install google-api-python-client google-auth "
+                "google-auth-oauthlib"
+            )) from exc
+
+        if config.auth_method == "oauth":
+            creds = self._oauth_credentials(config)
+        else:
+            creds = self._service_account_credentials(config)
+
+        service = build("drive", "v3", credentials=creds, cache_discovery=False)
+        return service, parent_id
+
+    @staticmethod
+    def _oauth_credentials(config):
+        refresh_token = (config.oauth_refresh_token or "").strip()
+        client_id = (config.oauth_client_id or "").strip()
+        client_secret = (config.oauth_client_secret or "").strip()
+        if not refresh_token:
+            raise UserError(_(
+                "OAuth refresh token is missing. Run scripts/authorize_drive.py "
+                "and paste the result under Fenrir → Configuration → Google Drive."))
+        if not (client_id and client_secret):
+            raise UserError(_(
+                "OAuth client_id / client_secret are missing. Fill them under "
+                "Fenrir → Configuration → Google Drive."))
+        from google.oauth2.credentials import Credentials
+        return Credentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri=GOOGLE_TOKEN_URI,
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=DRIVE_SCOPES,
+        )
+
+    @staticmethod
+    def _service_account_credentials(config):
+        raw_json = (config.service_account_json or "").strip()
+        if not raw_json:
+            raise UserError(_(
+                "Service Account JSON is not configured.\n"
+                "Either switch auth method to OAuth (works on personal Gmail) "
+                "or paste a service account JSON key under Fenrir → "
+                "Configuration → Google Drive."))
+        try:
+            info = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise UserError(_(
+                "The configured service account JSON is not valid JSON: %s"
+            ) % exc) from exc
+        from google.oauth2 import service_account
+        return service_account.Credentials.from_service_account_info(
+            info, scopes=DRIVE_SCOPES)
+
+    # ── Low-level Drive helpers ──────────────────────────────────────────
+    @staticmethod
+    def _folder_exists(service, folder_id):
+        try:
+            service.files().get(
+                fileId=folder_id, fields="id, trashed",
+                supportsAllDrives=True).execute()
+            return True
+        except Exception:  # noqa: BLE001 — Drive HttpError + any net failure
+            return False
+
+    @staticmethod
+    def _create_folder(service, name, parent_id):
+        body = {
+            "name": name,
+            "mimeType": DRIVE_FOLDER_MIME,
+            "parents": [parent_id],
+        }
+        result = service.files().create(
+            body=body, fields="id", supportsAllDrives=True).execute()
+        return result["id"]
+
+    @staticmethod
+    def _delete_folder_children(service, folder_id):
+        """Trash every direct child of folder_id (recursive cleanup before re-upload)."""
+        page_token = None
+        while True:
+            resp = service.files().list(
+                q=f"'{folder_id}' in parents and trashed = false",
+                fields="nextPageToken, files(id)",
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+            for child in resp.get("files", []):
+                service.files().delete(
+                    fileId=child["id"], supportsAllDrives=True).execute()
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+
+    @staticmethod
+    def _upload_bytes(service, name, parent_id, data, mime=DEFAULT_FILE_MIME):
+        from googleapiclient.http import MediaIoBaseUpload
+        body = {"name": name, "parents": [parent_id]}
+        media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime, resumable=False)
+        result = service.files().create(
+            body=body, media_body=media, fields="id",
+            supportsAllDrives=True).execute()
+        return result["id"]
+
+    # ── Public: upload a task package ────────────────────────────────────
+    def upload_task(self, task):
+        """Upload one fenrir.task's package to Drive.
+
+        Creates (or re-uses) a <TASK_CODE> folder under the configured parent,
+        wipes its contents on re-upload, then re-creates the full folder tree
+        from task._collect_export_files().
+        """
+        task.ensure_one()
+        try:
+            return self._upload_task_inner(task)
+        except UserError:
+            raise
+        except Exception as exc:
+            msg = str(exc)
+            if "storageQuotaExceeded" in msg or "storage quota" in msg.lower():
+                raise UserError(_(
+                    "Google Drive rejected the upload because service accounts "
+                    "have no storage quota of their own.\n\n"
+                    "Fix: the configured parent folder must live inside a "
+                    "Shared Drive (Google Workspace feature), not in a "
+                    "personal 'My Drive'.\n\n"
+                    "Steps:\n"
+                    "  1. Open Google Drive → 'Shared drives' in the left rail "
+                    "→ create a new shared drive (or pick an existing one).\n"
+                    "  2. Add the service account email as a Manager.\n"
+                    "  3. Create the parent folder inside that shared drive.\n"
+                    "  4. Update the Parent Folder ID in Fenrir → Configuration "
+                    "→ Google Drive.\n\n"
+                    "Original error: %s") % msg) from exc
+            raise
+
+    def _upload_task_inner(self, task):
+        service, parent_id = self._build_client()
+
+        task_folder_id = task.drive_folder_id or ""
+        if task_folder_id and not self._folder_exists(service, task_folder_id):
+            task_folder_id = ""
+
+        if task_folder_id:
+            self._delete_folder_children(service, task_folder_id)
+        else:
+            task_folder_id = self._create_folder(
+                service, task.code or f"task_{task.id}", parent_id)
+
+        # cache for intermediate folders: () → task root, ("environment",) → env id, etc.
+        folder_cache = {(): task_folder_id}
+
+        def ensure_path(dir_parts):
+            if dir_parts in folder_cache:
+                return folder_cache[dir_parts]
+            parent = ensure_path(dir_parts[:-1])
+            folder_id = self._create_folder(service, dir_parts[-1], parent)
+            folder_cache[dir_parts] = folder_id
+            return folder_id
+
+        for rel_path, content, mime in task._collect_export_files():
+            parts = rel_path.split("/")
+            file_name = parts[-1]
+            dir_parts = tuple(parts[:-1])
+            parent_for_file = ensure_path(dir_parts)
+            self._upload_bytes(
+                service, file_name, parent_for_file, content,
+                mime or DEFAULT_FILE_MIME)
+
+        task.write({
+            "drive_folder_id": task_folder_id,
+            "drive_last_uploaded_at": fields.Datetime.now(),
+        })
+        _logger.info("Fenrir: uploaded task %s to Drive folder %s",
+                     task.code, task_folder_id)
+        return task_folder_id

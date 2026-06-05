@@ -1,0 +1,6 @@
+name,description
+Build runs,index.html loads in a browser without console errors
+Mobile responsive,Canvas scales correctly below 768px viewport width
+Sound enabled,All sound effects play on user interaction
+No external requests,No XHR/fetch calls to non-localhost domains
+License headers present,Source files include a license/attribution header
