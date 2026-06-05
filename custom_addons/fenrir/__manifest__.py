@@ -1,6 +1,6 @@
 {
     "name": "Fenrir",
-    "version": "19.0.1.7.0",
+    "version": "19.0.1.10.2",
     "category": "Tools",
     "summary": "Fenrir — Freelancer task & seller negotiation tracker",
     "description": """
@@ -14,12 +14,17 @@
     """,
     "author": "Ethara",
     "depends": ["base", "mail"],
+    "external_dependencies": {
+        "python": ["google-api-python-client", "google-auth"],
+    },
     "data": [
         "security/fenrir_security.xml",
         "security/ir.model.access.csv",
         "views/fenrir_category_views.xml",
+        "views/fenrir_rubric_import_wizard_views.xml",
         "views/fenrir_task_views.xml",
         "views/fenrir_seller_offer_views.xml",
+        "views/fenrir_drive_config_views.xml",
         "views/menuitems.xml",
     ],
     "installable": True,
