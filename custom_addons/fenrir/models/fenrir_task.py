@@ -7,6 +7,8 @@ import zipfile
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
+from . import fenrir_generators as gen
+
 
 def _slug(name):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", name or "").strip("_") or "file"
@@ -19,14 +21,64 @@ class FenrirTask(models.Model):
     _order = "code"
     _rec_name = "code"
 
+    CODE_PATTERN = re.compile(r"^(3D|GD|GDV|WD|SD)-\d{3,}$")
+
     code = fields.Char(string="Task Code", required=True, copy=False, tracking=True,
-                       help="Unique project reference, e.g. GDV-002")
+                       help="Unique project reference, e.g. GDV-002. "
+                            "Format: <PREFIX>-<NNN> where prefix ∈ "
+                            "{3D, GD, GDV, WD, SD}.")
     category_id = fields.Many2one(
         comodel_name="fenrir.category",
         string="Category",
         tracking=True,
         ondelete="restrict",
     )
+    subcategory = fields.Char(
+        string="Subcategory",
+        help="Finer-grained category, e.g. 'Logo Design', '3D Modeling'.")
+    recreation_notes = fields.Text(
+        string="Recreation Notes",
+        help="How the original gig concept was adapted, what was fictionalized "
+             "(client name, brand, scope), and confirmation that no proprietary "
+             "assets were used.")
+    difficulty_estimate = fields.Selection(
+        selection=[
+            ("easy", "Easy"),
+            ("medium", "Medium"),
+            ("hard", "Hard"),
+        ],
+        string="Difficulty Estimate",
+        help="How hard is this task for a seller?")
+    estimated_completion_time_hours = fields.Float(
+        string="Estimated Completion Time (hours)",
+        help="Expected hours for a competent freelancer to complete the task.")
+    tags = fields.Char(
+        string="Tags",
+        help="Comma-separated keywords, e.g. logo, vintage, emblem.")
+    expected_deliverables = fields.Text(
+        string="Expected Deliverables",
+        help="One filename or pattern per line. Used to auto-generate "
+             "validator stubs at submit (e.g. 'logo.svg').")
+    environment_type = fields.Selection(
+        selection=[
+            ("non_dev", "Non-development (setup.sh)"),
+            ("dev", "Development (Dockerfile)"),
+        ],
+        string="Environment Type",
+        compute="_compute_environment_type",
+        store=True,
+        help="Derived from the task code prefix.")
+    environment_base_runtime = fields.Char(
+        string="Environment Base / Runtime",
+        help="e.g. node:18, python:3.11, blender:3.6, nginx:1.25-alpine, "
+             "or N/A for pure creative tasks.")
+    key_dependencies = fields.Char(
+        string="Key Dependencies / Tools",
+        help="Comma-separated apt packages or tools required to validate, "
+             "e.g. imagemagick, librsvg2-bin, file.")
+    price_bracket = fields.Char(
+        string="Price Bracket",
+        help='Commissioned price band, e.g. "$0-$50", "$50-$100".')
     lead_user_id = fields.Many2one(
         comodel_name="res.users",
         string="Name",
@@ -84,20 +136,115 @@ class FenrirTask(models.Model):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
             raise UserError("Only managers can approve tasks.")
         for rec in self:
-            rec.status = "approved"
+            rec.status = "completed"
 
     def action_reject_task(self):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
             raise UserError("Only managers can reject tasks.")
         for rec in self:
-            rec.status = "rejected"
+            rec.status = "completed"
 
     def action_submit_task(self):
-        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
-            raise UserError("Only managers can submit tasks.")
         for rec in self:
-            rec.status = "completed"
+            rec._validate_for_submit()
+            rec._regenerate_task_package()
+            rec.status = "pending_review"
             rec.submitted_at = fields.Datetime.now()
+
+    # ── Submit-time validation ────────────────────────────────────────────
+    _REQUIRED_TASK_FIELDS = (
+        ("title", "Title"),
+        ("category_id", "Category"),
+        ("subcategory", "Subcategory"),
+        ("price_bracket", "Price Bracket"),
+        ("recreation_notes", "Recreation Notes"),
+        ("difficulty_estimate", "Difficulty Estimate"),
+        ("estimated_completion_time_hours", "Estimated Completion Time"),
+        ("tags", "Tags"),
+    )
+    _REQUIRED_SELLER_FIELDS = (
+        ("seller_username", "Seller Username"),
+        ("seller_level", "Seller Level"),
+        ("price_paid_usd", "Price Paid (USD)"),
+        ("order_date", "Order Date"),
+        ("delivery_date", "Delivery Date"),
+        ("order_id", "Order ID"),
+        ("seller_profile_url", "Seller Profile URL"),
+    )
+
+    def _validate_for_submit(self):
+        self.ensure_one()
+        missing = [
+            label for field, label in self._REQUIRED_TASK_FIELDS
+            if not self[field]
+        ]
+        accepted = self.seller_offer_ids.filtered(lambda o: o.accepted == "yes")
+        if not accepted:
+            missing.append("at least one accepted seller offer")
+        for offer in accepted:
+            for field, label in self._REQUIRED_SELLER_FIELDS:
+                if not offer[field]:
+                    missing.append(f"seller_{offer.seller_no}.{label}")
+        if missing:
+            raise UserError(
+                "Cannot submit task — missing required fields:\n  • "
+                + "\n  • ".join(missing))
+
+    # ── Submit-time generation ────────────────────────────────────────────
+    def _regenerate_task_package(self):
+        """Wipe stale generated attachments and rebuild from current state."""
+        self.ensure_one()
+        self.attachment_ids.filtered("is_generated").unlink()
+
+        Attachment = self.env["fenrir.task.attachment"]
+        # task_metadata.json + licenses.json at root
+        Attachment.create({
+            "task_id": self.id,
+            "file_name": "task_metadata.json",
+            "folder": "root",
+            "is_generated": True,
+            "license": "self_created",
+            "attachment": base64.b64encode(json.dumps(
+                gen.build_task_metadata(self), indent=2).encode("utf-8")),
+        })
+        Attachment.create({
+            "task_id": self.id,
+            "file_name": "licenses.json",
+            "folder": "root",
+            "is_generated": True,
+            "license": "self_created",
+            "attachment": base64.b64encode(json.dumps(
+                self._build_license_doc(), indent=2).encode("utf-8")),
+        })
+
+        # environment/<files>
+        for filename, content in gen.build_environment_files(self):
+            Attachment.create({
+                "task_id": self.id,
+                "file_name": filename,
+                "folder": "environment",
+                "is_generated": True,
+                "license": "self_created",
+                "attachment": base64.b64encode(content.encode("utf-8")),
+            })
+
+        # tests/test_deliverables.*
+        test_filename, test_content = gen.build_validator_script(self)
+        Attachment.create({
+            "task_id": self.id,
+            "file_name": test_filename,
+            "folder": "tests",
+            "is_generated": True,
+            "license": "self_created",
+            "attachment": base64.b64encode(test_content.encode("utf-8")),
+        })
+
+        # Per-seller metadata.json — stored on the offer's metadata_json field
+        # so the existing _write_rich_export() flow picks it up as
+        # submissions/seller_<n>/metadata.json.
+        for offer in self.seller_offer_ids.filtered(lambda o: o.accepted == "yes"):
+            offer.metadata_json = json.dumps(
+                gen.build_seller_metadata(offer), indent=2)
     remarks = fields.Text(string="Remarks")
     submitted_at = fields.Datetime(string="Submitted At", readonly=True, tracking=True)
 
@@ -151,6 +298,22 @@ class FenrirTask(models.Model):
             rec.accepted_offer_count = len(
                 rec.seller_offer_ids.filtered(lambda o: o.accepted == "yes"))
 
+    @api.depends("code")
+    def _compute_environment_type(self):
+        dev_prefixes = ("GDV", "WD", "SD")
+        for rec in self:
+            prefix = (rec.code or "").split("-", 1)[0]
+            rec.environment_type = "dev" if prefix in dev_prefixes else "non_dev"
+
+    @api.constrains("code")
+    def _check_code_pattern(self):
+        for rec in self:
+            if rec.code and not self.CODE_PATTERN.match(rec.code):
+                raise UserError(
+                    f"Task code '{rec.code}' is invalid. "
+                    "Expected format <PREFIX>-<NNN> where prefix ∈ "
+                    "{3D, GD, GDV, WD, SD}, e.g. 'GDV-002'.")
+
     def action_open_seller_offers(self):
         self.ensure_one()
         return {
@@ -185,25 +348,9 @@ class FenrirTask(models.Model):
 
     def _write_rich_export(self, zf, root):
         self.ensure_one()
-        task_meta = {
-            "task_id": self.code,
-            "title": self.title or "",
-            "category": self.category_id.name or "",
-            "price_bracket": self.price_tier or "",
-            "pricing": self.pricing,
-            "delivery_time": self.delivery_time.isoformat() if self.delivery_time else None,
-            "status": self.status,
-            "lead_user": self.lead_user_id.name or "",
-            "reviewer": self.reviewer_id.name or "",
-            "buyer": self.buyer_id.name or "",
-            "recreation_notes": self.scope_of_work or "",
-            "assets_url": self.assets_url or "",
-            "rubrics_url": self.rubrics_url or "",
-            "instruction_md_url": self.instruction_md_url or "",
-        }
-        zf.writestr(f"{root}/task_metadata.json",
-                   json.dumps(task_meta, indent=2, default=str))
-        zf.writestr(f"{root}/instruction.md", self._build_instruction_md(include_remarks=True))
+
+        zf.writestr(f"{root}/instruction.md",
+                   self._build_instruction_md(include_remarks=True))
         zf.writestr(f"{root}/rubrics.json",
                    json.dumps([
                        {"sequence": r.sequence,
@@ -211,8 +358,11 @@ class FenrirTask(models.Model):
                         "description": r.description or ""}
                        for r in self.rubric_ids.sorted("sequence")
                    ], indent=2))
-        zf.writestr(f"{root}/license.json",
-                   json.dumps(self._build_license_doc(), indent=2))
+
+        generated_env_names = set()
+        generated_test_names = set()
+        wrote_task_metadata = False
+        wrote_licenses = False
 
         for att in self.attachment_ids:
             if not att.attachment:
@@ -220,44 +370,79 @@ class FenrirTask(models.Model):
             file_bytes = base64.b64decode(att.attachment)
             safe_name = _slug(att.file_name or f"attachment_{att.id}")
             folder = att.folder or "resources"
-            zf.writestr(f"{root}/{folder}/{safe_name}", file_bytes)
+            if folder == "root":
+                zf.writestr(f"{root}/{safe_name}", file_bytes)
+                if safe_name == "task_metadata.json":
+                    wrote_task_metadata = True
+                elif safe_name == "licenses.json":
+                    wrote_licenses = True
+            else:
+                zf.writestr(f"{root}/{folder}/{safe_name}", file_bytes)
+                if folder == "environment" and att.is_generated:
+                    generated_env_names.add(safe_name)
+                elif folder == "tests" and att.is_generated:
+                    generated_test_names.add(safe_name)
 
+        # Fallbacks for legacy tasks that haven't been (re)submitted under the
+        # new generator yet — emit a minimal task_metadata.json / licenses.json
+        # so the export tree is never missing those top-level files.
+        if not wrote_task_metadata:
+            zf.writestr(f"{root}/task_metadata.json",
+                       json.dumps(gen.build_task_metadata(self), indent=2))
+        if not wrote_licenses:
+            zf.writestr(f"{root}/licenses.json",
+                       json.dumps(self._build_license_doc(), indent=2))
+
+        # Legacy per-task binary uploads (Dockerfile, nginx.conf, …) — only
+        # emit if the generator hasn't already produced a file by that name.
         for filename, content in self._environment_files():
+            if filename in generated_env_names:
+                continue
             zf.writestr(f"{root}/environment/{filename}", content)
 
         for filename, content in self._test_files():
+            if filename in generated_test_names:
+                continue
             zf.writestr(f"{root}/tests/{filename}", content)
 
         for offer in self.seller_offer_ids.sorted("seller_no"):
             seller_dir = f"{root}/submissions/seller_{offer.seller_no or offer.id}"
-            meta = {
-                "task_id": self.code,
-                "seller_number": offer.seller_no,
-                "seller_username": offer.seller or "",
-                "received_custom_offer": offer.received_custom_offer,
-                "sellers_initial_ask": offer.sellers_initial_ask,
-                "negotiated_offer": offer.negotiated_offer or "",
-                "accepted": offer.accepted,
-                "price_paid_usd": offer.final_payment_amount,
-                "currency": offer.final_payment_currency or "",
-                "delivery_received": offer.delivery_received,
-                "accepted_delivery": offer.accepted_delivery,
-                "deliverables_link": offer.deliverables_link or "",
-                "order_date": offer.create_date.isoformat() if offer.create_date else None,
-                "notes": offer.notes or "",
-            }
-            zf.writestr(f"{seller_dir}/metadata.json",
-                       json.dumps(meta, indent=2, default=str))
+            if offer.metadata_json:
+                # Generated schema-compliant payload (set at submit time).
+                zf.writestr(f"{seller_dir}/metadata.json", offer.metadata_json)
+            else:
+                fallback = {
+                    "task_id": self.code,
+                    "seller_number": offer.seller_no,
+                    "seller_username": offer.seller_username or offer.seller or "",
+                    "received_custom_offer": offer.received_custom_offer,
+                    "sellers_initial_ask": offer.sellers_initial_ask,
+                    "negotiated_offer": offer.negotiated_offer or "",
+                    "accepted": offer.accepted,
+                    "price_paid_usd": offer.price_paid_usd or offer.final_payment_amount,
+                    "currency": offer.final_payment_currency or "",
+                    "delivery_received": offer.delivery_received,
+                    "accepted_delivery": offer.accepted_delivery,
+                    "deliverables_link": offer.deliverables_link or "",
+                    "order_date": offer.order_date.isoformat() if offer.order_date else None,
+                    "notes": offer.notes or "",
+                }
+                zf.writestr(f"{seller_dir}/metadata.json",
+                           json.dumps(fallback, indent=2, default=str))
             zf.writestr(f"{seller_dir}/ratings.json",
                        json.dumps(self._build_ratings(offer), indent=2, default=str))
             if offer.conversation:
                 zf.writestr(f"{seller_dir}/conversation.txt", offer.conversation)
             if offer.automated_checks:
                 zf.writestr(f"{seller_dir}/automated_checks.txt", offer.automated_checks)
-            if offer.metadata_json:
-                zf.writestr(f"{seller_dir}/extra_metadata.json", offer.metadata_json)
 
     def _build_license_doc(self):
+        """licenses.json — annotator-supplied INPUT assets only.
+
+        Per the requirements doc: lists files in instruction.md, data/, and
+        resources/. Skips auto-generated artifacts (task_metadata.json,
+        licenses.json, environment/*, tests/*) and seller deliverables.
+        """
         self.ensure_one()
         assets = [{
             "file_name": "instruction.md",
@@ -267,28 +452,17 @@ class FenrirTask(models.Model):
             "notes": self.instruction_notes or f"Task instructions for {self.code}.",
         }]
         for att in self.attachment_ids:
+            if att.is_generated:
+                continue
+            if att.folder in ("environment", "tests"):
+                continue
+            location = "root" if att.folder == "root" else f"{att.folder or 'resources'}/"
             assets.append({
                 "file_name": att.file_name or f"attachment_{att.id}",
-                "location": f"{att.folder or 'resources'}/",
+                "location": location,
                 "license": att.license_label(),
                 "source_url": att.source_url or None,
                 "notes": att.notes or "",
-            })
-        for filename, _content in self._environment_files():
-            assets.append({
-                "file_name": filename,
-                "location": "environment/",
-                "license": "Self-created",
-                "source_url": None,
-                "notes": "",
-            })
-        for filename, _content in self._test_files():
-            assets.append({
-                "file_name": filename,
-                "location": "tests/",
-                "license": "Self-created",
-                "source_url": None,
-                "notes": "",
             })
         return {"task_id": self.code, "assets": assets}
 
