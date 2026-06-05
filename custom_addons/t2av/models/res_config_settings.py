@@ -113,6 +113,18 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="t2av.enrichment_max_attempts",
         default=3,
     )
+    # ── QC Provider Toggle (Human Stack vs. legacy Gemini surface) ────────
+    t2av_enable_gemini_qc = fields.Boolean(
+        string="Enable Gemini QC (legacy)",
+        config_parameter="t2av.enable_gemini_qc",
+        default=False,
+        help="When OFF (default), every finished attempt auto-enqueues a "
+             "human-review task picked up via the Stack menu. When ON, the "
+             "legacy Gemini Run Review button is surfaced again and new "
+             "attempts do NOT auto-enqueue for human review. Existing "
+             "Gemini/Bedrock reviews are never deleted by this toggle — "
+             "only the UI surfacing changes.",
+    )
     t2av_review_provider = fields.Selection(
         [("openrouter", "OpenRouter (Gemini multimodal)"),
          ("bedrock", "AWS Bedrock (Claude vision frames)")],

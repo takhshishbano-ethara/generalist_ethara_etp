@@ -251,6 +251,14 @@ class T2AVGeneration(models.Model):
         compute="_compute_review_status",
         store=True,
     )
+    gemini_qc_active = fields.Boolean(
+        string="Gemini QC Active",
+        compute="_compute_gemini_qc_active",
+        store=False,
+        help="Reflects the t2av.enable_gemini_qc system parameter. When False "
+             "(default), human reviewers handle QC via the Stack menu and the "
+             "legacy Gemini buttons are hidden.",
+    )
     enrichments_used = fields.Integer(
         string="Enrichments Used",
         compute="_compute_enrichments_used",
@@ -549,6 +557,15 @@ class T2AVGeneration(models.Model):
             else:
                 rec.review_status = "fail"
 
+    def _compute_gemini_qc_active(self):
+        raw = (
+            self.env["ir.config_parameter"].sudo()
+            .get_param("t2av.enable_gemini_qc", "False") or ""
+        ).strip().lower()
+        active = raw in ("1", "true", "yes", "on")
+        for rec in self:
+            rec.gemini_qc_active = active
+
     @api.depends("enrichment_ids", "enrichment_ids.state", "enrichment_ids.attempt_number")
     def _compute_last_enrichment_state(self):
         for rec in self:
@@ -827,6 +844,11 @@ class T2AVGeneration(models.Model):
         }
 
     def action_batch_run_review(self):
+        if not self._t2av_gemini_qc_enabled():
+            raise UserError(_(
+                "Gemini QC is disabled. Use the Stack menu for human review, "
+                "or re-enable Gemini QC in Settings > T2AV."
+            ))
         _logger.info(
             "T2AV: batch-run-review invoked on %d record(s) by user %s",
             len(self), self.env.user.login,
@@ -994,8 +1016,21 @@ class T2AVGeneration(models.Model):
             },
         }
 
+    @api.model
+    def _t2av_gemini_qc_enabled(self):
+        raw = (
+            self.env["ir.config_parameter"].sudo()
+            .get_param("t2av.enable_gemini_qc", "False") or ""
+        ).strip().lower()
+        return raw in ("1", "true", "yes", "on")
+
     def action_run_review(self):
         self.ensure_one()
+        if not self._t2av_gemini_qc_enabled():
+            raise UserError(_(
+                "Gemini QC is disabled. Use the Stack menu for human review, "
+                "or re-enable Gemini QC in Settings > T2AV."
+            ))
         if self.state != "done":
             raise UserError(_(
                 "Video is not done yet. Generate the video first."
@@ -1350,15 +1385,13 @@ class T2AVGeneration(models.Model):
                 "Edit the prompt or metadata to start a fresh row."
             ) % (max_attempts, self.display_name))
 
-        if not credential_manager.get_bedrock_api_key(self.env):
-            access_key = credential_manager.get_aws_access_key(self.env)
-            secret_key = credential_manager.get_aws_secret_key(self.env)
-            if not access_key or not secret_key:
-                raise UserError(_(
-                    "Bedrock auth missing: set either (a) Bedrock API Key "
-                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
-                    "in Settings > T2AV."
-                ))
+        access_key = credential_manager.get_aws_access_key(self.env)
+        secret_key = credential_manager.get_aws_secret_key(self.env)
+        # if not access_key or not secret_key:
+        #     raise UserError(_(
+        #         "AWS Access Key / Secret Key not configured. "
+        #         "Set them in Settings > T2AV > AWS Credentials."
+        #     ))
 
         next_n = (max(self.enrichment_ids.mapped("attempt_number") or [0])) + 1
         enrichment = self.env["t2av.enrichment"].create({

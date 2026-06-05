@@ -8,6 +8,11 @@ import { _t } from "@web/core/l10n/translation";
 
 const RUBRIC_EXTENSIONS = [".json"];
 
+// Hard cap on rows per bulk submit. The browser holds every uploaded rubric (base64) in memory
+// AND re-copies it on JSON.stringify at submit, so an unbounded list OOMs the tab before the
+// server is ever reached. 200 keeps peak memory sane; the server enforces the same cap.
+const MAX_ROWS = 200;
+
 let _rowSeq = 0;
 function emptyRow() {
     return {
@@ -67,6 +72,12 @@ export class BulkImportDialog extends Component {
     }
 
     addRow() {
+        if (this.state.rows.length >= MAX_ROWS) {
+            this.state.globalError = _t(
+                "You can import at most %s rows at a time. Submit these first, then start another batch."
+            ).replace("%s", MAX_ROWS);
+            return;
+        }
         this.state.rows.push(emptyRow());
     }
 

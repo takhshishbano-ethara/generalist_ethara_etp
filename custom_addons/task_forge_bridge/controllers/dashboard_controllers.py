@@ -438,17 +438,22 @@ class DashboardController(http.Controller):
             employee = user_id.employee_id
             domain = request.env['project.project']._task_forge_live_domain()
             task_domain = []
+
             if kwargs.get('show_all') in [1, '1']:
                 domain = []
+
             if user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id:
                 domain = []
                 task_domain = []
+
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
                 domain.append(('project_lead', '=', employee.id))
                 task_domain.append(('employee_id.task_forge_qr_id.task_forge_pl_id', '=', employee.id))
+
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]:
                 domain.append(('project_qc_reviewer', '=', employee.id))
                 task_domain.append(('employee_id.task_forge_qr_id', '=', employee.id))
+
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id]:
                 domain.append(('project_tasker', '=', employee.id))
                 task_domain.append(('employee_id', '=', employee.id))
@@ -512,7 +517,8 @@ class DashboardController(http.Controller):
                     'date_start': safe_get_value(p, 'date_start', 'date'),
                     'date_end': safe_get_value(p, 'date', 'date'),
                     'aht_time': aht_time,
-                    'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in p.api_map_ids]
+                    'tab_list': [{'tab_name': tab.table_name or "", 'api_end_point': tab.api_prefix or ""} for tab in p.api_map_ids],
+                    'project_classification': safe_get_value(p, 'project_classification', 'str'),
                 })
             return return_Response(
                 message="Success",

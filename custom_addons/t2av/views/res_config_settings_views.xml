@@ -9,6 +9,18 @@
                 <xpath expr="//form" position="inside">
                     <app data-string="T2AV" string="T2AV" name="t2av"
                          groups="t2av.group_t2av_manager">
+                        <block title="QC Provider" name="t2av_qc_provider_block">
+                            <setting string="Enable Gemini QC (legacy)"
+                                     help="When OFF (default), every finished attempt auto-enqueues a human-review task picked up via the Stack menu. When ON, the legacy Gemini Run Review button is surfaced again and new attempts do NOT auto-enqueue for human review. Existing Gemini/Bedrock reviews are never deleted by this toggle — only the UI surfacing changes.">
+                                <field name="t2av_enable_gemini_qc"/>
+                                <div class="text-info mt8" invisible="t2av_enable_gemini_qc">
+                                    <i class="fa fa-users"/> Human Stack QC active — reviewers handle all finished attempts via the Stack menu.
+                                </div>
+                                <div class="text-warning mt8" invisible="not t2av_enable_gemini_qc">
+                                    <i class="fa fa-robot"/> Legacy Gemini QC active — auto-enqueue for human review is disabled.
+                                </div>
+                            </setting>
+                        </block>
                         <block title="OpenRouter API" name="t2av_api_block">
                             <setting string="OpenRouter API Key"
                                      help="Stored encrypted via ir.config_parameter. Required to submit generations.">

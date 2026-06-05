@@ -6,7 +6,7 @@ import shutil
 from urllib.parse import parse_qs, urlparse
 
 from odoo import _, api, fields, models
-from odoo.exceptions import UserError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 from ..services import llm_qc, youtube_downloader
 
@@ -335,6 +335,28 @@ class VideoEditorProject(models.Model):
         store=True,
     )
 
+    output_s3_key = fields.Char(
+        string="Trimmed S3 Key",
+        compute="_compute_output_s3_key",
+        store=True,
+    )
+    output_metadata = fields.Json(string="Output Metadata")
+    output_duration_seconds = fields.Float(
+        string="Output Duration (s)",
+        compute="_compute_output_summary",
+        store=True,
+    )
+    output_resolution = fields.Char(
+        string="Output Resolution",
+        compute="_compute_output_summary",
+        store=True,
+    )
+    output_fps = fields.Float(
+        string="Output FPS",
+        compute="_compute_output_summary",
+        store=True,
+    )
+
     youtube_url = fields.Char(string="YouTube URL", tracking=True)
     youtube_video_id = fields.Char(
         string="YouTube Video ID",
@@ -383,6 +405,7 @@ class VideoEditorProject(models.Model):
     llm_failure_reason = fields.Text(string="T2AV Failure Reason", readonly=True)
     llm_fixed_prompt = fields.Text(string="T2AV Fixed Prompt", readonly=True)
     llm_evaluated_at = fields.Datetime(string="T2AV Evaluated At", readonly=True)
+    llm_qc_cost_usd = fields.Float(string="QC Cost (USD)", readonly=True, digits=(12, 6))
 
     llm_qc_force_passed = fields.Boolean(
         string="LLM QC Force Passed",
@@ -403,7 +426,6 @@ class VideoEditorProject(models.Model):
     llm_qc_force_pass_reason = fields.Char(
         string="Force-Pass Reason", readonly=True, copy=False, tracking=True,
     )
-
     category = fields.Selection(
         CATEGORIES,
         string="Category",
@@ -412,6 +434,9 @@ class VideoEditorProject(models.Model):
         SUB_CATEGORIES,
         string="Sub-Category",
     )
+    category_id = fields.Many2one("video.editor.category", string="Category")
+    sub_category_id = fields.Many2one("video.editor.sub.category", string="Sub-Category", domain="[('category_id', '=', category_id)]")
+
 
     @api.onchange("category")
     def _onchange_category(self):
@@ -424,6 +449,9 @@ class VideoEditorProject(models.Model):
 
     @api.constrains("youtube_start_time", "youtube_end_time")
     def _check_youtube_time_format(self):
+        settings = self.env["video.editor.s3.settings"]
+        trim_min = settings.get_trim_min_seconds()
+        trim_max = settings.get_trim_max_seconds()
         for rec in self:
             try:
                 start = _parse_hhmmssms_to_seconds(rec.youtube_start_time)
@@ -434,6 +462,12 @@ class VideoEditorProject(models.Model):
                 raise ValidationError(_(
                     "YouTube End Time (%(end)s) must be greater than Start Time (%(start)s)."
                 ) % {"end": rec.youtube_end_time or "0", "start": rec.youtube_start_time or "0"})
+            if end > 0.0:
+                duration = end - start
+                if duration < trim_min - 1e-4 or duration > trim_max + 1e-4:
+                    raise ValidationError(_(
+                        "YouTube clip duration must be between %(min).1f and %(max).1f seconds (current: %(current).3f)."
+                    ) % {"min": trim_min, "max": trim_max, "current": duration})
 
     @api.onchange("youtube_url")
     def _onchange_youtube_url_parse_times(self):
@@ -510,6 +544,22 @@ class VideoEditorProject(models.Model):
         tracking=True,
     )
 
+    review_status = fields.Selection(
+        [
+            ("pending", "Pending Review"),
+            ("approved", "Approved"),
+            ("rejected", "Rejected"),
+        ],
+        string="Review Status",
+        default="pending",
+        required=True,
+        tracking=True,
+        index=True,
+    )
+    review_decided_by = fields.Many2one("res.users", string="Reviewed By", readonly=True, tracking=True)
+    review_decided_at = fields.Datetime(string="Reviewed At", readonly=True, tracking=True)
+    review_notes = fields.Char(string="Review Notes", tracking=True)
+
     job_ids = fields.One2many(
         "video.editor.job", "project_id", string="Jobs",
     )
@@ -556,6 +606,35 @@ class VideoEditorProject(models.Model):
             rec.resolution = meta.get("resolution") or ""
             rec.source_fps = float(meta.get("fps") or 0.0)
             rec.source_size_mb = float(meta.get("size_bytes") or 0.0) / (1024 * 1024)
+
+    @api.depends("output_s3_url")
+    def _compute_output_s3_key(self):
+        for rec in self:
+            url = (rec.output_s3_url or "").strip()
+            if not url:
+                rec.output_s3_key = False
+                continue
+            try:
+                if url.startswith("s3://"):
+                    _, key = url[len("s3://"):].split("/", 1)
+                else:
+                    parsed = urlparse(url)
+                    key = parsed.path.lstrip("/")
+                    host = parsed.netloc or ""
+                    if host.endswith(".amazonaws.com") and (host.startswith("s3.") or host.startswith("s3-")):
+                        if "/" in key:
+                            _, key = key.split("/", 1)
+                rec.output_s3_key = key or False
+            except (ValueError, AttributeError):
+                rec.output_s3_key = False
+
+    @api.depends("output_metadata")
+    def _compute_output_summary(self):
+        for rec in self:
+            meta = rec.output_metadata or {}
+            rec.output_duration_seconds = float(meta.get("duration") or 0.0)
+            rec.output_resolution = meta.get("resolution") or ""
+            rec.output_fps = float(meta.get("fps") or 0.0)
 
     @api.depends("job_ids.status")
     def _compute_active_job(self):
@@ -694,7 +773,6 @@ class VideoEditorProject(models.Model):
         self.ensure_one()
         cfg = {
             "youtube_url": self.youtube_url,
-            "tier": self.youtube_tier or "2160p",
         }
         start = _parse_hhmmssms_to_seconds(self.youtube_start_time)
         end = _parse_hhmmssms_to_seconds(self.youtube_end_time)
@@ -709,9 +787,6 @@ class VideoEditorProject(models.Model):
         if not self.youtube_url:
             raise UserError(_("Set a YouTube URL first."))
         cfg = self._build_youtube_job_config()
-        is_clip = "start_seconds" in cfg or "end_seconds" in cfg
-        if not is_clip:
-            self._probe_youtube_or_raise()
         job = self._kick_job("youtube_ingest", config=cfg)
         return {
             "type": "ir.actions.client",
@@ -722,41 +797,6 @@ class VideoEditorProject(models.Model):
                     "Job #%s is downloading the video and uploading to S3. "
                     "Refresh this form when the job finishes — the Source S3 URL "
                     "will be populated automatically."
-                ) % job.id,
-                "type": "info",
-                "sticky": False,
-                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
-            },
-        }
-
-    def action_download_youtube_local(self):
-        self.ensure_one()
-        if not self.youtube_url:
-            raise UserError(_("Set a YouTube URL first."))
-        base_url = self.env["video.editor.s3.settings"].sudo().get_local_extractor_url()
-        if not base_url:
-            raise UserError(_(
-                "Local Extractor URL is not configured. Set it under "
-                "Settings > Crowley Sourcing > YouTube Ingest."
-            ))
-        if not base_url.startswith(("http://", "https://")):
-            raise UserError(_(
-                "Local Extractor URL must start with http:// or https:// "
-                "(got %s). Configure it as the base URL of the running "
-                "scripts/local_youtube_extractor.py HTTP server, "
-                "e.g. http://127.0.0.1:8081 or your Tailscale/cloudflared URL."
-            ) % base_url[:120])
-        cfg = self._build_youtube_job_config()
-        job = self._kick_job("youtube_local_download", config=cfg)
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("Local YouTube download queued"),
-                "message": _(
-                    "Job #%s is downloading the clip via the local extractor "
-                    "and uploading it to S3. Refresh this form when the job "
-                    "finishes - the Source S3 URL will be populated automatically."
                 ) % job.id,
                 "type": "info",
                 "sticky": False,
@@ -801,19 +841,6 @@ class VideoEditorProject(models.Model):
             "context": {"default_project_id": self.id},
         }
 
-    def _probe_youtube_or_raise(self):
-        """Run the 2160p50/60 gate synchronously so a UserError surfaces as a modal popup."""
-        self.ensure_one()
-        if not self.youtube_url:
-            return
-        cfg = self.env["video.editor.s3.settings"].sudo().get_youtube_ingest_config()
-        youtube_downloader.probe_and_select(
-            self.youtube_url,
-            cookies_path=cfg.get("cookies_path"),
-            proxy_url=cfg.get("proxy_url"),
-            cookies_from_browser=cfg.get("cookies_browser"),
-        )
-
     def _maybe_auto_ingest_youtube(self):
         for rec in self:
             if not rec.youtube_url:
@@ -830,13 +857,6 @@ class VideoEditorProject(models.Model):
             except ValueError as exc:
                 _logger.info("auto-ingest skipped for project %s: bad time format %s", rec.id, exc)
                 continue
-            is_clip = "start_seconds" in cfg or "end_seconds" in cfg
-            if not is_clip:
-                try:
-                    rec._probe_youtube_or_raise()
-                except UserError as exc:
-                    _logger.info("auto-ingest probe failed for project %s: %s", rec.id, exc)
-                    continue
             try:
                 rec._kick_job("youtube_ingest", config=cfg)
             except UserError as exc:
@@ -850,13 +870,55 @@ class VideoEditorProject(models.Model):
             if meta.get("size_bytes") or meta.get("duration"):
                 continue
             if rec.job_ids.filtered(
-                lambda j: j.job_type in ("s3_probe", "youtube_ingest") and j.status in ("queued", "running")
+                lambda j: j.job_type in ("s3_probe", "youtube_ingest")
+                and j.status in ("queued", "running")
+                and (j.config_json or {}).get("target") != "output"
             ):
                 continue
             try:
                 rec._kick_job("s3_probe")
             except UserError as exc:
                 _logger.info("s3_probe skipped for project %s: %s", rec.id, exc)
+
+    def maybe_probe_output_s3(self):
+        for rec in self:
+            if not rec.output_s3_url:
+                continue
+            meta = rec.output_metadata or {}
+            if meta.get("duration") or meta.get("size_bytes"):
+                continue
+            if rec.job_ids.filtered(
+                lambda j: j.job_type == "s3_probe"
+                and j.status in ("queued", "running")
+                and (j.config_json or {}).get("target") == "output"
+            ):
+                continue
+            try:
+                rec._kick_job("s3_probe", config={"target": "output"})
+            except UserError as exc:
+                _logger.info("output s3_probe skipped for project %s: %s", rec.id, exc)
+
+    def action_submit_for_processing(self):
+        self.ensure_one()
+        if not self.llm_evaluated_at:
+            raise UserError(_("Run LLM QC before submitting."))
+        if self.llm_qc_result != "pass" and not self.llm_qc_force_passed:
+            raise UserError(_("LLM QC must pass (or be force-passed) before submitting."))
+        self.write({"state": "processed"})
+        self.message_post(body=_(
+            "Submitted for processing by %(user)s."
+        ) % {"user": self.env.user.name})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Submitted"),
+                "message": _("Project moved to Processed."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
 
     def action_run_llm_qc(self):
         self.ensure_one()
@@ -867,8 +929,12 @@ class VideoEditorProject(models.Model):
             ))
         if not self.prompt:
             raise UserError(_("Write a prompt before running LLM QC."))
-        if not self.category:
+        if not (self.category_id or self.category):
             raise UserError(_("Pick a category before running LLM QC."))
+        if not (self.sub_category_id or self.sub_category):
+            raise UserError(_("Pick a sub-category before running LLM QC."))
+        if not self.topic_name:
+            raise UserError(_("Set a topic before running LLM QC."))
         if not self.style:
             raise UserError(_("Pick a style before running LLM QC."))
         job = self._kick_job("llm_qc")
@@ -998,6 +1064,66 @@ class VideoEditorProject(models.Model):
             },
         }
 
+    def action_approve(self):
+        self.ensure_one()
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can approve projects."))
+        if not self.output_s3_url:
+            raise UserError(_("Approve requires a Trimmed S3 URL."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Approve requires LLM QC to have run first."))
+        now = fields.Datetime.now()
+        self.write({
+            "review_status": "approved",
+            "review_decided_by": self.env.user.id,
+            "review_decided_at": now,
+            "state": "exported",
+        })
+        self.message_post(body=_(
+            "Project approved by %(user)s on %(when)s."
+        ) % {"user": self.env.user.name, "when": now})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Approved"),
+                "message": _("Project marked as approved."),
+                "type": "success",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
+    def action_reject(self):
+        self.ensure_one()
+        if not self.env.user.has_group("video_editor_s3.group_video_editor_s3_manager"):
+            raise AccessError(_("Only Crowley Sourcing managers can reject projects."))
+        if not self.output_s3_url:
+            raise UserError(_("Reject requires a Trimmed S3 URL."))
+        if not self.llm_evaluated_at:
+            raise UserError(_("Reject requires LLM QC to have run first."))
+        now = fields.Datetime.now()
+        self.write({
+            "review_status": "rejected",
+            "review_decided_by": self.env.user.id,
+            "review_decided_at": now,
+            "state": "exported",
+        })
+        self.message_post(body=_(
+            "Project rejected by %(user)s on %(when)s."
+        ) % {"user": self.env.user.name, "when": now})
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Rejected"),
+                "message": _("Project marked as rejected."),
+                "type": "warning",
+                "sticky": False,
+                "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+            },
+        }
+
     def _maybe_run_llm_qc(self):
         for rec in self:
             if not rec.prompt:
@@ -1019,6 +1145,8 @@ class VideoEditorProject(models.Model):
         res = super().write(vals)
         if "s3_source_url" in vals:
             self._maybe_probe_s3_source()
+        if "output_s3_url" in vals:
+            self.maybe_probe_output_s3()
         return res
 
     def unlink(self):

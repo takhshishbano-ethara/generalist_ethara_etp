@@ -6,6 +6,7 @@ import { useService } from "@web/core/utils/hooks";
 import { Component, onMounted, onWillUnmount, useState } from "@odoo/owl";
 
 const NON_TERMINAL = new Set(["queued", "submitting", "processing", "downloading"]);
+const TERMINAL = new Set(["done", "failed", "cancelled"]);
 const POLL_FALLBACK_MS = 10000;
 const COALESCE_MS = 500;
 
@@ -22,6 +23,7 @@ export class CrowleyLiveStatus extends Component {
 
     setup() {
         this.bus = useService("bus_service");
+        this.action = useService("action");
         this.state = useState({ label: "", subText: "", busOk: false });
         this._channel = "crowley.generation";
         this._handler = (ev) => this._onBusMessage(ev);
@@ -61,6 +63,10 @@ export class CrowleyLiveStatus extends Component {
         for (const n of notifications) {
             if (n.type !== "crowley.generation.update") continue;
             if (!n.payload || n.payload.id !== recId) continue;
+            if (TERMINAL.has(n.payload.state)) {
+                this.action.doAction({ type: "ir.actions.client", tag: "reload" });
+                return;
+            }
             await this._reload();
             return;
         }

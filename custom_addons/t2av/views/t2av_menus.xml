@@ -32,6 +32,26 @@
                   sequence="20"
                   groups="t2av.group_t2av_manager"/>
 
+        <menuitem id="menu_t2av_stack"
+                  name="Stack"
+                  parent="menu_t2av_root"
+                  sequence="30"
+                  groups="t2av.group_t2av_reviewer,base.group_system"/>
+
+        <menuitem id="menu_t2av_stack_open_next"
+                  name="Open Next"
+                  parent="menu_t2av_stack"
+                  action="action_open_stack"
+                  sequence="10"
+                  groups="t2av.group_t2av_reviewer,base.group_system"/>
+
+        <menuitem id="menu_t2av_stack_view_all"
+                  name="View All Stack"
+                  parent="menu_t2av_stack"
+                  action="action_t2av_video_review_stack_all"
+                  sequence="20"
+                  groups="base.group_system"/>
+
         <menuitem id="menu_t2av_config"
                   name="Configuration"
                   parent="menu_t2av_root"

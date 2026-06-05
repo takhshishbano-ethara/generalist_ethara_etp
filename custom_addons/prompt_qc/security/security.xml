@@ -24,10 +24,13 @@
         <field name="comment">Full access: see and manage all Prompt QC runs.</field>
     </record>
 
-    <!-- Give the base admin the admin group out of the box. -->
-    <record id="base.user_admin" model="res.users">
-        <field name="group_ids" eval="[(4, ref('prompt_qc.group_prompt_qc_admin'))]"/>
-    </record>
+    <!-- Give the base admin the admin group out of the box. noupdate so a module upgrade does
+         not re-grant the group if an administrator has deliberately revoked it. -->
+    <data noupdate="1">
+        <record id="base.user_admin" model="res.users">
+            <field name="group_ids" eval="[(4, ref('prompt_qc.group_prompt_qc_admin'))]"/>
+        </record>
+    </data>
 
     <!-- Record rules: users see their own runs; admins see all. -->
     <record id="rule_prompt_qc_run_user_own" model="ir.rule">

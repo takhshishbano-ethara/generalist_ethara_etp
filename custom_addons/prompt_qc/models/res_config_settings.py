@@ -53,7 +53,7 @@ class ResConfigSettings(models.TransientModel):
         text = ICP.get_param("prompt_qc.system_prompt_text") or ""
         filename = ICP.get_param("prompt_qc.system_prompt_filename") or ""
         # Reconstruct the upload widget's file from the stored text (the source of truth).
-        file_val = base64.b64encode(text.encode("utf-8")) if text else False
+        file_val = base64.b64encode(text.encode("utf-8")).decode("ascii") if text else False
         res.update(
             prompt_qc_system_prompt_file=file_val,
             prompt_qc_system_prompt_filename=filename or False,
@@ -65,6 +65,19 @@ class ResConfigSettings(models.TransientModel):
         ICP = self.env["ir.config_parameter"].sudo()
         raw_b64 = self.prompt_qc_system_prompt_file
         if raw_b64:
+            # get_values reconstructs this widget from the stored text, so an untouched form posts
+            # back the exact same base64. Skip re-validation in that case — otherwise lowering the
+            # max upload size would block saving ANY setting, because the unchanged stored prompt
+            # would be re-validated against the new (lower) cap and raise.
+            stored_text = ICP.get_param("prompt_qc.system_prompt_text") or ""
+            incoming_b64 = raw_b64.decode("ascii") if isinstance(raw_b64, bytes) else raw_b64
+            stored_b64 = (base64.b64encode(stored_text.encode("utf-8")).decode("ascii")
+                          if stored_text else "")
+            if stored_text and incoming_b64 == stored_b64:
+                # Unchanged file: only (re)store the filename; never re-validate the bytes.
+                ICP.set_param("prompt_qc.system_prompt_filename",
+                              self.prompt_qc_system_prompt_filename or "system_prompt.md")
+                return
             max_bytes = self.env["prompt.qc.run"]._get_max_file_size_mb() * 1024 * 1024
             # Validates extension/size/UTF-8 and raises UserError (blocking the save) on a bad file.
             text = self.env["prompt.qc.run"]._decode_md_text(

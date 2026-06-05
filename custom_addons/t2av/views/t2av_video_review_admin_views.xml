@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_t2av_video_review_admin_search" model="ir.ui.view">
+        <field name="name">t2av.video.review.admin.search</field>
+        <field name="model">t2av.video.review</field>
+        <field name="arch" type="xml">
+            <search string="Stack Tasks">
+                <field name="attempt_id"/>
+                <field name="job_id"/>
+                <field name="assigned_to_id"/>
+                <filter name="filter_queued" string="Queued"
+                        domain="[('state', '=', 'queued')]"/>
+                <filter name="filter_assigned" string="Assigned"
+                        domain="[('state', '=', 'assigned')]"/>
+                <filter name="filter_done" string="Done"
+                        domain="[('state', '=', 'done')]"/>
+                <filter name="filter_error" string="Error"
+                        domain="[('state', '=', 'error')]"/>
+                <separator/>
+                <filter name="filter_unassigned" string="Unassigned"
+                        domain="[('assigned_to_id', '=', False)]"/>
+                <group name="group_by">
+                    <filter name="group_by_state" string="State"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_by_assigned_to" string="Assigned Reviewer"
+                            context="{'group_by': 'assigned_to_id'}"/>
+                    <filter name="group_by_job" string="Job"
+                            context="{'group_by': 'job_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_t2av_video_review_admin_list" model="ir.ui.view">
+        <field name="name">t2av.video.review.admin.list</field>
+        <field name="model">t2av.video.review</field>
+        <field name="arch" type="xml">
+            <list string="Stack Tasks" create="false" edit="false" delete="false">
+                <field name="job_id"/>
+                <field name="state" string="Status"
+                       decoration-info="state == 'queued'"
+                       decoration-warning="state == 'assigned'"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'error'"
+                       widget="badge"/>
+                <field name="attempt_id"/>
+                <field name="assigned_to_id"/>
+                <field name="verdict" string="Reviewer Verdict" widget="badge"
+                       decoration-success="verdict == 'accept'"
+                       decoration-danger="verdict == 'reject'"/>
+                <field name="reviewer_notes" string="Reason"/>
+                <field name="create_date" string="Created On"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_t2av_video_review_admin_form" model="ir.ui.view">
+        <field name="name">t2av.video.review.admin.form</field>
+        <field name="model">t2av.video.review</field>
+        <field name="arch" type="xml">
+            <form string="Stack Task" create="false" edit="false" delete="false">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="job_id"/>
+                            <field name="state" string="Status"/>
+                            <field name="attempt_id"/>
+                            <field name="assigned_to_id"/>
+                        </group>
+                        <group>
+                            <field name="verdict" string="Reviewer Verdict" widget="badge"
+                                   decoration-success="verdict == 'accept'"
+                                   decoration-danger="verdict == 'reject'"/>
+                            <field name="create_date" string="Created On"/>
+                        </group>
+                    </group>
+                    <group string="Reason">
+                        <field name="reviewer_notes" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_t2av_video_review_stack_all" model="ir.actions.act_window">
+        <field name="name">All Stack Tasks</field>
+        <field name="res_model">t2av.video.review</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('provider', '=', 'human')]</field>
+        <field name="search_view_id" ref="view_t2av_video_review_admin_search"/>
+        <field name="context">{"search_default_filter_queued": 1, "search_default_filter_assigned": 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No human-review tasks exist yet.</p>
+            <p>This list shows every human-review task across all states — queued, assigned, done, and error. Use the bulk <b>Force Release Lock</b> server action to recover orphaned reviewer locks.</p>
+        </field>
+    </record>
+
+    <record id="action_t2av_video_review_stack_all_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_t2av_video_review_admin_list"/>
+        <field name="act_window_id" ref="action_t2av_video_review_stack_all"/>
+    </record>
+
+    <record id="action_t2av_video_review_stack_all_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="view_t2av_video_review_admin_form"/>
+        <field name="act_window_id" ref="action_t2av_video_review_stack_all"/>
+    </record>
+
+</odoo>

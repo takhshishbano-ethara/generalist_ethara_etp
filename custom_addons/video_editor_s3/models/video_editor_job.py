@@ -14,7 +14,7 @@ from odoo.modules.registry import Registry
 
 import requests
 
-from ..services import job_executor, llm_qc, local_extractor_client, s3_storage, youtube_downloader
+from ..services import job_executor, llm_qc, s3_storage, youtube_downloader, youtube_ec2_client
 from ..services.job_executor import JobCancelled
 
 _logger = logging.getLogger(__name__)
@@ -24,7 +24,6 @@ JOB_TYPES = [
     ("preview", "Render preview"),
     ("export", "Export to S3"),
     ("youtube_ingest", "YouTube Ingest"),
-    ("youtube_local_download", "YouTube Local Download"),
     ("llm_qc", "LLM QC"),
     ("s3_probe", "Probe S3 source"),
 ]
@@ -90,12 +89,11 @@ class VideoEditorJob(models.Model):
         for rec in self:
             if rec.status not in ("queued", "running"):
                 continue
-            cancelled = job_executor.request_cancel(rec.id)
-            if not cancelled and rec.status == "queued":
-                rec.write({
-                    "status": "cancelled",
-                    "finished_at": fields.Datetime.now(),
-                })
+            job_executor.request_cancel(rec.id)
+            rec.write({
+                "status": "cancelled",
+                "finished_at": fields.Datetime.now(),
+            })
         return True
 
     def action_retry(self):
@@ -165,6 +163,57 @@ class VideoEditorJob(models.Model):
         })
 
 
+def _extract_qc_metadata(project):
+    category = (
+        (project.category_id.code if project.category_id else "")
+        or project.category
+        or ""
+    )
+    sub_category = (
+        (project.sub_category_id.code if project.sub_category_id else "")
+        or project.sub_category
+        or ""
+    )
+    topic = (
+        getattr(project, "topic_name", "")
+        or getattr(project, "topic", "")
+        or ""
+    )
+    style = project.style or ""
+    source_meta = project.source_metadata or {}
+    resolution = (
+        (project.output_resolution or "").strip()
+        or (source_meta.get("resolution") or project.resolution or "").strip()
+    )
+    try:
+        duration_seconds = float(
+            project.output_duration_seconds
+            or source_meta.get("duration")
+            or project.duration_seconds
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        duration_seconds = 0.0
+    try:
+        fps = float(
+            project.output_fps
+            or source_meta.get("fps")
+            or project.source_fps
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        fps = 0.0
+    return {
+        "category": category,
+        "sub_category": sub_category,
+        "topic": topic,
+        "style": style,
+        "resolution": resolution,
+        "duration_seconds": duration_seconds,
+        "fps": fps,
+    }
+
+
 def _run_job(db, uid, job_id):
     with _cancel_event(job_id) as cancel_event:
         _set_running(db, job_id)
@@ -177,8 +226,6 @@ def _run_job(db, uid, job_id):
             _run_export(db, uid, job_id, cancel_event)
         elif job_type == "youtube_ingest":
             _run_youtube_ingest(db, uid, job_id, cancel_event)
-        elif job_type == "youtube_local_download":
-            _run_youtube_local_download(db, uid, job_id, cancel_event)
         elif job_type == "llm_qc":
             _run_llm_qc(db, uid, job_id, cancel_event)
         elif job_type == "s3_probe":
@@ -360,19 +407,19 @@ def _read_render_context(db, uid, job_id, preview):
         return project.id, src_input, dst_abs, dict(config or {})
 
 
-def _build_source_input(env, project):
-    url = (project.s3_source_url or "").strip()
-    bucket, key = s3_storage.parse_s3_url(url)
+def _build_source_input(env, project, url=None):
+    src_url = (url if url is not None else project.s3_source_url or "").strip()
+    bucket, key = s3_storage.parse_s3_url(src_url)
     cfg = env["video.editor.s3.settings"].get_s3_config()
     if bucket and key and cfg.get("access_key") and cfg.get("secret_key"):
         return s3_storage.generate_presigned_url(
             {**cfg, "bucket": bucket}, key, expires_in=7200,
         )
-    if url.startswith(("http://", "https://")):
-        return url
+    if src_url.startswith(("http://", "https://")):
+        return src_url
     raise UserError(_(
-        "Cannot resolve source URL %s — configure S3 credentials or use an https:// URL."
-    ) % url[:120])
+        "Cannot resolve S3 URL %s — configure S3 credentials or use an https:// URL."
+    ) % src_url[:120])
 
 
 def _run_export(db, uid, job_id, cancel_event):
@@ -459,9 +506,6 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
         project_id = project.id
         opts = job.config_json or {}
         youtube_url = (opts.get("youtube_url") or project.youtube_url or "").strip()
-        youtube_tier = (opts.get("tier") or project.youtube_tier or "").strip() or None
-        if youtube_tier and youtube_tier not in youtube_downloader.YOUTUBE_TIERS:
-            raise UserError(_("Unknown YouTube tier: %s") % youtube_tier)
         try:
             start_seconds = float(opts.get("start_seconds") or 0.0)
         except (TypeError, ValueError):
@@ -470,17 +514,6 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             end_seconds = float(opts.get("end_seconds") or 0.0)
         except (TypeError, ValueError):
             end_seconds = 0.0
-        is_clip = start_seconds > 0.0 or end_seconds > 0.0
-        cfg = env["video.editor.s3.settings"].get_local_s3_config()
-        if not s3_storage.is_configured(cfg):
-            raise UserError(_("S3 settings are missing — configure bucket and credentials."))
-        youtube_prefix = env["video.editor.s3.settings"].get_youtube_prefix()
-        max_size_bytes = env["video.editor.s3.settings"].get_max_source_size_bytes()
-        yt_ingest_cfg = env["video.editor.s3.settings"].get_youtube_ingest_config()
-        yt_cookies_browser = yt_ingest_cfg.get("cookies_browser") or ""
-        yt_cookies_path = yt_ingest_cfg.get("cookies_path") or ""
-        yt_proxy = yt_ingest_cfg.get("proxy_url") or ""
-
     _bump_heartbeat(db, job_id, "validating YouTube URL")
     video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)
     if not video_id or not normalized:
@@ -491,489 +524,72 @@ def _run_youtube_ingest(db, uid, job_id, cancel_event):
             "video_id=%s normalized=%s" % (video_id, normalized))
     job_executor._check_cancelled(cancel_event)
 
-    if is_clip:
-        end_label = "%d" % int(end_seconds) if end_seconds > 0.0 else "end"
-        target_key = "%s/%s_%s_%d-%s.mp4" % (
-            youtube_prefix, video_id, youtube_tier or "2160p",
-            int(start_seconds), end_label,
-        )
-    else:
-        target_key = (
-            "%s/%s_%s.mkv" % (youtube_prefix, video_id, youtube_tier)
-            if youtube_tier
-            else "%s/%s.mkv" % (youtube_prefix, video_id)
-        )
-
-    if s3_storage.head_object_exists(cfg, target_key):
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_hit",
-                "S3 key already exists: %s" % target_key)
-        _bump_heartbeat(db, job_id, "reusing existing S3 object")
-        chosen_format = None
-        if youtube_tier and not is_clip:
-            try:
-                probe_info, chosen_format = youtube_downloader.probe_and_select(
-                    normalized,
-                    tier=youtube_tier,
-                    cookies_path=yt_cookies_path,
-                    proxy_url=yt_proxy,
-                    cookies_from_browser=yt_cookies_browser,
-                )
-                metadata = {
-                    "title": probe_info.get("title") or "",
-                    "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
-                    "thumbnail": probe_info.get("thumbnail") or "",
-                    "duration_seconds": float(probe_info.get("duration") or 0.0),
-                }
-            except Exception as exc:
-                _logger.warning("youtube tier-aware probe failed during dedup: %s", exc)
-                chosen_format = None
-                metadata = None
-        if chosen_format is None:
-            try:
-                metadata = youtube_downloader.extract_metadata(
-                    normalized,
-                    cookies_path=yt_cookies_path,
-                    proxy_url=yt_proxy,
-                    cookies_from_browser=yt_cookies_browser,
-                )
-            except Exception as exc:
-                _logger.warning("youtube_metadata fetch failed during dedup: %s", exc)
-                metadata = {"title": "", "channel": "", "thumbnail": "", "duration_seconds": 0.0,
-                            "width": 0, "height": 0, "fps": 0.0, "vcodec": ""}
-        s3_url = s3_storage.build_url(cfg["bucket"], cfg["region"], target_key)
-        if chosen_format is not None:
-            yt_width = int(chosen_format.get("width") or 0)
-            yt_height = int(chosen_format.get("height") or 0)
-            yt_fps = float(chosen_format.get("fps") or 0.0)
-            vcodec_raw = chosen_format.get("vcodec") or ""
-            yt_vcodec = vcodec_raw.split(".")[0] if vcodec_raw else ""
-        else:
-            yt_width = int(metadata.get("width") or 0)
-            yt_height = int(metadata.get("height") or 0)
-            yt_fps = float(metadata.get("fps") or 0.0)
-            yt_vcodec = metadata.get("vcodec") or ""
-        yt_resolution = "%dx%d" % (yt_width, yt_height) if yt_width and yt_height else ""
-        with Registry(db).cursor() as cr:
-            env = api.Environment(cr, uid or SUPERUSER_ID, {})
-            project = env["video.editor.project"].browse(project_id)
-            project.write({
-                "s3_source_url": False if is_clip else s3_url,
-                "output_s3_url": s3_url if is_clip else project.output_s3_url,
-                "source_metadata": {
-                    "duration": float(metadata.get("duration_seconds") or 0.0),
-                    "size_bytes": 0,
-                    "width": yt_width,
-                    "height": yt_height,
-                    "resolution": yt_resolution,
-                    "fps": yt_fps,
-                    "codec": yt_vcodec,
-                    "youtube_width": yt_width,
-                    "youtube_height": yt_height,
-                    "youtube_fps": yt_fps,
-                    "youtube_vcodec": yt_vcodec,
-                },
-                "youtube_title": metadata.get("title") or "",
-                "youtube_channel": metadata.get("channel") or "",
-                "youtube_thumbnail_url": metadata.get("thumbnail") or "",
-                "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
-                "youtube_resolution": yt_resolution or "",
-                "youtube_fps": float(yt_fps or 0.0),
-                "youtube_tier": youtube_tier or False,
-                "youtube_ingested_at": fields.Datetime.now(),
-            })
-            job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
-            cr.commit()
-        return
-
-    _log_yt(db, uid, job_id, project_id, "info", "youtube_dedup_miss",
-            "S3 key not present, downloading: %s" % target_key)
-
-    if is_clip:
-        probe_info = {}
-        chosen_format = {}
-        metadata = {
-            "video_id": video_id,
-            "title": "",
-            "channel": "",
-            "thumbnail": "",
-            "duration_seconds": 0.0,
-        }
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_clip_mode",
-                "skip probe; tier=%s start=%s end=%s" % (youtube_tier or "2160p", start_seconds, end_seconds))
-    else:
-        probe_info, chosen_format = youtube_downloader.probe_and_select(
-            normalized,
-            tier=youtube_tier,
-            cookies_path=yt_cookies_path,
-            proxy_url=yt_proxy,
-            cookies_from_browser=yt_cookies_browser,
-        )
-        metadata = {
-            "video_id": probe_info.get("id") or video_id,
-            "title": probe_info.get("title") or "",
-            "channel": probe_info.get("channel") or probe_info.get("uploader") or "",
-            "thumbnail": probe_info.get("thumbnail") or "",
-            "duration_seconds": float(probe_info.get("duration") or 0.0),
-        }
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_metadata",
-                "title=%s channel=%s duration=%s chosen=%sp%s/%s" % (
-                    (metadata.get("title") or "")[:200],
-                    (metadata.get("channel") or "")[:100],
-                    metadata.get("duration_seconds"),
-                    chosen_format.get("height"),
-                    chosen_format.get("fps"),
-                    chosen_format.get("format_id"),
-                ))
-
-    job_executor._check_cancelled(cancel_event)
-    tempdir = tempfile.mkdtemp(prefix="video_editor_s3_yt_")
-    progress_state = {"last_pct": -1}
-
-    def progress_cb(downloaded, total, status):
-        if total and total > 0:
-            pct = int((downloaded / total) * 100)
-            if pct >= progress_state["last_pct"] + 5:
-                progress_state["last_pct"] = pct
-                _bump_heartbeat(db, job_id, "downloading %d%%" % pct)
-
-    _log_yt(db, uid, job_id, project_id, "info", "youtube_download_start",
-            "url=%s max_bytes=%s tempdir=%s" % (normalized, max_size_bytes, tempdir))
-    _bump_heartbeat(db, job_id, "downloading from YouTube")
-
-    try:
-        try:
-            if is_clip:
-                abs_path, info = youtube_downloader.download_clip_to_tempdir(
-                    normalized,
-                    tempdir,
-                    tier=youtube_tier or "2160p",
-                    start_seconds=start_seconds,
-                    end_seconds=end_seconds,
-                    max_size_bytes=max_size_bytes,
-                    progress_cb=progress_cb,
-                    cancel_event=cancel_event,
-                    cancel_exception=JobCancelled,
-                    cookies_path=yt_cookies_path,
-                    proxy_url=yt_proxy,
-                    cookies_from_browser=yt_cookies_browser,
-                )
-                _chosen = None
-            else:
-                abs_path, info, _chosen = youtube_downloader.download_to_tempdir(
-                    normalized,
-                    tempdir,
-                    info=probe_info,
-                    chosen_format=chosen_format,
-                    max_size_bytes=max_size_bytes,
-                    progress_cb=progress_cb,
-                    cancel_event=cancel_event,
-                    cancel_exception=JobCancelled,
-                    cookies_path=yt_cookies_path,
-                    proxy_url=yt_proxy,
-                    cookies_from_browser=yt_cookies_browser,
-                )
-        except JobCancelled:
-            _log_yt(db, uid, job_id, project_id, "warning", "youtube_ingest_cancelled",
-                    "Download cancelled before completion.")
-            raise
-        except Exception as exc:
-            _log_yt(db, uid, job_id, project_id, "error", "youtube_download_failed",
-                    "%s" % str(exc)[:2000])
-            raise
-
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_download_done",
-                "path=%s size=%d" % (abs_path, os.path.getsize(abs_path)))
-
-        with Registry(db).cursor() as cr:
-            env = api.Environment(cr, uid or SUPERUSER_ID, {})
-            probe = env["video.editor.s3.ffmpeg.processor"].probe(abs_path) or {}
-        if not probe.get("duration") or not probe.get("width") or not probe.get("height"):
-            _log_yt(db, uid, job_id, project_id, "error", "youtube_download_failed",
-                    "Downloaded file has no playable video stream: %s" % probe)
-            raise UserError(_(
-                "YouTube download produced a file with no video stream "
-                "(probe=%s). Aborting before S3 upload."
-            ) % probe)
-        if not is_clip:
-            min_height_floor = (
-                youtube_downloader.YOUTUBE_TIERS[youtube_tier]["min_height"]
-                if youtube_tier
-                else 2160
-            )
-            gate_label = youtube_tier or "2160p50/60"
-            if int(probe.get("height") or 0) < min_height_floor:
-                _log_yt(db, uid, job_id, project_id, "error", "youtube_quality_assert",
-                        "Downloaded file height=%s below %s floor; refusing upload."
-                        % (probe.get("height"), min_height_floor))
-                raise UserError(_(
-                    "Downloaded video is %(h)spx tall but the minimum requirement "
-                    "is %(gate)s. Aborting before S3 upload."
-                ) % {"h": probe.get("height"), "gate": gate_label})
-
-        if not metadata.get("title"):
-            metadata = {
-                "video_id": info.get("id") or video_id,
-                "title": info.get("title") or "",
-                "channel": info.get("channel") or info.get("uploader") or "",
-                "thumbnail": info.get("thumbnail") or "",
-                "duration_seconds": float(info.get("duration") or 0.0),
-            }
-
-        job_executor._check_cancelled(cancel_event)
-        _bump_heartbeat(db, job_id, "uploading to S3")
-        _log_yt(db, uid, job_id, project_id, "info", "s3_upload_start",
-                "key=%s" % target_key)
-        s3_url = s3_storage.upload_file(cfg, abs_path, target_key)
-        _log_yt(db, uid, job_id, project_id, "info", "s3_upload_done",
-                "url=%s" % s3_url)
-
-        yt_width = int(chosen_format.get("width") or probe_info.get("width") or 0)
-        yt_height = int(chosen_format.get("height") or probe_info.get("height") or 0)
-        yt_fps = float(chosen_format.get("fps") or probe_info.get("fps") or 0.0)
-        yt_vcodec_raw = chosen_format.get("vcodec") or probe_info.get("vcodec") or ""
-        yt_vcodec = yt_vcodec_raw.split(".")[0] if yt_vcodec_raw else ""
-        yt_resolution = "%dx%d" % (yt_width, yt_height) if yt_width and yt_height else ""
-
-        probe_width = int(probe.get("width") or 0)
-        probe_height = int(probe.get("height") or 0)
-        probe_fps = float(probe.get("fps") or 0.0)
-        final_width = probe_width or yt_width
-        final_height = probe_height or yt_height
-        final_fps = probe_fps or yt_fps
-        final_resolution = probe.get("resolution") or (
-            "%dx%d" % (final_width, final_height) if final_width and final_height else ""
-        )
-        final_codec = probe.get("codec") or yt_vcodec
-
-        with Registry(db).cursor() as cr:
-            env = api.Environment(cr, uid or SUPERUSER_ID, {})
-            project = env["video.editor.project"].browse(project_id)
-            project.write({
-                "s3_source_url": False if is_clip else s3_url,
-                "output_s3_url": s3_url if is_clip else project.output_s3_url,
-                "source_metadata": {
-                    "duration": float(metadata.get("duration_seconds") or 0.0),
-                    "size_bytes": os.path.getsize(abs_path),
-                    "width": final_width,
-                    "height": final_height,
-                    "resolution": final_resolution,
-                    "fps": final_fps,
-                    "codec": final_codec,
-                    "youtube_width": yt_width,
-                    "youtube_height": yt_height,
-                    "youtube_fps": yt_fps,
-                    "youtube_vcodec": yt_vcodec,
-                },
-                "youtube_title": metadata.get("title") or "",
-                "youtube_channel": metadata.get("channel") or "",
-                "youtube_thumbnail_url": metadata.get("thumbnail") or "",
-                "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
-                "youtube_resolution": yt_resolution or "",
-                "youtube_fps": float(yt_fps or 0.0),
-                "youtube_tier": youtube_tier or False,
-                "youtube_ingested_at": fields.Datetime.now(),
-            })
-            job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
-            cr.commit()
-    finally:
-        try:
-            shutil.rmtree(tempdir, ignore_errors=True)
-            _log_yt(db, uid, job_id, project_id, "info", "cleanup",
-                    "Removed tempdir %s" % tempdir)
-        except Exception as exc:
-            _logger.warning("Cleanup tempdir failed: %s", exc)
-
-
-def _run_youtube_local_download(db, uid, job_id, cancel_event):
     with Registry(db).cursor() as cr:
         env = api.Environment(cr, uid or SUPERUSER_ID, {})
-        job = env["video.editor.job"].browse(job_id)
-        if not job.exists():
-            raise UserError(_("Job %s no longer exists.") % job_id)
-        project = job.project_id
-        project_id = project.id
-        opts = job.config_json or {}
-        youtube_url = (opts.get("youtube_url") or project.youtube_url or "").strip()
-        youtube_tier = (opts.get("tier") or project.youtube_tier or "2160p").strip() or "2160p"
-        try:
-            start_seconds = float(opts.get("start_seconds") or 0.0)
-        except (TypeError, ValueError):
-            start_seconds = 0.0
-        try:
-            end_seconds = float(opts.get("end_seconds") or 0.0)
-        except (TypeError, ValueError):
-            end_seconds = 0.0
-        cfg = env["video.editor.s3.settings"].get_local_s3_config()
-        if not s3_storage.is_configured(cfg):
-            raise UserError(_("S3 settings are missing - configure bucket and credentials."))
-        youtube_prefix = env["video.editor.s3.settings"].get_youtube_prefix()
-        max_size_bytes = env["video.editor.s3.settings"].get_max_source_size_bytes()
-        extractor_url = env["video.editor.s3.settings"].get_local_extractor_url()
-        if not extractor_url:
-            raise UserError(_(
-                "Local Extractor URL is not configured - set it under "
-                "Settings > Crowley Sourcing > YouTube Ingest."
-            ))
-
-    _bump_heartbeat(db, job_id, "validating YouTube URL")
-    video_id, normalized = youtube_downloader.parse_youtube_url(youtube_url)
-    if not video_id or not normalized:
-        _log_yt(db, uid, job_id, project_id, "error", "youtube_local_validate",
-                "Invalid YouTube URL: %s" % youtube_url[:200])
-        raise UserError(_("Invalid YouTube URL: %s") % youtube_url[:200])
-    _log_yt(db, uid, job_id, project_id, "info", "youtube_local_validate",
-            "video_id=%s normalized=%s" % (video_id, normalized))
-    job_executor._check_cancelled(cancel_event)
-
-    end_label = "%d" % int(end_seconds) if end_seconds > 0.0 else "end"
-    target_key = "%s/%s_%s_%d-%s_local.mp4" % (
-        youtube_prefix, video_id, youtube_tier, int(start_seconds), end_label,
+        icp = env["ir.config_parameter"].sudo()
+        ec2_url = (icp.get_param("video_editor_s3.youtube_ec2_url") or "").strip().rstrip("/")
+        ec2_callback_base = (icp.get_param("video_editor_s3.youtube_ec2_callback_base_url") or "").strip().rstrip("/")
+    _logger.info(
+        "youtube_ingest job %s: ec2_url=%s ec2_callback_base=%s",
+        job_id, ec2_url or "<empty>", ec2_callback_base or "<empty>",
     )
-
-    job_executor._check_cancelled(cancel_event)
-    tempdir = tempfile.mkdtemp(prefix="video_editor_s3_local_yt_")
-    progress_state = {"last_pct": -1}
-
-    def progress_cb(downloaded, total, status):
-        if total and total > 0:
-            pct = int((downloaded / total) * 100)
-            if pct >= progress_state["last_pct"] + 5:
-                progress_state["last_pct"] = pct
-                _bump_heartbeat(db, job_id, "downloading %d%%" % pct)
-        else:
-            mb = downloaded / (1024 * 1024)
-            _bump_heartbeat(db, job_id, "downloading %.1f MB" % mb)
-
-    _log_yt(db, uid, job_id, project_id, "info", "youtube_local_download_start",
-            "url=%s tier=%s start=%s end=%s extractor=%s tempdir=%s" % (
-                normalized, youtube_tier, start_seconds, end_seconds, extractor_url, tempdir,
-            ))
-    _bump_heartbeat(db, job_id, "calling local extractor")
-
-    try:
+    if not ec2_url:
+        raise UserError(_(
+            "YouTube EC2 Service URL is not configured. Set it under "
+            "Settings > Crowley Sourcing > YouTube EC2 Service."
+        ))
+    if True:
+        ec2_payload = {
+            "tasker_id": str(job_id),
+            "yt_url": normalized,
+            "start_time": float(start_seconds),
+            "end_time": float(end_seconds),
+        }
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_ec2_dispatch",
+                "POST %s/download tasker_id=%s" % (ec2_url, job_id))
+        _bump_heartbeat(db, job_id, "dispatched to EC2; awaiting callback")
         try:
-            abs_path, metadata = local_extractor_client.download_clip_via_local_extractor(
-                extractor_url,
-                normalized,
-                tier=youtube_tier,
-                start_seconds=start_seconds,
-                end_seconds=end_seconds,
-                target_dir=tempdir,
-                progress_cb=progress_cb,
-                cancel_event=cancel_event,
-                cancel_exception=JobCancelled,
-                max_size_bytes=max_size_bytes,
-            )
-        except JobCancelled:
-            _log_yt(db, uid, job_id, project_id, "warning", "youtube_local_download_cancelled",
-                    "Download cancelled before completion.")
-            raise
+            ack = youtube_ec2_client.submit_youtube_job(base_url=ec2_url, payload=ec2_payload)
         except Exception as exc:
-            _log_yt(db, uid, job_id, project_id, "error", "youtube_local_download_failed",
+            _log_yt(db, uid, job_id, project_id, "error", "youtube_ec2_dispatch_failed",
                     "%s" % str(exc)[:2000])
             raise
-
-        file_size = os.path.getsize(abs_path)
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_local_download_done",
-                "path=%s size=%d" % (abs_path, file_size))
-
-        with Registry(db).cursor() as cr:
-            env = api.Environment(cr, uid or SUPERUSER_ID, {})
-            probe = env["video.editor.s3.ffmpeg.processor"].probe(abs_path) or {}
-        if not probe.get("duration") or not probe.get("width") or not probe.get("height"):
-            _log_yt(db, uid, job_id, project_id, "error", "youtube_local_quality_assert",
-                    "Downloaded file has no playable video stream: %s" % probe)
-            raise UserError(_(
-                "Local YouTube download produced a file with no video stream "
-                "(probe=%s). Aborting before S3 upload."
-            ) % probe)
-
-        job_executor._check_cancelled(cancel_event)
-        _bump_heartbeat(db, job_id, "stashing blob in project")
-        try:
-            with open(abs_path, "rb") as fh:
-                blob_b64 = base64.b64encode(fh.read())
-            blob_name = os.path.basename(abs_path)
-        except OSError as exc:
-            _logger.warning(
-                "Local YouTube download finished but reading %s for DB blob failed (%s); "
-                "S3 upload will rely on local disk only.",
-                abs_path, exc,
-            )
-            blob_b64 = False
-            blob_name = False
-        with Registry(db).cursor() as cr:
-            env = api.Environment(cr, uid or SUPERUSER_ID, {})
-            project = env["video.editor.project"].browse(project_id)
-            project.write({
-                "youtube_local_blob": blob_b64,
-                "youtube_local_blob_filename": blob_name,
-            })
-            cr.commit()
-
-        job_executor._check_cancelled(cancel_event)
-        _bump_heartbeat(db, job_id, "uploading to S3")
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_local_s3_upload_start",
-                "key=%s" % target_key)
-        s3_url = s3_storage.upload_file(cfg, abs_path, target_key)
-        _log_yt(db, uid, job_id, project_id, "info", "youtube_local_s3_upload_done",
-                "url=%s" % s3_url)
-
-        width = int(probe.get("width") or 0)
-        height = int(probe.get("height") or 0)
-        fps = float(probe.get("fps") or 0.0)
-        resolution = probe.get("resolution") or (
-            "%dx%d" % (width, height) if width and height else ""
-        )
-        with Registry(db).cursor() as cr:
-            env = api.Environment(cr, uid or SUPERUSER_ID, {})
-            project = env["video.editor.project"].browse(project_id)
-            project.write({
-                "s3_source_url": s3_url,
-                "source_metadata": {
-                    "duration": float(metadata.get("duration_seconds") or probe.get("duration") or 0.0),
-                    "size_bytes": file_size,
-                    "width": width,
-                    "height": height,
-                    "resolution": resolution,
-                    "fps": fps,
-                    "codec": probe.get("codec") or "",
-                },
-                "youtube_title": metadata.get("title") or "",
-                "youtube_channel": metadata.get("channel") or "",
-                "youtube_duration_seconds": float(metadata.get("duration_seconds") or 0.0),
-                "youtube_resolution": resolution or "",
-                "youtube_fps": fps,
-                "youtube_tier": youtube_tier,
-                "youtube_ingested_at": fields.Datetime.now(),
-                "youtube_local_blob": False,
-                "youtube_local_blob_filename": False,
-            })
-            job_executor._update_job(cr, job_id, {"output_s3_url": s3_url})
-            cr.commit()
-    finally:
-        try:
-            shutil.rmtree(tempdir, ignore_errors=True)
-            _log_yt(db, uid, job_id, project_id, "info", "cleanup",
-                    "Removed tempdir %s" % tempdir)
-        except Exception as exc:
-            _logger.warning("Cleanup tempdir failed: %s", exc)
+        _log_yt(db, uid, job_id, project_id, "info", "youtube_ec2_ack",
+                "ec2 job_id=%s status=%s" % (
+                    (ack or {}).get("job_id") or "?",
+                    (ack or {}).get("status") or "?",
+                ))
+        raise job_executor.Ec2Dispatched()
 
 
 def _run_s3_probe(db, uid, job_id, cancel_event):
     job_executor._check_cancelled(cancel_event)
-    _bump_heartbeat(db, job_id, "probing source")
 
     with Registry(db).cursor() as cr:
         env = api.Environment(cr, uid or SUPERUSER_ID, {})
         job = env["video.editor.job"].browse(job_id)
         project = job.project_id
-        if not project.s3_source_url:
-            raise UserError(_("Project has no source S3 URL."))
-        src_input = _build_source_input(env, project)
+        target = ((job.config_json or {}).get("target") or "source").strip().lower()
+        if target == "output":
+            url = project.output_s3_url
+            if not url:
+                raise UserError(_("Project has no trimmed S3 URL."))
+        else:
+            url = project.s3_source_url
+            if not url:
+                raise UserError(_("Project has no source S3 URL."))
+
+    _bump_heartbeat(db, job_id, "probing trimmed" if target == "output" else "probing source")
+
+    with Registry(db).cursor() as cr:
+        env = api.Environment(cr, uid or SUPERUSER_ID, {})
+        job = env["video.editor.job"].browse(job_id)
+        project = job.project_id
+        src_input = _build_source_input(env, project, url=url)
         job_executor._check_cancelled(cancel_event)
         meta = env["video.editor.s3.ffmpeg.processor"].probe(src_input) or {}
-        existing = dict(project.source_metadata or {})
+        meta_field = "output_metadata" if target == "output" else "source_metadata"
+        existing = dict(getattr(project, meta_field) or {})
         existing.update({
             "duration": float(meta.get("duration") or 0.0),
             "resolution": meta.get("resolution") or "",
@@ -983,7 +599,7 @@ def _run_s3_probe(db, uid, job_id, cancel_event):
             "height": int(meta.get("height") or 0),
             "codec": meta.get("codec") or "",
         })
-        project.write({"source_metadata": existing})
+        project.write({meta_field: existing})
         cr.commit()
 
 
@@ -1011,22 +627,15 @@ def _run_llm_qc(db, uid, job_id, cancel_event):
         project_id = project.id
 
         item_id = str(project.id)
-        category = project.category or ""
-        sub_category = project.sub_category or ""
-        topic = getattr(project, "topic_name", "") or getattr(project, "topic", "") or ""
+        meta = _extract_qc_metadata(project)
+        category = meta["category"]
+        sub_category = meta["sub_category"]
+        topic = meta["topic"]
         prompt_text = (project.prompt or "").strip()
-        style = project.style or ""
-
-        meta = project.source_metadata or {}
-        resolution = (meta.get("resolution") or project.resolution or "").strip()
-        try:
-            duration_seconds = float(meta.get("duration") or project.duration_seconds or 0.0)
-        except (TypeError, ValueError):
-            duration_seconds = 0.0
-        try:
-            fps = float(meta.get("fps") or project.source_fps or 0.0)
-        except (TypeError, ValueError):
-            fps = 0.0
+        style = meta["style"]
+        resolution = meta["resolution"]
+        duration_seconds = meta["duration_seconds"]
+        fps = meta["fps"]
 
         settings = env["video.editor.s3.settings"]
         llm_cfg = settings.get_llm_qc_config()
@@ -1130,5 +739,6 @@ def _run_llm_qc(db, uid, job_id, cancel_event):
             "llm_failure_reason": result.get("failure_reason") or "",
             "llm_fixed_prompt": result.get("fixed_prompt") or "",
             "llm_evaluated_at": fields.Datetime.now(),
+            "llm_qc_cost_usd": float(result.get("cost_usd") or 0.0),
         })
         cr.commit()

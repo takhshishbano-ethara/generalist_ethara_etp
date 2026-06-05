@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="castiel_dashboard.Showcase">
+        <div class="ct-backend-showcase">
+            <div class="ct-backend-header">
+                <h1>Castiel Dashboard</h1>
+                <p>Exploit-Evidence Cyber Range · Seed Corpus &amp; Benchmark Landscape</p>
+            </div>
+
+            <div class="ct-backend-metrics">
+                <div class="ct-backend-metric">
+                    <span class="ct-backend-metric__value">20</span>
+                    <span class="ct-backend-metric__label">Seed Instances</span>
+                </div>
+                <div class="ct-backend-metric">
+                    <span class="ct-backend-metric__value">9</span>
+                    <span class="ct-backend-metric__label">Bug Classes</span>
+                </div>
+                <div class="ct-backend-metric">
+                    <span class="ct-backend-metric__value">7</span>
+                    <span class="ct-backend-metric__label">Verifier Tiers</span>
+                </div>
+                <div class="ct-backend-metric">
+                    <span class="ct-backend-metric__value">3</span>
+                    <span class="ct-backend-metric__label">Languages</span>
+                </div>
+            </div>
+
+            <div class="ct-backend-comparison">
+                <div class="ct-backend-model">
+                    <h3>Corpus Composition</h3>
+                    <div class="ct-backend-model__stat">Categories <strong>8</strong></div>
+                    <div class="ct-backend-model__stat">Difficulty <strong>8 / 8 / 4</strong></div>
+                    <div class="ct-backend-model__stat">Memory-safety bugs <strong>dominant</strong></div>
+                </div>
+                <div class="ct-backend-model">
+                    <h3>Status</h3>
+                    <div class="ct-backend-model__stat">Phase <strong>P0 (built)</strong></div>
+                    <div class="ct-backend-model__stat">Baselines <strong>Roadmap</strong></div>
+                    <div class="ct-backend-model__stat">Verifier <strong>Deterministic</strong></div>
+                </div>
+            </div>
+
+            <div class="ct-backend-links">
+                <a t-att-href="state.repo_url" target="_blank" class="ct-backend-link">
+                    🌐 Ethara AI
+                </a>
+                <a t-att-href="state.paper_url" target="_blank" class="ct-backend-link">
+                    📄 Research Paper
+                </a>
+                <a href="/castiel" target="_blank" class="ct-backend-link">
+                    📊 Portal View
+                </a>
+            </div>
+        </div>
+    </t>
+</templates>

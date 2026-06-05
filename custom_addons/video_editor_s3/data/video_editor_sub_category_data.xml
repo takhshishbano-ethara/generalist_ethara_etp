@@ -1,0 +1,934 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="sub_birds_song" model="video.editor.sub.category">
+        <field name="name">Birds &amp; Song</field>
+        <field name="code">birds_song</field>
+        <field name="category_id" ref="category_animals_wildlife"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_domestic_pets" model="video.editor.sub.category">
+        <field name="name">Domestic Pets</field>
+        <field name="code">domestic_pets</field>
+        <field name="category_id" ref="category_animals_wildlife"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_insects_small" model="video.editor.sub.category">
+        <field name="name">Insects &amp; Small Creatures</field>
+        <field name="code">insects_small</field>
+        <field name="category_id" ref="category_animals_wildlife"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_pet_interaction" model="video.editor.sub.category">
+        <field name="name">Pet Interaction</field>
+        <field name="code">pet_interaction</field>
+        <field name="category_id" ref="category_animals_wildlife"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_predator_prey" model="video.editor.sub.category">
+        <field name="name">Predator &amp; Prey</field>
+        <field name="code">predator_prey</field>
+        <field name="category_id" ref="category_animals_wildlife"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_underwater_marine" model="video.editor.sub.category">
+        <field name="name">Underwater &amp; Marine</field>
+        <field name="code">underwater_marine</field>
+        <field name="category_id" ref="category_animals_wildlife"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_2d_cartoon" model="video.editor.sub.category">
+        <field name="name">2D Cartoon</field>
+        <field name="code">2d_cartoon</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_3d_cgi" model="video.editor.sub.category">
+        <field name="name">3D CGI</field>
+        <field name="code">3d_cgi</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_anime_manga" model="video.editor.sub.category">
+        <field name="name">Anime / Manga</field>
+        <field name="code">anime_manga</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_artistic_animation" model="video.editor.sub.category">
+        <field name="name">Artistic Animation</field>
+        <field name="code">artistic_animation</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_motion_graphics" model="video.editor.sub.category">
+        <field name="name">Motion Graphics</field>
+        <field name="code">motion_graphics</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_pixel_retro" model="video.editor.sub.category">
+        <field name="name">Pixel / Retro</field>
+        <field name="code">pixel_retro</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_stop_motion" model="video.editor.sub.category">
+        <field name="name">Stop Motion</field>
+        <field name="code">stop_motion</field>
+        <field name="category_id" ref="category_animated_styles"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_cinematic_titles" model="video.editor.sub.category">
+        <field name="name">Cinematic Titles</field>
+        <field name="code">cinematic_titles</field>
+        <field name="category_id" ref="category_animated_text"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_kinetic_typography" model="video.editor.sub.category">
+        <field name="name">Kinetic Typography</field>
+        <field name="code">kinetic_typography</field>
+        <field name="category_id" ref="category_animated_text"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_logo_brand_animation" model="video.editor.sub.category">
+        <field name="name">Logo / Brand Animation</field>
+        <field name="code">logo_brand_animation</field>
+        <field name="category_id" ref="category_animated_text"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_subtitle_caption_styles" model="video.editor.sub.category">
+        <field name="name">Subtitle / Caption Styles</field>
+        <field name="code">subtitle_caption_styles</field>
+        <field name="category_id" ref="category_animated_text"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_text_with_backgrounds" model="video.editor.sub.category">
+        <field name="name">Text with Backgrounds</field>
+        <field name="code">text_with_backgrounds</field>
+        <field name="category_id" ref="category_animated_text"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_asmr_ambient" model="video.editor.sub.category">
+        <field name="name">ASMR / Ambient</field>
+        <field name="code">asmr_ambient</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_cooking_kitchen" model="video.editor.sub.category">
+        <field name="name">Cooking / Kitchen</field>
+        <field name="code">cooking_kitchen</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_environmental_ambient" model="video.editor.sub.category">
+        <field name="name">Environmental Ambient</field>
+        <field name="code">environmental_ambient</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_explicit_audio_tags" model="video.editor.sub.category">
+        <field name="name">Explicit Audio Tags</field>
+        <field name="code">explicit_audio_tags</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_footsteps_movement" model="video.editor.sub.category">
+        <field name="name">Footsteps / Movement</field>
+        <field name="code">footsteps_movement</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_impact_collision" model="video.editor.sub.category">
+        <field name="name">Impact / Collision</field>
+        <field name="code">impact_collision</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_mechanical_tool" model="video.editor.sub.category">
+        <field name="name">Mechanical / Tool</field>
+        <field name="code">mechanical_tool</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_organic_nature" model="video.editor.sub.category">
+        <field name="name">Organic / Nature</field>
+        <field name="code">organic_nature</field>
+        <field name="category_id" ref="category_av_sync_sound_effects"/>
+        <field name="sequence">80</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_crane_aerial" model="video.editor.sub.category">
+        <field name="name">Crane / Aerial</field>
+        <field name="code">crane_aerial</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_dolly_tracking" model="video.editor.sub.category">
+        <field name="name">Dolly / Tracking</field>
+        <field name="code">dolly_tracking</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_drone_aerial" model="video.editor.sub.category">
+        <field name="name">Drone Aerial</field>
+        <field name="code">drone_aerial</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fpv_immersive" model="video.editor.sub.category">
+        <field name="name">FPV Immersive</field>
+        <field name="code">fpv_immersive</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_handheld_pov" model="video.editor.sub.category">
+        <field name="name">Handheld POV</field>
+        <field name="code">handheld_pov</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_pan_tilt" model="video.editor.sub.category">
+        <field name="name">Pan / Tilt</field>
+        <field name="code">pan_tilt</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_pov_subjective" model="video.editor.sub.category">
+        <field name="name">POV / Subjective</field>
+        <field name="code">pov_subjective</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_zoom_focus" model="video.editor.sub.category">
+        <field name="name">Zoom / Focus</field>
+        <field name="code">zoom_focus</field>
+        <field name="category_id" ref="category_camera_motion"/>
+        <field name="sequence">80</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_animated_concept" model="video.editor.sub.category">
+        <field name="name">Animated Concept</field>
+        <field name="code">animated_concept</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_animated_data_story" model="video.editor.sub.category">
+        <field name="name">Animated Data Story</field>
+        <field name="code">animated_data_story</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_animated_nature_science" model="video.editor.sub.category">
+        <field name="name">Animated Nature &amp; Science</field>
+        <field name="code">animated_nature_science</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_animated_process" model="video.editor.sub.category">
+        <field name="name">Animated Process</field>
+        <field name="code">animated_process</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_diy_tutorial" model="video.editor.sub.category">
+        <field name="name">DIY Tutorial</field>
+        <field name="code">diy_tutorial</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_science_physics" model="video.editor.sub.category">
+        <field name="name">Science / Physics</field>
+        <field name="code">science_physics</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_whiteboard_lecture" model="video.editor.sub.category">
+        <field name="name">Whiteboard / Lecture</field>
+        <field name="code">whiteboard_lecture</field>
+        <field name="category_id" ref="category_explainer_educational"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fantasy_worlds" model="video.editor.sub.category">
+        <field name="name">Fantasy Worlds</field>
+        <field name="code">fantasy_worlds</field>
+        <field name="category_id" ref="category_fantasy_surreal"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fluid_physics_sim" model="video.editor.sub.category">
+        <field name="name">Fluid Physics Sim</field>
+        <field name="code">fluid_physics_sim</field>
+        <field name="category_id" ref="category_fantasy_surreal"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_game_movie_parody" model="video.editor.sub.category">
+        <field name="name">Game / Movie Parody</field>
+        <field name="code">game_movie_parody</field>
+        <field name="category_id" ref="category_fantasy_surreal"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_scale_miniature" model="video.editor.sub.category">
+        <field name="name">Scale / Miniature</field>
+        <field name="code">scale_miniature</field>
+        <field name="category_id" ref="category_fantasy_surreal"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_surreal_dreamlike" model="video.editor.sub.category">
+        <field name="name">Surreal / Dreamlike</field>
+        <field name="code">surreal_dreamlike</field>
+        <field name="category_id" ref="category_fantasy_surreal"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_cooking_prep" model="video.editor.sub.category">
+        <field name="name">Cooking Prep</field>
+        <field name="code">cooking_prep</field>
+        <field name="category_id" ref="category_fine_grained_motion"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_craft_assembly" model="video.editor.sub.category">
+        <field name="name">Craft Assembly</field>
+        <field name="code">craft_assembly</field>
+        <field name="category_id" ref="category_fine_grained_motion"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_musical_fingers" model="video.editor.sub.category">
+        <field name="name">Musical Fingers</field>
+        <field name="code">musical_fingers</field>
+        <field name="category_id" ref="category_fine_grained_motion"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_sewing_textile" model="video.editor.sub.category">
+        <field name="name">Sewing / Textile</field>
+        <field name="code">sewing_textile</field>
+        <field name="category_id" ref="category_fine_grained_motion"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_writing_drawing" model="video.editor.sub.category">
+        <field name="name">Writing / Drawing</field>
+        <field name="code">writing_drawing</field>
+        <field name="category_id" ref="category_fine_grained_motion"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_combat_sports" model="video.editor.sub.category">
+        <field name="name">Combat Sports</field>
+        <field name="code">combat_sports</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_dance_choreography" model="video.editor.sub.category">
+        <field name="name">Dance / Choreography</field>
+        <field name="code">dance_choreography</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_extreme_sports" model="video.editor.sub.category">
+        <field name="name">Extreme Sports</field>
+        <field name="code">extreme_sports</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_gymnastics_acrobatics" model="video.editor.sub.category">
+        <field name="name">Gymnastics / Acrobatics</field>
+        <field name="code">gymnastics_acrobatics</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_martial_arts_fighting" model="video.editor.sub.category">
+        <field name="name">Martial Arts / Fighting</field>
+        <field name="code">martial_arts_fighting</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_racing_speed" model="video.editor.sub.category">
+        <field name="name">Racing / Speed</field>
+        <field name="code">racing_speed</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_racket_individual" model="video.editor.sub.category">
+        <field name="name">Racket / Individual</field>
+        <field name="code">racket_individual</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_sports_gameplay" model="video.editor.sub.category">
+        <field name="name">Sports Gameplay</field>
+        <field name="code">sports_gameplay</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">80</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_team_field_sports" model="video.editor.sub.category">
+        <field name="name">Team / Field Sports</field>
+        <field name="code">team_field_sports</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">90</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_track_field" model="video.editor.sub.category">
+        <field name="name">Track &amp; Field</field>
+        <field name="code">track_field</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">100</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_vehicle_chase" model="video.editor.sub.category">
+        <field name="name">Vehicle Chase</field>
+        <field name="code">vehicle_chase</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">110</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_water_sports" model="video.editor.sub.category">
+        <field name="name">Water Sports</field>
+        <field name="code">water_sports</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">120</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_winter_sports" model="video.editor.sub.category">
+        <field name="name">Winter Sports</field>
+        <field name="code">winter_sports</field>
+        <field name="category_id" ref="category_high_motion_action"/>
+        <field name="sequence">130</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_celebrations_events" model="video.editor.sub.category">
+        <field name="name">Celebrations / Events</field>
+        <field name="code">celebrations_events</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_child_family" model="video.editor.sub.category">
+        <field name="name">Child / Family</field>
+        <field name="code">child_family</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_commuting_errands" model="video.editor.sub.category">
+        <field name="name">Commuting / Errands</field>
+        <field name="code">commuting_errands</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_construction_trades" model="video.editor.sub.category">
+        <field name="name">Construction / Trades</field>
+        <field name="code">construction_trades</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_cooking_food_prep" model="video.editor.sub.category">
+        <field name="name">Cooking / Food Prep</field>
+        <field name="code">cooking_food_prep</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_eating_dining" model="video.editor.sub.category">
+        <field name="name">Eating / Dining</field>
+        <field name="code">eating_dining</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fishing_boating" model="video.editor.sub.category">
+        <field name="name">Fishing / Boating</field>
+        <field name="code">fishing_boating</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fitness_gym" model="video.editor.sub.category">
+        <field name="name">Fitness / Gym</field>
+        <field name="code">fitness_gym</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">80</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_gaming_tabletop" model="video.editor.sub.category">
+        <field name="name">Gaming / Tabletop</field>
+        <field name="code">gaming_tabletop</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">90</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_gardening_outdoor_work" model="video.editor.sub.category">
+        <field name="name">Gardening / Outdoor Work</field>
+        <field name="code">gardening_outdoor_work</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">100</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_haircuts_styling" model="video.editor.sub.category">
+        <field name="name">Haircuts / Styling</field>
+        <field name="code">haircuts_styling</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">110</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_household_chores" model="video.editor.sub.category">
+        <field name="name">Household Chores</field>
+        <field name="code">household_chores</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">120</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_makeup_skincare" model="video.editor.sub.category">
+        <field name="name">Makeup / Skincare</field>
+        <field name="code">makeup_skincare</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">130</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_medical_healthcare" model="video.editor.sub.category">
+        <field name="name">Medical / Healthcare</field>
+        <field name="code">medical_healthcare</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">140</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_morning_routine" model="video.editor.sub.category">
+        <field name="name">Morning Routine</field>
+        <field name="code">morning_routine</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">150</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_motorcycle_bicycle" model="video.editor.sub.category">
+        <field name="name">Motorcycle / Bicycle</field>
+        <field name="code">motorcycle_bicycle</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">160</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_nail_art" model="video.editor.sub.category">
+        <field name="name">Nail Art</field>
+        <field name="code">nail_art</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">170</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_religious_spiritual" model="video.editor.sub.category">
+        <field name="name">Religious / Spiritual</field>
+        <field name="code">religious_spiritual</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">180</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_shopping_browsing" model="video.editor.sub.category">
+        <field name="name">Shopping / Browsing</field>
+        <field name="code">shopping_browsing</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">190</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_smartphone_device" model="video.editor.sub.category">
+        <field name="name">Smartphone / Device</field>
+        <field name="code">smartphone_device</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">200</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_social_interactions" model="video.editor.sub.category">
+        <field name="name">Social Interactions</field>
+        <field name="code">social_interactions</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">210</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_tattoo_piercing" model="video.editor.sub.category">
+        <field name="name">Tattoo / Piercing</field>
+        <field name="code">tattoo_piercing</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">220</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_theme_park_rides" model="video.editor.sub.category">
+        <field name="name">Theme Park / Rides</field>
+        <field name="code">theme_park_rides</field>
+        <field name="category_id" ref="category_human_activities"/>
+        <field name="sequence">230</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_accents_dialects" model="video.editor.sub.category">
+        <field name="name">Accents / Dialects</field>
+        <field name="code">accents_dialects</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_comedy_performance" model="video.editor.sub.category">
+        <field name="name">Comedy Performance</field>
+        <field name="code">comedy_performance</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_conversation_two_people" model="video.editor.sub.category">
+        <field name="name">Conversation (Two People)</field>
+        <field name="code">conversation_two_people</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_dialogue_with_sfx" model="video.editor.sub.category">
+        <field name="name">Dialogue with SFX</field>
+        <field name="code">dialogue_with_sfx</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_emotional_monologue" model="video.editor.sub.category">
+        <field name="name">Emotional Monologue</field>
+        <field name="code">emotional_monologue</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_group_discussion" model="video.editor.sub.category">
+        <field name="name">Group Discussion</field>
+        <field name="code">group_discussion</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_narration_voiceover" model="video.editor.sub.category">
+        <field name="name">Narration / Voiceover</field>
+        <field name="code">narration_voiceover</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">70</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_news_professional" model="video.editor.sub.category">
+        <field name="name">News / Professional</field>
+        <field name="code">news_professional</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">80</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_object_character_speech" model="video.editor.sub.category">
+        <field name="name">Object / Character Speech</field>
+        <field name="code">object_character_speech</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">90</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_professional_service" model="video.editor.sub.category">
+        <field name="name">Professional Service</field>
+        <field name="code">professional_service</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">100</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_speaking_contexts" model="video.editor.sub.category">
+        <field name="name">Speaking Contexts</field>
+        <field name="code">speaking_contexts</field>
+        <field name="category_id" ref="category_multi_speaker_dialogue"/>
+        <field name="sequence">110</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_concert_live" model="video.editor.sub.category">
+        <field name="name">Concert / Live</field>
+        <field name="code">concert_live</field>
+        <field name="category_id" ref="category_music_performance"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_ensemble_band" model="video.editor.sub.category">
+        <field name="name">Ensemble / Band</field>
+        <field name="code">ensemble_band</field>
+        <field name="category_id" ref="category_music_performance"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_singing_vocals" model="video.editor.sub.category">
+        <field name="name">Singing / Vocals</field>
+        <field name="code">singing_vocals</field>
+        <field name="category_id" ref="category_music_performance"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_solo_instrument" model="video.editor.sub.category">
+        <field name="name">Solo Instrument</field>
+        <field name="code">solo_instrument</field>
+        <field name="category_id" ref="category_music_performance"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_comedy_slapstick" model="video.editor.sub.category">
+        <field name="name">Comedy / Slapstick</field>
+        <field name="code">comedy_slapstick</field>
+        <field name="category_id" ref="category_narrative_cinematic"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_dramatic_tension" model="video.editor.sub.category">
+        <field name="name">Dramatic Tension</field>
+        <field name="code">dramatic_tension</field>
+        <field name="category_id" ref="category_narrative_cinematic"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_epic_cinematic" model="video.editor.sub.category">
+        <field name="name">Epic Cinematic</field>
+        <field name="code">epic_cinematic</field>
+        <field name="category_id" ref="category_narrative_cinematic"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_earth_sand_stone" model="video.editor.sub.category">
+        <field name="name">Earth / Sand / Stone</field>
+        <field name="code">earth_sand_stone</field>
+        <field name="category_id" ref="category_natural_patterns"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fire_smoke" model="video.editor.sub.category">
+        <field name="name">Fire / Smoke</field>
+        <field name="code">fire_smoke</field>
+        <field name="category_id" ref="category_natural_patterns"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_ice_frost_snow" model="video.editor.sub.category">
+        <field name="name">Ice / Frost / Snow</field>
+        <field name="code">ice_frost_snow</field>
+        <field name="category_id" ref="category_natural_patterns"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_light_electricity" model="video.editor.sub.category">
+        <field name="name">Light / Electricity</field>
+        <field name="code">light_electricity</field>
+        <field name="category_id" ref="category_natural_patterns"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_organic_living" model="video.editor.sub.category">
+        <field name="name">Organic / Living</field>
+        <field name="code">organic_living</field>
+        <field name="category_id" ref="category_natural_patterns"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_water_liquid" model="video.editor.sub.category">
+        <field name="name">Water / Liquid</field>
+        <field name="code">water_liquid</field>
+        <field name="category_id" ref="category_natural_patterns"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_seasons_transitions" model="video.editor.sub.category">
+        <field name="name">Seasons / Transitions</field>
+        <field name="code">seasons_transitions</field>
+        <field name="category_id" ref="category_nature_weather"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_storms_extreme" model="video.editor.sub.category">
+        <field name="name">Storms / Extreme</field>
+        <field name="code">storms_extreme</field>
+        <field name="category_id" ref="category_nature_weather"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_water_features" model="video.editor.sub.category">
+        <field name="name">Water Features</field>
+        <field name="code">water_features</field>
+        <field name="category_id" ref="category_nature_weather"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_anger_frustration" model="video.editor.sub.category">
+        <field name="name">Anger / Frustration</field>
+        <field name="code">anger_frustration</field>
+        <field name="category_id" ref="category_person_emoting"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_complex_mixed" model="video.editor.sub.category">
+        <field name="name">Complex / Mixed</field>
+        <field name="code">complex_mixed</field>
+        <field name="category_id" ref="category_person_emoting"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_disgust_discomfort" model="video.editor.sub.category">
+        <field name="name">Disgust / Discomfort</field>
+        <field name="code">disgust_discomfort</field>
+        <field name="category_id" ref="category_person_emoting"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_fear_surprise" model="video.editor.sub.category">
+        <field name="name">Fear / Surprise</field>
+        <field name="code">fear_surprise</field>
+        <field name="category_id" ref="category_person_emoting"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_joy_excitement" model="video.editor.sub.category">
+        <field name="name">Joy / Excitement</field>
+        <field name="code">joy_excitement</field>
+        <field name="category_id" ref="category_person_emoting"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_sadness_grief" model="video.editor.sub.category">
+        <field name="name">Sadness / Grief</field>
+        <field name="code">sadness_grief</field>
+        <field name="category_id" ref="category_person_emoting"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_emotional_tone" model="video.editor.sub.category">
+        <field name="name">Emotional Tone</field>
+        <field name="code">emotional_tone</field>
+        <field name="category_id" ref="category_speech_styles"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_pauses_intonation" model="video.editor.sub.category">
+        <field name="name">Pauses / Intonation</field>
+        <field name="code">pauses_intonation</field>
+        <field name="category_id" ref="category_speech_styles"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_shout_scream" model="video.editor.sub.category">
+        <field name="name">Shout / Scream</field>
+        <field name="code">shout_scream</field>
+        <field name="category_id" ref="category_speech_styles"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_singing_vocal" model="video.editor.sub.category">
+        <field name="name">Singing / Vocal</field>
+        <field name="code">singing_vocal</field>
+        <field name="category_id" ref="category_speech_styles"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_speed_variation" model="video.editor.sub.category">
+        <field name="name">Speed Variation</field>
+        <field name="code">speed_variation</field>
+        <field name="category_id" ref="category_speech_styles"/>
+        <field name="sequence">50</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_whisper_asmr" model="video.editor.sub.category">
+        <field name="name">Whisper / ASMR</field>
+        <field name="code">whisper_asmr</field>
+        <field name="category_id" ref="category_speech_styles"/>
+        <field name="sequence">60</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_nightlife_entertainment" model="video.editor.sub.category">
+        <field name="name">Nightlife / Entertainment</field>
+        <field name="code">nightlife_entertainment</field>
+        <field name="category_id" ref="category_urban_scenes"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_street_life" model="video.editor.sub.category">
+        <field name="name">Street Life</field>
+        <field name="code">street_life</field>
+        <field name="category_id" ref="category_urban_scenes"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_traffic_vehicles" model="video.editor.sub.category">
+        <field name="name">Traffic / Vehicles</field>
+        <field name="code">traffic_vehicles</field>
+        <field name="category_id" ref="category_urban_scenes"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_aircraft_flight" model="video.editor.sub.category">
+        <field name="name">Aircraft / Flight</field>
+        <field name="code">aircraft_flight</field>
+        <field name="category_id" ref="category_vehicles_machines"/>
+        <field name="sequence">10</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_cars_driving" model="video.editor.sub.category">
+        <field name="name">Cars / Driving</field>
+        <field name="code">cars_driving</field>
+        <field name="category_id" ref="category_vehicles_machines"/>
+        <field name="sequence">20</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_industrial_machinery" model="video.editor.sub.category">
+        <field name="name">Industrial Machinery</field>
+        <field name="code">industrial_machinery</field>
+        <field name="category_id" ref="category_vehicles_machines"/>
+        <field name="sequence">30</field>
+        <field name="active" eval="True"/>
+    </record>
+    <record id="sub_trains_transit" model="video.editor.sub.category">
+        <field name="name">Trains / Transit</field>
+        <field name="code">trains_transit</field>
+        <field name="category_id" ref="category_vehicles_machines"/>
+        <field name="sequence">40</field>
+        <field name="active" eval="True"/>
+    </record>
+</odoo>

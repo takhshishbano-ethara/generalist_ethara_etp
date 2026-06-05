@@ -1,6 +1,6 @@
 {
     'name': 'Prompt QC',
-    'version': '19.0.2.0.0',
+    'version': '19.0.2.0.2',
     'category': 'Productivity',
     'summary': 'LLM-as-a-judge QC: background judge runs with live bus streaming',
     'description': """

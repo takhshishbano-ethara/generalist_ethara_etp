@@ -13,19 +13,23 @@ from ..services import review_client
 _logger = logging.getLogger(__name__)
 
 _STATE_QUEUED = "queued"
+_STATE_ASSIGNED = "assigned"
 _STATE_SUBMITTING = "submitting"
 _STATE_DONE = "done"
 _STATE_ERROR = "error"
 
-_NON_TERMINAL = {_STATE_QUEUED, _STATE_SUBMITTING}
+_NON_TERMINAL = {_STATE_QUEUED, _STATE_ASSIGNED, _STATE_SUBMITTING}
 _TERMINAL = {_STATE_DONE, _STATE_ERROR}
 
 _ALLOWED_TRANSITIONS = {
-    _STATE_QUEUED:     {_STATE_SUBMITTING, _STATE_ERROR},
+    _STATE_QUEUED:     {_STATE_SUBMITTING, _STATE_ASSIGNED, _STATE_ERROR},
+    _STATE_ASSIGNED:   {_STATE_DONE, _STATE_QUEUED, _STATE_ERROR},
     _STATE_SUBMITTING: {_STATE_DONE, _STATE_ERROR},
     _STATE_DONE:       set(),
     _STATE_ERROR:      set(),
 }
+
+_PROVIDER_HUMAN = "human"
 
 _DEFAULT_REVIEW_MAX_ATTEMPTS = 3
 _DEFAULT_REVIEW_MAX_PARALLEL = 4
@@ -65,7 +69,7 @@ class T2AVVideoReview(models.Model):
 
     model_id = fields.Char(
         string="Model ID", readonly=True, copy=False,
-        groups="base.group_no_one,t2av.group_t2av_consumer",
+        groups="t2av.group_t2av_manager",
     )
     model_id_display = fields.Char(
         string="Model", compute="_compute_model_id_display",
@@ -73,9 +77,14 @@ class T2AVVideoReview(models.Model):
     )
     region = fields.Char(string="AWS Region", readonly=True, copy=False)
     provider = fields.Selection(
-        [("bedrock", "AWS Bedrock"), ("openrouter", "OpenRouter")],
+        [
+            ("bedrock", "AWS Bedrock"),
+            ("openrouter", "OpenRouter"),
+            ("human", "Human Reviewer"),
+        ],
         string="Provider", readonly=True, copy=False, index=True,
-        help="Which LLM gateway processed this review.",
+        help="Which gateway processed this review. 'human' rows are picked "
+             "up via the Stack menu and never dispatched to the Gemini cron.",
     )
     bedrock_request_id = fields.Char(
         string="Provider Request ID", readonly=True, copy=False,
@@ -85,12 +94,30 @@ class T2AVVideoReview(models.Model):
     state = fields.Selection(
         [
             ("queued", "Queued"),
+            ("assigned", "Assigned"),
             ("submitting", "Submitting"),
             ("done", "Done"),
             ("error", "Error"),
         ],
         string="Status", default=_STATE_QUEUED, readonly=True,
         copy=False, index=True,
+    )
+
+    assigned_to_id = fields.Many2one(
+        "res.users", string="Assigned Reviewer",
+        index=True, copy=False, readonly=True,
+        help="Human reviewer currently holding this task. Set atomically by "
+             "the Stack wizard's claim; cleared by Cancel or admin force-release.",
+    )
+    locked_at = fields.Datetime(
+        string="Lock Acquired At", index=True, copy=False, readonly=True,
+        help="Timestamp of the claim that put this row into 'assigned'. "
+             "Used by the admin force-release server action.",
+    )
+    reviewer_notes = fields.Text(
+        string="Reviewer Notes", readonly=True, copy=False,
+        help="Mandatory free-form note from the human reviewer explaining "
+             "the pass/fail verdict. Captured at Save & Next time.",
     )
 
     verdict = fields.Selection(
@@ -412,7 +439,8 @@ class T2AVVideoReview(models.Model):
         else:
             resolution = "1920x1080"
 
-        self.write({
+        # sudo: dispatcher is a system actor; model_id is Manager-gated for AWS-account-id confidentiality.
+        self.sudo().write({
             "state": _STATE_SUBMITTING,
             "submitted_at": fields.Datetime.now(),
             "model_id": model_id,
@@ -597,7 +625,7 @@ class T2AVVideoReview(models.Model):
             return
         try:
             with self.env.cr.savepoint():
-                self.env["t2av.sequence.sheet.row"].create_from_review(
+                self.env["t2av.sequence.sheet.row"].sudo().create_from_review(
                     self, sheet_type,
                 )
         except Exception:
@@ -689,11 +717,12 @@ class T2AVVideoReview(models.Model):
             """
             SELECT id FROM t2av_video_review
             WHERE state = %s
+              AND (provider IS NULL OR provider != %s)
             ORDER BY create_date ASC, id ASC
             LIMIT %s
             FOR UPDATE SKIP LOCKED
             """,
-            (_STATE_QUEUED, limit),
+            (_STATE_QUEUED, _PROVIDER_HUMAN, limit),
         )
         rows = self.env.cr.fetchall()
         if not rows:
@@ -708,7 +737,14 @@ class T2AVVideoReview(models.Model):
 
     def _apply_human_override(self, human_verdict, reason):
         self.ensure_one()
-        if not self.env.user.has_group("t2av.group_t2av_manager"):
+        if self.provider == _PROVIDER_HUMAN:
+            if not self.env.user.has_group("base.group_system"):
+                raise ValidationError(_(
+                    "Human-reviewer verdicts can only be changed by the assigned "
+                    "Reviewer (via the Stack) or a System Administrator. Managers "
+                    "cannot override them."
+                ))
+        elif not self.env.user.has_group("t2av.group_t2av_manager"):
             raise ValidationError(_(
                 "Only T2AV Managers can override a video review verdict."
             ))
@@ -781,3 +817,132 @@ class T2AVVideoReview(models.Model):
 
     def action_override_clear(self):
         return self._open_override_wizard("clear")
+
+    def _apply_reviewer_verdict(self, verdict, notes):
+        self.ensure_one()
+        if self.provider != _PROVIDER_HUMAN:
+            raise ValidationError(_(
+                "Reviewer verdicts can only be applied to human-review rows."
+            ))
+        if verdict not in ("accept", "reject"):
+            raise ValidationError(_(
+                "Invalid reviewer verdict %(v)r; expected 'accept' or 'reject'."
+            ) % {"v": verdict})
+        clean_notes = (notes or "").strip()
+        if not clean_notes:
+            raise ValidationError(_(
+                "Reviewer notes are required — explain why the video passed or failed."
+            ))
+        user = self.env.user
+        is_admin = user.has_group("base.group_system")
+        if not is_admin:
+            if self.assigned_to_id.id != user.id:
+                raise ValidationError(_(
+                    "You can only submit a verdict for a task assigned to you."
+                ))
+            if self.state != _STATE_ASSIGNED:
+                raise ValidationError(_(
+                    "This review is not in 'assigned' state (current: %(s)s); "
+                    "re-open it from the Stack."
+                ) % {"s": self.state})
+        elif self.state not in (_STATE_ASSIGNED, _STATE_QUEUED):
+            raise ValidationError(_(
+                "Cannot apply a reviewer verdict from state %(s)s."
+            ) % {"s": self.state})
+
+        now = fields.Datetime.now()
+        self.write({
+            "state": _STATE_DONE,
+            "verdict": verdict,
+            "reviewer_notes": clean_notes[:8000],
+            "completed_at": now,
+            "submitted_at": self.submitted_at or now,
+        })
+
+        attempt = self.attempt_id
+        job = attempt.job_id if attempt else self.env["t2av.generation"]
+        if job:
+            try:
+                job.sudo().message_post(body=_(
+                    "Human reviewer verdict: %(verdict)s by %(user)s. Notes: %(notes)s"
+                ) % {
+                    "verdict": verdict.upper(),
+                    "user": user.display_name,
+                    "notes": clean_notes[:500],
+                })
+            except Exception:
+                _logger.exception(
+                    "T2AV human-review %s: failed to post verdict to job chatter "
+                    "(non-fatal; verdict already persisted)", self.id,
+                )
+
+        if attempt:
+            try:
+                with self.env.cr.savepoint():
+                    self._maybe_create_sheet_row(attempt, verdict)
+            except Exception:
+                _logger.exception(
+                    "T2AV human-review %s: failed to create sequence-sheet row "
+                    "for verdict %s", self.id, verdict,
+                )
+        return True
+
+    def admin_force_release_lock(self):
+        if not self.env.user.has_group("base.group_system"):
+            raise ValidationError(_(
+                "Only System Administrators may force-release a review lock."
+            ))
+        targets = self.filtered(
+            lambda r: r.provider == _PROVIDER_HUMAN and r.state == _STATE_ASSIGNED
+        )
+        if not targets:
+            return False
+        for rec in targets:
+            prior_user = rec.assigned_to_id
+            self.env.cr.execute(
+                """UPDATE t2av_video_review
+                   SET state = %s, assigned_to_id = NULL, locked_at = NULL
+                   WHERE id = %s AND provider = %s AND state = %s
+                   RETURNING id""",
+                (_STATE_QUEUED, rec.id, _PROVIDER_HUMAN, _STATE_ASSIGNED),
+            )
+            if not self.env.cr.fetchone():
+                continue
+            rec.invalidate_recordset(["state", "assigned_to_id", "locked_at"])
+            job = rec.attempt_id.job_id if rec.attempt_id else False
+            if job:
+                job.message_post(body=_(
+                    "Admin %(admin)s force-released review lock previously "
+                    "held by %(prior)s; task returned to the Stack queue."
+                ) % {
+                    "admin": self.env.user.display_name,
+                    "prior": prior_user.display_name or _("(unknown)"),
+                })
+        return True
+
+    @api.model
+    def _cron_reap_stale_stack_locks(self, stale_minutes=5):
+        # Catches dismissals (X-button, browser back, network drop) that bypass
+        # action_cancel; Odoo's TransientModel autovacuum defaults to 1 hour.
+        threshold = fields.Datetime.subtract(
+            fields.Datetime.now(), minutes=stale_minutes
+        )
+        self.env.cr.execute(
+            """UPDATE t2av_video_review
+                  SET state = %s,
+                      assigned_to_id = NULL,
+                      locked_at = NULL
+                WHERE provider = %s
+                  AND state = %s
+                  AND locked_at IS NOT NULL
+                  AND locked_at < %s
+                RETURNING id, assigned_to_id""",
+            (_STATE_QUEUED, _PROVIDER_HUMAN, _STATE_ASSIGNED, threshold),
+        )
+        rows = self.env.cr.fetchall()
+        if rows:
+            _logger.info(
+                "T2AV Stack reaper: released %d stale lock(s) older than %s min: %s",
+                len(rows), stale_minutes, rows,
+            )
+        return True

@@ -22,6 +22,7 @@
                     <field name="speaker_count" optional="hide"/>
                     <field name="contains_dialogue" optional="hide"/>
                     <field name="issues" optional="show"/>
+                    <field name="enriched_prompt" optional="hide"/>
                     <field name="create_date" optional="show"/>
                 </list>
             </field>
@@ -71,6 +72,11 @@
                         <notebook>
                             <page string="Prompt">
                                 <field name="prompt" nolabel="1"/>
+                            </page>
+                            <page string="Enriched Prompt"
+                                  invisible="not enriched_prompt">
+                                <field name="enriched_prompt" nolabel="1"
+                                       placeholder="Snapshot of the Bedrock-enriched prompt (raw, pre-validator)."/>
                             </page>
                             <page string="Visual Description">
                                 <field name="visual_description" nolabel="1"/>

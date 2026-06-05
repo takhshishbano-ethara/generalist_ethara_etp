@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!--
+            Admin-only "Force Release Lock" server action.
+
+            Surfaces in the t2av.video.review list/form views (via binding_model)
+            for System Administrators. Calls admin_force_release_lock() which
+            atomically resets provider='human' AND state='assigned' rows back
+            to 'queued', clearing the assigned_to_id / locked_at fields.
+
+            Use case: a reviewer's session was orphaned (browser crash, leave
+            of absence, etc.) and a human-review task is stuck in 'assigned'.
+            User explicitly opted out of a cron-based reaper; this manual
+            action is the sole mitigation per the approved design.
+        -->
+        <record id="action_server_admin_force_release_locks" model="ir.actions.server">
+            <field name="name">Force Release Lock (Admin)</field>
+            <field name="model_id" ref="model_t2av_video_review"/>
+            <field name="binding_model_id" ref="model_t2av_video_review"/>
+            <field name="binding_view_types">list,form</field>
+            <field name="group_ids" eval="[(4, ref('base.group_system'))]"/>
+            <field name="state">code</field>
+            <field name="code">action = records.admin_force_release_lock()</field>
+        </record>
+
+    </data>
+</odoo>

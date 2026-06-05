@@ -516,3 +516,34 @@ class TestPipelineE2EWithMocks(_NoCommitMixin, TransactionCase):
         self.assertTrue(job.pipeline_started_at)
         self.assertTrue(job.pipeline_finished_at)
         self.assertEqual(len(job.attempt_ids), 1)
+
+
+@tagged("post_install", "-at_install", "t2av", "t2av_pipeline")
+class TestConsumerBotManagerAccess(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.Job = cls.env["t2av.generation"]
+        cls.Enrichment = cls.env["t2av.enrichment"]
+
+    def test_bot_user_implies_manager_group(self):
+        bot = self.env.ref("t2av.user_t2av_consumer_bot")
+        self.assertTrue(
+            bot.has_group("t2av.group_t2av_manager"),
+            "group_t2av_consumer.implied_ids must include group_t2av_manager "
+            "(security/t2av_consumer_security.xml + "
+            "migrations/19.0.1.18.6/post-migration.py).",
+        )
+
+    def test_bot_can_write_manager_gated_model_id_on_enrichment(self):
+        bot = self.env.ref("t2av.user_t2av_consumer_bot")
+        job = self.Job.sudo().create(_job_defaults())
+        enrichment = self.Enrichment.sudo().create({
+            "job_id": job.id,
+            "attempt_number": 1,
+            "state": "queued",
+        })
+        enrichment.with_user(bot).write({"model_id": "anthropic.claude-test-v1"})
+        enrichment.invalidate_recordset()
+        self.assertEqual(enrichment.sudo().model_id, "anthropic.claude-test-v1")

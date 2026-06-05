@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <record id="action_castiel_showcase" model="ir.actions.client">
+        <field name="name">Castiel Dashboard</field>
+        <field name="tag">castiel_dashboard.showcase</field>
+    </record>
+
+    <menuitem id="menu_castiel_dashboard"
+              name="Castiel"
+              action="action_castiel_showcase"
+              sequence="204"/>
+</odoo>

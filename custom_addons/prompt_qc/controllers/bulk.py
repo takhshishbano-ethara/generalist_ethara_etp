@@ -22,6 +22,14 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
+# Hard cap on rows per bulk submit (mirrors MAX_ROWS in bulk_import_dialog.js). Without it a
+# logged-in user could submit an arbitrarily large payload and exhaust server memory.
+_MAX_BULK_ROWS = 200
+# Absolute ceiling on the COMBINED base64 of one submit, independent of row count. ~256 MB of
+# base64 ≈ ~192 MB of decoded files — large enough for a full 200-row batch of normal rubrics,
+# small enough to stay under typical reverse-proxy body limits and to bound peak server memory.
+_MAX_TOTAL_B64_CHARS = 256 * 1024 * 1024
+
 
 class PromptQcBulkController(http.Controller):
 
@@ -39,19 +47,25 @@ class PromptQcBulkController(http.Controller):
         if not isinstance(rows, list):
             return {"error": _("Malformed request: 'rows' must be a list.")}
 
+        # Row-count cap: bound the work before touching any payload.
+        if len(rows) > _MAX_BULK_ROWS:
+            return {"error": _(
+                "You can import at most %(max)s rows at a time (you sent %(n)s). "
+                "Split the import into smaller batches."
+            ) % {"max": _MAX_BULK_ROWS, "n": len(rows)}}
+
         max_file_bytes = Model._get_max_file_size_mb() * 1024 * 1024
 
-        # Cheap aggregate guard: reject a hostile payload by summed base64 length BEFORE any
-        # per-row base64 decode. There is no row-count cap, so the bound scales with the number
-        # of rows submitted: each row may legitimately carry one rubric at the per-file base64
-        # ceiling (+slack). Per-row validation still checks every file authoritatively below.
-        per_file_b64_cap = (max_file_bytes // 3 + 1) * 4 + 64
+        # Absolute aggregate guard: reject a hostile payload by summed base64 length BEFORE any
+        # per-row base64 decode. Bounded by a fixed ceiling (NOT per_file_cap * len(rows), which
+        # could never trip since each row is already individually capped). Per-row validation
+        # still checks every file authoritatively below.
         total_b64 = sum(
             len(r.get("rubric_b64") or "")
             for r in rows if isinstance(r, dict)
         )
-        if total_b64 > per_file_b64_cap * len(rows):
-            return {"error": _("Upload payload too large.")}
+        if total_b64 > _MAX_TOTAL_B64_CHARS:
+            return {"error": _("Upload payload too large. Reduce the number or size of rubric files.")}
 
         valid_vals = []
         errors = []  # [{"row": <1-based index>, "message": "..."}]
@@ -72,6 +86,15 @@ class PromptQcBulkController(http.Controller):
         if not valid_vals:
             return {"created": 0, "ids": [],
                     "errors": [{"row": 0, "message": _("Add at least one row with a user prompt.")}]}
+
+        # Per-user concurrency cap: refuse the WHOLE submit if it would push the user past
+        # _MAX_USER_INFLIGHT queued+running runs. Single-form 'Start QC' is gated by the same
+        # helper (in action_enqueue), so the two entry points share one ceiling.
+        try:
+            Model._check_user_inflight_cap(len(valid_vals))
+        except Exception as exc:
+            msg = exc.args[0] if getattr(exc, "args", None) else str(exc)
+            return {"created": 0, "ids": [], "errors": [{"row": 0, "message": msg}]}
 
         # Create in bounded batches so a very large submit is not one giant in-memory create().
         runs = Model.create_runs_chunked(valid_vals)

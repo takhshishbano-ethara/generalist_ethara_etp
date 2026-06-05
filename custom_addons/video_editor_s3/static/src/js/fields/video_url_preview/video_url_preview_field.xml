@@ -38,7 +38,17 @@
     <t t-name="video_editor_s3.VideoPreviewDialog">
         <Dialog title="props.title" size="'xl'" contentClass="'o_video_preview_dialog'">
             <div class="o_video_preview_dialog__body">
-                <video controls="controls"
+                <div t-if="props.kind === 'youtube'"
+                     class="ratio ratio-16x9"
+                     style="background: #000; border-radius: 4px;">
+                    <iframe t-att-src="props.src"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                            allowfullscreen="allowfullscreen"
+                            frameborder="0"
+                            referrerpolicy="strict-origin-when-cross-origin"/>
+                </div>
+                <video t-else=""
+                       controls="controls"
                        preload="metadata"
                        playsinline="playsinline"
                        t-att-src="props.src"
