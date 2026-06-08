@@ -459,7 +459,8 @@
                                 string="Publish to RabbitMQ"
                                 type="action"
                                 class="btn-primary"
-                                display="always"/>
+                                display="always"
+                                groups="t2av.group_t2av_manager"/>
                     </header>
                     <field name="name"/>
                     <field name="prompt" optional="show"/>
