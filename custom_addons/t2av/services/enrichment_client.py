@@ -21,7 +21,7 @@ DEFAULT_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
 DEFAULT_REGION = "ap-south-1"
 DEFAULT_MAX_TOKENS = 600
 DEFAULT_TEMPERATURE = 0.8
-DEFAULT_TOP_P = 0.9
+DEFAULT_TOP_P = -1.0  # <= 0 means do not send topP (required for Claude 4 family on Bedrock)
 DEFAULT_MAX_ATTEMPTS = 5
 
 _RETRYABLE_ERROR_NAMES = {
@@ -98,6 +98,8 @@ def build_user_turn(metadata: dict, previous_failures=None) -> str:
         lines.append(f"{label}: {val}")
     out = _build_word_budget_header(metadata.get("Style")) + "\n".join(lines)
     if previous_failures:
+        from . import retry_hints
+        targeted = retry_hints.build_hint(previous_failures)
         feedback = ["", "PREVIOUS_ATTEMPT_FAILURES:",
                     "Your last attempt failed the deterministic T2AV validator. "
                     "Address every issue below in your next output. Do not repeat "
@@ -110,6 +112,9 @@ def build_user_turn(metadata: dict, previous_failures=None) -> str:
             if ev:
                 line += f" (offending text from prior output: {ev[:200]!r})"
             feedback.append(line)
+        feedback.append("")
+        feedback.append("RULE-TARGETED CORRECTIONS:")
+        feedback.append(targeted)
         out = out + "\n\n" + "\n".join(feedback)
     return out
 
@@ -146,13 +151,16 @@ def _enrich_via_bedrock_api_key(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    inference_config = {
+        "maxTokens": max_tokens,
+        "temperature": temperature,
+    }
+    if top_p is not None and top_p > 0:
+        inference_config["topP"] = top_p
     body = {
         "system": [{"text": system_prompt}],
         "messages": [{"role": "user", "content": [{"text": user_turn}]}],
-        "inferenceConfig": {
-            "maxTokens": max_tokens,
-            "temperature": temperature,
-        },
+        "inferenceConfig": inference_config,
     }
     last_exc: BaseException | None = None
     resp = None
