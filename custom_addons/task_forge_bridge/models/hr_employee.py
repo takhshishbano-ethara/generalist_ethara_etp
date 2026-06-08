@@ -84,24 +84,28 @@ class HrEmployee(models.Model):
         elif role == 'tpm':
             pl_ids = Employee.search([('task_forge_tpm_id', '=', self.id)]).ids
             return Employee.search([
-                '|', '|',
+                '|',
+                ('id', '=', self.id),
+                '&',
+                '|',
                 ('task_forge_tpm_id', '=', self.id),
                 ('task_forge_pl_id', 'in', pl_ids),
-                ('id', '=', self.id),
                 ('task_forge_active', '=', True),
             ]).ids
         elif role == 'pl':
             return Employee.search([
                 '|',
-                ('task_forge_pl_id', '=', self.id),
                 ('id', '=', self.id),
+                '&',
+                ('task_forge_pl_id', '=', self.id),
                 ('task_forge_active', '=', True),
             ]).ids
         elif role in ('qr', 'ql'):
             return Employee.search([
                 '|',
-                ('task_forge_qr_id', '=', self.id),
                 ('id', '=', self.id),
+                '&',
+                ('task_forge_qr_id', '=', self.id),
                 ('task_forge_active', '=', True),
             ]).ids
         else:

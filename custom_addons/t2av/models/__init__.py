@@ -9,4 +9,5 @@ from . import (
     t2av_webhook_verifier as t2av_webhook_verifier,
     ir_attachment as ir_attachment,
     res_config_settings as res_config_settings,
+    t2av_dashboard as t2av_dashboard,
 )

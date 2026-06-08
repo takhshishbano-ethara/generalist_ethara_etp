@@ -605,7 +605,7 @@ class TaskForgeProjectController(http.Controller):
                     'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id else "",
                     'active': emp.active,
                     'avg_time': avg_time,
-                    'since': str(emp.joining_date) if emp.joining_date else ""
+                    'since': str(emp.create_date.date()) if emp.create_date else ""
                 })
 
             # 7. Final response

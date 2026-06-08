@@ -1,0 +1,14 @@
+.o_t2av_dashboard {
+    background: var(--gray-100, #f8f9fa);
+    height: 100%;
+    overflow: auto;
+
+    .o_t2av_tile_num {
+        font-size: 1.8rem;
+        font-weight: 700;
+        line-height: 1.1;
+    }
+    .o_t2av_tile { cursor: pointer; transition: box-shadow .12s; }
+    .o_t2av_tile:hover { box-shadow: 0 .25rem .75rem rgba(0,0,0,.1); }
+    .o_t2av_clickable { cursor: pointer; }
+}
