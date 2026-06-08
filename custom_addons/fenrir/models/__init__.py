@@ -6,6 +6,7 @@ from . import fenrir_rubric_score
 from . import fenrir_task_attachment
 from . import fenrir_generators
 from . import fenrir_drive
+from . import fenrir_s3
 from . import fenrir_task
 from . import fenrir_seller_offer
 from . import fenrir_drive_config

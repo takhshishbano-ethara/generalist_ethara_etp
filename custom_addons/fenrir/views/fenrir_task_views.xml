@@ -292,6 +292,17 @@
                     </field>
 
                     <separator string="Seller Offers" name="sep_sellers"/>
+                    <div class="mb-2" invisible="not id">
+                        <button name="action_renumber_sellers"
+                                type="object"
+                                string="Renumber Sellers"
+                                class="btn-secondary"
+                                icon="fa-sort-numeric-asc"
+                                confirm="This will reassign seller_no sequentially (1, 2, 3, …) to all seller offers on this task. Continue?"/>
+                        <span class="text-muted small ms-2">
+                            (use once to fix duplicate seller_no values from old data)
+                        </span>
+                    </div>
                     <field name="seller_offer_ids" nolabel="1" mode="list,kanban">
                         <kanban class="o_kanban_dashboard">
                             <field name="seller_no"/>

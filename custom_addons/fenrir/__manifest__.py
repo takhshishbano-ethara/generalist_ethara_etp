@@ -1,6 +1,6 @@
 {
     "name": "Fenrir",
-    "version": "19.0.1.14.0",
+    "version": "19.0.1.16.0",
     "category": "Tools",
     "summary": "Fenrir — Freelancer task & seller negotiation tracker",
     "description": """
@@ -15,7 +15,7 @@
     "author": "Ethara",
     "depends": ["base", "mail"],
     "external_dependencies": {
-        "python": ["google-api-python-client", "google-auth"],
+        "python": ["google-api-python-client", "google-auth", "boto3"],
     },
     "data": [
         "security/fenrir_security.xml",
