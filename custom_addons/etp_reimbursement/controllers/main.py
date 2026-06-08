@@ -133,6 +133,7 @@ class ReimbursementController(http.Controller):
     @validate_token
     @validate_request({
         'request_date': {'type': 'date', 'required': False},
+        'employee_id': {'type': 'int', 'required': False},
         'lines': {
             'type': 'list', 'required': True,
             'items': {
@@ -149,23 +150,35 @@ class ReimbursementController(http.Controller):
         try:
             jdata = params.get('jdata') or {}
             user = request.env.user
-            employee = user.employee_id
-            if not employee:
-                return return_Response(message='No employee profile linked to this user.', status=400)
+
+            # HR can raise on behalf of any employee; non-HR always raises for self.
+            target_employee_id = jdata.get('employee_id')
+            if target_employee_id and _is_hr(user):
+                employee = request.env['hr.employee'].sudo().browse(int(target_employee_id))
+                if not employee.exists():
+                    return return_Response(
+                        message='Employee with id %s not found.' % target_employee_id,
+                        status=400,
+                    )
+            else:
+                employee = user.employee_id
+                if not employee:
+                    return return_Response(message='No employee profile linked to this user.', status=400)
 
             req_date = jdata.get('request_date') or fields.Date.context_today(request.env.user).isoformat()
 
-            # Enforce one-per-day rule before creating
-            existing = request.env['etp.reimbursement'].sudo().search_count([
-                ('employee_id', '=', employee.id),
-                ('request_date', '=', req_date),
-                ('state', '!=', 'draft'),
-            ])
-            if existing:
-                return return_Response(
-                    message='You have already raised a reimbursement request today. Only one request per day is allowed.',
-                    status=400,
-                )
+            # Enforce one-per-day rule before creating (HR users are exempt)
+            if not _is_hr(user):
+                existing = request.env['etp.reimbursement'].sudo().search_count([
+                    ('employee_id', '=', employee.id),
+                    ('request_date', '=', req_date),
+                    ('state', '!=', 'draft'),
+                ])
+                if existing:
+                    return return_Response(
+                        message='You have already raised a reimbursement request today. Only one request per day is allowed.',
+                        status=400,
+                    )
 
             lines = jdata.get('lines') or []
             if not lines:
