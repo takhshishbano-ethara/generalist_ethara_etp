@@ -8,11 +8,19 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
+from .analytics_dashboard import _scope as _role_scope
+
 BUDGET_PARAM = "crowley_sourcing.budget_usd"
 DEFAULT_TREND_WEEKS = 6
 MAX_TREND_WEEKS = 26
 IN_FLIGHT_STATES = ("processing", "exporting")
 FAILED_STATES = ("error",)
+DONE_STATES = ("exported",)
+BURN_DAYS = 30
+ACCEPTED_DAYS = 14
+ACCEPTED_TOP_CATEGORIES = 3
+CATEGORY_COLOR_TOKENS = ("primary", "violet", "success", "info", "warn")
+RECENT_ACTIVITY_LIMIT = 8
 
 
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
@@ -36,6 +44,46 @@ def _week_start(d):
     return d - timedelta(days=d.weekday())
 
 
+def _today(env):
+    return fields.Date.context_today(env.user)
+
+
+def _spend(Project, domain):
+    rows = Project.read_group(
+        domain + [("llm_qc_cost_usd", ">", 0)],
+        fields=["llm_qc_cost_usd:sum"],
+        groupby=[],
+    )
+    if rows:
+        return round(float(rows[0].get("llm_qc_cost_usd") or 0.0), 2)
+    return 0.0
+
+
+def _initials(name):
+    parts = [p for p in (name or "").split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+
+def _time_ago(env, when):
+    if not when:
+        return ""
+    now = fields.Datetime.now()
+    seconds = int((now - when).total_seconds())
+    if seconds < 60:
+        return f"{max(seconds, 0)}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    return f"{hours // 24}d ago"
+
+
 def _require_sourcing_user():
     env = request.env
     user = env.user
@@ -47,14 +95,6 @@ def _require_sourcing_user():
         message="You are not allowed to access Crowley Sourcing dashboards.",
         status=403,
     )
-
-
-def _generation_scope_domain():
-    env = request.env
-    user = env.user
-    if user.has_group("video_editor_s3.group_video_editor_s3_manager"):
-        return []
-    return [("assigned_to", "=", user.id)]
 
 
 def _parse_date(raw, label):
@@ -124,20 +164,14 @@ def _compute_kpi(env, gen_scope):
         gen_scope + [("state", "in", list(IN_FLIGHT_STATES))]
     )
     active_tasks = draft + in_flight
+    done = Project.search_count(gen_scope + [("state", "in", list(DONE_STATES))])
+    qc_done = Project.search_count(gen_scope + [("llm_qc_result", "!=", False)])
 
-    cost_rows = Project.read_group(
-        gen_scope + [("llm_qc_cost_usd", ">", 0)],
-        fields=["llm_qc_cost_usd:sum"],
-        groupby=[],
-    )
-    spent = 0.0
-    if cost_rows:
-        spent = round(float(cost_rows[0].get("llm_qc_cost_usd") or 0.0), 2)
-
+    spent = _spend(Project, gen_scope)
     budget = _budget_usd(env)
     budget_caption = ""
     if budget:
-        budget_caption = f"of ${budget:,.2f} budget"
+        budget_caption = f"of ${budget:,.2f} cap · {_pct(spent, budget):.0f}%"
 
     approved = Project.search_count(
         gen_scope + [("review_status", "=", "approved")]
@@ -147,6 +181,16 @@ def _compute_kpi(env, gen_scope):
     )
     reviewed = approved + rejected
     approval_rate = _pct(approved, reviewed)
+    pending = Project.search_count(gen_scope + [("review_status", "=", "pending")])
+    force_passed = Project.search_count(
+        gen_scope + [("llm_qc_force_passed", "=", True)]
+    )
+
+    today_start = datetime.combine(_today(env), datetime.min.time())
+    done_today = Project.search_count(
+        gen_scope
+        + [("state", "in", list(DONE_STATES)), ("write_date", ">=", today_start)]
+    )
 
     owner_rows = Project.read_group(
         gen_scope,
@@ -169,7 +213,7 @@ def _compute_kpi(env, gen_scope):
     items = [
         _kpi_item(
             "total_burned",
-            "Total Burned",
+            "Total Burn",
             f"${spent:,.2f}",
             sub_string=budget_caption,
         ),
@@ -187,66 +231,98 @@ def _compute_kpi(env, gen_scope):
         ),
         _kpi_item(
             "team_members",
-            "Team Members",
+            "Total Members",
             member_count,
-            sub_string=f"{manager_count} managers"
-            if manager_count
-            else "",
+            sub_string=f"{manager_count} managers" if manager_count else "",
+        ),
+        _kpi_item(
+            "tasks_done_qc",
+            "Tasks Done & QC Done",
+            done,
+            sub_string=f"{qc_done} QC'd · {total_tasks} total",
+        ),
+        _kpi_item(
+            "total_qc_done",
+            "Total QC Done",
+            qc_done,
+            sub_string="reviews issued",
+        ),
+        _kpi_item(
+            "force_submit_rate",
+            "Force Submit & Rate",
+            f"{force_passed} · {_pct(force_passed, reviewed)}%",
+            sub_string="force-passes / verdicts",
+        ),
+        _kpi_item(
+            "qc_pending",
+            "QC Pending",
+            pending,
+            sub_string="awaiting review",
+        ),
+        _kpi_item(
+            "total_tasks_done",
+            "Total Tasks Done",
+            done,
+            sub_string="records reached Done",
+        ),
+        _kpi_item(
+            "total_qc_approved",
+            "Total QC Approved",
+            approved,
+            sub_string="approved by QL",
+        ),
+        _kpi_item(
+            "my_qc_pass_ratio",
+            "My QC Pass Ratio",
+            f"{approval_rate}%",
+            sub_string="first-pass quality",
+        ),
+        _kpi_item(
+            "tasks_done_today",
+            "Tasks Done Today",
+            done_today,
+            sub_string="today",
         ),
     ]
-    return {"count": len(items), "items": items}
+    return {"count": str(len(items)), "items": items}
 
 
+# "Stage Funnel" — cumulative stages a record passes through. Each stage
+# counts records that REACHED it, so counts are non-increasing (Draft is the
+# whole pipeline; Done is the final exported state).
+PROCESSED_OR_BEYOND = ("processed", "exporting", "exported")
 STAGE_BUCKETS = [
-    ("draft", "Draft", [("state", "=", "draft")]),
-    (
-        "generating",
-        "Generating",
-        [("state", "in", list(IN_FLIGHT_STATES))],
-    ),
-    (
-        "pending_review",
-        "Done · Pending Review",
-        [
-            "|",
-            ("state", "=", "processed"),
-            "&",
-            ("state", "=", "exported"),
-            ("review_status", "in", (False, "pending")),
-        ],
-    ),
-    (
-        "approved",
-        "Approved",
-        [("state", "=", "exported"), ("review_status", "=", "approved")],
-    ),
-    (
-        "rejected_failed",
-        "Rejected / Failed",
-        [
-            "|",
-            ("state", "in", list(FAILED_STATES)),
-            "&",
-            ("state", "=", "exported"),
-            ("review_status", "=", "rejected"),
-        ],
-    ),
+    ("draft", "Draft", None),
+    ("processed", "Processed", [("state", "in", list(PROCESSED_OR_BEYOND))]),
+    ("done", "Done", [("state", "in", list(DONE_STATES))]),
 ]
 
 
 def _compute_task_progress(env, gen_scope):
     Project = env["video.editor.project"].sudo()
+    total = Project.search_count(gen_scope)
     items = []
-    total = 0
+    done = 0
     for key, label, domain in STAGE_BUCKETS:
-        count = Project.search_count(gen_scope + domain)
-        total += count
-        items.append({"key": key, "label": label, "count": count})
+        count = total if domain is None else Project.search_count(gen_scope + domain)
+        if key == "done":
+            done = count
+        items.append({
+            "key": key,
+            "label": label,
+            "value": count,
+            "percentage": _pct(count, total),
+        })
+    rejected_rework = Project.search_count(
+        gen_scope + [("review_status", "=", "rejected")]
+    ) + Project.search_count(gen_scope + [("state", "in", list(FAILED_STATES))])
     return {
-        "label": "Task Progress",
+        "label": "Stage Funnel",
         "total": total,
-        "count": str(total),
+        "count": str(len(items)),
         "items": items,
+        "conversion_pct": _pct(done, total),
+        "rejected_rework": rejected_rework,
     }
 
 
@@ -255,16 +331,16 @@ def _compute_approved_per_week(env, gen_scope, weeks):
     today = fields.Date.context_today(env.user)
     current_week_start = _week_start(today)
     earliest_week_start = current_week_start - timedelta(weeks=weeks - 1)
-    window_start_dt = datetime.combine(earliest_week_start, datetime.min.time())
+    prior_week_start = earliest_week_start - timedelta(weeks=1)
+    window_start_dt = datetime.combine(prior_week_start, datetime.min.time())
 
-    domain = gen_scope + [
-        ("review_status", "=", "approved"),
-        ("review_decided_at", ">=", window_start_dt),
-    ]
     rows = Project.search_read(
-        domain,
+        gen_scope
+        + [
+            ("review_status", "=", "approved"),
+            ("review_decided_at", ">=", window_start_dt),
+        ],
         fields=["review_decided_at"],
-        order="review_decided_at asc",
     )
 
     bucket = {}
@@ -272,54 +348,217 @@ def _compute_approved_per_week(env, gen_scope, weeks):
         decided = row.get("review_decided_at")
         if not decided:
             continue
-        if isinstance(decided, datetime):
-            d = decided.date()
-        else:
-            d = decided
+        d = decided.date() if isinstance(decided, datetime) else decided
         ws = _week_start(d)
         bucket[ws] = bucket.get(ws, 0) + 1
 
-    series = []
+    items = []
+    prev_count = bucket.get(prior_week_start, 0)
     for i in range(weeks):
         ws = earliest_week_start + timedelta(weeks=i)
         we = ws + timedelta(days=6)
         count = bucket.get(ws, 0)
-        series.append(
-            {
-                "week_start": ws.isoformat(),
-                "week_end": we.isoformat(),
-                "label": f"{ws.strftime('%b %d')}",
-                "count": count,
-            }
-        )
-
-    current = series[-1]["count"] if series else 0
-    previous = series[-2]["count"] if len(series) >= 2 else 0
-    delta = current - previous
-    if delta > 0:
-        pattern, sign = "up", "+"
-    elif delta < 0:
-        pattern, sign = "down", "-"
-    else:
-        pattern, sign = "", ""
-
-    headline = current
-    headline_caption = (
-        f"{sign}{abs(delta)} vs previous week" if pattern else "no change vs previous week"
-    )
+        delta = count - prev_count
+        items.append({
+            "key": f"w{ws.isocalendar()[1]}",
+            "label": f"W{ws.isocalendar()[1]}",
+            "value": count,
+            "week_start": ws.isoformat(),
+            "week_end": we.isoformat(),
+            "delta_vs_prev_week": delta,
+            "pattern": "up" if delta > 0 else ("down" if delta < 0 else ""),
+            "sign": "+" if delta > 0 else ("-" if delta < 0 else ""),
+        })
+        prev_count = count
 
     return {
-        "title": "Approved per week",
-        "sub_title": f"Trailing {weeks} weeks",
-        "type": "bar_chart",
-        "headline": headline,
-        "headline_caption": headline_caption,
-        "legend": [{"key": "approved", "label": "Approved", "color_token": "success"}],
-        "data": series,
-        "delta_vs_prev_week": delta,
-        "pattern": pattern,
-        "sign": sign,
+        "label": "Approved per Week",
+        "sub_string": f"Trailing {weeks} weeks",
+        "total": sum(item["value"] for item in items),
+        "count": str(len(items)),
+        "items": items,
     }
+
+
+def _burn_series(env, gen_scope, days):
+    Project = env["video.editor.project"].sudo()
+    today = _today(env)
+    start = today - timedelta(days=days - 1)
+    start_dt = datetime.combine(start, datetime.min.time())
+    rows = Project.search_read(
+        gen_scope
+        + [("llm_qc_cost_usd", ">", 0), ("llm_evaluated_at", ">=", start_dt)],
+        fields=["llm_evaluated_at", "llm_qc_cost_usd"],
+    )
+    bucket = {}
+    for row in rows:
+        when = row.get("llm_evaluated_at")
+        if not when:
+            continue
+        d = when.date() if isinstance(when, datetime) else when
+        bucket[d] = bucket.get(d, 0.0) + (row.get("llm_qc_cost_usd") or 0.0)
+    series = []
+    for i in range(days):
+        d = start + timedelta(days=i)
+        series.append({"date": d.isoformat(), "amount": round(bucket.get(d, 0.0), 2)})
+    return series
+
+
+def _compute_budget(env, gen_scope):
+    Project = env["video.editor.project"].sudo()
+    cap = _budget_usd(env)
+    spent = _spend(Project, gen_scope)
+    remaining = round(max(cap - spent, 0.0), 2)
+    approved = Project.search_count(gen_scope + [("review_status", "=", "approved")])
+    avg_cost_per_pair = round(spent / approved, 2) if approved else 0.0
+
+    series = _burn_series(env, gen_scope, BURN_DAYS)
+    avg_daily = (sum(d["amount"] for d in series) / BURN_DAYS) if series else 0.0
+    exhaustion = ""
+    if avg_daily > 0 and remaining > 0:
+        days_left = int(remaining / avg_daily)
+        exhaustion = (_today(env) + timedelta(days=days_left)).isoformat()
+
+    return {
+        "title": "Budget vs Spend",
+        "cap": cap,
+        "spent": spent,
+        "spent_pct": _pct(spent, cap),
+        "remaining": remaining,
+        "remaining_pct": _pct(remaining, cap),
+        "avg_cost_per_accepted_pair": avg_cost_per_pair,
+        "projected_exhaustion_date": exhaustion,
+    }
+
+
+def _compute_burn_rate(env, gen_scope):
+    series = _burn_series(env, gen_scope, BURN_DAYS)
+    today_amount = series[-1]["amount"] if series else 0.0
+    last7 = series[-7:]
+    avg_7d = round(sum(d["amount"] for d in last7) / len(last7), 2) if last7 else 0.0
+    peak = max(series, key=lambda d: d["amount"]) if series else {"date": "", "amount": 0.0}
+    return {
+        "title": f"Burn Rate ({BURN_DAYS} days)",
+        "type": "bar_chart",
+        "data": series,
+        "today": today_amount,
+        "avg_7d": avg_7d,
+        "peak": {"date": peak["date"], "amount": peak["amount"]},
+        "total": round(sum(d["amount"] for d in series), 2),
+    }
+
+
+def _accepted_category(row, category_labels):
+    cat_id = row.get("category_id")
+    if cat_id:
+        return f"cat_{cat_id[0]}", cat_id[1] or "Uncategorized"
+    slug = row.get("category")
+    if slug:
+        return slug, category_labels.get(slug, slug)
+    return "uncategorized", "Uncategorized"
+
+
+def _compute_accepted_per_day(env, gen_scope):
+    # "Records Accepted per Day" — daily count of approved records, stacked
+    # by category (top N categories + an "Other" bucket).
+    Project = env["video.editor.project"].sudo()
+    category_labels = dict(Project._fields["category"].selection)
+    today = _today(env)
+    start = today - timedelta(days=ACCEPTED_DAYS - 1)
+    start_dt = datetime.combine(start, datetime.min.time())
+    rows = Project.search_read(
+        gen_scope
+        + [
+            ("review_status", "=", "approved"),
+            ("review_decided_at", ">=", start_dt),
+        ],
+        fields=["review_decided_at", "category", "category_id"],
+    )
+
+    per_day = {}
+    totals = {}
+    labels = {}
+    for row in rows:
+        when = row.get("review_decided_at")
+        if not when:
+            continue
+        day = when.date() if isinstance(when, datetime) else when
+        key, label = _accepted_category(row, category_labels)
+        labels[key] = label
+        per_day.setdefault(day, {})
+        per_day[day][key] = per_day[day].get(key, 0) + 1
+        totals[key] = totals.get(key, 0) + 1
+
+    ranked = sorted(totals, key=lambda k: (-totals[k], labels.get(k, k)))
+    top = ranked[:ACCEPTED_TOP_CATEGORIES]
+    top_set = set(top)
+
+    legend = [
+        {
+            "key": key,
+            "label": labels.get(key, key),
+            "color_token": CATEGORY_COLOR_TOKENS[idx % len(CATEGORY_COLOR_TOKENS)],
+        }
+        for idx, key in enumerate(top)
+    ]
+    legend.append({"key": "other", "label": "Other", "color_token": "muted"})
+
+    data = []
+    for i in range(ACCEPTED_DAYS):
+        day = start + timedelta(days=i)
+        day_map = per_day.get(day, {})
+        segments = [{"key": key, "value": day_map.get(key, 0)} for key in top]
+        other_val = sum(c for k, c in day_map.items() if k not in top_set)
+        segments.append({"key": "other", "value": other_val})
+        data.append({
+            "date": day.isoformat(),
+            "label": day.strftime("%b %d"),
+            "total": sum(seg["value"] for seg in segments),
+            "segments": segments,
+        })
+
+    return {
+        "title": "Records Accepted per Day",
+        "type": "stacked_bar",
+        "legend": legend,
+        "data": data,
+        "total_accepted": sum(totals.values()),
+    }
+
+
+def _compute_recent_activity(env, gen_scope):
+    Project = env["video.editor.project"].sudo()
+    records = Project.search(
+        gen_scope, order="write_date desc, id desc", limit=RECENT_ACTIVITY_LIMIT
+    )
+    items = []
+    for rec in records:
+        state = rec.state
+        review_status = rec.review_status
+        if review_status == "approved":
+            action = "approved"
+        elif review_status == "rejected":
+            action = "rejected"
+        elif state in DONE_STATES:
+            action = "submitted"
+        elif state in FAILED_STATES:
+            action = "failed"
+        elif state in IN_FLIGHT_STATES:
+            action = "processing"
+        else:
+            action = "updated"
+        actor = rec.assigned_to
+        when = rec.write_date
+        items.append({
+            "actor_id": actor.id,
+            "actor_name": actor.name or "",
+            "actor_initials": _initials(actor.name),
+            "action": action,
+            "task_code": rec.name or "",
+            "timestamp": when.isoformat() if when else "",
+            "time_ago": _time_ago(env, when),
+        })
+    return {"label": "Recent Activity", "count": str(len(items)), "items": items}
 
 
 class CrowleySourcingDashboardOverviewController(http.Controller):
@@ -347,16 +586,21 @@ class CrowleySourcingDashboardOverviewController(http.Controller):
             return err
 
         env = request.env
-        base_scope = _generation_scope_domain()
+        role_tag, base_scope, _projects = _role_scope(env)
         gen_scope = base_scope + date_domain
 
         data = {
             "overview": {
+                "role": role_tag or "tasker",
                 "kpi": _compute_kpi(env, gen_scope),
+                "budget": _compute_budget(env, gen_scope),
+                "burn_rate": _compute_burn_rate(env, gen_scope),
                 "task_progress": _compute_task_progress(env, gen_scope),
                 "approved_per_week": _compute_approved_per_week(
                     env, base_scope, weeks
                 ),
+                "accepted_per_day": _compute_accepted_per_day(env, gen_scope),
+                "recent_activity": _compute_recent_activity(env, gen_scope),
             }
         }
         return return_Response(

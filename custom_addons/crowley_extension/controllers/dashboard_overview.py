@@ -8,12 +8,25 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
+from .analytics_dashboard import _scope as _role_scope
+
 BUDGET_PARAM = "crowley.budget_usd"
 DEFAULT_TREND_WEEKS = 6
 MAX_TREND_WEEKS = 26
 
 IN_FLIGHT_STATES = ("queued", "submitting", "processing", "downloading")
 FAILED_STATES = ("failed", "cancelled")
+DONE_STATES = ("done",)
+
+QC_PASS_RATE_WINDOW_DAYS = 30
+MY_ACTIVITY_WINDOW_DAYS = 30
+TASKS_DONE_WINDOW_DAYS = 7
+BURNED_TASKS_LIMIT = 30
+RECENT_ACTIVITY_LIMIT = 8
+COORDINATION_EVENTS_LIMIT = 8
+HEATMAP_LEVELS = 4
+
+WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
 
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
@@ -44,21 +57,6 @@ def _require_crowley_user():
             status=403,
         )
     return None
-
-
-def _generation_scope_domain():
-    env = request.env
-    user = env.user
-    if user.has_group("crowley.group_crowley_manager"):
-        return [("company_id", "in", user.company_ids.ids)]
-    return [("user_id", "=", user.id)]
-
-
-def _attempt_scope_domain():
-    return [
-        (f"job_id.{field}", operator, value)
-        for field, operator, value in _generation_scope_domain()
-    ]
 
 
 def _parse_date(raw, label):
@@ -122,6 +120,25 @@ def _budget_usd(env):
         return 0.0
 
 
+def _today_bounds(env):
+    today = fields.Datetime.now().date()
+    start = datetime.combine(today, datetime.min.time())
+    return start, start + timedelta(days=1)
+
+
+def _approved_reviewed(Attempt, attempt_scope, window_start=None):
+    extra = []
+    if window_start is not None:
+        extra = [("reviewed_at", ">=", window_start)]
+    approved = Attempt.search_count(
+        attempt_scope + [("review_state", "=", "approved")] + extra
+    )
+    rejected = Attempt.search_count(
+        attempt_scope + [("review_state", "=", "rejected")] + extra
+    )
+    return approved, rejected
+
+
 def _compute_kpi(env, gen_scope, attempt_scope):
     Generation = env["crowley.generation"].sudo()
     Attempt = env["crowley.attempt"].sudo()
@@ -132,6 +149,9 @@ def _compute_kpi(env, gen_scope, attempt_scope):
         gen_scope + [("state", "in", list(IN_FLIGHT_STATES))]
     )
     active = draft + in_flight
+    tasks_done = Generation.search_count(
+        gen_scope + [("state", "in", list(DONE_STATES))]
+    )
 
     cost_rows = Attempt.read_group(
         attempt_scope + [("cost_usd", ">", 0)],
@@ -167,6 +187,43 @@ def _compute_kpi(env, gen_scope, attempt_scope):
         members.filtered(lambda u: u.has_group("crowley.group_crowley_manager"))
     )
 
+    today_start, today_end = _today_bounds(env)
+    yesterday_start = today_start - timedelta(days=1)
+    window_start = today_start - timedelta(days=QC_PASS_RATE_WINDOW_DAYS - 1)
+
+    approved_today = Attempt.search_count(
+        attempt_scope
+        + [
+            ("review_state", "=", "approved"),
+            ("reviewed_at", ">=", today_start),
+            ("reviewed_at", "<", today_end),
+        ]
+    )
+    rejected_today = Attempt.search_count(
+        attempt_scope
+        + [
+            ("review_state", "=", "rejected"),
+            ("reviewed_at", ">=", today_start),
+            ("reviewed_at", "<", today_end),
+        ]
+    )
+    approved_yesterday = Attempt.search_count(
+        attempt_scope
+        + [
+            ("review_state", "=", "approved"),
+            ("reviewed_at", ">=", yesterday_start),
+            ("reviewed_at", "<", today_start),
+        ]
+    )
+    today_pass_rate = _pct(approved_today, approved_today + rejected_today)
+    today_delta = approved_today - approved_yesterday
+
+    approved_30, rejected_30 = _approved_reviewed(
+        Attempt, attempt_scope, window_start=window_start
+    )
+    reviewed_30 = approved_30 + rejected_30
+    qc_pass_rate = _pct(approved_30, reviewed_30)
+
     items = [
         _kpi_item(
             "total_burned",
@@ -196,26 +253,57 @@ def _compute_kpi(env, gen_scope, attempt_scope):
                 f"{manager_count} managers · {len(members) - manager_count} users"
             ),
         ),
+        _kpi_item(
+            "approved_today",
+            "Approved Today",
+            approved_today,
+            sub_string=(
+                f"{today_pass_rate}% pass rate · "
+                f"{'+' if today_delta > 0 else ''}{today_delta} vs yesterday"
+            ),
+            pattern="up" if today_delta > 0 else ("down" if today_delta < 0 else ""),
+            sign="+" if today_delta > 0 else ("-" if today_delta < 0 else ""),
+        ),
+        _kpi_item(
+            "qc_pass_rate",
+            "QC Pass Rate",
+            qc_pass_rate,
+            sub_string=(
+                f"{approved_30} of {reviewed_30} reviewed · "
+                f"last {QC_PASS_RATE_WINDOW_DAYS}d"
+                if reviewed_30
+                else f"No reviews in last {QC_PASS_RATE_WINDOW_DAYS}d"
+            ),
+        ),
+        _kpi_item(
+            "total_tasks_done",
+            "Total Tasks Done",
+            tasks_done,
+            sub_string=f"{_pct(tasks_done, total_tasks)}% of {total_tasks} tasks",
+        ),
     ]
     return {"count": str(len(items)), "items": items}
 
 
 STAGE_BUCKETS = (
-    ("draft", "Draft", [("state", "=", "draft")]),
-    ("generating", "Generating", [("state", "in", list(IN_FLIGHT_STATES))]),
     (
-        "pending_review",
-        "Done · Pending Review",
+        "s1_draft",
+        "S1 Draft",
+        ["|", ("state", "=", "draft"), ("state", "in", list(IN_FLIGHT_STATES))],
+    ),
+    (
+        "s2_qc_approved",
+        "S2 QC'd · Approved",
+        [("state", "=", "done"), ("review_state", "=", "approved")],
+    ),
+    (
+        "s3_delivered",
+        "S3 Delivered",
         [
             ("state", "=", "done"),
             ("review_state", "!=", "approved"),
             ("review_state", "!=", "rejected"),
         ],
-    ),
-    (
-        "approved",
-        "Approved",
-        [("state", "=", "done"), ("review_state", "=", "approved")],
     ),
     (
         "rejected_failed",
@@ -303,6 +391,252 @@ def _compute_approved_per_week(env, attempt_scope, weeks):
     }
 
 
+def _intensity(count, max_count):
+    if not count or not max_count:
+        return 0
+    return min((count * HEATMAP_LEVELS + max_count - 1) // max_count, HEATMAP_LEVELS)
+
+
+def _time_ago(when):
+    if not when:
+        return ""
+    seconds = int((fields.Datetime.now() - when).total_seconds())
+    if seconds < 60:
+        return f"{max(seconds, 0)}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    return f"{hours // 24}d ago"
+
+
+def _done_per_day(env, gen_scope, start_date, end_date, extra=None):
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.min.time()) + timedelta(days=1)
+    rows = env["crowley.generation"].sudo().search_read(
+        gen_scope
+        + [
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", start_dt),
+            ("completed_at", "<", end_dt),
+        ]
+        + (extra or []),
+        fields=["completed_at"],
+    )
+    counts = {}
+    for row in rows:
+        when = row.get("completed_at")
+        if not when:
+            continue
+        day = when.date()
+        counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+def _compute_my_activity(env, gen_scope):
+    today = fields.Datetime.now().date()
+    start = today - timedelta(days=MY_ACTIVITY_WINDOW_DAYS - 1)
+    counts = _done_per_day(env, gen_scope, start, today)
+    max_count = max(counts.values()) if counts else 0
+
+    days = []
+    streak = longest_streak = active_days = 0
+    cursor = start
+    while cursor <= today:
+        count = counts.get(cursor, 0)
+        if count > 0:
+            streak += 1
+            active_days += 1
+            longest_streak = max(longest_streak, streak)
+        else:
+            streak = 0
+        days.append({
+            "date": cursor.isoformat(),
+            "weekday": cursor.weekday(),
+            "weekday_label": WEEKDAY_LABELS[cursor.weekday()],
+            "count": count,
+            "intensity": _intensity(count, max_count),
+        })
+        cursor += timedelta(days=1)
+
+    total = sum(counts.values())
+    prior_start = start - timedelta(days=MY_ACTIVITY_WINDOW_DAYS)
+    prior_total = sum(
+        _done_per_day(
+            env, gen_scope, prior_start, start - timedelta(days=1)
+        ).values()
+    )
+
+    return {
+        "label": "My Activity",
+        "sub_string": (
+            f"Last {MY_ACTIVITY_WINDOW_DAYS} days · Tasks completed per day"
+        ),
+        "window": {"start": start.isoformat(), "end": today.isoformat()},
+        "max_count": max_count,
+        "days": days,
+        "summary": {
+            "total_tasks": total,
+            "total_tasks_delta": total - prior_total,
+            "avg_per_day": round(total / MY_ACTIVITY_WINDOW_DAYS, 1),
+            "longest_streak": longest_streak,
+            "active_days": active_days,
+            "total_days": MY_ACTIVITY_WINDOW_DAYS,
+        },
+    }
+
+
+def _compute_tasks_done_chart(env, gen_scope):
+    today = fields.Datetime.now().date()
+    start = today - timedelta(days=TASKS_DONE_WINDOW_DAYS - 1)
+    done_counts = _done_per_day(env, gen_scope, start, today)
+    approved_counts = _done_per_day(
+        env, gen_scope, start, today, extra=[("review_state", "=", "approved")]
+    )
+
+    items = []
+    cursor = start
+    while cursor <= today:
+        items.append({
+            "date": cursor.isoformat(),
+            "label": WEEKDAY_LABELS[cursor.weekday()],
+            "value": done_counts.get(cursor, 0),
+            "approved": approved_counts.get(cursor, 0),
+        })
+        cursor += timedelta(days=1)
+
+    total = sum(item["value"] for item in items)
+    return {
+        "label": "Tasks Done",
+        "sub_string": f"Last {TASKS_DONE_WINDOW_DAYS} days",
+        "window": {"start": start.isoformat(), "end": today.isoformat()},
+        "total": total,
+        "average_per_day": round(total / TASKS_DONE_WINDOW_DAYS, 1),
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_burned_amount_chart(env, gen_scope):
+    Generation = env["crowley.generation"].sudo()
+    gens = Generation.search(
+        gen_scope + [("total_cost_usd", ">", 0)],
+        order="completed_at desc, id desc",
+        limit=BURNED_TASKS_LIMIT,
+    )
+    ordered = list(reversed(gens))
+    items = []
+    for index, gen in enumerate(ordered, start=1):
+        items.append({
+            "seq": index,
+            "code": gen.name or "",
+            "cost": round(gen.total_cost_usd or 0.0, 4),
+            "tokens": gen.tokens_used or 0,
+            "duration_seconds": round(gen.duration_seconds or 0.0),
+            "model": gen.model_name or "",
+            "completed_at": (
+                gen.completed_at.isoformat() if gen.completed_at else ""
+            ),
+        })
+
+    total = round(sum(item["cost"] for item in items), 4)
+    return {
+        "label": "Burned Amount",
+        "sub_string": f"Last {BURNED_TASKS_LIMIT} tasks (USD)",
+        "total": total,
+        "average_per_task": round(total / len(items), 4) if items else 0.0,
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_recent_activity(env, gen_scope):
+    Generation = env["crowley.generation"].sudo()
+    category_labels = dict(Generation._fields["category"].selection)
+    gens = Generation.search(
+        gen_scope, order="write_date desc, id desc", limit=RECENT_ACTIVITY_LIMIT
+    )
+
+    items = []
+    for gen in gens:
+        state = gen.state
+        review_state = gen.review_state
+        if state in DONE_STATES and review_state == "approved":
+            action = "approved"
+            when = gen.completed_at or gen.write_date
+        elif state in DONE_STATES and review_state == "rejected":
+            action = "rejected"
+            when = gen.completed_at or gen.write_date
+        elif state in DONE_STATES:
+            action = "completed"
+            when = gen.completed_at or gen.write_date
+        elif state in FAILED_STATES:
+            action = "failed"
+            when = gen.write_date
+        else:
+            action = "updated"
+            when = gen.write_date
+        items.append({
+            "actor_id": gen.user_id.id,
+            "actor_name": gen.user_id.name or "",
+            "action": action,
+            "task_code": gen.name or "",
+            "category": category_labels.get(gen.category, "") if gen.category else "",
+            "timestamp": when.isoformat() if when else "",
+            "time_ago": _time_ago(when),
+        })
+
+    return {
+        "label": "Recent Activity",
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_coordination_events(env, gen_scope):
+    # TPM "Coordination Events" feed: owner reassignments recorded via the
+    # tracked user_id field on crowley.generation (mail.tracking.value).
+    label = "TPM Activity — Coordination Events"
+    Generation = env["crowley.generation"].sudo()
+    gens = Generation.search(gen_scope)
+    if not gens:
+        return {"label": label, "count": "0", "items": []}
+
+    code_by_id = {gen.id: (gen.name or "") for gen in gens}
+    user_field = env["ir.model.fields"]._get("crowley.generation", "user_id")
+    messages = env["mail.message"].sudo().search(
+        [
+            ("model", "=", "crowley.generation"),
+            ("res_id", "in", gens.ids),
+            ("tracking_value_ids.field_id", "=", user_field.id),
+        ],
+        order="date desc, id desc",
+        limit=COORDINATION_EVENTS_LIMIT,
+    )
+
+    items = []
+    for message in messages:
+        tracking = message.tracking_value_ids.filtered(
+            lambda t: t.field_id.id == user_field.id
+        )[:1]
+        if not tracking:
+            continue
+        items.append({
+            "actor_id": message.author_id.id,
+            "actor_name": message.author_id.name or "",
+            "action": "reassigned",
+            "task_code": code_by_id.get(message.res_id, ""),
+            "from_user": tracking.old_value_char or "",
+            "to_user": tracking.new_value_char or "",
+            "timestamp": message.date.isoformat() if message.date else "",
+            "time_ago": _time_ago(message.date),
+        })
+
+    return {"label": label, "count": str(len(items)), "items": items}
+
+
 class CrowleyDashboardOverviewController(http.Controller):
 
     @http.route(
@@ -329,21 +663,37 @@ class CrowleyDashboardOverviewController(http.Controller):
         if error is not None:
             return error
 
-        gen_scope = _generation_scope_domain() + date_domain
-        attempt_scope = _attempt_scope_domain() + [
+        role_tag, gen_domain, _projects = _role_scope(env)
+        attempt_base = [
+            (f"job_id.{field}", operator, value)
+            for field, operator, value in gen_domain
+        ]
+        attempt_date = [
             (f"job_id.{field}", operator, value)
             for field, operator, value in date_domain
         ]
+        gen_scope = gen_domain + date_domain
+        attempt_scope = attempt_base + attempt_date
 
         return return_Response(
             message="OK",
             status=200,
             data={
                 "overview": {
+                    "role": role_tag or "tasker",
                     "kpi": _compute_kpi(env, gen_scope, attempt_scope),
                     "task_progress": _compute_task_progress(env, gen_scope),
                     "approved_per_week": _compute_approved_per_week(
-                        env, _attempt_scope_domain(), weeks
+                        env, attempt_base, weeks
+                    ),
+                    "recent_activity": _compute_recent_activity(env, gen_scope),
+                    "coordination_events": _compute_coordination_events(
+                        env, gen_scope
+                    ),
+                    "my_activity": _compute_my_activity(env, gen_scope),
+                    "tasks_done_chart": _compute_tasks_done_chart(env, gen_scope),
+                    "burned_amount_chart": _compute_burned_amount_chart(
+                        env, gen_scope
                     ),
                 },
             },

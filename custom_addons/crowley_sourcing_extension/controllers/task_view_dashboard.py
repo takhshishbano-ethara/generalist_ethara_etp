@@ -7,41 +7,28 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     validate_token,
 )
-from odoo.addons.video_editor_s3.models.video_editor_project import (
-    CATEGORIES as CATEGORY_SELECTION,
-)
 
-from .analytics_dashboard import _user_role_tag
+from .analytics_dashboard import _create_date_domain, _parse_date, _scope, _user_role_tag
 
-LIST_DEFAULT_LIMIT = 50
-LIST_MAX_LIMIT = 500
+LIST_DEFAULT_LIMIT = 25
+LIST_MAX_LIMIT = 200
 
-_STATE_IN_FLIGHT = ("processing", "exporting")
-
-STAGE_SELECTION = (
-    ("s1_draft", "S1 Draft"),
-    ("s2_enriching", "S2 Enriching"),
-    ("s2_qc", "S2 QC"),
-    ("failed", "Failed"),
-)
-
+# Stage badge shown in the Tasks table (Draft / Processed / Done / Failed),
+# derived from the raw video.editor.project state.
 STAGE_TO_STATES = {
-    "s1_draft": ("draft",),
-    "s2_enriching": _STATE_IN_FLIGHT,
-    "s2_qc": ("processed",),
+    "draft": ("draft",),
+    "processed": ("processing", "exporting", "processed"),
+    "done": ("exported",),
     "failed": ("error",),
 }
 
-STATUS_SELECTION = (
-    ("unstarted", "unstarted"),
-    ("generating", "generating"),
-    ("pending_review", "pending_review"),
-    ("approved", "approved"),
-    ("failed_qc", "failed_qc"),
-)
-
-CATEGORY_SLUG_TO_LABEL = dict(CATEGORY_SELECTION)
-CATEGORY_LABEL_TO_SLUG = {label.lower(): slug for slug, label in CATEGORY_SELECTION}
+SORT_FIELDS = {
+    "reference": "name",
+    "topic": "topic_name",
+    "updated": "write_date",
+    "cost": "llm_qc_cost_usd",
+    "created_date": "create_date",
+}
 
 
 def _coerce_int(value, default):
@@ -64,252 +51,168 @@ def _error_response(message, status=400):
     return return_Response(message=message, status=status)
 
 
-def _team_user_ids_for(env, team_field):
-    user = env.user
-    Employee = env["hr.employee"].sudo()
-    Project = env["project.project"].sudo()
-    employee = Employee.search([("user_id", "=", user.id)], limit=1)
-    if not employee:
-        return []
-    projects = Project.search([(team_field, "in", employee.ids)])
-    taskers = projects.mapped("project_tasker").filtered("task_forge_active")
-    user_ids = (taskers.mapped("user_id") | user).ids
-    return user_ids
+def _initials(name):
+    parts = [p for p in (name or "").split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
 
 
-def _user_scope_domain(env, tag):
-    user = env.user
-    if tag == "full":
-        return []
-    if tag == "pl":
-        ids = _team_user_ids_for(env, "project_lead")
-        if not ids:
-            return [("assigned_to", "=", user.id)]
-        return [("assigned_to", "in", ids)]
-    if tag == "qr":
-        ids = _team_user_ids_for(env, "project_qc_reviewer")
-        if not ids:
-            return [("assigned_to", "=", user.id)]
-        return [("assigned_to", "in", ids)]
-    return [("assigned_to", "=", user.id)]
+def _fmt_duration(seconds):
+    total = int(round(seconds or 0))
+    minutes, secs = divmod(total, 60)
+    return f"{minutes:02d}:{secs:02d}"
 
 
-def _resolve_category_param(raw):
-    if not raw:
-        return None
-    slug = raw.strip()
-    if not slug:
-        return None
-    if slug in CATEGORY_SLUG_TO_LABEL:
-        return slug
-    lookup = CATEGORY_LABEL_TO_SLUG.get(slug.lower())
-    return lookup
+def _category_name(project):
+    if project.category_id:
+        return project.category_id.name or ""
+    return dict(project._fields["category"].selection).get(project.category, "") or ""
 
 
-def _or_join(leaves):
-    if not leaves:
-        return []
-    if len(leaves) == 1:
-        return list(leaves)
-    return ["|"] * (len(leaves) - 1) + list(leaves)
+def _sub_category_name(project):
+    if project.sub_category_id:
+        return project.sub_category_id.name or ""
+    return (
+        dict(project._fields["sub_category"].selection).get(project.sub_category, "")
+        or ""
+    )
 
 
-def _parse_date(raw, label):
-    try:
-        return datetime.strptime(raw, "%Y-%m-%d").date(), None
-    except ValueError:
-        return None, _error_response(
-            f"Invalid {label} '{raw}'. Expected YYYY-MM-DD."
-        )
-
-
-def _date_filter_domain(params):
-    domain = []
-    start_raw = (params.get("start_date") or "").strip()
-    end_raw = (params.get("end_date") or "").strip()
-    if start_raw:
-        start_date, err = _parse_date(start_raw, "start_date")
-        if err:
-            return None, err
-        domain.append(
-            ("create_date", ">=", datetime.combine(start_date, datetime.min.time()))
-        )
-    if end_raw:
-        end_date, err = _parse_date(end_raw, "end_date")
-        if err:
-            return None, err
-        domain.append(
-            ("create_date", "<=", datetime.combine(end_date, datetime.max.time()))
-        )
-    return domain, None
-
-
-def _status_domain_for(status_slug):
-    if status_slug == "unstarted":
-        return [("state", "=", "draft")]
-    if status_slug == "generating":
-        return [("state", "in", list(_STATE_IN_FLIGHT))]
-    if status_slug == "pending_review":
-        return [
-            "|",
-            ("state", "=", "processed"),
-            "&",
-            ("state", "=", "exported"),
-            ("review_status", "in", (False, "pending")),
-        ]
-    if status_slug == "approved":
-        return ["&", ("state", "=", "exported"), ("review_status", "=", "approved")]
-    if status_slug == "failed_qc":
-        return [
-            "|",
-            ("state", "=", "error"),
-            "&",
-            ("state", "=", "exported"),
-            ("review_status", "=", "rejected"),
-        ]
-    return []
+def _stage(state):
+    if state == "draft":
+        return "draft", "Draft"
+    if state in ("processing", "exporting", "processed"):
+        return "processed", "Processed"
+    if state == "exported":
+        return "done", "Done"
+    if state == "error":
+        return "failed", "Failed"
+    return state or "", state or ""
 
 
 def _build_task_view_domain(env, params):
-    domain, err = _date_filter_domain(params)
-    if err:
-        return None, err
+    domain = []
+    Project = env["video.editor.project"]
 
-    raw_category = (params.get("category") or "").strip()
-    if raw_category:
-        slug = _resolve_category_param(raw_category)
-        if not slug:
-            return None, _error_response(
-                f"Invalid category '{raw_category}'."
-            )
-        domain.append(("category", "=", slug))
-
-    raw_ql = (params.get("ql") or "").strip()
-    if raw_ql:
-        ql_id = _coerce_int(raw_ql, 0)
-        if not ql_id:
-            return None, _error_response(f"Invalid ql '{raw_ql}'.")
-        domain.append(("assigned_to", "=", ql_id))
+    raw_start = (params.get("start_date") or "").strip()
+    raw_end = (params.get("end_date") or "").strip()
+    start = end = None
+    if raw_start:
+        start, error = _parse_date(raw_start, "start_date")
+        if error is not None:
+            return None, error
+    if raw_end:
+        end, error = _parse_date(raw_end, "end_date")
+        if error is not None:
+            return None, error
+    if start and end and start > end:
+        return None, _error_response(
+            "Invalid date range: start_date must be on or before end_date."
+        )
+    domain += _create_date_domain(start, end)
 
     raw_stage = (params.get("stage") or "").strip()
     if raw_stage:
         if raw_stage not in STAGE_TO_STATES:
-            return None, _error_response(f"Invalid stage '{raw_stage}'.")
+            return None, _error_response(
+                f"Invalid stage '{raw_stage}'. Allowed: "
+                f"{', '.join(STAGE_TO_STATES)}."
+            )
         domain.append(("state", "in", list(STAGE_TO_STATES[raw_stage])))
 
-    raw_status = (params.get("status") or "").strip()
-    if raw_status:
-        valid = {key for key, _ in STATUS_SELECTION}
-        if raw_status not in valid:
-            return None, _error_response(f"Invalid status '{raw_status}'.")
-        domain.extend(_status_domain_for(raw_status))
+    raw_qc = (params.get("qc") or params.get("qc_verdict") or "").strip()
+    if raw_qc:
+        valid = dict(Project._fields["llm_qc_result"].selection)
+        verdicts = [v.strip() for v in raw_qc.split(",") if v.strip()]
+        invalid = [v for v in verdicts if v not in valid]
+        if invalid:
+            return None, _error_response(
+                f"Invalid qc value(s): {', '.join(invalid)}."
+            )
+        domain.append(("llm_qc_result", "in", verdicts))
 
-    raw_search = (params.get("search") or "").strip()
-    if raw_search:
-        search = raw_search
-        leaves = [
+    raw_category = (params.get("category") or "").strip()
+    if raw_category:
+        if raw_category.isdigit():
+            domain.append(("category_id", "=", int(raw_category)))
+        else:
+            domain.append(("category_id.name", "ilike", raw_category))
+
+    raw_sub_category = (params.get("sub_category") or "").strip()
+    if raw_sub_category:
+        if raw_sub_category.isdigit():
+            domain.append(("sub_category_id", "=", int(raw_sub_category)))
+        else:
+            domain.append(("sub_category_id.name", "ilike", raw_sub_category))
+
+    raw_assigned = (params.get("assigned") or params.get("tasker") or "").strip()
+    if raw_assigned:
+        if raw_assigned.isdigit():
+            domain.append(("assigned_to", "=", int(raw_assigned)))
+        else:
+            domain.append(("assigned_to.name", "ilike", raw_assigned))
+
+    search = (params.get("search") or "").strip()
+    if search:
+        domain += [
+            "|",
+            "|",
             ("name", "ilike", search),
-            ("prompt", "ilike", search),
-            ("llm_fixed_prompt", "ilike", search),
-            ("assigned_to.name", "ilike", search),
+            ("topic_name", "ilike", search),
             ("youtube_url", "ilike", search),
         ]
-        domain.extend(_or_join(leaves))
 
     return domain, None
 
 
-def _derive_stage(state):
-    if state == "draft":
-        return "s1_draft", "S1 Draft"
-    if state in _STATE_IN_FLIGHT:
-        return "s2_enriching", "S2 Enriching"
-    if state in ("processed", "exported"):
-        return "s2_qc", "S2 QC"
-    if state == "error":
-        return "failed", "Failed"
-    return "", ""
-
-
-def _derive_status(state, review_status):
-    if state == "draft":
-        return "unstarted"
-    if state in _STATE_IN_FLIGHT:
-        return "generating"
-    if state == "processed":
-        return "pending_review"
-    if state == "exported":
-        if review_status == "approved":
-            return "approved"
-        if review_status == "rejected":
-            return "failed_qc"
-        return "pending_review"
-    if state == "error":
-        return "failed_qc"
-    return ""
-
-
-def _spec_string(project):
-    res = project.resolution or "-"
-    dur = (
-        f"{int(project.duration_seconds)}s"
-        if project.duration_seconds
-        else "-"
+def _resolve_order(params):
+    raw_sort = (params.get("sort_by") or "updated").strip()
+    if raw_sort not in SORT_FIELDS:
+        return None, _error_response(
+            f"Invalid sort_by '{raw_sort}'. Allowed: "
+            f"{', '.join(sorted(SORT_FIELDS))}."
+        )
+    direction = (
+        "asc" if (params.get("sort_order") or "").strip().lower() == "asc" else "desc"
     )
-    return f"{res} · {dur}"
+    return f"{SORT_FIELDS[raw_sort]} {direction}, id desc", None
 
 
-def _prompts(project):
-    raw = (project.prompt or "").strip()
-    golden = (project.llm_fixed_prompt or "").strip()
-    if raw and golden and raw == golden:
-        golden = ""
-    if not raw and golden:
-        raw, golden = golden, ""
-    return raw, golden
-
-
-def _serialize_task(project):
-    state = project.state or ""
-    review = project.review_status or ""
-    stage_slug, stage_label = _derive_stage(state)
-    raw_prompt, golden_prompt = _prompts(project)
-    status = _derive_status(state, review)
-
+def _serialize_task(project, qc_labels):
+    stage_slug, stage_label = _stage(project.state)
     return {
         "id": project.id,
-        "seq": project.name or "",
-        "spec": _spec_string(project),
-        "raw_prompt": raw_prompt,
-        "golden_prompt": golden_prompt,
-        "is_enriched": bool(golden_prompt),
-        "assigned_ql_id": project.assigned_to.id or False,
-        "assigned_ql_name": project.assigned_to.name or "",
-        "category_slug": project.category or "",
-        "category": CATEGORY_SLUG_TO_LABEL.get(project.category, ""),
+        "reference": project.name or "",
+        "category": _category_name(project),
+        "sub_category": _sub_category_name(project),
+        "topic": project.topic_name or "",
+        "duration_seconds": project.duration_seconds or 0.0,
+        "duration": _fmt_duration(project.duration_seconds),
+        "assigned_to_id": project.assigned_to.id or 0,
+        "assigned_to": project.assigned_to.name or "",
+        "assigned_initials": _initials(project.assigned_to.name),
         "stage": stage_slug,
         "stage_label": stage_label,
-        "status": status,
-        "state": state,
-        "review_state": review,
-        "cost_usd": float(project.llm_qc_cost_usd or 0.0),
-        "attempts_used": 0,
-        "attempts_remaining": 0,
-        "updated_at": _iso(project.write_date),
-        "created_at": _iso(project.create_date),
+        "qc": project.llm_qc_result or "",
+        "qc_label": qc_labels.get(project.llm_qc_result, "") or "",
+        "cost": round(project.llm_qc_cost_usd or 0.0, 4),
+        "updated": _iso(project.write_date),
     }
 
 
 COLUMNS = [
-    {"key": "seq", "label": "ID", "type": "string"},
-    {"key": "raw_prompt", "label": "Raw Prompt", "type": "string"},
-    {"key": "golden_prompt", "label": "Golden Prompt", "type": "string"},
-    {"key": "assigned_ql_name", "label": "Assigned", "type": "string"},
-    {"key": "category", "label": "Category", "type": "string"},
-    {"key": "stage_label", "label": "Stage", "type": "string"},
-    {"key": "status", "label": "Status", "type": "string"},
-    {"key": "cost_usd", "label": "Cost (USD)", "type": "currency"},
-    {"key": "updated_at", "label": "Updated", "type": "datetime"},
+    {"key": "reference", "label": "Reference", "type": "string"},
+    {"key": "category", "label": "Category / Sub-Category", "type": "string"},
+    {"key": "topic", "label": "Topic", "type": "string"},
+    {"key": "duration", "label": "Duration", "type": "string"},
+    {"key": "assigned_to", "label": "Assigned", "type": "string"},
+    {"key": "stage", "label": "Stage", "type": "string"},
+    {"key": "qc", "label": "QC", "type": "string"},
+    {"key": "cost", "label": "Cost", "type": "currency"},
+    {"key": "updated", "label": "Updated", "type": "datetime"},
 ]
 
 
@@ -335,11 +238,15 @@ class CrowleySourcingTaskViewDashboardController(http.Controller):
             )
 
         params = kwargs or {}
-        scope_domain = _user_scope_domain(env, role_tag)
         filter_domain, err = _build_task_view_domain(env, params)
         if err:
             return err
-        domain = scope_domain + filter_domain
+        order, err = _resolve_order(params)
+        if err:
+            return err
+
+        _tag, scope, _projects = _scope(env)
+        domain = scope + filter_domain
 
         page = _coerce_int(params.get("page"), 1) or 1
         limit = _coerce_int(params.get("limit"), LIST_DEFAULT_LIMIT) or LIST_DEFAULT_LIMIT
@@ -348,11 +255,10 @@ class CrowleySourcingTaskViewDashboardController(http.Controller):
         offset = (page - 1) * limit if page > 0 else 0
 
         Project = env["video.editor.project"].sudo()
+        qc_labels = dict(Project._fields["llm_qc_result"].selection)
         total = Project.search_count(domain)
-        records = Project.search(
-            domain, limit=limit, offset=offset, order="write_date desc, id desc"
-        )
-        rows = [_serialize_task(rec) for rec in records]
+        records = Project.search(domain, limit=limit, offset=offset, order=order)
+        rows = [_serialize_task(rec, qc_labels) for rec in records]
 
         data = {
             "role": role_tag,
