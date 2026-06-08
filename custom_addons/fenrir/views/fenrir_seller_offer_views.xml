@@ -99,6 +99,9 @@
                             <field name="deliverables_link" widget="url"/>
                         </group>
                     </group>
+                    <separator string="Deliverables (files)"/>
+                    <field name="deliverable_attachment_ids"
+                           widget="many2many_binary" nolabel="1"/>
 
                     <separator string="Artifacts"/>
                     <group>
@@ -131,6 +134,20 @@
                     </group>
 
                     <separator string="Rubric Scoring"/>
+                    <div class="mb-2 d-flex gap-2 align-items-center"
+                         invisible="not id">
+                        <button name="action_export_rubric_scores"
+                                type="object"
+                                string="Export to CSV"
+                                class="btn-secondary"
+                                icon="fa-download"/>
+                        <button name="%(fenrir.fenrir_rubric_score_import_wizard_action)d"
+                                type="action"
+                                string="Import from CSV"
+                                class="btn-secondary"
+                                icon="fa-upload"
+                                context="{'default_seller_offer_id': id}"/>
+                    </div>
                     <field name="rubric_score_ids" nolabel="1">
                         <list editable="bottom" create="0" delete="0"
                               string="Rubric Scores">

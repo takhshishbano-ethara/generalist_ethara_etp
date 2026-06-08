@@ -1,3 +1,7 @@
+import base64
+import csv
+import io
+
 from odoo import api, fields, models
 
 
@@ -117,6 +121,13 @@ class FenrirSellerOffer(models.Model):
     )
 
     deliverables_link = fields.Char(string="Deliverables Link")
+    deliverable_attachment_ids = fields.Many2many(
+        comodel_name="ir.attachment",
+        relation="fenrir_seller_offer_deliverable_rel",
+        column1="offer_id", column2="attachment_id",
+        string="Deliverables",
+        help="Upload one or more files. On task submit/export, these land "
+             "under submissions/seller_<N>/deliverables/.")
     data_media = fields.Char(string="Data (Media)")
     resources = fields.Char(string="Resources",
                             help="References and supporting documents")
@@ -210,3 +221,42 @@ class FenrirSellerOffer(models.Model):
                         "rubric_id": rubric.id,
                     })
         return records
+
+    # ── Rubric-score CSV export ──────────────────────────────────────────
+    def action_export_rubric_scores(self):
+        """Download a CSV of this seller's rubric scores.
+
+        Columns: rubric_name (key on import), rubric_description (info-only),
+        rating, justification. Annotators edit the rating + justification
+        columns in Excel and re-upload via Import from CSV.
+        """
+        self.ensure_one()
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "rubric_name", "rubric_description", "rating", "justification"])
+        for score in self.rubric_score_ids.sorted("rubric_sequence"):
+            writer.writerow([
+                score.rubric_name or "",
+                score.rubric_description or "",
+                score.rating or "",
+                score.justification or "",
+            ])
+        # utf-8-sig so Excel opens with the right encoding
+        csv_bytes = buf.getvalue().encode("utf-8-sig")
+        filename = (
+            f"{self.task_code or 'task'}_seller_{self.seller_no or self.id}"
+            f"_rubric_scores.csv")
+        attachment = self.env["ir.attachment"].create({
+            "name": filename,
+            "type": "binary",
+            "datas": base64.b64encode(csv_bytes),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "text/csv",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
+        }

@@ -31,6 +31,13 @@
               groups="fenrir.group_fenrir_manager"
               sequence="10"/>
 
+    <menuitem id="fenrir_config_runtimes_menu"
+              name="Environment Runtimes"
+              parent="fenrir_config_menu"
+              action="fenrir_environment_runtime_action"
+              groups="fenrir.group_fenrir_manager"
+              sequence="15"/>
+
     <menuitem id="fenrir_config_drive_menu"
               name="Google Drive"
               parent="fenrir_config_menu"

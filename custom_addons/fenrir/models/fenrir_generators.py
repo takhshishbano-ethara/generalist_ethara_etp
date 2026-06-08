@@ -308,7 +308,7 @@ def build_task_metadata(task):
         "title": task.title or "",
         "category": task.category_id.name or "",
         "subcategory": task.subcategory or "",
-        "price_bracket": task.price_bracket or "",
+        "price_bracket": task.price_tier or task.price_bracket or "",
         "recreation_notes": task.recreation_notes or "",
         "input_asset_licenses": [
             {
@@ -347,53 +347,31 @@ def build_seller_metadata(offer):
 def build_environment_files(task):
     """Return list of (filename, str_content) for environment/ folder.
 
-    Picks setup.sh or Dockerfile(+entrypoint+nginx) based on task code prefix.
+    Always produces Dockerfile + entrypoint.sh + nginx.conf, regardless of
+    task code. The first selected runtime supplies the FROM line; if none
+    is picked, defaults to nginx:1.25-alpine so generation still succeeds.
     """
-    profile = _profile_for(task.code)
     test_filename = test_filename_for(task.code)
 
-    if profile["kind"] == "setup":
-        packages = _split_packages(task.key_dependencies)
-        if not packages:
-            packages = ["file"]
-        package_block = " \\\n".join("  " + p for p in packages)
-        body = SETUP_SH_TEMPLATE.format(
-            code=task.code,
-            title=task.title or task.code,
-            test_filename=test_filename,
-            package_block=package_block,
-        )
-        return [("setup.sh", body)]
+    base_image = (
+        (task.environment_base_runtime_ids[:1].name
+         if task.environment_base_runtime_ids else "")
+        or task.environment_base_runtime
+        or "nginx:1.25-alpine")
 
-    base_image = task.environment_base_runtime or profile["base"]
-    mount_path = profile["mount"]
+    mount_path = "/srv/app"
 
-    if profile["kind"] == "static":
-        files = [
-            ("Dockerfile", DOCKERFILE_STATIC_TEMPLATE.format(
-                base_image=base_image,
-                test_filename=test_filename,
-                mount_path=mount_path,
-            )),
-            ("entrypoint.sh", ENTRYPOINT_STATIC_TEMPLATE.format(
-                mount_path=mount_path,
-                test_filename=test_filename,
-            )),
-            ("nginx.conf", NGINX_CONF_TEMPLATE.format(mount_path=mount_path)),
-        ]
-        return files
-
-    # runtime (SD)
     return [
-        ("Dockerfile", DOCKERFILE_RUNTIME_TEMPLATE.format(
+        ("Dockerfile", DOCKERFILE_STATIC_TEMPLATE.format(
             base_image=base_image,
             test_filename=test_filename,
             mount_path=mount_path,
         )),
-        ("entrypoint.sh", ENTRYPOINT_RUNTIME_TEMPLATE.format(
+        ("entrypoint.sh", ENTRYPOINT_STATIC_TEMPLATE.format(
             mount_path=mount_path,
             test_filename=test_filename,
         )),
+        ("nginx.conf", NGINX_CONF_TEMPLATE.format(mount_path=mount_path)),
     ]
 
 

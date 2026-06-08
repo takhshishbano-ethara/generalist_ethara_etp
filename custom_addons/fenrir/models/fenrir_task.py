@@ -64,14 +64,26 @@ class FenrirTask(models.Model):
         compute="_compute_environment_type",
         store=True,
         help="Derived from the task code prefix.")
-    environment_base_runtime = fields.Char(
+    environment_base_runtime_ids = fields.Many2many(
+        comodel_name="fenrir.environment.runtime",
+        relation="fenrir_task_runtime_rel",
+        column1="task_id", column2="runtime_id",
         string="Environment Base / Runtime",
-        help="e.g. node:18, python:3.11, blender:3.6, nginx:1.25-alpine, "
-             "or N/A for pure creative tasks.")
-    key_dependencies = fields.Char(
+        help="One or more base runtimes for the task. Key Dependencies "
+             "auto-aggregates from these.")
+    key_dependency_ids = fields.Many2many(
+        comodel_name="fenrir.key.dependency",
         string="Key Dependencies / Tools",
-        help="Comma-separated apt packages or tools required to validate, "
-             "e.g. imagemagick, librsvg2-bin, file.")
+        compute="_compute_key_dependency_ids",
+        help="Auto-aggregated from the selected runtimes (read-only).")
+
+    # Legacy free-text fields, kept hidden so existing data isn't lost.
+    # The generator prefers the M2O/M2M fields above; these are only used
+    # as a fallback when the master records aren't picked.
+    environment_base_runtime = fields.Char(
+        string="Environment Base / Runtime (legacy)")
+    key_dependencies = fields.Char(
+        string="Key Dependencies / Tools (legacy)")
     price_bracket = fields.Char(
         string="Price Bracket",
         help='Commissioned price band, e.g. "$0-$50", "$50-$100".')
@@ -186,7 +198,6 @@ class FenrirTask(models.Model):
         ("title", "Title"),
         ("category_id", "Category"),
         ("subcategory", "Subcategory"),
-        ("price_bracket", "Price Bracket"),
         ("recreation_notes", "Recreation Notes"),
         ("difficulty_estimate", "Difficulty Estimate"),
         ("estimated_completion_time_hours", "Estimated Completion Time"),
@@ -334,6 +345,13 @@ class FenrirTask(models.Model):
         for rec in self:
             prefix = (rec.code or "").split("-", 1)[0]
             rec.environment_type = "dev" if prefix in dev_prefixes else "non_dev"
+
+    @api.depends("environment_base_runtime_ids",
+                 "environment_base_runtime_ids.key_dependency_ids")
+    def _compute_key_dependency_ids(self):
+        for rec in self:
+            rec.key_dependency_ids = (
+                rec.environment_base_runtime_ids.key_dependency_ids)
 
     def action_open_seller_offers(self):
         self.ensure_one()
@@ -496,6 +514,17 @@ class FenrirTask(models.Model):
                 files.append((f"{seller_dir}/automated_checks.txt",
                               offer.automated_checks.encode("utf-8"),
                               "text/plain"))
+
+            # Uploaded deliverables → submissions/seller_<n>/deliverables/
+            for att in offer.deliverable_attachment_ids:
+                if not att.datas:
+                    continue
+                content = base64.b64decode(att.datas)
+                safe_name = _slug(att.name or f"deliverable_{att.id}")
+                mime = att.mimetype or mimetypes.guess_type(safe_name)[0] \
+                    or "application/octet-stream"
+                files.append(
+                    (f"{seller_dir}/deliverables/{safe_name}", content, mime))
 
         return files
 

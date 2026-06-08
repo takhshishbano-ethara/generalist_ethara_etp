@@ -35,6 +35,9 @@
                     <button name="action_submit_task" type="object"
                             string="Submit Task" class="btn-primary"
                             invisible="status not in (False, 'draft')"/>
+                    <button name="action_submit_task" type="object"
+                            string="Re-Submit" class="btn-warning"
+                            invisible="status != 'pending_review'"/>
                     <button name="action_approve_task" type="object"
                             string="Approve" class="btn-primary"
                             groups="fenrir.group_fenrir_manager"
@@ -79,7 +82,6 @@
                             <field name="buyer_id" widget="many2one_avatar_user"/>
                             <field name="pricing" widget="float"/>
                             <field name="price_tier"/>
-                            <field name="price_bracket" placeholder="$0-$50"/>
                             <field name="delivery_time"/>
                             <field name="order_accepted_date"/>
                         </group>
@@ -99,10 +101,17 @@
                     <group>
                         <group string="Environment">
                             <field name="environment_type" readonly="1"/>
-                            <field name="environment_base_runtime"
-                                   placeholder="e.g. node:18, python:3.11"/>
-                            <field name="key_dependencies"
-                                   placeholder="imagemagick, librsvg2-bin, file"/>
+                            <field name="environment_base_runtime_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True, 'no_quick_create': True}"
+                                   placeholder="Pick one or more runtimes..."/>
+                            <field name="key_dependency_ids"
+                                   widget="many2many_tags"
+                                   readonly="1"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <!-- Legacy free-text fields, hidden but kept for safety -->
+                            <field name="environment_base_runtime" invisible="1"/>
+                            <field name="key_dependencies" invisible="1"/>
                         </group>
                     </group>
 
@@ -413,6 +422,9 @@
                                                widget="url"/>
                                     </group>
                                 </group>
+                                <separator string="Deliverables (files)"/>
+                                <field name="deliverable_attachment_ids"
+                                       widget="many2many_binary" nolabel="1"/>
 
                                 <separator string="Artifacts"/>
                                 <group>
@@ -439,6 +451,20 @@
                                 <field name="notes" nolabel="1"/>
 
                                 <separator string="Rubric Scoring"/>
+                                <div class="mb-2 d-flex gap-2 align-items-center"
+                                     invisible="not id">
+                                    <button name="action_export_rubric_scores"
+                                            type="object"
+                                            string="Export to CSV"
+                                            class="btn-secondary"
+                                            icon="fa-download"/>
+                                    <button name="%(fenrir.fenrir_rubric_score_import_wizard_action)d"
+                                            type="action"
+                                            string="Import from CSV"
+                                            class="btn-secondary"
+                                            icon="fa-upload"
+                                            context="{'default_seller_offer_id': id}"/>
+                                </div>
                                 <field name="rubric_score_ids" nolabel="1">
                                     <list editable="bottom"
                                           create="0" delete="0"
