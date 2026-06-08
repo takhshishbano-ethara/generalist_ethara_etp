@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_aurora_showcase_resource_user,aurora.showcase.resource.user,model_aurora_showcase_resource,aurora.group_aurora_user,1,0,0,0
+access_aurora_showcase_resource_admin,aurora.showcase.resource.admin,model_aurora_showcase_resource,aurora.group_aurora_admin,1,1,1,1
+access_aurora_showcase_methodology_user,aurora.showcase.methodology.user,model_aurora_showcase_methodology,aurora.group_aurora_user,1,0,0,0
+access_aurora_showcase_methodology_admin,aurora.showcase.methodology.admin,model_aurora_showcase_methodology,aurora.group_aurora_admin,1,1,1,1
+access_aurora_showcase_pipeline_step_user,aurora.showcase.pipeline.step.user,model_aurora_showcase_pipeline_step,aurora.group_aurora_user,1,0,0,0
+access_aurora_showcase_pipeline_step_admin,aurora.showcase.pipeline.step.admin,model_aurora_showcase_pipeline_step,aurora.group_aurora_admin,1,1,1,1
+access_aurora_showcase_model_stat_user,aurora.showcase.model.stat.user,model_aurora_showcase_model_stat,aurora.group_aurora_user,1,0,0,0
+access_aurora_showcase_model_stat_admin,aurora.showcase.model.stat.admin,model_aurora_showcase_model_stat,aurora.group_aurora_admin,1,1,1,1
