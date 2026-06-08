@@ -1,7 +1,8 @@
 .o_t2av_dashboard {
+    padding: 24px;
     background: var(--gray-100, #f8f9fa);
     height: 100%;
-    overflow: auto;
+    overflow-y: auto;
 
     .o_t2av_tile_num {
         font-size: 1.8rem;

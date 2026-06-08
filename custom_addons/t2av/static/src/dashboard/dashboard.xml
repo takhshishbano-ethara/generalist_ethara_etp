@@ -2,7 +2,7 @@
 <templates xml:space="preserve">
 
     <t t-name="t2av.Dashboard">
-        <div class="o_t2av_dashboard o_action p-3">
+        <div class="o_t2av_dashboard">
 
             <!-- ===== Header: title, actions, window filter, refresh ===== -->
             <div class="d-flex flex-wrap align-items-center mb-3 gap-2">
