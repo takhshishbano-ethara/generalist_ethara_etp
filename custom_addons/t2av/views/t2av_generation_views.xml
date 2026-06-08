@@ -13,17 +13,17 @@
                                 class="btn-primary"
                                 groups="t2av.group_t2av_manager"
                                 invisible="state != 'draft' or last_enrichment_state in ('queued','submitting','validating')"
-                                confirm="Send the prompt to AWS Bedrock for enrichment? The enriched + validated text will appear below once complete."/>
+                                confirm="Send the prompt to OpenRouter (Gemini 3.5 Flash) for enrichment? The enriched + validated text will appear below once complete."/>
                         <button name="action_revalidate" string="Run QC" type="object"
                                 class="btn-secondary"
                                 groups="t2av.group_t2av_manager"
                                 invisible="not enriched_prompt or (state not in ('draft','failed') and not ui_retry_pending)"
-                                help="Re-run the T2AV validator on the enriched prompt without calling Bedrock. Available pre-generation (draft) or post-failure (failed) so you can re-validate before retrying. Hidden once the video is generated to prevent clobbering golden_prompt."/>
+                                help="Re-run the T2AV validator on the enriched prompt without calling OpenRouter. Available pre-generation (draft) or post-failure (failed) so you can re-validate before retrying. Hidden once the video is generated to prevent clobbering golden_prompt."/>
                         <button name="action_regenerate_with_failure" string="Regenerate with Failure Reason" type="object"
                                 class="btn-warning"
                                 groups="t2av.group_t2av_manager"
                                 invisible="last_enrichment_state != 'fatal'"
-                                confirm="Re-run enrichment with the validator's failure reasons fed to the LLM? This incurs another Bedrock call."
+                                confirm="Re-run enrichment with the validator's failure reasons fed to the LLM? This incurs another OpenRouter call."
                                 help="Spawn a new enrichment attempt that includes the previous attempt's validator failures as feedback. Auto-stops at the enrichment max-attempts cap."/>
 
                         <!-- First-run only -->

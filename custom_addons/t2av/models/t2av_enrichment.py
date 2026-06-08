@@ -89,8 +89,8 @@ class T2AVEnrichment(models.Model):
     )
     region = fields.Char(string="AWS Region", readonly=True, copy=False)
     bedrock_request_id = fields.Char(
-        string="Bedrock Request ID", readonly=True, copy=False,
-        help="AWS Bedrock x-amzn-RequestId — provide to AWS support when filing a ticket.",
+        string="OpenRouter Request ID", readonly=True, copy=False,
+        help="OpenRouter response id / X-Request-Id header — provide to OpenRouter support when filing a ticket.",
     )
 
     state = fields.Selection(
@@ -110,15 +110,15 @@ class T2AVEnrichment(models.Model):
     cost_usd = fields.Float(
         string="Cost (USD)", digits=(12, 6), readonly=True, copy=False,
         compute="_compute_cost_usd", store=True,
-        help="Bedrock Claude 3.5 Sonnet pricing: $3/M input tokens, $15/M output tokens.",
+        help="OpenRouter Gemini 3.5 Flash pricing: ~$0.30/M input tokens, ~$2.50/M output tokens.",
     )
 
     @api.depends("input_tokens", "output_tokens")
     def _compute_cost_usd(self):
         for rec in self:
             rec.cost_usd = (
-                (rec.input_tokens or 0) * 3.0 / 1_000_000.0
-                + (rec.output_tokens or 0) * 15.0 / 1_000_000.0
+                (rec.input_tokens or 0) * 0.30 / 1_000_000.0
+                + (rec.output_tokens or 0) * 2.50 / 1_000_000.0
             )
 
     @api.model
@@ -276,39 +276,34 @@ class T2AVEnrichment(models.Model):
             return
         # === END EARLY GUARD 2 ===
 
-        bedrock_api_key = credential_manager.get_bedrock_api_key(self.env)
-        access_key = ""
-        secret_key = ""
-        if not bedrock_api_key:
-            access_key = credential_manager.get_aws_access_key(self.env)
-            secret_key = credential_manager.get_aws_secret_key(self.env)
-            if not access_key or not secret_key:
-                self._fail(
-                    "aws_creds_missing",
-                    "Bedrock auth missing: set either (a) Bedrock API Key "
-                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
-                    "in Settings > T2AV.",
-                )
-                return
+        openrouter_api_key = credential_manager.get_openrouter_api_key(self.env)
+        if not openrouter_api_key:
+            self._fail(
+                "openrouter_key_missing",
+                "OpenRouter API Key missing: configure in Settings > T2AV. "
+                "Get a key at https://openrouter.ai/keys",
+            )
+            return
 
         icp = self.env["ir.config_parameter"].sudo()
         model_id = icp.get_param(
-            "t2av.bedrock_model_id", enrichment_client.DEFAULT_MODEL_ID,
-        )
-        region = icp.get_param(
-            "t2av.bedrock_region", enrichment_client.DEFAULT_REGION,
+            "t2av.openrouter_enrichment_model_id",
+            enrichment_client.DEFAULT_MODEL_ID,
         )
         try:
-            max_attempts = int(icp.get_param("t2av.bedrock_max_retries", "5"))
+            max_attempts = int(
+                icp.get_param("t2av.openrouter_enrichment_max_retries", "5")
+            )
         except (TypeError, ValueError):
             max_attempts = 5
+        http_referer = icp.get_param("t2av.http_referer", "")
+        app_title = icp.get_param("t2av.app_title", "Ethara T2AV")
 
-        # sudo: bot is a system actor; model_id is Manager-gated for AWS-account-id confidentiality.
+        # sudo: bot is a system actor; model_id is Manager-gated.
         self.sudo().write({
             "state": _STATE_SUBMITTING,
             "submitted_at": fields.Datetime.now(),
             "model_id": model_id,
-            "region": region,
         })
 
         metadata = self._build_metadata(job)
@@ -344,7 +339,7 @@ class T2AVEnrichment(models.Model):
         try:
             attempt_top_p = float(
                 icp.get_param(
-                    "t2av.bedrock_top_p",
+                    "t2av.openrouter_top_p",
                     str(enrichment_client.DEFAULT_TOP_P),
                 )
             )
@@ -353,25 +348,24 @@ class T2AVEnrichment(models.Model):
 
         try:
             result = enrichment_client.enrich(
-                access_key=access_key,
-                secret_key=secret_key,
-                bedrock_api_key=bedrock_api_key,
-                region=region,
+                openrouter_api_key=openrouter_api_key,
                 model_id=model_id,
                 metadata=metadata,
                 previous_failures=previous_failures,
                 max_attempts=max_attempts,
                 temperature=attempt_temperature,
                 top_p=attempt_top_p,
+                http_referer=http_referer,
+                app_title=app_title,
             )
         except enrichment_client.EnrichmentAuthError as e:
-            self._fail("aws_auth", str(e), reject_reason="llm_error")
+            self._fail("openrouter_auth", str(e), reject_reason="llm_error")
             return
         except enrichment_client.EnrichmentConfigError as e:
             self._fail("config", str(e), reject_reason="llm_error")
             return
         except enrichment_client.EnrichmentError as e:
-            self._fail("bedrock_error", str(e), reject_reason="llm_error")
+            self._fail("openrouter_error", str(e), reject_reason="llm_error")
             return
 
         enriched_text = result["text"]
@@ -392,17 +386,17 @@ class T2AVEnrichment(models.Model):
             "bedrock_request_id": request_id,
         })
 
-        if stop_reason and stop_reason != "end_turn":
+        if stop_reason == "length":
             self.write({
                 "state": _STATE_FATAL,
                 "validator_passed": False,
                 "reject_reason": "bedrock_truncated",
                 "validator_fatals": json.dumps([{
-                    "rule": "BEDROCK_TRUNCATED",
+                    "rule": "LLM_TRUNCATED",
                     "severity": "FATAL",
                     "message": (
-                        f"Bedrock terminated with stop_reason={stop_reason!r}. "
-                        "Output likely truncated. Increase max_tokens or "
+                        f"OpenRouter terminated with finish_reason={stop_reason!r}. "
+                        "Output truncated by max_tokens. Increase max_tokens or "
                         "shorten the source prompt."
                     ),
                     "evidence": (enriched_text or "")[:200],
@@ -410,8 +404,8 @@ class T2AVEnrichment(models.Model):
                 "completed_at": fields.Datetime.now(),
             })
             job.message_post(body=_(
-                "Enrichment #%(n)d FAILED: Bedrock stop_reason=%(reason)s "
-                "(output likely truncated)."
+                "Enrichment #%(n)d FAILED: OpenRouter finish_reason=%(reason)s "
+                "(output truncated)."
             ) % {"n": self.attempt_number, "reason": stop_reason})
             return
 

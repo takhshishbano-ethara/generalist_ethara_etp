@@ -1,6 +1,6 @@
 {
     "name": "T2AV - Video Generation",
-    "version": "19.0.1.18.9",
+    "version": "19.0.1.18.10",
     "category": "Tools",
     "summary": "Generate videos from prompts via OpenRouter Seedance 2.0",
     "author": "Ethara",
