@@ -40,6 +40,8 @@
             "t2av/static/src/components/live_status/live_status.scss",
             "t2av/static/src/components/video_player/video_player.js",
             "t2av/static/src/components/video_player/video_player.xml",
+            "t2av/static/src/components/cog_menu_patch/cog_menu_patch.js",
+            "t2av/static/src/components/cog_menu_patch/list_view_patch.xml",
         ],
     },
     "application": True,
