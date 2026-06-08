@@ -12,6 +12,10 @@
         "api_auth_gateway",
         "task_forge_bridge",
         "project_extension",
+        "kensei",
+        "talos",
+        "skoll_project",
+        "kaiju_commit0",
     ],
     "data": [
         "security/ir.model.access.csv",
