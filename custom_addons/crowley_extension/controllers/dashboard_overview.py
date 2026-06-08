@@ -8,7 +8,32 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .analytics_dashboard import _scope as _role_scope
+from .analytics_dashboard import (
+    _get_role_ids,
+    _scope as _role_scope,
+    _user_role_tag,
+)
+
+TPM_ROLE_XMLIDS = ("api_auth_gateway.role_tpm_technical",)
+
+# Which dashboard view each role sees (drives role-specific blocks).
+# CTO/PL share the "cto_pl" view; TPM has its own (coordination events);
+# QL/QC and everyone else get the individual "ql" view.
+KPI_KEYS_BY_VIEW = {
+    "cto_pl": ("total_burned", "active_tasks", "approval_rate", "team_members"),
+    "tpm": ("total_burned", "active_tasks", "approval_rate", "team_members"),
+    "ql": ("approved_today", "qc_pass_rate", "total_tasks_done", "total_burned"),
+}
+
+
+def _overview_view(env, role_tag):
+    if role_tag in ("full", "pl"):
+        role = env.user.user_role
+        tpm_ids = _get_role_ids(env, TPM_ROLE_XMLIDS)
+        if role and role.id in tpm_ids:
+            return "tpm"
+        return "cto_pl"
+    return "ql"
 
 BUDGET_PARAM = "crowley.budget_usd"
 DEFAULT_TREND_WEEKS = 6
@@ -33,7 +58,7 @@ def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
     return {
         "key": key,
         "label": label,
-        "value": value,
+        "value": str(value),
         "sub_string": sub_string,
         "pattern": pattern,
         "sign": sign,
@@ -674,27 +699,54 @@ class CrowleyDashboardOverviewController(http.Controller):
         ]
         gen_scope = gen_domain + date_domain
         attempt_scope = attempt_base + attempt_date
+        view = _overview_view(env, role_tag)
+
+        # KPI block — only this view's cards (one card per item).
+        kpi_by_key = {
+            item["key"]: item
+            for item in _compute_kpi(env, gen_scope, attempt_scope)["items"]
+        }
+        kpi_items = [
+            kpi_by_key[key]
+            for key in KPI_KEYS_BY_VIEW[view]
+            if key in kpi_by_key
+        ]
+        blocks = [{"type": "kpi", "items": kpi_items}]
+
+        # Section blocks — only the ones this view's page shows, in layout order.
+        if view in ("cto_pl", "tpm"):
+            blocks.append(
+                {"type": "task_progress", **_compute_task_progress(env, gen_scope)}
+            )
+            blocks.append({
+                "type": "approved_per_week",
+                **_compute_approved_per_week(env, attempt_base, weeks),
+            })
+            if view == "tpm":
+                blocks.append({
+                    "type": "coordination_events",
+                    **_compute_coordination_events(env, gen_scope),
+                })
+            else:
+                blocks.append({
+                    "type": "recent_activity",
+                    **_compute_recent_activity(env, gen_scope),
+                })
+        else:  # ql / individual view
+            blocks.append({
+                "type": "tasks_done_chart",
+                **_compute_tasks_done_chart(env, gen_scope),
+            })
+            blocks.append({
+                "type": "burned_amount_chart",
+                **_compute_burned_amount_chart(env, gen_scope),
+            })
+            blocks.append(
+                {"type": "my_activity", **_compute_my_activity(env, gen_scope)}
+            )
 
         return return_Response(
             message="OK",
             status=200,
-            data={
-                "overview": {
-                    "role": role_tag or "tasker",
-                    "kpi": _compute_kpi(env, gen_scope, attempt_scope),
-                    "task_progress": _compute_task_progress(env, gen_scope),
-                    "approved_per_week": _compute_approved_per_week(
-                        env, attempt_base, weeks
-                    ),
-                    "recent_activity": _compute_recent_activity(env, gen_scope),
-                    "coordination_events": _compute_coordination_events(
-                        env, gen_scope
-                    ),
-                    "my_activity": _compute_my_activity(env, gen_scope),
-                    "tasks_done_chart": _compute_tasks_done_chart(env, gen_scope),
-                    "burned_amount_chart": _compute_burned_amount_chart(
-                        env, gen_scope
-                    ),
-                },
-            },
+            data={"role": role_tag or "tasker", "blocks": blocks},
         )

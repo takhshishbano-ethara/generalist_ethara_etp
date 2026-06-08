@@ -27,7 +27,7 @@ def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
     return {
         "key": key,
         "label": label,
-        "value": value,
+        "value": str(value),
         "sub_string": sub_string,
         "pattern": pattern,
         "sign": sign,
@@ -439,7 +439,7 @@ def _compute_burn_rate(env, gen_scope):
     peak = max(series, key=lambda d: d["amount"]) if series else {"date": "", "amount": 0.0}
     return {
         "title": f"Burn Rate ({BURN_DAYS} days)",
-        "type": "bar_chart",
+        "chart_type": "bar_chart",
         "data": series,
         "today": today_amount,
         "avg_7d": avg_7d,
@@ -519,7 +519,7 @@ def _compute_accepted_per_day(env, gen_scope):
 
     return {
         "title": "Records Accepted per Day",
-        "type": "stacked_bar",
+        "chart_type": "stacked_bar",
         "legend": legend,
         "data": data,
         "total_accepted": sum(totals.values()),
@@ -561,6 +561,23 @@ def _compute_recent_activity(env, gen_scope):
     return {"label": "Recent Activity", "count": str(len(items)), "items": items}
 
 
+# Which dashboard view each role sees (drives the role-specific block list).
+VIEW_BY_ROLE = {"full": "manager", "pl": "manager", "qr": "ql", "tasker": "tasker"}
+
+# KPI cards shown per view (only these are returned; one card per item).
+KPI_KEYS_BY_VIEW = {
+    "manager": ("total_burned", "tasks_done_qc", "approval_rate", "team_members"),
+    "ql": ("total_qc_done", "approval_rate", "force_submit_rate", "qc_pending"),
+    "tasker": (
+        "total_tasks_done",
+        "total_qc_approved",
+        "my_qc_pass_ratio",
+        "total_burned",
+        "tasks_done_today",
+    ),
+}
+
+
 class CrowleySourcingDashboardOverviewController(http.Controller):
 
     @http.route(
@@ -581,30 +598,47 @@ class CrowleySourcingDashboardOverviewController(http.Controller):
         date_domain, err = _date_filter_domain(params)
         if err:
             return err
-        weeks, err = _resolve_trend_weeks(params)
-        if err:
-            return err
 
         env = request.env
         role_tag, base_scope, _projects = _role_scope(env)
         gen_scope = base_scope + date_domain
+        view = VIEW_BY_ROLE.get(role_tag, "tasker")
 
-        data = {
-            "overview": {
-                "role": role_tag or "tasker",
-                "kpi": _compute_kpi(env, gen_scope),
-                "budget": _compute_budget(env, gen_scope),
-                "burn_rate": _compute_burn_rate(env, gen_scope),
-                "task_progress": _compute_task_progress(env, gen_scope),
-                "approved_per_week": _compute_approved_per_week(
-                    env, base_scope, weeks
-                ),
-                "accepted_per_day": _compute_accepted_per_day(env, gen_scope),
-                "recent_activity": _compute_recent_activity(env, gen_scope),
-            }
+        # KPI block — only this view's cards (one card per item).
+        kpi_by_key = {
+            item["key"]: item for item in _compute_kpi(env, gen_scope)["items"]
         }
+        kpi_items = [
+            kpi_by_key[key]
+            for key in KPI_KEYS_BY_VIEW[view]
+            if key in kpi_by_key
+        ]
+        blocks = [{"type": "kpi", "items": kpi_items}]
+
+        # Section blocks — only the ones this view's page shows, in layout order.
+        if view == "manager":
+            blocks.append({"type": "budget", **_compute_budget(env, gen_scope)})
+            blocks.append({"type": "burn_rate", **_compute_burn_rate(env, gen_scope)})
+            blocks.append(
+                {"type": "accepted_per_day", **_compute_accepted_per_day(env, gen_scope)}
+            )
+            blocks.append(
+                {"type": "task_progress", **_compute_task_progress(env, gen_scope)}
+            )
+        elif view == "ql":
+            blocks.append(
+                {"type": "task_progress", **_compute_task_progress(env, gen_scope)}
+            )
+        else:  # tasker
+            blocks.append(
+                {"type": "accepted_per_day", **_compute_accepted_per_day(env, gen_scope)}
+            )
+        blocks.append(
+            {"type": "recent_activity", **_compute_recent_activity(env, gen_scope)}
+        )
+
         return return_Response(
-            message="Dashboard overview fetched successfully.",
+            message="OK",
             status=200,
-            data=data,
+            data={"role": role_tag or "tasker", "blocks": blocks},
         )

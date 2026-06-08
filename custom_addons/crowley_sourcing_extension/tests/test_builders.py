@@ -122,7 +122,7 @@ class TestSourcingOverviewBuilders(TransactionCase):
 
     def test_accepted_per_day_stacked_by_category(self):
         result = _compute_accepted_per_day(self.env, self.scope)
-        self.assertEqual(result["type"], "stacked_bar")
+        self.assertEqual(result["chart_type"], "stacked_bar")
         self.assertEqual(len(result["data"]), ACCEPTED_DAYS)
         # "Other" bucket is always present in the legend.
         self.assertIn("other", {leg["key"] for leg in result["legend"]})

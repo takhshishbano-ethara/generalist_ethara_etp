@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_video_editor_project_list_ext" model="ir.ui.view">
+        <field name="name">video.editor.project.list.ext</field>
+        <field name="model">video.editor.project</field>
+        <field name="inherit_id" ref="video_editor_s3.view_video_editor_project_list"/>
+        <field name="arch" type="xml">
+            <field name="name" position="after">
+                <field name="category_id" optional="show"/>
+                <field name="sub_category_id" optional="show"/>
+                <field name="topic_name" optional="show"/>
+                <field name="style" optional="show"/>
+            </field>
+        </field>
+    </record>
+</odoo>
