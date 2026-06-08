@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_t2av_batch_publish_wizard_form" model="ir.ui.view">
+        <field name="name">t2av.batch_publish.wizard.form</field>
+        <field name="model">t2av.batch_publish.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Publish to RabbitMQ">
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        <b>Manual mode:</b> if you ticked rows in the list,
+                        those are used (ineligible ones are auto-skipped).
+                        <br/>
+                        <b>FIFO mode:</b> enter how many to publish; the
+                        wizard auto-picks the oldest eligible records.
+                    </div>
+                    <group>
+                        <field name="mode" widget="radio" options="{'horizontal': true}"/>
+                    </group>
+                    <group invisible="mode != 'fifo'">
+                        <group string="Selection">
+                            <field name="requested_count"
+                                   required="mode == 'fifo'"/>
+                            <field name="category_filter"
+                                   options="{'no_create': True}"/>
+                            <field name="include_failed"/>
+                        </group>
+                        <group string="Date Range (optional)">
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                        </group>
+                    </group>
+                    <group invisible="mode != 'fifo'">
+                        <group>
+                            <field name="eligible_count" readonly="1"/>
+                            <field name="will_publish_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <group invisible="mode != 'manual'">
+                        <group>
+                            <field name="include_failed"/>
+                            <field name="eligible_count" readonly="1"
+                                   string="Eligible Among Selected"/>
+                        </group>
+                        <group>
+                            <field name="will_publish_count" readonly="1"/>
+                            <field name="skipped_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="info_message" readonly="1" nolabel="1"/>
+                    <separator string="Records this batch will publish"/>
+                    <field name="preview_ids" readonly="1" nolabel="1">
+                        <list create="0" delete="0">
+                            <field name="name"/>
+                            <field name="category"/>
+                            <field name="prompt"/>
+                            <field name="create_date"/>
+                            <field name="pipeline_status"/>
+                            <field name="pipeline_retry_count"/>
+                        </list>
+                    </field>
+                    <field name="manual_ids" invisible="1"/>
+                </sheet>
+                <footer>
+                    <button name="action_publish" type="object"
+                            string="Publish to RabbitMQ"
+                            class="btn-primary"
+                            confirm="Publish these records to the RabbitMQ pipeline? They will be marked queued and excluded from future batches until they complete."/>
+                    <button string="Cancel" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_t2av_batch_publish_wizard" model="ir.actions.act_window">
+        <field name="name">Publish to RabbitMQ</field>
+        <field name="res_model">t2av.batch_publish.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="model_t2av_generation"/>
+        <field name="binding_view_types">list</field>
+    </record>
+</odoo>

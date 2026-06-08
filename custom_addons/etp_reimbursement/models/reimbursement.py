@@ -55,7 +55,10 @@ class EtpReimbursement(models.Model):
     )
     currency_id = fields.Many2one(
         'res.currency', string='Currency',
-        default=lambda self: self.env.company.currency_id.id,
+        default=lambda self: (
+            self.env.ref('base.INR', raise_if_not_found=False)
+            or self.env.company.currency_id
+        ).id,
         required=True,
     )
     total_amount = fields.Monetary(
@@ -96,6 +99,9 @@ class EtpReimbursement(models.Model):
         for rec in self:
             if rec.state == 'draft' or not rec.employee_id:
                 continue
+            # HR users are exempt from the one-per-day limit
+            if self._user_is_hr(self.env.user):
+                continue
             domain = [
                 ('employee_id', '=', rec.employee_id.id),
                 ('request_date', '=', rec.request_date),
@@ -107,6 +113,14 @@ class EtpReimbursement(models.Model):
                     "%s already has a reimbursement request submitted on %s. "
                     "Only one request is allowed per day."
                 ) % (rec.employee_id.name, rec.request_date))
+
+    @api.model
+    def _user_is_hr(self, user):
+        role_name = (user.user_role.name or '').strip().lower() if user.user_role else ''
+        return role_name in {'hr', 'hr admin'} \
+            or user.has_group('etp_user_roles.group_hr_admin') \
+            or user.has_group('etp_reimbursement.group_reimbursement_manager') \
+            or user.has_group('base.group_system')
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -177,15 +191,25 @@ class EtpReimbursement(models.Model):
     # ── Helpers ──────────────────────────────────────────────────────────────
 
     def _ensure_hr_user(self):
-        if not self.env.user.has_group('etp_user_roles.group_hr_admin') and not self.env.user.has_group('base.group_system'):
-            raise UserError(_('Only HR users can perform this action.'))
+        user = self.env.user
+        role_name = (user.user_role.name or '').strip().lower() if user.user_role else ''
+        if role_name in {'hr', 'hr admin'}:
+            return
+        if user.has_group('etp_user_roles.group_hr_admin') \
+                or user.has_group('etp_reimbursement.group_reimbursement_manager') \
+                or user.has_group('base.group_system'):
+            return
+        raise UserError(_('Only HR users can perform this action.'))
 
     def _hr_recipient_emails(self):
+        Users = self.env['res.users'].sudo()
+        users = Users.browse()
         hr_group = self.env.ref('etp_user_roles.group_hr_admin', raise_if_not_found=False)
-        if not hr_group:
-            return []
+        if hr_group:
+            users |= hr_group.sudo().user_ids
+        users |= Users.search([('user_role.name', 'in', ['HR', 'hr', 'HR Admin', 'hr admin'])])
         emails = []
-        for user in hr_group.sudo().user_ids:
+        for user in users:
             email = user.email or user.login
             if email:
                 emails.append(email)

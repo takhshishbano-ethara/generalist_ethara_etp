@@ -160,6 +160,17 @@ class T2AVGeneration(models.Model):
     )
 
     sub_category = fields.Char(string="Sub-Category", tracking=True)
+    prompt_language = fields.Selection(
+        [
+            ("english", "English"),
+            ("non_english", "Non-English"),
+        ],
+        string="Prompt Language",
+        default="english",
+        tracking=True,
+        help="Manual-parity early-skip guard. Set to 'non_english' to skip "
+        "enrichment without an LLM call.",
+    )
     style = fields.Selection(
         [
             ("casual", "Casual"),

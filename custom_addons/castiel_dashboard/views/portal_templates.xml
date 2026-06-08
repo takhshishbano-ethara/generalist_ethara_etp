@@ -81,8 +81,8 @@
                 <dl class="glance-list">
                   <div class="glance-row"><dt>Seed instances</dt><dd><b>20</b></dd></div>
                   <div class="glance-row"><dt>Project categories</dt><dd><b>8</b></dd></div>
-                  <div class="glance-row"><dt>Bug classes</dt><dd><b>9</b></dd></div>
-                  <div class="glance-row"><dt>Languages</dt><dd><b>3</b></dd></div>
+                  <div class="glance-row"><dt>Bug classes</dt><dd><b>4</b></dd></div>
+                  <div class="glance-row"><dt>Languages</dt><dd><b>1</b></dd></div>
                   <div class="glance-row"><dt>Verifier tiers</dt><dd><b>7</b></dd></div>
                   <div class="glance-row"><dt>Reward</dt><dd>Deterministic</dd></div>
                 </dl>
@@ -93,14 +93,14 @@
           <!-- ===================== §02 KEY METRICS ===================== -->
           <section class="section" id="metrics" aria-labelledby="metrics-label">
             <p class="section-label" id="metrics-label">§02 · Key metrics</p>
-            <div class="kpi-row" style="grid-template-columns: repeat(6, 1fr);">
+            <div class="kpi-row" style="grid-template-columns: repeat(5, 1fr);">
               <div class="kpi-card">
                 <p class="kpi-label">Seed Instances</p>
                 <p class="kpi-value"><span class="kpi-big">20</span></p>
               </div>
               <div class="kpi-card">
                 <p class="kpi-label">Bug Classes</p>
-                <p class="kpi-value"><span class="kpi-big">9</span></p>
+                <p class="kpi-value"><span class="kpi-big">4</span></p>
               </div>
               <div class="kpi-card">
                 <p class="kpi-label">Categories</p>
@@ -108,15 +108,11 @@
               </div>
               <div class="kpi-card">
                 <p class="kpi-label">Languages</p>
-                <p class="kpi-value"><span class="kpi-big">3</span></p>
+                <p class="kpi-value"><span class="kpi-big">1</span></p>
               </div>
               <div class="kpi-card kpi-card--accent">
                 <p class="kpi-label">Verifier Tiers</p>
                 <p class="kpi-value"><span class="kpi-big">7</span></p>
-              </div>
-              <div class="kpi-card kpi-card--accent">
-                <p class="kpi-label">Difficulty Tiers</p>
-                <p class="kpi-value"><span class="kpi-big">3</span></p>
               </div>
             </div>
           </section>
@@ -145,7 +141,7 @@
               </figure>
             </div>
 
-            <div class="charts charts-3">
+            <div class="charts" style="grid-template-columns: repeat(2, 1fr);">
               <figure class="chart">
                 <button type="button" class="chart-trigger" aria-label="Language split full size">
                   <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/02_languages.png" alt="Language split" loading="lazy"/>
@@ -155,23 +151,15 @@
                 <figcaption>Fig. 3 — Languages</figcaption>
               </figure>
               <figure class="chart">
-                <button type="button" class="chart-trigger" aria-label="Difficulty distribution full size">
-                  <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/03_difficulty.png" alt="Difficulty distribution" loading="lazy"/>
-                  <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/03_difficulty_dark.png" alt="Difficulty distribution" loading="lazy"/>
-                  <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
-                </button>
-                <figcaption>Fig. 4 — Difficulty</figcaption>
-              </figure>
-              <figure class="chart">
                 <button type="button" class="chart-trigger" aria-label="Attack surface full size">
                   <img class="chart-light" src="/castiel_dashboard/static/src/portal/img/04_attack_surface.png" alt="Attack surface distribution" loading="lazy"/>
                   <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/04_attack_surface_dark.png" alt="Attack surface distribution" loading="lazy"/>
                   <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
                 </button>
-                <figcaption>Fig. 5 — Attack surface</figcaption>
+                <figcaption>Fig. 4 — Attack surface</figcaption>
               </figure>
             </div>
-            <p class="caption">The seed is <b>memory-safety-dominant by construction</b> (sanitizer-detectable, deterministic crash). Difficulty is calibrated to a 0–40% frontier pass@1 band: Easy 20–40%, Medium 5–20%, Hard 0–5%.</p>
+            <p class="caption">The seed is <b>memory-safety-dominant by construction</b> (sanitizer-detectable, deterministic crash) and entirely local-file-parse in C — a deliberate bias for the seed, where deterministic reproduction is cheapest.</p>
           </section>
 
           <!-- ===================== §04 METHODOLOGY ===================== -->
@@ -256,7 +244,7 @@
                   <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/06_benchmark_scale_dark.png" alt="Benchmark scale comparison" loading="lazy"/>
                   <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
                 </button>
-                <figcaption>Fig. 6 — Benchmark scale (instances)</figcaption>
+                <figcaption>Fig. 5 — Benchmark scale (instances)</figcaption>
               </figure>
               <figure class="chart">
                 <button type="button" class="chart-trigger" aria-label="CyberGym difficulty curve full size">
@@ -264,7 +252,7 @@
                   <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/08_cybergym_difficulty_dark.png" alt="CyberGym success by difficulty level" loading="lazy"/>
                   <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
                 </button>
-                <figcaption>Fig. 7 — CyberGym success by difficulty</figcaption>
+                <figcaption>Fig. 6 — CyberGym success by difficulty</figcaption>
               </figure>
             </div>
             <div class="charts" style="grid-template-columns: 1fr;">
@@ -274,7 +262,7 @@
                   <img class="chart-dark" src="/castiel_dashboard/static/src/portal/img/07_cybergym_models_dark.png" alt="CyberGym model leaderboard" loading="lazy"/>
                   <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
                 </button>
-                <figcaption>Fig. 8 — CyberGym Level-1 success rate (OpenHands)</figcaption>
+                <figcaption>Fig. 7 — CyberGym Level-1 success rate (OpenHands)</figcaption>
               </figure>
             </div>
             <p class="caption">CyberGym reports a best single-model success of <b>17.9%</b> (Claude-Sonnet-4); the union across all models reaches <b>27.2%</b>, revealing low task overlap.</p>

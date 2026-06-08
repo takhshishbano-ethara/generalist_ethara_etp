@@ -21,6 +21,7 @@
         "data/t2av_server_actions.xml",
         "data/t2av_rabbitmq_data.xml",
         "data/t2av_stack_actions.xml",
+        "views/t2av_batch_publish_wizard_views.xml",
         "views/t2av_generation_views.xml",
         "views/res_config_settings_views.xml",
         "views/t2av_import_wizard_views.xml",

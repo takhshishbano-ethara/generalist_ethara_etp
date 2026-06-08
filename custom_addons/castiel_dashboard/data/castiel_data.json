@@ -8,18 +8,16 @@
   "corpus": {
     "instances": 20,
     "categories": {
-      "audio": 4, "image": 3, "document": 3, "network": 3,
-      "compression": 2, "binary-parser": 2, "xml-json": 2, "crypto": 1
+      "image": 5, "document": 4, "other": 3, "network": 2,
+      "xml-json": 2, "compression": 2, "audio": 1, "text": 1
     },
     "bug_classes": {
-      "heap-buffer-overflow": 6, "stack-buffer-overflow": 3, "use-after-free": 3,
-      "null-deref": 2, "uninit-memory": 2, "global-buffer-overflow": 1,
-      "double-free": 1, "integer-overflow → OOB": 1, "negative-size-param": 1
+      "heap-buffer-overflow": 14, "uninit-memory": 3,
+      "stack-buffer-overflow": 2, "global-buffer-overflow": 1
     },
-    "languages": { "C": 14, "C++": 5, "Rust": 1 },
-    "attack_surface": { "local-file-parse": 17, "network": 2, "cli": 1 },
-    "difficulty": { "Easy": 8, "Medium": 8, "Hard": 4 },
-    "difficulty_bands": { "Easy": "20–40% frontier pass@1", "Medium": "5–20% frontier pass@1", "Hard": "0–5% frontier pass@1" }
+    "languages": { "C": 20 },
+    "attack_surface": { "local-file-parse": 20 },
+    "difficulty": { "Medium": 20 }
   },
   "verifier_tiers": [
     { "tier": "input_valid", "check": "Parses far enough to reach the harness", "defeats": "Garbage-input farming" },
