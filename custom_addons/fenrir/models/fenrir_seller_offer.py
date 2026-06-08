@@ -1,3 +1,7 @@
+import base64
+import csv
+import io
+
 from odoo import api, fields, models
 
 
@@ -34,6 +38,39 @@ class FenrirSellerOffer(models.Model):
     seller = fields.Char(string="Seller Name",
                          help="Optional freelancer name / Fiverr handle",
                          tracking=True)
+    seller_username = fields.Char(
+        string="Seller Username",
+        help='Marketplace handle, with leading "@", e.g. "@atanso".')
+    seller_level = fields.Selection(
+        selection=[
+            ("new_seller", "New Seller"),
+            ("level_1", "Level 1"),
+            ("level_2", "Level 2"),
+            ("top_rated", "Top Rated"),
+        ],
+        string="Seller Level",
+        help="Marketplace seller tier.")
+    seller_profile_url = fields.Char(
+        string="Seller Profile URL",
+        help="Canonical link to the seller's marketplace profile.")
+    order_id = fields.Char(
+        string="Order ID",
+        help='Marketplace order ID, format "FO<hex>".')
+    order_date = fields.Date(string="Order Date")
+    delivery_date = fields.Date(string="Delivery Date")
+    delivery_time_days = fields.Integer(
+        string="Delivery Time (days)",
+        compute="_compute_delivery_time_days",
+        store=True,
+        help="Whole days between order_date and delivery_date.")
+    revisions_requested = fields.Integer(
+        string="Revisions Requested",
+        default=0,
+        help="Count of revision rounds requested before acceptance.")
+    price_paid_usd = fields.Float(
+        string="Price Paid (USD)",
+        help="Final amount paid for the order in USD. Used as the canonical "
+             "value emitted in seller metadata.json.")
     display_name = fields.Char(compute="_compute_display_name", store=True)
 
     received_custom_offer = fields.Selection(
@@ -84,6 +121,13 @@ class FenrirSellerOffer(models.Model):
     )
 
     deliverables_link = fields.Char(string="Deliverables Link")
+    deliverable_attachment_ids = fields.Many2many(
+        comodel_name="ir.attachment",
+        relation="fenrir_seller_offer_deliverable_rel",
+        column1="offer_id", column2="attachment_id",
+        string="Deliverables",
+        help="Upload one or more files. On task submit/export, these land "
+             "under submissions/seller_<N>/deliverables/.")
     data_media = fields.Char(string="Data (Media)")
     resources = fields.Char(string="Resources",
                             help="References and supporting documents")
@@ -108,6 +152,14 @@ class FenrirSellerOffer(models.Model):
         for rec in self:
             label = f"Seller {rec.seller_no}" if rec.seller_no else "Seller —"
             rec.display_name = f"{label} — {rec.seller}" if rec.seller else label
+
+    @api.depends("order_date", "delivery_date")
+    def _compute_delivery_time_days(self):
+        for rec in self:
+            if rec.order_date and rec.delivery_date:
+                rec.delivery_time_days = (rec.delivery_date - rec.order_date).days
+            else:
+                rec.delivery_time_days = 0
 
     @api.onchange("task_id")
     def _onchange_task_id_populate_rubric_scores(self):
@@ -169,3 +221,42 @@ class FenrirSellerOffer(models.Model):
                         "rubric_id": rubric.id,
                     })
         return records
+
+    # ── Rubric-score CSV export ──────────────────────────────────────────
+    def action_export_rubric_scores(self):
+        """Download a CSV of this seller's rubric scores.
+
+        Columns: rubric_name (key on import), rubric_description (info-only),
+        rating, justification. Annotators edit the rating + justification
+        columns in Excel and re-upload via Import from CSV.
+        """
+        self.ensure_one()
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "rubric_name", "rubric_description", "rating", "justification"])
+        for score in self.rubric_score_ids.sorted("rubric_sequence"):
+            writer.writerow([
+                score.rubric_name or "",
+                score.rubric_description or "",
+                score.rating or "",
+                score.justification or "",
+            ])
+        # utf-8-sig so Excel opens with the right encoding
+        csv_bytes = buf.getvalue().encode("utf-8-sig")
+        filename = (
+            f"{self.task_code or 'task'}_seller_{self.seller_no or self.id}"
+            f"_rubric_scores.csv")
+        attachment = self.env["ir.attachment"].create({
+            "name": filename,
+            "type": "binary",
+            "datas": base64.b64encode(csv_bytes),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "text/csv",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
+        }

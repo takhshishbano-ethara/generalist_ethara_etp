@@ -275,9 +275,9 @@ def _build_avg_cost(env, scope, filters):
     domain = (
         scope
         + _create_date_domain(filters["start"], filters["end"])
-        + [("cost_usd", ">", 0)]
+        + [("total_cost_usd", ">", 0)]
     )
-    groups = Gen._read_group(domain, [], ["__count", "cost_usd:sum"])
+    groups = Gen._read_group(domain, [], ["__count", "total_cost_usd:sum"])
     counted, total_cost = groups[0] if groups else (0, 0.0)
     counted = counted or 0
     total_cost = total_cost or 0.0
@@ -813,8 +813,8 @@ def _build_kpi_v2(env, ctx):
 
     gens_count = Gen.search_count(scope)
 
-    spend_rows = Gen.formatted_read_group(scope, [], ["cost_usd:sum"])
-    total_spend = (spend_rows[0]["cost_usd:sum"] if spend_rows else 0.0) or 0.0
+    spend_rows = Gen.formatted_read_group(scope, [], ["total_cost_usd:sum"])
+    total_spend = (spend_rows[0]["total_cost_usd:sum"] if spend_rows else 0.0) or 0.0
     avg_per_task = (total_spend / gens_count) if gens_count else 0.0
 
     approved = Gen.search_count(scope + [("review_state", "=", "approved")])
@@ -867,9 +867,9 @@ def _build_spend_by_category(env, ctx):
     rows = Gen.formatted_read_group(
         ctx["scope"] + [("category", "!=", False)],
         ["category"],
-        ["cost_usd:sum"],
+        ["total_cost_usd:sum"],
     )
-    amount_by_cat = {r["category"]: round(r["cost_usd:sum"] or 0.0, 4) for r in rows}
+    amount_by_cat = {r["category"]: round(r["total_cost_usd:sum"] or 0.0, 4) for r in rows}
     total = round(sum(amount_by_cat.values()), 4)
 
     selection = list(Gen._fields["category"].selection)
@@ -954,7 +954,7 @@ def _build_daily_burn_rate(env, ctx):
             continue
         ql_id = ql_of_user.get(gen.user_id.id, UNASSIGNED_QL)
         ql_ids.add(ql_id)
-        cost = gen.cost_usd or 0.0
+        cost = gen.total_cost_usd or 0.0
         per_day.setdefault(day, {})
         per_day[day][ql_id] = per_day[day].get(ql_id, 0.0) + cost
         per_ql_total[ql_id] = per_ql_total.get(ql_id, 0.0) + cost

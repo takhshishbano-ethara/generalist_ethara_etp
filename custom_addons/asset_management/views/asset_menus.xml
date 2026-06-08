@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_asset_root"
+              name="Asset Management"
+              web_icon="asset_management,static/description/icon.png"
+              sequence="55"/>
+
+    <menuitem id="menu_asset_requests"
+              name="Requests"
+              parent="menu_asset_root"
+              action="action_asset_request"
+              sequence="10"/>
+
+    <menuitem id="menu_asset_assignments"
+              name="Assignments"
+              parent="menu_asset_root"
+              action="action_asset_assignment"
+              sequence="20"/>
+
+    <menuitem id="menu_asset_inventory"
+              name="Inventory"
+              parent="menu_asset_root"
+              action="action_asset_asset"
+              sequence="30"/>
+
+    <menuitem id="menu_asset_configuration"
+              name="Configuration"
+              parent="menu_asset_root"
+              sequence="90"/>
+
+    <menuitem id="menu_asset_categories"
+              name="Categories"
+              parent="menu_asset_configuration"
+              action="action_asset_category"
+              sequence="10"/>
+
+</odoo>

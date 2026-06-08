@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <record id="rule_reimbursement_own" model="ir.rule">
+            <field name="name">Reimbursement: own records</field>
+            <field name="model_id" ref="model_etp_reimbursement"/>
+            <field name="domain_force">[('user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('etp_reimbursement.group_reimbursement_user'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+        </record>
+
+        <record id="rule_reimbursement_line_own" model="ir.rule">
+            <field name="name">Reimbursement Line: own records</field>
+            <field name="model_id" ref="model_etp_reimbursement_line"/>
+            <field name="domain_force">[('reimbursement_id.user_id', '=', user.id)]</field>
+            <field name="groups" eval="[(4, ref('etp_reimbursement.group_reimbursement_user'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+        </record>
+
+        <record id="rule_reimbursement_hr_all" model="ir.rule">
+            <field name="name">Reimbursement: HR sees all</field>
+            <field name="model_id" ref="model_etp_reimbursement"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_hr_admin')), (4, ref('etp_reimbursement.group_reimbursement_manager'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+        </record>
+
+        <record id="rule_reimbursement_line_hr_all" model="ir.rule">
+            <field name="name">Reimbursement Line: HR sees all</field>
+            <field name="model_id" ref="model_etp_reimbursement_line"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+            <field name="groups" eval="[(4, ref('etp_user_roles.group_hr_admin')), (4, ref('etp_reimbursement.group_reimbursement_manager'))]"/>
+            <field name="perm_read" eval="1"/>
+            <field name="perm_write" eval="1"/>
+            <field name="perm_create" eval="1"/>
+            <field name="perm_unlink" eval="1"/>
+        </record>
+
+    </data>
+</odoo>

@@ -45,6 +45,18 @@ from dataclasses import dataclass, field, asdict
 from typing import Iterable
 
 
+DRIFT_NOTE_SPLIT_RE = re.compile(r"\n\s*\n\s*>?\s*Drift\s*note:", re.IGNORECASE)
+
+
+def split_drift_note(enriched: str) -> tuple[str, str]:
+    if not enriched:
+        return "", ""
+    m = DRIFT_NOTE_SPLIT_RE.search(enriched)
+    if not m:
+        return enriched.strip(), ""
+    return enriched[: m.start()].strip(), enriched[m.start():].strip()
+
+
 MANDATORY_SUFFIX_STEREO = (
     "1920x1080 at 30 fps, clean handheld framing, "
     "natural colour, in-camera audio at 48 kHz stereo."
@@ -97,7 +109,9 @@ TOKENIZER_LEAKS = [
 # Annotator / pipeline / dataset leakage. From Round 3: 168 prompts (1.25%).
 PIPELINE_LEAKS = [
     r"\bannotator\b",
-    r"\bvendor\b",
+    r"\bvendor[- ]facing\b",
+    r"\bthird[- ]party vendor\b",
+    r"\bvendor (?:sdk|api|integration|tool|platform|prompt|model|pipeline)\b",
     r"\bdataset\b",
     r"\btraining sample\b",
     r"\bcategory\s*:",
@@ -443,14 +457,60 @@ def _check_marketing_words(prompt: str, report: Report) -> None:
              ev=", ".join(found))
 
 
+_DRONE_AUDIO_CONTEXT = re.compile(
+    r"(?:engine|insect|insects?|rhythmic|low|deep|distant|constant|steady|"
+    r"throaty|throat|baritone|warm|sustained|mechanical|sub-?bass|sub|"
+    r"bass|hum|hummed|humming|tone|tonal|note|monotone|piston|radial|"
+    r"propeller|propellers?|cicadas?|crickets?|mosquitoes?|fly|flies|fan|"
+    r"motor|machine|amp|amplifier|tower|fluorescent|refrigerator|"
+    r"transformer|generator|appliance|sound|audio|chant|chorus)"
+    r"[\s,;:.()/-]+(?:[a-z'-]+\s+){0,4}drone\b",
+    re.IGNORECASE,
+)
+
+
+def _is_audio_drone(prompt: str, match: re.Match) -> bool:
+    """True if the matched 'drone' refers to a tonal sound, not a UAV.
+
+    Two signals: (1) appears inside an 'Audio:' block, (2) preceded by an
+    audio-context word within ~4 tokens. Either is sufficient.
+    """
+    word = match.group(0).lower()
+    if word != "drone":
+        return False
+    start = match.start()
+    # Audio: block heuristic. Find the closest preceding 'Audio:' label and
+    # check that the match sits before the next sentence-ending period that
+    # starts a non-audio sentence.
+    body = prompt
+    audio_idx = body.rfind("Audio:", 0, start)
+    if audio_idx >= 0:
+        # Anything between Audio: and the end (or next sentence break) counts.
+        segment_end = body.find("\n\n", audio_idx)
+        if segment_end == -1:
+            segment_end = len(body)
+        if audio_idx <= start < segment_end:
+            return True
+    # Phrase-level context: "<audio-word> ... drone" within 4 tokens.
+    window_start = max(0, start - 60)
+    window = body[window_start:start + len("drone")]
+    if _DRONE_AUDIO_CONTEXT.search(window):
+        return True
+    return False
+
+
 def _check_hardware(prompt: str, report: Report) -> None:
     for pat in HARDWARE_TERMS:
-        m = re.search(pat, prompt, re.IGNORECASE)
-        if m:
+        for m in re.finditer(pat, prompt, re.IGNORECASE):
+            # Audio-context "drone" (engine drone, insect drone, low drone) is
+            # a tonal sound effect, not an aerial UAV. Skip those.
+            if pat == r"\bdrone\b" and _is_audio_drone(prompt, m):
+                continue
             _add(report, "specialised_hardware", "FATAL",
                  "Specialised cinema hardware mentioned. "
                  "8-25s commodity capture, not a feature shoot.",
                  ev=m.group(0))
+            break  # one FATAL per pattern is enough
 
 
 def _check_multi_shot(prompt: str, report: Report) -> None:
@@ -510,6 +570,9 @@ def _check_generic_wardrobe(prompt: str, report: Report) -> None:
              ev=m.group(0))
 
 
+RUNAWAY_THRESHOLD = 380
+
+
 def _check_word_count(prompt: str, report: Report) -> None:
     wc = _wc(prompt)
     report.word_count = wc
@@ -520,12 +583,31 @@ def _check_word_count(prompt: str, report: Report) -> None:
         _add(report, "word_count.low", "WARNING",
              f"Word count {wc} below band {lo}-{hi} for style '{style or 'unknown'}'.")
     elif wc > hi:
-        sev = "FATAL" if wc > 320 else "WARNING"
+        sev = "FATAL" if wc > RUNAWAY_THRESHOLD else "WARNING"
         _add(report, "word_count.high", sev,
              f"Word count {wc} above band {lo}-{hi} for style '{style or 'unknown'}'.")
-    if wc > 320:
+    if wc > RUNAWAY_THRESHOLD:
         _add(report, "word_count.runaway", "FATAL",
              f"Runaway word count {wc}. Possible meta-prompt regurgitation.")
+
+
+def _camera_move_class(move: str) -> str:
+    m = move.replace("-", " ")
+    if "static" in m:
+        return "static"
+    if "push in" in m or "pull out" in m:
+        return "dolly_z"
+    if "dolly left" in m or "dolly right" in m:
+        return "dolly_xy"
+    if "handheld arc" in m:
+        return "arc"
+    if "low handheld" in m or "handheld follow" in m:
+        return "handheld"
+    if "tilt up" in m or "tilt down" in m:
+        return "tilt"
+    if "pan left" in m or "pan right" in m:
+        return "pan"
+    return m
 
 
 def _check_camera_move(prompt: str, report: Report) -> None:
@@ -544,12 +626,13 @@ def _check_camera_move(prompt: str, report: Report) -> None:
                 continue
             spans.append((idx, end, move))
             start = end
-    canonical = {m.replace("-", " ") for _, _, m in spans}
-    if not canonical:
+    classes = {_camera_move_class(m) for _, _, m in spans}
+    if not classes:
         _add(report, "camera_move.missing", "WARNING",
              "No allowed camera move declared. Pick exactly one from the "
              "system-prompt list (locked static / slow push-in / etc.).")
-    elif len(canonical) > 1:
+    elif len(classes) > 1:
+        canonical = {m.replace("-", " ") for _, _, m in spans}
         _add(report, "camera_move.multiple", "FATAL",
              "More than one camera move declared. SeedDance 2 needs exactly one.",
              ev=", ".join(sorted(canonical)))

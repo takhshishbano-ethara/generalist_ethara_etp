@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="view_etp_reimbursement_tree" model="ir.ui.view">
+            <field name="name">etp.reimbursement.tree</field>
+            <field name="model">etp.reimbursement</field>
+            <field name="arch" type="xml">
+                <list string="Reimbursements" decoration-warning="state == 'submitted'" decoration-success="state in ('approved','reimbursed')" decoration-danger="state == 'rejected'">
+                    <field name="name"/>
+                    <field name="employee_id"/>
+                    <field name="department_id"/>
+                    <field name="request_date"/>
+                    <field name="line_count" string="# Lines"/>
+                    <field name="total_amount" sum="Total"/>
+                    <field name="currency_id" invisible="1"/>
+                    <field name="state"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_etp_reimbursement_form" model="ir.ui.view">
+            <field name="name">etp.reimbursement.form</field>
+            <field name="model">etp.reimbursement</field>
+            <field name="arch" type="xml">
+                <form string="Reimbursement Claim">
+                    <header>
+                        <button name="action_submit" type="object" string="Submit"
+                                class="oe_highlight" invisible="state != 'draft'"/>
+                        <button name="action_approve" type="object" string="Approve"
+                                class="oe_highlight" invisible="state != 'submitted'"
+                                groups="etp_user_roles.group_hr_admin,etp_reimbursement.group_reimbursement_manager"/>
+                        <button name="action_reject" type="object" string="Reject"
+                                invisible="state != 'submitted'"
+                                groups="etp_user_roles.group_hr_admin,etp_reimbursement.group_reimbursement_manager"/>
+                        <button name="action_mark_reimbursed" type="object" string="Mark Reimbursed"
+                                invisible="state != 'approved'"
+                                groups="etp_user_roles.group_hr_admin,etp_reimbursement.group_reimbursement_manager"/>
+                        <field name="state" widget="statusbar" statusbar_visible="draft,submitted,approved,reimbursed"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <h1><field name="name" readonly="1"/></h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="employee_id" readonly="state != 'draft'"/>
+                                <field name="department_id"/>
+                                <field name="request_date" readonly="state != 'draft'"/>
+                            </group>
+                            <group>
+                                <field name="total_amount"/>
+                                <field name="currency_id"/>
+                                <field name="submitted_date" readonly="1"/>
+                                <field name="approved_by" readonly="1" invisible="not approved_by"/>
+                                <field name="rejected_by" readonly="1" invisible="not rejected_by"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Line Items">
+                                <field name="line_ids" readonly="state not in ('draft','submitted')">
+                                    <list editable="bottom">
+                                        <field name="date"/>
+                                        <field name="category"/>
+                                        <field name="description"/>
+                                        <field name="amount" sum="Total"/>
+                                        <field name="currency_id" invisible="1"/>
+                                        <field name="receipt_url" widget="url"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="Review">
+                                <group>
+                                    <field name="hr_comment"/>
+                                    <field name="rejection_reason" invisible="state != 'rejected'"/>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_etp_reimbursement_search" model="ir.ui.view">
+            <field name="name">etp.reimbursement.search</field>
+            <field name="model">etp.reimbursement</field>
+            <field name="arch" type="xml">
+                <search>
+                    <field name="name"/>
+                    <field name="employee_id"/>
+                    <field name="department_id"/>
+                    <filter name="filter_pending" string="Pending" domain="[('state','=','submitted')]"/>
+                    <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
+                    <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
+                    <filter name="filter_reimbursed" string="Reimbursed" domain="[('state','=','reimbursed')]"/>
+                    <separator/>
+                    <group>
+                        <filter name="group_employee" string="Employee" context="{'group_by':'employee_id'}"/>
+                        <filter name="group_state" string="Status" context="{'group_by':'state'}"/>
+                        <filter name="group_request_date" string="Request Date" context="{'group_by':'request_date'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record id="action_etp_reimbursement" model="ir.actions.act_window">
+            <field name="name">Reimbursements</field>
+            <field name="res_model">etp.reimbursement</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_etp_reimbursement_search"/>
+        </record>
+
+    </data>
+</odoo>

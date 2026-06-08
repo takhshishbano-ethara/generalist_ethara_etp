@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Runtime tree (list) view -->
+    <record id="fenrir_environment_runtime_view_list" model="ir.ui.view">
+        <field name="name">fenrir.environment.runtime.list</field>
+        <field name="model">fenrir.environment.runtime</field>
+        <field name="arch" type="xml">
+            <list string="Environment Runtimes">
+                <field name="name"/>
+                <field name="description" optional="show"/>
+                <field name="dependency_count" string="# Deps"/>
+                <field name="active" widget="boolean_toggle" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Runtime form view, with inline editable deps list -->
+    <record id="fenrir_environment_runtime_view_form" model="ir.ui.view">
+        <field name="name">fenrir.environment.runtime.form</field>
+        <field name="model">fenrir.environment.runtime</field>
+        <field name="arch" type="xml">
+            <form string="Environment Runtime">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived"
+                            bg_color="bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1>
+                            <field name="name"
+                                   placeholder="e.g. nginx:1.25-alpine"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <field name="active"/>
+                    </group>
+                    <separator string="Description"/>
+                    <field name="description" nolabel="1"
+                           placeholder="What kind of tasks use this runtime..."/>
+
+                    <separator string="Key Dependencies / Tools"/>
+                    <field name="key_dependency_ids" nolabel="1">
+                        <list editable="bottom" string="Dependencies">
+                            <field name="name" placeholder="e.g. imagemagick"/>
+                            <field name="description" placeholder="What it's used for..."/>
+                            <field name="active" widget="boolean_toggle"
+                                   optional="hide"/>
+                        </list>
+                        <form string="Dependency">
+                            <sheet>
+                                <group>
+                                    <field name="name"/>
+                                    <field name="active"/>
+                                </group>
+                                <separator string="Description"/>
+                                <field name="description" nolabel="1"/>
+                            </sheet>
+                        </form>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="fenrir_environment_runtime_view_search" model="ir.ui.view">
+        <field name="name">fenrir.environment.runtime.search</field>
+        <field name="model">fenrir.environment.runtime</field>
+        <field name="arch" type="xml">
+            <search string="Runtimes">
+                <field name="name"/>
+                <filter string="Archived" name="filter_archived"
+                        domain="[('active','=',False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="fenrir_environment_runtime_action" model="ir.actions.act_window">
+        <field name="name">Environment Runtimes</field>
+        <field name="res_model">fenrir.environment.runtime</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create a new runtime
+            </p>
+            <p>
+                Define base images / runtimes (e.g. nginx:1.25-alpine) and the
+                key dependencies (apt/apk packages) needed within each.
+                Tasks pick a runtime, then choose from its dependencies.
+            </p>
+            <p>
+                <a href="/fenrir/static/src/sample_environment_runtimes.csv"
+                   download="sample_environment_runtimes.csv"
+                   class="btn btn-secondary btn-sm">
+                    <i class="fa fa-download me-1"
+                       title="Download" aria-label="Download" role="img"/>
+                    Download sample CSV
+                </a>
+                — a template with common runtimes and their dependencies.
+            </p>
+        </field>
+    </record>
+
+</odoo>

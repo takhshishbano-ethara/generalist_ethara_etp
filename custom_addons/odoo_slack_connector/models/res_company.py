@@ -31,7 +31,7 @@ class ResCompany(models.Model):
     """Inherited to add more field and functions"""
     _inherit = 'res.company'
 
-    token = fields.Char(required=True, string="Slack Token",
+    token = fields.Char(string="Slack Token",
                         help="Token for connecting with Slack")
     slack_users_ids = fields.One2many('slack.user',
                                       'res_company_id',

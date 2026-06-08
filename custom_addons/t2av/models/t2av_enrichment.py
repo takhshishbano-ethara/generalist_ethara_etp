@@ -19,6 +19,15 @@ _TEMPERATURE_SCHEDULE = (0.8, 0.4, 0.15)
 
 _logger = logging.getLogger(__name__)
 
+_REJECT_REASON_SELECTION = [
+    ("empty_input", "Empty Input"),
+    ("non_english", "Non-English"),
+    ("bedrock_truncated", "Bedrock Truncated"),
+    ("llm_error", "LLM Error"),
+    ("validator_fatal", "Validator Fatal"),
+    ("validator_fatal_retry", "Validator Fatal (Retry Exhausted)"),
+]
+
 _STATE_QUEUED = "queued"
 _STATE_SUBMITTING = "submitting"
 _STATE_VALIDATING = "validating"
@@ -80,8 +89,8 @@ class T2AVEnrichment(models.Model):
     )
     region = fields.Char(string="AWS Region", readonly=True, copy=False)
     bedrock_request_id = fields.Char(
-        string="Bedrock Request ID", readonly=True, copy=False,
-        help="AWS Bedrock x-amzn-RequestId — provide to AWS support when filing a ticket.",
+        string="OpenRouter Request ID", readonly=True, copy=False,
+        help="OpenRouter response id / X-Request-Id header — provide to OpenRouter support when filing a ticket.",
     )
 
     state = fields.Selection(
@@ -101,15 +110,15 @@ class T2AVEnrichment(models.Model):
     cost_usd = fields.Float(
         string="Cost (USD)", digits=(12, 6), readonly=True, copy=False,
         compute="_compute_cost_usd", store=True,
-        help="Bedrock Claude 3.5 Sonnet pricing: $3/M input tokens, $15/M output tokens.",
+        help="OpenRouter Gemini 3.5 Flash pricing: ~$0.30/M input tokens, ~$2.50/M output tokens.",
     )
 
     @api.depends("input_tokens", "output_tokens")
     def _compute_cost_usd(self):
         for rec in self:
             rec.cost_usd = (
-                (rec.input_tokens or 0) * 3.0 / 1_000_000.0
-                + (rec.output_tokens or 0) * 15.0 / 1_000_000.0
+                (rec.input_tokens or 0) * 0.30 / 1_000_000.0
+                + (rec.output_tokens or 0) * 2.50 / 1_000_000.0
             )
 
     @api.model
@@ -147,6 +156,13 @@ class T2AVEnrichment(models.Model):
 
     error_message = fields.Text(string="Error Message", readonly=True, copy=False)
     error_code = fields.Char(string="Error Code", readonly=True, copy=False)
+    reject_reason = fields.Selection(
+        _REJECT_REASON_SELECTION,
+        string="Reject Reason",
+        readonly=True,
+        copy=False,
+        help="Classification for filtering failures.",
+    )
 
     _unique_per_job = models.Constraint(
         "UNIQUE(job_id, attempt_number)",
@@ -234,42 +250,60 @@ class T2AVEnrichment(models.Model):
 
         job = self.job_id
         if not job.exists():
-            self._fail("no_job", "Parent job no longer exists.")
+            self._fail("no_job", "Parent job no longer exists.",
+                       reject_reason="llm_error")
             return
 
-        bedrock_api_key = credential_manager.get_bedrock_api_key(self.env)
-        access_key = ""
-        secret_key = ""
-        if not bedrock_api_key:
-            access_key = credential_manager.get_aws_access_key(self.env)
-            secret_key = credential_manager.get_aws_secret_key(self.env)
-            if not access_key or not secret_key:
-                self._fail(
-                    "aws_creds_missing",
-                    "Bedrock auth missing: set either (a) Bedrock API Key "
-                    "(starts with ABSK...) OR (b) AWS Access Key + Secret Key "
-                    "in Settings > T2AV.",
-                )
-                return
+        # === EARLY GUARD 1: empty source prompt (Manual parity, no LLM call) ===
+        src_prompt = (job.prompt or "").strip()
+        if not src_prompt:
+            self._fail(
+                "empty_input",
+                "Source prompt is blank; nothing to enrich.",
+                reject_reason="empty_input",
+            )
+            return
+        # === END EARLY GUARD 1 ===
+
+        # === EARLY GUARD 2: non-English source prompt (Manual parity, no LLM call) ===
+        lang = (getattr(job, "prompt_language", None) or "english").strip().lower()
+        if lang and lang not in {"english", "en", "en-us", "en-gb"}:
+            self._fail(
+                "non_english",
+                f"Source language is '{lang}', expected English.",
+                reject_reason="non_english",
+            )
+            return
+        # === END EARLY GUARD 2 ===
+
+        openrouter_api_key = credential_manager.get_openrouter_api_key(self.env)
+        if not openrouter_api_key:
+            self._fail(
+                "openrouter_key_missing",
+                "OpenRouter API Key missing: configure in Settings > T2AV. "
+                "Get a key at https://openrouter.ai/keys",
+            )
+            return
 
         icp = self.env["ir.config_parameter"].sudo()
         model_id = icp.get_param(
-            "t2av.bedrock_model_id", enrichment_client.DEFAULT_MODEL_ID,
-        )
-        region = icp.get_param(
-            "t2av.bedrock_region", enrichment_client.DEFAULT_REGION,
+            "t2av.openrouter_enrichment_model_id",
+            enrichment_client.DEFAULT_MODEL_ID,
         )
         try:
-            max_attempts = int(icp.get_param("t2av.bedrock_max_retries", "5"))
+            max_attempts = int(
+                icp.get_param("t2av.openrouter_enrichment_max_retries", "5")
+            )
         except (TypeError, ValueError):
             max_attempts = 5
+        http_referer = icp.get_param("t2av.http_referer", "")
+        app_title = icp.get_param("t2av.app_title", "Ethara T2AV")
 
-        # sudo: bot is a system actor; model_id is Manager-gated for AWS-account-id confidentiality.
+        # sudo: bot is a system actor; model_id is Manager-gated.
         self.sudo().write({
             "state": _STATE_SUBMITTING,
             "submitted_at": fields.Datetime.now(),
             "model_id": model_id,
-            "region": region,
         })
 
         metadata = self._build_metadata(job)
@@ -292,27 +326,46 @@ class T2AVEnrichment(models.Model):
         attempt_temperature = _TEMPERATURE_SCHEDULE[
             min(max(self.attempt_number - 1, 0), len(_TEMPERATURE_SCHEDULE) - 1)
         ]
+        # To use a flat ICP temperature instead of the schedule, comment the
+        # block above and uncomment below:
+        # try:
+        #     attempt_temperature = float(
+        #         icp.get_param("t2av.bedrock_temperature",
+        #                       str(enrichment_client.DEFAULT_TEMPERATURE))
+        #     )
+        # except (TypeError, ValueError):
+        #     attempt_temperature = enrichment_client.DEFAULT_TEMPERATURE
+        # === END TIER B ===
+        try:
+            attempt_top_p = float(
+                icp.get_param(
+                    "t2av.openrouter_top_p",
+                    str(enrichment_client.DEFAULT_TOP_P),
+                )
+            )
+        except (TypeError, ValueError):
+            attempt_top_p = enrichment_client.DEFAULT_TOP_P
 
         try:
             result = enrichment_client.enrich(
-                access_key=access_key,
-                secret_key=secret_key,
-                bedrock_api_key=bedrock_api_key,
-                region=region,
+                openrouter_api_key=openrouter_api_key,
                 model_id=model_id,
                 metadata=metadata,
                 previous_failures=previous_failures,
                 max_attempts=max_attempts,
                 temperature=attempt_temperature,
+                top_p=attempt_top_p,
+                http_referer=http_referer,
+                app_title=app_title,
             )
         except enrichment_client.EnrichmentAuthError as e:
-            self._fail("aws_auth", str(e))
+            self._fail("openrouter_auth", str(e), reject_reason="llm_error")
             return
         except enrichment_client.EnrichmentConfigError as e:
-            self._fail("config", str(e))
+            self._fail("config", str(e), reject_reason="llm_error")
             return
         except enrichment_client.EnrichmentError as e:
-            self._fail("bedrock_error", str(e))
+            self._fail("openrouter_error", str(e), reject_reason="llm_error")
             return
 
         enriched_text = result["text"]
@@ -321,7 +374,8 @@ class T2AVEnrichment(models.Model):
 
         if not enriched_text:
             self.write({"bedrock_request_id": request_id})
-            self._fail("empty_output", "LLM returned an empty response.")
+            self._fail("empty_output", "LLM returned an empty response.",
+                       reject_reason="llm_error")
             return
 
         self.write({
@@ -332,16 +386,17 @@ class T2AVEnrichment(models.Model):
             "bedrock_request_id": request_id,
         })
 
-        if stop_reason and stop_reason != "end_turn":
+        if stop_reason == "length":
             self.write({
                 "state": _STATE_FATAL,
                 "validator_passed": False,
+                "reject_reason": "bedrock_truncated",
                 "validator_fatals": json.dumps([{
-                    "rule": "BEDROCK_TRUNCATED",
+                    "rule": "LLM_TRUNCATED",
                     "severity": "FATAL",
                     "message": (
-                        f"Bedrock terminated with stop_reason={stop_reason!r}. "
-                        "Output likely truncated. Increase max_tokens or "
+                        f"OpenRouter terminated with finish_reason={stop_reason!r}. "
+                        "Output truncated by max_tokens. Increase max_tokens or "
                         "shorten the source prompt."
                     ),
                     "evidence": (enriched_text or "")[:200],
@@ -349,20 +404,26 @@ class T2AVEnrichment(models.Model):
                 "completed_at": fields.Datetime.now(),
             })
             job.message_post(body=_(
-                "Enrichment #%(n)d FAILED: Bedrock stop_reason=%(reason)s "
-                "(output likely truncated)."
+                "Enrichment #%(n)d FAILED: OpenRouter finish_reason=%(reason)s "
+                "(output truncated)."
             ) % {"n": self.attempt_number, "reason": stop_reason})
             return
 
         try:
+            validator_module = validator_svc._get_validator()
+            paragraph_text, _drift = validator_module.split_drift_note(enriched_text)
+        except (AttributeError, Exception):
+            paragraph_text = enriched_text
+
+        try:
             report = validator_svc.validate(
-                enriched_text,
+                paragraph_text,
                 style=getattr(job, "style", None) or _STYLE_DEFAULT,
                 category=job.category,
             )
         except Exception as e:
             _logger.exception("T2AV enrichment: validator crashed")
-            self._fail("validator_crash", str(e))
+            self._fail("validator_crash", str(e), reject_reason="llm_error")
             return
 
         bucket = validator_svc.categorize(report)
@@ -370,6 +431,12 @@ class T2AVEnrichment(models.Model):
         fatals_json = validator_svc.serialize_findings(report.fatal)
 
         repair_source = "llm"
+
+        # === TIER 1: auto_repair (deterministic Python fixers) ===
+        # On FATAL/WARNED, try repair_all() to fix common defects (em-dashes,
+        # brand swaps, multi-camera dedup, audio backfill, etc.) BEFORE
+        # concluding the attempt failed. No LLM call.
+        # To disable Tier 1, comment out this entire block.
         if bucket in ("fatal", "warned"):
             try:
                 repaired_text, repair_applied = auto_repair.repair_all(
@@ -400,6 +467,7 @@ class T2AVEnrichment(models.Model):
                     "T2AV: auto_repair crashed on job %s; falling through unchanged",
                     job.id,
                 )
+        # === END TIER 1 ===
 
         new_state = {
             "clean": _STATE_CLEAN,
@@ -407,7 +475,7 @@ class T2AVEnrichment(models.Model):
             "fatal": _STATE_FATAL,
         }[bucket]
 
-        self.write({
+        write_vals = {
             "state": new_state,
             "enriched_text": enriched_text,
             "word_count": report.word_count,
@@ -415,7 +483,10 @@ class T2AVEnrichment(models.Model):
             "validator_warnings": warnings_json or "",
             "validator_fatals": fatals_json or "",
             "completed_at": fields.Datetime.now(),
-        })
+        }
+        if new_state == _STATE_FATAL:
+            write_vals["reject_reason"] = "validator_fatal"
+        self.write(write_vals)
 
         if new_state == _STATE_CLEAN:
             job.write({
@@ -423,19 +494,15 @@ class T2AVEnrichment(models.Model):
                 "golden_prompt": enriched_text,
                 "golden_source": repair_source,
             })
-            label = (
-                _("CLEAN")
-                if repair_source == "llm"
-                else _("CLEAN (auto-repaired)")
-            )
+            label = _("CLEAN") if repair_source == "llm" else _("CLEAN (auto-repaired)")
             job.message_post(body=_(
-                "Enrichment #%(n)d %(label)s — Golden Prompt set (%(words)d words)."
+                "Enrichment #%(n)d %(label)s - Golden Prompt set (%(words)d words)."
             ) % {"n": self.attempt_number, "label": label, "words": report.word_count})
         elif new_state == _STATE_WARNED:
             job.write({"enriched_prompt": enriched_text, "golden_prompt": False})
             warn_rules = ", ".join(f.rule for f in report.warnings[:5])
             job.message_post(body=_(
-                "Enrichment #%(n)d WARNED — enriched text saved but NOT Golden. "
+                "Enrichment #%(n)d WARNED - enriched text saved but NOT Golden. "
                 "Warnings: %(rules)s"
             ) % {"n": self.attempt_number, "rules": warn_rules})
         else:
@@ -451,6 +518,13 @@ class T2AVEnrichment(models.Model):
             except (TypeError, ValueError):
                 max_enrichment_attempts = 3
 
+            # === TIER 2: auto-retry on FATAL (spawn next attempt with hints) ===
+            # When attempt_number < max, queue a fresh enrichment record.
+            # build_user_turn picks up the prior fatals and appends RULE-TARGETED
+            # CORRECTIONS via retry_hints.build_hint() automatically.
+            # Temperature drops per attempt via _TEMPERATURE_SCHEDULE.
+            # To disable Tier 2, comment out this entire if-branch (leaving
+            # the else-branch in place so Tier 3 still runs on FATAL).
             if self.attempt_number < max_enrichment_attempts:
                 existing_numbers = job.enrichment_ids.mapped("attempt_number") or [0]
                 next_n = max(existing_numbers) + 1
@@ -471,7 +545,15 @@ class T2AVEnrichment(models.Model):
                         "T2AV: auto-retry failed after FATAL on job %s",
                         job.id,
                     )
+            # === END TIER 2 ===
+            # === TIER 3: template_fallback (deterministic per-category template) ===
+            # When retries are exhausted, generate a deterministic paragraph
+            # from category/sub_category/topic/style. If it validates clean,
+            # set as the job's golden_prompt with source='template_fallback'.
+            # The enrichment record stays FATAL with reject_reason='validator_fatal_retry'.
+            # To disable Tier 3, comment out this entire else-branch.
             else:
+                self.write({"reject_reason": "validator_fatal_retry"})
                 job.message_post(body=_(
                     "Max %d enrichment attempts reached; no further auto-retry."
                 ) % max_enrichment_attempts)
@@ -508,6 +590,7 @@ class T2AVEnrichment(models.Model):
                         "Golden Prompt NOT set.",
                         job.id,
                     )
+            # === END TIER 3 ===
 
     def _build_metadata(self, job):
         return {
@@ -520,16 +603,19 @@ class T2AVEnrichment(models.Model):
             "Prompt": (job.prompt or "").strip(),
         }
 
-    def _fail(self, error_code, error_message):
+    def _fail(self, error_code, error_message, reject_reason=None):
         self.ensure_one()
         if self.state in _TERMINAL:
             return
-        self.write({
+        vals = {
             "state": _STATE_ERROR,
             "error_code": error_code,
             "error_message": (error_message or "")[:4000],
             "completed_at": fields.Datetime.now(),
-        })
+        }
+        if reject_reason:
+            vals["reject_reason"] = reject_reason
+        self.write(vals)
         self.job_id.message_post(body=_(
             "Enrichment #%(n)d errored (%(code)s): %(msg)s"
         ) % {

@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ============================================================
+             1. Submitted → Requester (confirmation)
+             ============================================================ -->
+        <record id="email_template_asset_request_submitted_user" model="mail.template">
+            <field name="name">Asset Request: Submitted (Requester)</field>
+            <field name="model_id" ref="model_asset_request"/>
+            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.employee_id.work_email or object.requested_by.email }}</field>
+            <field name="subject">Asset request {{ object.name }} submitted</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; background: #ffffff;">
+                    <div style="border-bottom: 2px solid #007bff; padding-bottom: 12px;">
+                        <h2 style="color: #007bff; margin: 0;">Request submitted</h2>
+                    </div>
+                    <p style="font-size: 14px; color: #333;">Hi <t t-out="object.employee_id.name or object.requested_by.name">there</t>,</p>
+                    <p style="font-size: 14px; color: #555;">
+                        Your asset request <strong t-out="object.name">REF</strong> has been submitted for approval.
+                        You'll receive another email when it's approved or rejected.
+                    </p>
+                    <table style="width: 100%; font-size: 13px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 16px; margin: 18px 0;">
+                        <tr><td style="padding: 4px 8px; color: #666; width: 160px;">Category</td><td style="padding: 4px 8px;"><t t-out="object.category_id.name or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Preferred model</td><td style="padding: 4px 8px;"><t t-out="object.preferred_model or '—'"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Quantity</td><td style="padding: 4px 8px;"><t t-out="object.quantity or 1"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Project</td><td style="padding: 4px 8px;"><t t-out="object.project_id.name or '—'"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Justification</td><td style="padding: 4px 8px;"><t t-out="object.justification or '—'"/></td></tr>
+                    </table>
+                    <hr style="border: none; border-top: 1px solid #eee;"/>
+                    <p style="color: #999; font-size: 11px; text-align: center;">Ethara ETP · Asset Management</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- ============================================================
+             2. Submitted → Managers (broadcast at send time via email_to override)
+             ============================================================ -->
+        <record id="email_template_asset_request_submitted_manager" model="mail.template">
+            <field name="name">Asset Request: Submitted (Manager)</field>
+            <field name="model_id" ref="model_asset_request"/>
+            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="subject">New asset request {{ object.name }} requires approval</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; background: #ffffff;">
+                    <div style="border-bottom: 2px solid #ffc107; padding-bottom: 12px;">
+                        <h2 style="color: #8a6d3b; margin: 0;">New asset request awaiting approval</h2>
+                    </div>
+                    <p style="font-size: 14px; color: #555;">
+                        <strong t-out="object.employee_id.name or object.requested_by.name">Employee</strong>
+                        has submitted asset request <strong t-out="object.name">REF</strong> for review.
+                    </p>
+                    <table style="width: 100%; font-size: 13px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 16px; margin: 18px 0;">
+                        <tr><td style="padding: 4px 8px; color: #666; width: 160px;">Requester</td><td style="padding: 4px 8px;"><t t-out="object.employee_id.name or object.requested_by.name or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Category</td><td style="padding: 4px 8px;"><t t-out="object.category_id.name or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Preferred model</td><td style="padding: 4px 8px;"><t t-out="object.preferred_model or '—'"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Quantity</td><td style="padding: 4px 8px;"><t t-out="object.quantity or 1"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Project</td><td style="padding: 4px 8px;"><t t-out="object.project_id.name or '—'"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Justification</td><td style="padding: 4px 8px;"><t t-out="object.justification or '—'"/></td></tr>
+                        <tr t-if="object.replace_assignment_id"><td style="padding: 4px 8px; color: #666;">Replaces</td><td style="padding: 4px 8px;"><t t-out="object.replace_assignment_id.asset_id.display_name or ''"/></td></tr>
+                    </table>
+                    <p style="font-size: 13px; color: #555;">Open Odoo → <em>Asset Management</em> → <em>Requests</em> to approve or reject.</p>
+                    <hr style="border: none; border-top: 1px solid #eee;"/>
+                    <p style="color: #999; font-size: 11px; text-align: center;">Ethara ETP · Asset Management</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- ============================================================
+             3. Approved → Requester
+             ============================================================ -->
+        <record id="email_template_asset_request_approved_user" model="mail.template">
+            <field name="name">Asset Request: Approved (Requester)</field>
+            <field name="model_id" ref="model_asset_request"/>
+            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.employee_id.work_email or object.requested_by.email }}</field>
+            <field name="subject">Asset request {{ object.name }} approved</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; background: #ffffff;">
+                    <div style="border-bottom: 2px solid #28a745; padding-bottom: 12px;">
+                        <h2 style="color: #28a745; margin: 0;">Request approved</h2>
+                    </div>
+                    <p style="font-size: 14px; color: #333;">Hi <t t-out="object.employee_id.name or object.requested_by.name">there</t>,</p>
+                    <p style="font-size: 14px; color: #555;">
+                        Your request <strong t-out="object.name">REF</strong> for
+                        <strong t-out="object.category_id.name or ''"/>
+                        has been <strong style="color: #28a745;">approved</strong> by
+                        <strong t-out="object.approved_by.name or 'a manager'"/>.
+                        You'll receive a fulfilment email once the asset is assigned.
+                    </p>
+                    <hr style="border: none; border-top: 1px solid #eee;"/>
+                    <p style="color: #999; font-size: 11px; text-align: center;">Ethara ETP · Asset Management</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- ============================================================
+             4. Rejected → Requester
+             ============================================================ -->
+        <record id="email_template_asset_request_rejected_user" model="mail.template">
+            <field name="name">Asset Request: Rejected (Requester)</field>
+            <field name="model_id" ref="model_asset_request"/>
+            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.employee_id.work_email or object.requested_by.email }}</field>
+            <field name="subject">Asset request {{ object.name }} rejected</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; background: #ffffff;">
+                    <div style="border-bottom: 2px solid #dc3545; padding-bottom: 12px;">
+                        <h2 style="color: #dc3545; margin: 0;">Request rejected</h2>
+                    </div>
+                    <p style="font-size: 14px; color: #333;">Hi <t t-out="object.employee_id.name or object.requested_by.name">there</t>,</p>
+                    <p style="font-size: 14px; color: #555;">
+                        Your asset request <strong t-out="object.name">REF</strong> for
+                        <strong t-out="object.category_id.name or ''"/> was not approved.
+                    </p>
+                    <div style="background: #f8d7da; border: 1px solid #f5c6cb; border-radius: 8px; padding: 12px; margin: 18px 0;">
+                        <p style="margin: 0; font-size: 13px; color: #721c24;">
+                            <strong>Reason:</strong> <t t-out="object.rejection_reason or '—'"/>
+                        </p>
+                    </div>
+                    <hr style="border: none; border-top: 1px solid #eee;"/>
+                    <p style="color: #999; font-size: 11px; text-align: center;">Ethara ETP · Asset Management</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- ============================================================
+             5. Fulfilled → Requester
+             ============================================================ -->
+        <record id="email_template_asset_request_fulfilled_user" model="mail.template">
+            <field name="name">Asset Request: Fulfilled (Requester)</field>
+            <field name="model_id" ref="model_asset_request"/>
+            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.employee_id.work_email or object.requested_by.email }}</field>
+            <field name="subject">Asset {{ object.asset_id.asset_code or '' }} assigned to you</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; background: #ffffff;">
+                    <div style="border-bottom: 2px solid #007bff; padding-bottom: 12px;">
+                        <h2 style="color: #007bff; margin: 0;">Your asset is ready</h2>
+                    </div>
+                    <p style="font-size: 14px; color: #333;">Hi <t t-out="object.employee_id.name or object.requested_by.name">there</t>,</p>
+                    <p style="font-size: 14px; color: #555;">
+                        Request <strong t-out="object.name">REF</strong> has been fulfilled.
+                    </p>
+                    <table style="width: 100%; font-size: 13px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 16px; margin: 18px 0;">
+                        <tr><td style="padding: 4px 8px; color: #666; width: 160px;">Asset code</td><td style="padding: 4px 8px;"><strong t-out="object.asset_id.asset_code or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Model</td><td style="padding: 4px 8px;"><t t-out="object.asset_id.model or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Category</td><td style="padding: 4px 8px;"><t t-out="object.category_id.name or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Assigned by</td><td style="padding: 4px 8px;"><t t-out="object.approved_by.name or ''"/></td></tr>
+                    </table>
+                    <p style="font-size: 13px; color: #555;">Please take care of the asset and report any issues promptly.</p>
+                    <hr style="border: none; border-top: 1px solid #eee;"/>
+                    <p style="color: #999; font-size: 11px; text-align: center;">Ethara ETP · Asset Management</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+        <!-- ============================================================
+             6. Fulfilled → Approver / Manager
+             ============================================================ -->
+        <record id="email_template_asset_request_fulfilled_manager" model="mail.template">
+            <field name="name">Asset Request: Fulfilled (Manager)</field>
+            <field name="model_id" ref="model_asset_request"/>
+            <field name="email_from">{{ (object.company_id.email or 'noreply@ethara.ai') }}</field>
+            <field name="email_to">{{ object.approved_by.email or '' }}</field>
+            <field name="subject">Asset request {{ object.name }} fulfilled</field>
+            <field name="body_html" type="html">
+                <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 24px; background: #ffffff;">
+                    <div style="border-bottom: 2px solid #28a745; padding-bottom: 12px;">
+                        <h2 style="color: #28a745; margin: 0;">Asset assigned</h2>
+                    </div>
+                    <p style="font-size: 14px; color: #555;">
+                        Request <strong t-out="object.name">REF</strong> has been fulfilled.
+                    </p>
+                    <table style="width: 100%; font-size: 13px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 16px; margin: 18px 0;">
+                        <tr><td style="padding: 4px 8px; color: #666; width: 160px;">Assigned to</td><td style="padding: 4px 8px;"><strong t-out="object.employee_id.name or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Asset</td><td style="padding: 4px 8px;"><t t-out="object.asset_id.display_name or ''"/></td></tr>
+                        <tr><td style="padding: 4px 8px; color: #666;">Project</td><td style="padding: 4px 8px;"><t t-out="object.project_id.name or '—'"/></td></tr>
+                        <tr t-if="object.replace_assignment_id"><td style="padding: 4px 8px; color: #666;">Replaced</td><td style="padding: 4px 8px;"><t t-out="object.replace_assignment_id.asset_id.display_name or ''"/> (returned)</td></tr>
+                    </table>
+                    <hr style="border: none; border-top: 1px solid #eee;"/>
+                    <p style="color: #999; font-size: 11px; text-align: center;">Ethara ETP · Asset Management</p>
+                </div>
+            </field>
+            <field name="auto_delete" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

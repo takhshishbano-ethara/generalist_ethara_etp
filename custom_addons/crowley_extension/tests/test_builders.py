@@ -8,8 +8,16 @@ from odoo.addons.crowley_extension.controllers.analytics_dashboard import (
     _build_total_task,
 )
 from odoo.addons.crowley_extension.controllers.dashboard_overview import (
+    MY_ACTIVITY_WINDOW_DAYS,
     STAGE_BUCKETS,
+    TASKS_DONE_WINDOW_DAYS,
+    _compute_burned_amount_chart,
+    _compute_coordination_events,
+    _compute_kpi,
+    _compute_my_activity,
+    _compute_recent_activity,
     _compute_task_progress,
+    _compute_tasks_done_chart,
 )
 from odoo.addons.crowley_extension.controllers.task_view_dashboard import (
     _serialize_task,
@@ -188,6 +196,126 @@ class TestDashboardOverviewBuilders(TransactionCase):
             params,
         )
 
+    def test_kpi_includes_all_role_keys(self):
+        gen_scope = [("user_id", "=", self.user.id)]
+        attempt_scope = [("job_id.user_id", "=", self.user.id)]
+        result = _compute_kpi(self.env, gen_scope, attempt_scope)
+        self.assertIn("count", result)
+        self.assertIn("items", result)
+        item_keys = {item["key"] for item in result["items"]}
+        expected_keys = {
+            "total_burned",
+            "active_tasks",
+            "approval_rate",
+            "team_members",
+            "approved_today",
+            "qc_pass_rate",
+            "total_tasks_done",
+        }
+        self.assertEqual(item_keys, expected_keys)
+        for item in result["items"]:
+            self.assertEqual(
+                set(item.keys()),
+                {"key", "label", "value", "sub_string", "pattern", "sign"},
+            )
+
+    def test_my_activity_shape(self):
+        scope = [("user_id", "=", self.user.id)]
+        result = _compute_my_activity(self.env, scope)
+        self.assertIn("days", result)
+        self.assertIn("window", result)
+        self.assertEqual(len(result["days"]), MY_ACTIVITY_WINDOW_DAYS)
+        self.assertEqual(
+            set(result["summary"].keys()),
+            {
+                "total_tasks",
+                "total_tasks_delta",
+                "avg_per_day",
+                "longest_streak",
+                "active_days",
+                "total_days",
+            },
+        )
+        for day in result["days"]:
+            self.assertEqual(
+                set(day.keys()),
+                {"date", "weekday", "weekday_label", "count", "intensity"},
+            )
+
+    def test_tasks_done_chart_shape(self):
+        scope = [("user_id", "=", self.user.id)]
+        result = _compute_tasks_done_chart(self.env, scope)
+        self.assertEqual(len(result["items"]), TASKS_DONE_WINDOW_DAYS)
+        for item in result["items"]:
+            self.assertEqual(
+                set(item.keys()), {"date", "label", "value", "approved"}
+            )
+
+    def test_burned_amount_chart_shape(self):
+        scope = [("user_id", "=", self.user.id)]
+        result = _compute_burned_amount_chart(self.env, scope)
+        self.assertIn("items", result)
+        self.assertIn("total", result)
+        self.assertIn("average_per_task", result)
+
+    def test_recent_activity_shape(self):
+        scope = [("user_id", "=", self.user.id)]
+        result = _compute_recent_activity(self.env, scope)
+        self.assertIn("items", result)
+        self.assertIn("count", result)
+
+    def test_coordination_events_shape(self):
+        scope = [("user_id", "=", self.user.id)]
+        result = _compute_coordination_events(self.env, scope)
+        self.assertEqual(result["label"], "TPM Activity — Coordination Events")
+        self.assertIn("items", result)
+        self.assertIn("count", result)
+        self.assertIsInstance(result["items"], list)
+
+    def test_coordination_events_item_shape_when_tracked(self):
+        # When a reassignment IS recorded as a tracking value on user_id, the
+        # builder must surface it with from_user/to_user populated. We create
+        # the tracking row directly because crowley.generation posts custom
+        # assignment notifications rather than standard tracking messages.
+        other = self.env["res.users"].create({
+            "name": "Reassign Target",
+            "login": "crowley_reassign_target",
+            "email": "crowley_reassign_target@example.com",
+        })
+        gen = self._make_gen()
+        field = self.env["ir.model.fields"]._get("crowley.generation", "user_id")
+        message = self.env["mail.message"].create({
+            "model": "crowley.generation",
+            "res_id": gen.id,
+            "author_id": self.user.partner_id.id,
+        })
+        self.env["mail.tracking.value"].create({
+            "mail_message_id": message.id,
+            "field_id": field.id,
+            "old_value_char": self.user.name,
+            "new_value_char": other.name,
+        })
+        self.env.flush_all()
+        result = _compute_coordination_events(
+            self.env, [("user_id", "in", [self.user.id, other.id])]
+        )
+        match = [i for i in result["items"] if i["action"] == "reassigned"]
+        self.assertTrue(match)
+        self.assertEqual(match[0]["to_user"], other.name)
+        self.assertEqual(match[0]["task_code"], gen.name)
+
+    def test_recent_activity_reports_done_state(self):
+        scope = [("user_id", "=", self.user.id)]
+        gen = self._make_gen()
+        self._set_state(gen, state="done")
+        self.Gen.invalidate_model()
+        result = _compute_recent_activity(self.env, scope)
+        actions = {item["action"] for item in result["items"]}
+        self.assertTrue(actions.issubset(
+            {"approved", "rejected", "completed", "failed", "updated"}
+        ))
+        self.assertTrue(any(item["task_code"] for item in result["items"]))
+
     def test_task_progress_shape(self):
         scope = [("user_id", "=", self.user.id)]
         result = _compute_task_progress(self.env, scope)
@@ -216,10 +344,10 @@ class TestDashboardOverviewBuilders(TransactionCase):
         result = _compute_task_progress(self.env, scope)
         self.assertEqual(result["total"], 5)
         by_key = {item["key"]: item["value"] for item in result["items"]}
-        self.assertEqual(by_key["draft"], 1)
-        self.assertEqual(by_key["generating"], 1)
-        self.assertEqual(by_key["pending_review"], 1)
-        self.assertEqual(by_key["approved"], 1)
+        # S1 Draft merges draft + in-flight (queued/...).
+        self.assertEqual(by_key["s1_draft"], 2)
+        self.assertEqual(by_key["s2_qc_approved"], 1)
+        self.assertEqual(by_key["s3_delivered"], 1)
         self.assertEqual(by_key["rejected_failed"], 1)
 
 

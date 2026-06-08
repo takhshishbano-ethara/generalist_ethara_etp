@@ -32,16 +32,22 @@
         <field name="arch" type="xml">
             <form string="Task">
                 <header>
+                    <button name="action_submit_task" type="object"
+                            string="Submit Task" class="btn-primary"
+                            invisible="status not in (False, 'draft')"/>
+                    <button name="action_submit_task" type="object"
+                            string="Re-Submit" class="btn-warning"
+                            invisible="status != 'pending_review'"/>
                     <button name="action_approve_task" type="object"
                             string="Approve" class="btn-primary"
                             groups="fenrir.group_fenrir_manager"
-                            invisible="not id or not context.get('from_all_tasks') or status in ('approved', 'completed')"/>
+                            invisible="not id or status != 'pending_review'"/>
                     <button name="action_reject_task" type="object"
                             string="Reject" class="btn-danger"
                             groups="fenrir.group_fenrir_manager"
-                            invisible="not id or not context.get('from_all_tasks') or status in ('rejected', 'completed')"/>
+                            invisible="not id or status != 'pending_review'"/>
                     <field name="status" widget="statusbar"
-                           statusbar_visible="draft,pending_review,approved,rejected,completed"/>
+                           statusbar_visible="draft,pending_review,completed"/>
                 </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
@@ -65,8 +71,12 @@
                     <group>
                         <group string="Classification" name="group_classification">
                             <field name="category_id" options="{'no_create_edit': True}"/>
+                            <field name="subcategory" placeholder="e.g. Logo Design"/>
                             <field name="lead_user_id" options="{'no_open': True}"/>
                             <field name="reviewer_id" widget="many2one_avatar_user"/>
+                            <field name="difficulty_estimate"/>
+                            <field name="estimated_completion_time_hours"/>
+                            <field name="tags" placeholder="logo, vintage, emblem"/>
                         </group>
                         <group string="Buyer &amp; Pricing" name="group_pricing">
                             <field name="buyer_id" widget="many2one_avatar_user"/>
@@ -74,6 +84,34 @@
                             <field name="price_tier"/>
                             <field name="delivery_time"/>
                             <field name="order_accepted_date"/>
+                        </group>
+                    </group>
+
+                    <group invisible="not drive_folder_id" string="Google Drive"
+                           name="group_drive">
+                        <field name="drive_folder_url" widget="url"/>
+                        <field name="drive_last_uploaded_at"/>
+                    </group>
+
+                    <separator string="Recreation Notes" name="sep_recreation"/>
+                    <field name="recreation_notes" nolabel="1"
+                           placeholder="How the original gig concept was adapted, what was fictionalized, confirmation that no proprietary assets were used..."/>
+
+                    <separator string="Generation Settings" name="sep_generation"/>
+                    <group>
+                        <group string="Environment">
+                            <field name="environment_type" readonly="1"/>
+                            <field name="environment_base_runtime_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True, 'no_quick_create': True}"
+                                   placeholder="Pick one or more runtimes..."/>
+                            <field name="key_dependency_ids"
+                                   widget="many2many_tags"
+                                   readonly="1"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <!-- Legacy free-text fields, hidden but kept for safety -->
+                            <field name="environment_base_runtime" invisible="1"/>
+                            <field name="key_dependencies" invisible="1"/>
                         </group>
                     </group>
 
@@ -91,14 +129,55 @@
 
                     <separator string="Resources" name="sep_resources"/>
                     <group>
-                        <field name="assets_url" widget="url" placeholder="https://..."/>
-                        <field name="rubrics_url" widget="url" placeholder="https://..."/>
-                        <field name="instruction_md_url" widget="url" placeholder="https://..."/>
+                        <label for="assets_url" string="Assets"/>
+                        <div class="o_row">
+                            <field name="assets_url" widget="url"
+                                   placeholder="https://..." nolabel="1"/>
+                            <field name="assets_file" filename="assets_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="assets_filename" invisible="1"/>
+                        </div>
+                        <label for="rubrics_url" string="Rubrics"/>
+                        <div class="o_row">
+                            <field name="rubrics_url" widget="url"
+                                   placeholder="https://..." nolabel="1"/>
+                            <field name="rubrics_file" filename="rubrics_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="rubrics_filename" invisible="1"/>
+                        </div>
+                        <label for="instruction_md_url" string="Instruction.md"/>
+                        <div class="o_row">
+                            <field name="instruction_md_url" widget="url"
+                                   placeholder="https://..." nolabel="1"/>
+                            <field name="instruction_md_file"
+                                   filename="instruction_md_filename"
+                                   widget="binary" nolabel="1"/>
+                            <field name="instruction_md_filename" invisible="1"/>
+                        </div>
                     </group>
                     <field name="instruction_notes"
                            placeholder="Notes about instruction.md (used in license.json)..."/>
 
                     <separator string="Rubrics" name="sep_rubrics"/>
+                    <div class="mb-2 d-flex gap-2 align-items-center">
+                        <button name="%(fenrir.fenrir_rubric_import_wizard_action)d"
+                                type="action"
+                                string="Import from CSV"
+                                class="btn-secondary"
+                                context="{'default_task_id': id}"
+                                icon="fa-upload"/>
+                        <a href="/fenrir/static/src/sample_rubrics.csv"
+                           download="sample_rubrics.csv"
+                           class="btn btn-link btn-sm">
+                            <i class="fa fa-download me-1"
+                               title="Download" aria-label="Download"
+                               role="img"/>
+                            Download sample CSV
+                        </a>
+                        <span class="text-muted small">
+                            (clicking Import on a new task saves it first)
+                        </span>
+                    </div>
                     <field name="rubric_ids" nolabel="1" mode="kanban,list">
                         <kanban class="o_kanban_dashboard">
                             <field name="name"/>
@@ -151,7 +230,8 @@
                                 <t t-name="card">
                                     <div class="oe_kanban_card oe_kanban_global_click p-2">
                                         <div class="d-flex align-items-center gap-2">
-                                            <i class="fa fa-paperclip fa-lg text-primary"/>
+                                            <i class="fa fa-paperclip fa-lg text-primary"
+                                               title="Attachment" aria-label="Attachment" role="img"/>
                                             <strong class="text-truncate flex-grow-1">
                                                 <field name="file_name" placeholder="File name"/>
                                             </strong>
@@ -166,10 +246,13 @@
                                 </t>
                             </templates>
                         </kanban>
-                        <list editable="bottom" string="Attachments">
+                        <list editable="bottom" string="Attachments"
+                              decoration-info="is_generated">
                             <field name="sequence" widget="handle"/>
                             <field name="file_name" placeholder="logo.png"/>
                             <field name="folder"/>
+                            <field name="is_generated" widget="boolean_toggle"
+                                   readonly="1" optional="show"/>
                             <field name="license"/>
                             <field name="source_url" optional="hide"
                                    placeholder="https://..."/>
@@ -258,7 +341,8 @@
                                             <span>Accepted: <field name="accepted_delivery"/></span>
                                         </div>
                                         <div class="small mt-1" t-if="record.overall_rating.raw_value">
-                                            <i class="fa fa-star text-warning me-1"/>
+                                            <i class="fa fa-star text-warning me-1"
+                                               title="Overall rating" aria-label="Overall rating" role="img"/>
                                             Overall: <strong><field name="overall_rating"/></strong>
                                         </div>
                                     </div>
@@ -291,6 +375,24 @@
                                     </h2>
                                 </div>
 
+                                <separator string="Order Info"/>
+                                <group>
+                                    <group>
+                                        <field name="seller_username"
+                                               placeholder="@handle"/>
+                                        <field name="seller_level"/>
+                                        <field name="seller_profile_url" widget="url"/>
+                                    </group>
+                                    <group>
+                                        <field name="order_id" placeholder="FO..."/>
+                                        <field name="order_date"/>
+                                        <field name="delivery_date"/>
+                                        <field name="delivery_time_days" readonly="1"/>
+                                        <field name="revisions_requested"/>
+                                        <field name="price_paid_usd"/>
+                                    </group>
+                                </group>
+
                                 <separator string="Offer"/>
                                 <group>
                                     <group>
@@ -320,6 +422,9 @@
                                                widget="url"/>
                                     </group>
                                 </group>
+                                <separator string="Deliverables (files)"/>
+                                <field name="deliverable_attachment_ids"
+                                       widget="many2many_binary" nolabel="1"/>
 
                                 <separator string="Artifacts"/>
                                 <group>
@@ -346,6 +451,20 @@
                                 <field name="notes" nolabel="1"/>
 
                                 <separator string="Rubric Scoring"/>
+                                <div class="mb-2 d-flex gap-2 align-items-center"
+                                     invisible="not id">
+                                    <button name="action_export_rubric_scores"
+                                            type="object"
+                                            string="Export to CSV"
+                                            class="btn-secondary"
+                                            icon="fa-download"/>
+                                    <button name="%(fenrir.fenrir_rubric_score_import_wizard_action)d"
+                                            type="action"
+                                            string="Import from CSV"
+                                            class="btn-secondary"
+                                            icon="fa-upload"
+                                            context="{'default_seller_offer_id': id}"/>
+                                </div>
                                 <field name="rubric_score_ids" nolabel="1">
                                     <list editable="bottom"
                                           create="0" delete="0"
@@ -427,12 +546,6 @@
                         </div>
                     </group>
 
-                    <div class="oe_button_box mt-3 text-end"
-                         invisible="not id or status != 'approved'">
-                        <button name="action_submit_task" type="object"
-                                string="Submit" class="btn-success"
-                                groups="fenrir.group_fenrir_manager"/>
-                    </div>
                 </sheet>
                 <chatter/>
             </form>
@@ -498,7 +611,8 @@
                             <div class="o_kanban_record_bottom">
                                 <span>Buyer: <field name="buyer_id"/></span>
                                 <span class="float-end">
-                                    <i class="fa fa-handshake-o"/>
+                                    <i class="fa fa-handshake-o"
+                                       title="Seller offers" aria-label="Seller offers" role="img"/>
                                     <field name="seller_offer_count"/>
                                 </span>
                             </div>

@@ -10,6 +10,7 @@
                 <field name="category_id"/>
                 <field name="name"/>
                 <field name="code"/>
+                <field name="description" optional="show"/>
                 <field name="active" widget="boolean_toggle"/>
             </list>
         </field>
@@ -31,6 +32,9 @@
                             <field name="sequence"/>
                             <field name="active"/>
                         </group>
+                    </group>
+                    <group string="Delivery Sheet">
+                        <field name="description" nolabel="1" placeholder="Description used in the Final Data delivery sheet CSV..."/>
                     </group>
                 </sheet>
             </form>

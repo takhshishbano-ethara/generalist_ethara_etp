@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Tree (list) view -->
+    <record id="fenrir_drive_config_view_list" model="ir.ui.view">
+        <field name="name">fenrir.drive.config.list</field>
+        <field name="model">fenrir.drive.config</field>
+        <field name="arch" type="xml">
+            <list string="Google Drive Configuration"
+                  decoration-success="is_configured"
+                  decoration-warning="not is_configured">
+                <field name="name"/>
+                <field name="auth_method"/>
+                <field name="parent_folder_id"/>
+                <field name="parent_folder_url" widget="url" optional="show"/>
+                <field name="oauth_client_id" optional="hide"/>
+                <field name="is_configured" widget="boolean_toggle"
+                       string="Ready"/>
+                <button name="action_test_connection" type="object"
+                        string="Test" class="btn-link"
+                        invisible="not is_configured"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Form view -->
+    <record id="fenrir_drive_config_view_form" model="ir.ui.view">
+        <field name="name">fenrir.drive.config.form</field>
+        <field name="model">fenrir.drive.config</field>
+        <field name="arch" type="xml">
+            <form string="Google Drive Configuration">
+                <header>
+                    <button string="Test Connection" type="object"
+                            name="action_test_connection"
+                            class="btn-secondary"
+                            invisible="not id"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name"/></h1>
+                    </div>
+
+                    <group string="Auth Method">
+                        <field name="auth_method" widget="radio"/>
+                    </group>
+
+                    <group string="Destination">
+                        <field name="parent_folder_id"
+                               placeholder="e.g. 1aBcD2EfGhIjKlMnO..."/>
+                        <field name="parent_folder_url" widget="url"
+                               readonly="1"
+                               invisible="not parent_folder_id"/>
+                    </group>
+
+                    <!-- OAuth (works on personal / free Gmail) -->
+                    <group string="OAuth User Credentials"
+                           invisible="auth_method != 'oauth'">
+                        <field name="oauth_client_id"
+                               placeholder="123456-abc...apps.googleusercontent.com"/>
+                        <field name="oauth_client_secret" password="True"/>
+                        <field name="oauth_refresh_token" password="True"
+                               placeholder="1//0g... (from authorize_drive.py output)"/>
+                    </group>
+                    <div class="alert alert-info mt-2" role="alert"
+                         invisible="auth_method != 'oauth'">
+                        <strong>OAuth setup (works on free Gmail):</strong>
+                        <ol class="mb-0">
+                            <li>In <a href="https://console.cloud.google.com/apis/credentials"
+                                      target="_blank">GCP Console → Credentials</a>,
+                                create an OAuth 2.0 Client of type
+                                <strong>Desktop app</strong>. Download the JSON.</li>
+                            <li>Add yourself as a Test User in
+                                <a href="https://console.cloud.google.com/apis/credentials/consent"
+                                   target="_blank">OAuth Consent Screen → Test users</a>.</li>
+                            <li>Run on your machine:
+                                <code>python custom_addons/fenrir/scripts/authorize_drive.py /path/to/client_secrets.json</code></li>
+                            <li>Sign in with the Google account whose Drive will
+                                receive uploads, grant access. The script prints
+                                the three OAuth values.</li>
+                            <li>Paste them above + the folder ID. Save. Test Connection.</li>
+                        </ol>
+                    </div>
+
+                    <!-- Service Account (Shared Drive only) -->
+                    <group string="Service Account JSON (Shared Drives only)"
+                           invisible="auth_method != 'service_account'">
+                        <field name="service_account_json" widget="text"
+                               nolabel="1"
+                               placeholder='{"type": "service_account", "project_id": "...", "private_key": "...", ...}'/>
+                    </group>
+                    <div class="alert alert-warning mt-2" role="alert"
+                         invisible="auth_method != 'service_account'">
+                        <strong>Service Account setup (Workspace + Shared Drive required):</strong>
+                        <ol class="mb-0">
+                            <li>Paste the service account JSON key above.</li>
+                            <li>In Drive, create a Shared Drive (left rail →
+                                Shared drives → New). Free Gmail accounts can't —
+                                you need Google Workspace.</li>
+                            <li>Share the Shared Drive with the service account
+                                email as <em>Manager</em>.</li>
+                            <li>Create the parent folder inside the Shared Drive,
+                                paste its ID above.</li>
+                        </ol>
+                    </div>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action — opens list first, then form on row click -->
+    <record id="fenrir_drive_config_action" model="ir.actions.act_window">
+        <field name="name">Google Drive</field>
+        <field name="res_model">fenrir.drive.config</field>
+        <field name="view_mode">list,form</field>
+        <!-- Explicitly clear any stale view_id pinned by older versions
+             of this action that may still live in the DB. -->
+        <field name="view_id" eval="False"/>
+        <field name="target">current</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Configure Google Drive
+            </p>
+            <p>
+                Set credentials and the parent folder for uploading task
+                packages to Google Drive.
+            </p>
+        </field>
+    </record>
+
+    <!-- Explicit view bindings to make the order deterministic. -->
+    <record id="fenrir_drive_config_action_view_list" model="ir.actions.act_window.view">
+        <field name="sequence">1</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="fenrir_drive_config_view_list"/>
+        <field name="act_window_id" ref="fenrir_drive_config_action"/>
+    </record>
+    <record id="fenrir_drive_config_action_view_form" model="ir.actions.act_window.view">
+        <field name="sequence">2</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="fenrir_drive_config_view_form"/>
+        <field name="act_window_id" ref="fenrir_drive_config_action"/>
+    </record>
+
+</odoo>

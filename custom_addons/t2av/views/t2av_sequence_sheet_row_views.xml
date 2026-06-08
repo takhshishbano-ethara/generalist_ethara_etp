@@ -76,7 +76,7 @@
                             <page string="Enriched Prompt"
                                   invisible="not enriched_prompt">
                                 <field name="enriched_prompt" nolabel="1"
-                                       placeholder="Snapshot of the Bedrock-enriched prompt (raw, pre-validator)."/>
+                                       placeholder="Snapshot of the OpenRouter-enriched prompt (raw, pre-validator)."/>
                             </page>
                             <page string="Visual Description">
                                 <field name="visual_description" nolabel="1"/>

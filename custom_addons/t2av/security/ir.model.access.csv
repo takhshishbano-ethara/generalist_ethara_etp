@@ -8,13 +8,8 @@ access_t2av_enrichment_user,t2av.enrichment.user,model_t2av_enrichment,group_t2a
 access_t2av_enrichment_manager,t2av.enrichment.manager,model_t2av_enrichment,group_t2av_manager,1,1,1,1
 access_t2av_video_review_user,t2av.video.review.user,model_t2av_video_review,group_t2av_user,1,1,1,0
 access_t2av_video_review_manager,t2av.video.review.manager,model_t2av_video_review,group_t2av_manager,1,1,1,1
-access_t2av_review_override_wizard_manager,t2av.review.override.wizard.manager,model_t2av_review_override_wizard,group_t2av_manager,1,1,1,1
 access_t2av_sheet_row_user,t2av.sequence.sheet.row.user,model_t2av_sequence_sheet_row,group_t2av_user,1,0,0,0
 access_t2av_sheet_row_manager,t2av.sequence.sheet.row.manager,model_t2av_sequence_sheet_row,group_t2av_manager,1,1,1,1
 access_t2av_sheet_export_wizard_manager,t2av.sequence.sheet.export.wizard.manager,model_t2av_sequence_sheet_export_wizard,group_t2av_manager,1,1,1,1
-access_t2av_generation_reviewer,t2av.generation.reviewer,model_t2av_generation,group_t2av_reviewer,1,0,0,0
-access_t2av_attempt_reviewer,t2av.attempt.reviewer,model_t2av_attempt,group_t2av_reviewer,1,0,0,0
-access_t2av_video_review_reviewer,t2av.video.review.reviewer,model_t2av_video_review,group_t2av_reviewer,1,1,0,0
-access_t2av_sheet_row_reviewer,t2av.sequence.sheet.row.reviewer,model_t2av_sequence_sheet_row,group_t2av_reviewer,1,0,0,0
-access_t2av_stack_review_wizard_reviewer,t2av.stack.review.wizard.reviewer,model_t2av_stack_review_wizard,group_t2av_reviewer,1,1,1,0
+access_t2av_batch_publish_wizard_manager,t2av.batch_publish.wizard.manager,model_t2av_batch_publish_wizard,group_t2av_manager,1,1,1,1
 access_t2av_stack_review_wizard_manager,t2av.stack.review.wizard.manager,model_t2av_stack_review_wizard,group_t2av_manager,1,1,1,0

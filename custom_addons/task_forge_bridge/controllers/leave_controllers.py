@@ -19,7 +19,7 @@ class TaskForgeLeaveController(http.Controller):
             LeaveType = request.env['hr.leave.type']
             if user.employee_id:
                 LeaveType = LeaveType.with_context(employee_id=user.employee_id.id)
-            leave_types = LeaveType.search([('active', '=', True), ('valid', '=', True)])
+            leave_types = LeaveType.search([('active', '=', True)])
             type_list = [{'id': lt.id, 'name': lt.name or ""} for lt in leave_types]
             return return_Response(message="Leave types fetched successfully", status=200, data={"record": type_list})
         except Exception as e:

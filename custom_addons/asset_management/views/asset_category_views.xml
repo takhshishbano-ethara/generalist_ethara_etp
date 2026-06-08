@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_asset_category_list" model="ir.ui.view">
+        <field name="name">asset.category.list</field>
+        <field name="model">asset.category</field>
+        <field name="arch" type="xml">
+            <list string="Asset Categories">
+                <field name="name"/>
+                <field name="code"/>
+                <field name="asset_type"/>
+                <field name="is_returnable"/>
+                <field name="default_duration_days"/>
+                <field name="asset_count"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_asset_category_form" model="ir.ui.view">
+        <field name="name">asset.category.form</field>
+        <field name="model">asset.category</field>
+        <field name="arch" type="xml">
+            <form string="Asset Category">
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_open_assets" type="object"
+                                class="oe_stat_button" icon="fa-cubes">
+                            <field name="asset_count" widget="statinfo" string="Assets"/>
+                        </button>
+                    </div>
+                    <widget name="web_ribbon" title="Archived" bg_color="bg-danger"
+                            invisible="active"/>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="code"/>
+                            <field name="asset_type"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                        <group>
+                            <field name="is_returnable"/>
+                            <field name="default_duration_days"/>
+                        </group>
+                    </group>
+                    <group string="Description">
+                        <field name="description" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_asset_category_search" model="ir.ui.view">
+        <field name="name">asset.category.search</field>
+        <field name="model">asset.category</field>
+        <field name="arch" type="xml">
+            <search string="Categories">
+                <field name="name"/>
+                <field name="code"/>
+                <filter string="Hardware" name="hardware" domain="[('asset_type','=','hardware')]"/>
+                <filter string="Subscriptions" name="subscriptions" domain="[('asset_type','=','subscription')]"/>
+                <filter string="Accessories" name="accessories" domain="[('asset_type','=','accessory')]"/>
+                <filter string="Archived" name="archived" domain="[('active','=',False)]"/>
+                <group>
+                    <filter string="Asset Type" name="grp_type" context="{'group_by': 'asset_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_asset_category" model="ir.actions.act_window">
+        <field name="name">Categories</field>
+        <field name="res_model">asset.category</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

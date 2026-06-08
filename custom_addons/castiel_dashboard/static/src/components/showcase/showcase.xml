@@ -13,7 +13,7 @@
                     <span class="ct-backend-metric__label">Seed Instances</span>
                 </div>
                 <div class="ct-backend-metric">
-                    <span class="ct-backend-metric__value">9</span>
+                    <span class="ct-backend-metric__value">4</span>
                     <span class="ct-backend-metric__label">Bug Classes</span>
                 </div>
                 <div class="ct-backend-metric">
@@ -21,7 +21,7 @@
                     <span class="ct-backend-metric__label">Verifier Tiers</span>
                 </div>
                 <div class="ct-backend-metric">
-                    <span class="ct-backend-metric__value">3</span>
+                    <span class="ct-backend-metric__value">1</span>
                     <span class="ct-backend-metric__label">Languages</span>
                 </div>
             </div>
@@ -30,7 +30,7 @@
                 <div class="ct-backend-model">
                     <h3>Corpus Composition</h3>
                     <div class="ct-backend-model__stat">Categories <strong>8</strong></div>
-                    <div class="ct-backend-model__stat">Difficulty <strong>8 / 8 / 4</strong></div>
+                    <div class="ct-backend-model__stat">Bug classes <strong>4</strong></div>
                     <div class="ct-backend-model__stat">Memory-safety bugs <strong>dominant</strong></div>
                 </div>
                 <div class="ct-backend-model">
@@ -50,6 +50,12 @@
                 </a>
                 <a href="/castiel" target="_blank" class="ct-backend-link">
                     📊 Portal View
+                </a>
+                <a href="https://huggingface.co/datasets/ethara/castiel" target="_blank" class="ct-backend-link">
+                    🤗 Dataset
+                </a>
+                <a href="https://github.com/Ethara-Ai/castiel" target="_blank" class="ct-backend-link">
+                    🛠 Harness
                 </a>
             </div>
         </div>

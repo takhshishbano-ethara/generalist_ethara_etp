@@ -30,15 +30,14 @@
             <field name="groups" eval="[(4, ref('t2av.group_t2av_manager'))]"/>
         </record>
 
-        <!-- Reviewer: rw on reviews assigned to them; read on queued-unassigned human reviews
-             (the pickable pool). Atomic claim in the Stack wizard uses .sudo() so the queued
-             row can be assigned without the reviewer holding write on it pre-claim. -->
+        <!-- COMMENTED OUT for 19.0.1.19.0 hide-stack release
         <record id="rule_t2av_video_review_reviewer" model="ir.rule">
             <field name="name">T2AV Video Review: reviewer sees own assigned + queued pickable pool</field>
             <field name="model_id" ref="model_t2av_video_review"/>
             <field name="domain_force">['|', ('assigned_to_id', '=', user.id), '&amp;', '&amp;', ('provider', '=', 'human'), ('state', '=', 'queued'), ('assigned_to_id', '=', False)]</field>
             <field name="groups" eval="[(4, ref('t2av.group_t2av_reviewer'))]"/>
         </record>
+        -->
 
     </data>
 </odoo>

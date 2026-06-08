@@ -1,3 +1,4 @@
+import unittest
 from unittest.mock import patch
 
 from odoo.exceptions import UserError, ValidationError
@@ -5,6 +6,7 @@ from odoo.tests import tagged
 from odoo.tests.common import TransactionCase
 
 
+@unittest.skip("Stack/Reviewer mode hidden in 19.0.1.19.0; re-enable when feature returns")
 @tagged("post_install", "-at_install", "t2av")
 class TestStackFlow(TransactionCase):
 

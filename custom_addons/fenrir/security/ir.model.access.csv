@@ -11,3 +11,12 @@ access_fenrir_rubric_score_user,fenrir.rubric.score.user,model_fenrir_rubric_sco
 access_fenrir_rubric_score_manager,fenrir.rubric.score.manager,model_fenrir_rubric_score,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_task_attachment_user,fenrir.task.attachment.user,model_fenrir_task_attachment,base.group_user,1,1,1,1
 access_fenrir_task_attachment_manager,fenrir.task.attachment.manager,model_fenrir_task_attachment,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_drive_config_manager,fenrir.drive.config.manager,model_fenrir_drive_config,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_rubric_import_wizard_user,fenrir.rubric.import.wizard.user,model_fenrir_rubric_import_wizard,base.group_user,1,1,1,1
+access_fenrir_rubric_import_wizard_manager,fenrir.rubric.import.wizard.manager,model_fenrir_rubric_import_wizard,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_rubric_score_import_wizard_user,fenrir.rubric.score.import.wizard.user,model_fenrir_rubric_score_import_wizard,base.group_user,1,1,1,1
+access_fenrir_rubric_score_import_wizard_manager,fenrir.rubric.score.import.wizard.manager,model_fenrir_rubric_score_import_wizard,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_environment_runtime_user,fenrir.environment.runtime.user,model_fenrir_environment_runtime,base.group_user,1,0,0,0
+access_fenrir_environment_runtime_manager,fenrir.environment.runtime.manager,model_fenrir_environment_runtime,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_key_dependency_user,fenrir.key.dependency.user,model_fenrir_key_dependency,base.group_user,1,0,0,0
+access_fenrir_key_dependency_manager,fenrir.key.dependency.manager,model_fenrir_key_dependency,fenrir.group_fenrir_manager,1,1,1,1

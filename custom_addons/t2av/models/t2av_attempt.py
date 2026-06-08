@@ -12,7 +12,7 @@ import json
 import logging
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -316,7 +316,7 @@ class T2AVAttempt(models.Model):
     def _compute_video_file(self):
         for rec in self:
             if rec.category and rec.sequence_number:
-                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:07d}.mp4"
+                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:06d}.mp4"
             else:
                 rec.video_file = False
 
@@ -717,9 +717,8 @@ class T2AVAttempt(models.Model):
         # _fail() writes via a fresh cursor that commits independently). Dataset
         # consumers should filter on video_file IS NOT NULL, not on sequence_number
         # being contiguous.
-        today = datetime.utcnow().strftime("%Y%m%d")
-        video_filename = f"T2AV_{category}_{seq_int:07d}.mp4"
-        s3_key = f"generated_videos/{today}/master/{video_filename}"
+        video_filename = f"T2AV_{category}_{seq_int:06d}.mp4"
+        s3_key = f"T2AV/{category}/{video_filename}"
 
         try:
             info = s3_publisher.persist_video_to_s3(

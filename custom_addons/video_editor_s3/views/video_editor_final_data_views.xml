@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_video_editor_final_data_list" model="ir.ui.view">
+        <field name="name">video.editor.project.final.data.list</field>
+        <field name="model">video.editor.project</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <list string="Final Data" create="false" delete="false" edit="false" decoration-success="state == 'exported'">
+                <header>
+                    <button name="action_download_delivery_sheet"
+                            type="object"
+                            string="Download Delivery Sheet"
+                            class="btn-primary"
+                            groups="video_editor_s3.group_video_editor_s3_manager"/>
+                </header>
+                <field name="name"/>
+                <field name="youtube_url" optional="show"/>
+                <field name="output_s3_url" string="Trimmed Url" optional="show"/>
+                <field name="output_duration_seconds" string="Trimmed Duration" optional="show"/>
+                <field name="output_resolution" string="Trimmed Resolution" optional="show"/>
+                <field name="output_fps" string="Trimmed FPS" optional="show"/>
+                <field name="category_id" optional="hide"/>
+                <field name="sub_category_id" optional="hide"/>
+                <field name="state"/>
+                <field name="llm_qc_result" optional="show" string="QC"/>
+                <field name="review_status" optional="show"/>
+                <field name="llm_qc_force_passed" string="Force Passed" optional="hide" widget="boolean_toggle"/>
+                <field name="assigned_to" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_video_editor_final_data" model="ir.actions.act_window">
+        <field name="name">Final Data</field>
+        <field name="res_model">video.editor.project</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('view_video_editor_final_data_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('view_video_editor_project_form')})]"/>
+        <field name="search_view_id" ref="view_video_editor_project_search"/>
+        <field name="domain">[('state', '=', 'exported')]</field>
+        <field name="context">{}</field>
+        <field name="group_ids" eval="[(4, ref('video_editor_s3.group_video_editor_s3_manager'))]"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No Done projects yet</p>
+            <p>Projects appear here once they reach the <b>Done</b> state.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_video_editor_s3_final_data"
+              name="Final Data"
+              parent="menu_video_editor_s3_root"
+              action="action_video_editor_final_data"
+              sequence="25"
+              groups="video_editor_s3.group_video_editor_s3_manager"/>
+
+</odoo>
