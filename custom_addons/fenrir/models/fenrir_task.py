@@ -364,6 +364,17 @@ class FenrirTask(models.Model):
             "context": {"default_task_id": self.id},
         }
 
+    def action_renumber_sellers(self):
+        """One-shot fix: reassign seller_no sequentially (1, 2, 3, …) to
+        every offer on this task, ordered by creation. Use after fixing
+        duplicate seller_no values left over from earlier bug."""
+        self.ensure_one()
+        for idx, offer in enumerate(
+                self.seller_offer_ids.sorted(lambda o: o.id), 1):
+            if offer.seller_no != idx:
+                offer.seller_no = idx
+        return True
+
     def action_export_task(self):
         tasks = self._exportable_tasks()
         zip_buf = io.BytesIO()
@@ -387,28 +398,34 @@ class FenrirTask(models.Model):
 
     def _write_rich_export(self, zf, root):
         self.ensure_one()
-        for rel_path, content, _mime in self._collect_export_files():
+        # ZIP includes the actual binary content (no S3 indirection); just
+        # ignore the is_binary_upload flag.
+        for rel_path, content, _mime, _is_binary in self._collect_export_files():
             zf.writestr(f"{root}/{rel_path}", content)
 
     def _collect_export_files(self):
-        """Return [(relative_path, bytes_content, mime_type), ...] for the package.
+        """Return [(rel_path, bytes, mime, is_binary_upload), ...].
 
-        Shared by ZIP export and the Google Drive uploader so the resulting
-        folder structure is identical in both destinations.
+        is_binary_upload = True for files that came in as uploads (Binary
+        fields, ir.attachment). The Drive uploader sends these to S3 and
+        replaces them with .url.txt pointers in Drive. ZIP export keeps the
+        actual content regardless.
         """
         self.ensure_one()
         import mimetypes
         files = []
+        GENERATED = False
+        UPLOADED = True
 
         # instruction.md — annotator-uploaded file wins; otherwise build from text.
         if self.instruction_md_file:
             files.append(("instruction.md",
                           base64.b64decode(self.instruction_md_file),
-                          "text/markdown"))
+                          "text/markdown", UPLOADED))
         else:
             files.append(("instruction.md",
                           self._build_instruction_md(include_remarks=True).encode("utf-8"),
-                          "text/markdown"))
+                          "text/markdown", GENERATED))
 
         files.append(("rubrics.json",
                       json.dumps([
@@ -417,19 +434,18 @@ class FenrirTask(models.Model):
                            "description": r.description or ""}
                           for r in self.rubric_ids.sorted("sequence")
                       ], indent=2).encode("utf-8"),
-                      "application/json"))
+                      "application/json", GENERATED))
 
-        # Optional rubrics source file (e.g. rubrics.csv) shipped alongside rubrics.json
         if self.rubrics_file:
             name = _slug(self.rubrics_filename or "rubrics_source")
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            files.append((name, base64.b64decode(self.rubrics_file), mime))
+            files.append((name, base64.b64decode(self.rubrics_file), mime, UPLOADED))
 
-        # Optional assets file goes under resources/
         if self.assets_file:
             name = _slug(self.assets_filename or "assets")
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            files.append((f"resources/{name}", base64.b64decode(self.assets_file), mime))
+            files.append((f"resources/{name}",
+                          base64.b64decode(self.assets_file), mime, UPLOADED))
 
         generated_env_names = set()
         generated_test_names = set()
@@ -455,30 +471,32 @@ class FenrirTask(models.Model):
                     generated_env_names.add(safe_name)
                 elif folder == "tests" and att.is_generated:
                     generated_test_names.add(safe_name)
-            files.append((rel, file_bytes, mime))
+            # Auto-generated attachments (env/tests/json files we created)
+            # are generated content. User-uploaded attachments go to S3.
+            tag = GENERATED if att.is_generated else UPLOADED
+            files.append((rel, file_bytes, mime, tag))
 
-        # Fallbacks for legacy tasks (never resubmitted under the generator).
         if not wrote_task_metadata:
             files.append(("task_metadata.json",
                           json.dumps(gen.build_task_metadata(self), indent=2).encode("utf-8"),
-                          "application/json"))
+                          "application/json", GENERATED))
         if not wrote_licenses:
             files.append(("licenses.json",
                           json.dumps(self._build_license_doc(), indent=2).encode("utf-8"),
-                          "application/json"))
+                          "application/json", GENERATED))
 
-        # Legacy per-task binary uploads, skipping ones already generated.
+        # Legacy per-task binary uploads (user-uploaded Dockerfile etc.).
         for filename, content in self._environment_files():
             if filename in generated_env_names:
                 continue
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            files.append((f"environment/{filename}", content, mime))
+            files.append((f"environment/{filename}", content, mime, UPLOADED))
 
         for filename, content in self._test_files():
             if filename in generated_test_names:
                 continue
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            files.append((f"tests/{filename}", content, mime))
+            files.append((f"tests/{filename}", content, mime, UPLOADED))
 
         for offer in self.seller_offer_ids.sorted("seller_no"):
             seller_dir = f"submissions/seller_{offer.seller_no or offer.id}"
@@ -502,20 +520,20 @@ class FenrirTask(models.Model):
                     "notes": offer.notes or "",
                 }
                 meta_bytes = json.dumps(fallback, indent=2, default=str).encode("utf-8")
-            files.append((f"{seller_dir}/metadata.json", meta_bytes, "application/json"))
+            files.append((f"{seller_dir}/metadata.json",
+                          meta_bytes, "application/json", GENERATED))
             files.append((f"{seller_dir}/ratings.json",
                           json.dumps(self._build_ratings(offer), indent=2, default=str).encode("utf-8"),
-                          "application/json"))
+                          "application/json", GENERATED))
             if offer.conversation:
                 files.append((f"{seller_dir}/conversation.txt",
                               offer.conversation.encode("utf-8"),
-                              "text/plain"))
+                              "text/plain", GENERATED))
             if offer.automated_checks:
                 files.append((f"{seller_dir}/automated_checks.txt",
                               offer.automated_checks.encode("utf-8"),
-                              "text/plain"))
+                              "text/plain", GENERATED))
 
-            # Uploaded deliverables → submissions/seller_<n>/deliverables/
             for att in offer.deliverable_attachment_ids:
                 if not att.datas:
                     continue
@@ -523,8 +541,8 @@ class FenrirTask(models.Model):
                 safe_name = _slug(att.name or f"deliverable_{att.id}")
                 mime = att.mimetype or mimetypes.guess_type(safe_name)[0] \
                     or "application/octet-stream"
-                files.append(
-                    (f"{seller_dir}/deliverables/{safe_name}", content, mime))
+                files.append((f"{seller_dir}/deliverables/{safe_name}",
+                              content, mime, UPLOADED))
 
         return files
 

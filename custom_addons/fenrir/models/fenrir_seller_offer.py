@@ -203,10 +203,17 @@ class FenrirSellerOffer(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         vals_list = [self._strip_empty_score_cmds(v) for v in vals_list]
+        # Track next seller_no PER task across the batch so multi-create in
+        # one save doesn't give every new offer seller_no = 1.
+        next_no_per_task = {}
         for vals in vals_list:
             if not vals.get("seller_no") and vals.get("task_id"):
-                existing = self.search_count([("task_id", "=", vals["task_id"])])
-                vals["seller_no"] = existing + 1
+                task_id = vals["task_id"]
+                if task_id not in next_no_per_task:
+                    next_no_per_task[task_id] = self.search_count(
+                        [("task_id", "=", task_id)]) + 1
+                vals["seller_no"] = next_no_per_task[task_id]
+                next_no_per_task[task_id] += 1
         records = super().create(vals_list)
         Score = self.env["fenrir.rubric.score"]
         for rec in records:

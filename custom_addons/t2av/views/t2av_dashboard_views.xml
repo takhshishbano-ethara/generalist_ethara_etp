@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================
+             CLIENT-ACTION DASHBOARD  —  the landing dashboard
+             (OWL component t2av_dashboard). KPI cards, breakdowns,
+             recent feed, filters. Every click drills into the
+             Generations screen with the filter applied.
+             ============================================================ -->
+        <record id="action_t2av_dashboard" model="ir.actions.client">
+            <field name="name">Dashboard</field>
+            <field name="tag">t2av_dashboard</field>
+        </record>
+
+        <menuitem id="menu_t2av_dashboard"
+                  name="Dashboard"
+                  parent="menu_t2av_root"
+                  action="action_t2av_dashboard"
+                  sequence="1"/>
+
+    </data>
+</odoo>

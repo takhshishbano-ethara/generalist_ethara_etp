@@ -151,13 +151,24 @@ class FenrirDriveService(models.AbstractModel):
 
     @staticmethod
     def _upload_bytes(service, name, parent_id, data, mime=DEFAULT_FILE_MIME):
+        """Upload bytes to Drive using resumable chunked upload.
+
+        resumable=True with a 10 MB chunksize lets us push files of any size
+        without keeping the request body in memory all at once. Simple
+        (non-resumable) uploads cap out around a few hundred MB.
+        """
         from googleapiclient.http import MediaIoBaseUpload
         body = {"name": name, "parents": [parent_id]}
-        media = MediaIoBaseUpload(io.BytesIO(data), mimetype=mime, resumable=False)
-        result = service.files().create(
+        media = MediaIoBaseUpload(
+            io.BytesIO(data), mimetype=mime,
+            resumable=True, chunksize=10 * 1024 * 1024)
+        request = service.files().create(
             body=body, media_body=media, fields="id",
-            supportsAllDrives=True).execute()
-        return result["id"]
+            supportsAllDrives=True)
+        response = None
+        while response is None:
+            _status, response = request.next_chunk()
+        return response["id"]
 
     # ── Public: upload a task package ────────────────────────────────────
     def upload_task(self, task):
@@ -193,6 +204,11 @@ class FenrirDriveService(models.AbstractModel):
 
     def _upload_task_inner(self, task):
         service, parent_id = self._build_client()
+        s3 = self.env["fenrir.s3.service"]
+        config = self.env["fenrir.drive.config"].sudo().get_singleton()
+        s3_folder = (config.s3_folder or "").strip().strip("/")
+        s3_prefix = f"{s3_folder}/{task.code or f'task_{task.id}'}" if s3_folder \
+            else f"{task.code or f'task_{task.id}'}"
 
         task_folder_id = task.drive_folder_id or ""
         if task_folder_id and not self._folder_exists(service, task_folder_id):
@@ -204,7 +220,13 @@ class FenrirDriveService(models.AbstractModel):
             task_folder_id = self._create_folder(
                 service, task.code or f"task_{task.id}", parent_id)
 
-        # cache for intermediate folders: () → task root, ("environment",) → env id, etc.
+        # Wipe the task's S3 prefix so re-uploads don't leave stale files.
+        try:
+            s3.delete_prefix(s3_prefix + "/")
+        except Exception as exc:  # noqa: BLE001
+            _logger.warning(
+                "Fenrir: S3 prefix cleanup failed for %s: %s", s3_prefix, exc)
+
         folder_cache = {(): task_folder_id}
 
         def ensure_path(dir_parts):
@@ -215,19 +237,33 @@ class FenrirDriveService(models.AbstractModel):
             folder_cache[dir_parts] = folder_id
             return folder_id
 
-        for rel_path, content, mime in task._collect_export_files():
+        for rel_path, content, mime, is_binary_upload in task._collect_export_files():
             parts = rel_path.split("/")
             file_name = parts[-1]
             dir_parts = tuple(parts[:-1])
             parent_for_file = ensure_path(dir_parts)
+            content_mime = mime or DEFAULT_FILE_MIME
+
+            # Always upload the real file to Drive (resumable handles big sizes).
             self._upload_bytes(
-                service, file_name, parent_for_file, content,
-                mime or DEFAULT_FILE_MIME)
+                service, file_name, parent_for_file, content, content_mime)
+
+            # Binary uploads also go to S3 for backup / external pipeline access.
+            # If S3 fails, log but don't block Drive — Drive copy is authoritative.
+            if is_binary_upload:
+                s3_key = f"{s3_prefix}/{rel_path}"
+                try:
+                    s3.upload_bytes(s3_key, content, content_mime)
+                except Exception as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "Fenrir: S3 mirror failed for %s (Drive copy OK): %s",
+                        s3_key, exc)
 
         task.write({
             "drive_folder_id": task_folder_id,
             "drive_last_uploaded_at": fields.Datetime.now(),
         })
-        _logger.info("Fenrir: uploaded task %s to Drive folder %s",
-                     task.code, task_folder_id)
+        _logger.info(
+            "Fenrir: uploaded task %s (Drive folder %s, S3 prefix %s)",
+            task.code, task_folder_id, s3_prefix)
         return task_folder_id

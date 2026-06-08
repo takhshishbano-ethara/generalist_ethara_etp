@@ -28,6 +28,7 @@
         "views/t2av_sequence_sheet_row_views.xml",
         "views/t2av_sequence_sheet_export_wizard_views.xml",
         "views/t2av_menus.xml",
+        "views/t2av_dashboard_views.xml",
     ],
     "assets": {
         "web.assets_backend": [
@@ -39,6 +40,9 @@
             "t2av/static/src/components/video_player/video_player.xml",
             "t2av/static/src/components/cog_menu_patch/cog_menu_patch.js",
             "t2av/static/src/components/cog_menu_patch/list_view_patch.xml",
+            "t2av/static/src/dashboard/dashboard.js",
+            "t2av/static/src/dashboard/dashboard.xml",
+            "t2av/static/src/dashboard/dashboard.scss",
         ],
     },
     "application": True,

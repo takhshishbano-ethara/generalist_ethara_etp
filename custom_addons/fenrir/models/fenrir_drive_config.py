@@ -20,6 +20,13 @@ PARAM_PARENT_FOLDER = "fenrir.drive.parent_folder_id"
 PARAM_OAUTH_CLIENT_ID = "fenrir.drive.oauth_client_id"
 PARAM_OAUTH_CLIENT_SECRET = "fenrir.drive.oauth_client_secret"
 PARAM_OAUTH_REFRESH_TOKEN = "fenrir.drive.oauth_refresh_token"
+PARAM_S3_BUCKET = "fenrir.s3.bucket"
+PARAM_S3_REGION = "fenrir.s3.region"
+PARAM_S3_FOLDER = "fenrir.s3.folder"
+PARAM_S3_KEY = "fenrir.s3.access_key_id"
+PARAM_S3_SECRET = "fenrir.s3.secret_access_key"
+PARAM_S3_ENDPOINT = "fenrir.s3.endpoint_url"
+PARAM_S3_EXPIRY = "fenrir.s3.presigned_url_expiry_days"
 
 
 class FenrirDriveConfig(models.Model):
@@ -63,6 +70,27 @@ class FenrirDriveConfig(models.Model):
         string="OAuth Refresh Token",
         help="Obtained by running scripts/authorize_drive.py once.")
 
+    # ── S3 storage for uploaded binaries ─────────────────────────────────
+    s3_bucket = fields.Char(string="S3 Bucket",
+                            help="Bucket name, e.g. production-grtlabs-tag.")
+    s3_region = fields.Char(string="S3 Region", default="us-east-1")
+    s3_folder = fields.Char(
+        string="S3 Folder Prefix",
+        help="Prefix under which task folders are created. "
+             "Empty = uploads land at bucket root.")
+    s3_access_key_id = fields.Char(string="S3 Access Key ID")
+    s3_secret_access_key = fields.Char(
+        string="S3 Secret Access Key", help="Stored as-is in ir.config_parameter.")
+    s3_endpoint_url = fields.Char(
+        string="S3 Endpoint URL",
+        help="Leave empty for AWS S3. Set for S3-compatible services "
+             "(Cloudflare R2, MinIO, Backblaze B2, etc.).")
+    s3_presigned_url_expiry_days = fields.Integer(
+        string="Presigned URL Expiry (days)",
+        default=7,
+        help="How long the Drive-side download links stay valid. "
+             "AWS caps at 7 days for SigV4.")
+
     # ── Computed display helpers ─────────────────────────────────────────
     @api.depends("parent_folder_id")
     def _compute_parent_folder_url(self):
@@ -73,17 +101,19 @@ class FenrirDriveConfig(models.Model):
 
     @api.depends("auth_method", "parent_folder_id",
                  "oauth_client_id", "oauth_client_secret", "oauth_refresh_token",
-                 "service_account_json")
+                 "service_account_json",
+                 "s3_bucket", "s3_access_key_id", "s3_secret_access_key")
     def _compute_is_configured(self):
         for rec in self:
-            if not rec.parent_folder_id:
-                rec.is_configured = False
-            elif rec.auth_method == "oauth":
-                rec.is_configured = bool(
-                    rec.oauth_client_id and rec.oauth_client_secret
-                    and rec.oauth_refresh_token)
-            else:
-                rec.is_configured = bool(rec.service_account_json)
+            drive_ok = bool(rec.parent_folder_id) and (
+                (rec.auth_method == "oauth"
+                 and rec.oauth_client_id and rec.oauth_client_secret
+                 and rec.oauth_refresh_token)
+                or (rec.auth_method == "service_account"
+                    and rec.service_account_json))
+            s3_ok = bool(rec.s3_bucket and rec.s3_access_key_id
+                         and rec.s3_secret_access_key)
+            rec.is_configured = drive_ok and s3_ok
 
     # ── Singleton enforcement ────────────────────────────────────────────
     @api.constrains("name")
@@ -140,31 +170,40 @@ class FenrirDriveConfig(models.Model):
                     "Service Account JSON is not valid JSON: %s") % exc)
 
     def action_test_connection(self):
-        """Verify saved credentials work by fetching parent folder metadata."""
+        """Verify both Drive and S3 credentials by hitting each service once."""
         self.ensure_one()
+        results = []
+
+        # Drive
         try:
             service, parent_id = self.env["fenrir.drive.service"]._build_client()
             info = service.files().get(
                 fileId=parent_id, fields="id, name, mimeType",
                 supportsAllDrives=True).execute()
-        except UserError:
-            raise
-        except Exception as exc:
-            raise UserError(_(
-                "Drive API call failed: %s\n\n"
-                "Common causes:\n"
-                "  • For Service Account: parent folder isn't in a Shared Drive.\n"
-                "  • For OAuth: refresh token expired or revoked.\n"
-                "  • Folder ID is wrong (copy from drive.google.com/drive/folders/<id>).\n"
-                "  • Drive API not enabled in the GCP project.") % exc
-            ) from exc
+            results.append(_("Drive OK — folder: %s") % info.get("name", parent_id))
+        except UserError as exc:
+            results.append(_("Drive FAILED — %s") % exc.args[0])
+        except Exception as exc:  # noqa: BLE001
+            results.append(_("Drive FAILED — %s") % exc)
+
+        # S3
+        try:
+            s3 = self.env["fenrir.s3.service"]
+            client, bucket, _folder = s3._build_client()
+            client.head_bucket(Bucket=bucket)
+            results.append(_("S3 OK — bucket: %s reachable") % bucket)
+        except UserError as exc:
+            results.append(_("S3 FAILED — %s") % exc.args[0])
+        except Exception as exc:  # noqa: BLE001
+            results.append(_("S3 FAILED — %s") % exc)
+
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": _("Connection OK"),
-                "message": _("Reached folder: %s") % info.get("name", parent_id),
-                "sticky": False,
-                "type": "success",
+                "title": _("Connection check"),
+                "message": "\n".join(results),
+                "sticky": True,
+                "type": "info",
             },
         }
