@@ -33,11 +33,14 @@
         </record>
 
         <!-- Reviewer Group (Human QC Stack — separate from User/Manager) -->
+        <!-- COMMENTED OUT for 19.0.1.19.0 hide-stack release
         <record id="group_t2av_reviewer" model="res.groups">
             <field name="name">Reviewer</field>
             <field name="privilege_id" ref="res_groups_privilege_t2av"/>
             <field name="implied_ids" eval="[(4, ref('group_t2av_user'))]"/>
         </record>
+        -->
+
 
         <!-- Record Rules: Users see own generations -->
         <record id="rule_t2av_generation_user" model="ir.rule">
@@ -86,8 +89,7 @@
             <field name="perm_unlink" eval="True"/>
         </record>
 
-        <!-- Reviewer scope: read-only access to generations linked to human reviews
-             they are assigned to OR queued-unassigned human reviews (the pickable pool). -->
+        <!-- COMMENTED OUT for 19.0.1.19.0 hide-stack release
         <record id="rule_t2av_generation_reviewer" model="ir.rule">
             <field name="name">T2AV Generation: Reviewer sees jobs with assigned/pickable human reviews</field>
             <field name="model_id" ref="model_t2av_generation"/>
@@ -109,5 +111,6 @@
             <field name="perm_create" eval="False"/>
             <field name="perm_unlink" eval="False"/>
         </record>
+        -->
     </data>
 </odoo>

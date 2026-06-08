@@ -17,21 +17,27 @@
                   name="Sequence Sheets"
                   parent="menu_t2av_root"
                   sequence="20"
-                  groups="t2av.group_t2av_user"/>
+                  groups="t2av.group_t2av_user"
+                  active="0"/>
 
         <menuitem id="menu_t2av_sheet_rows"
                   name="All Rows"
                   parent="menu_t2av_sheets"
                   action="action_t2av_sequence_sheet_row"
-                  sequence="10"/>
+                  sequence="10"
+                  active="0"/>
 
         <menuitem id="menu_t2av_sheet_export"
                   name="Export to XLSX"
                   parent="menu_t2av_sheets"
                   action="action_t2av_sequence_sheet_export"
                   sequence="20"
-                  groups="t2av.group_t2av_manager"/>
+                  groups="t2av.group_t2av_manager"
+                  active="0"/>
 
+        <!-- COMMENTED OUT for 19.0.1.19.0 hide-stack release. The action= refs
+             are dangling because the wizard/admin views were removed from the
+             manifest; un-comment together with re-adding those data entries.
         <menuitem id="menu_t2av_stack"
                   name="Stack"
                   parent="menu_t2av_root"
@@ -51,6 +57,7 @@
                   action="action_t2av_video_review_stack_all"
                   sequence="20"
                   groups="base.group_system"/>
+        -->
 
         <menuitem id="menu_t2av_config"
                   name="Configuration"

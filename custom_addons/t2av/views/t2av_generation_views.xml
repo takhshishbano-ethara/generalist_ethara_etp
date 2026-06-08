@@ -198,7 +198,7 @@
                         </group>
 
                         <notebook>
-                            <page string="Reviews" name="reviews">
+                            <page string="Reviews" name="reviews" invisible="1">
                                 <field name="review_ids" readonly="1">
                                     <list create="false" delete="false" edit="false"
                                           decoration-success="effective_verdict == 'accept'"
