@@ -22,8 +22,6 @@ class DashboardController(http.Controller):
     def v2_get_cto_dashboard_list(self, **kwargs):
         try:
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
-            # CTO takes precedence: group_cto implies group_tpm via the etp_user_roles hierarchy,
-            # so a CTO user has is_tpm=True from has_group(). Treat them as CTO only.
             is_cto = (
                 user_id.has_group('etp_user_roles.group_cto')
                 or user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id
@@ -38,14 +36,11 @@ class DashboardController(http.Controller):
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
-            # Team scope:
-            #   CTO -> org-wide via _get_team_employee_ids().
-            #   TPM -> PLs reporting to this TPM + everyone reporting to those PLs + TPM themselves.
             Employee = request.env['hr.employee'].sudo()
             if is_cto:
                 team_ids = employee._get_team_employee_ids()
-                pls = Employee  # unused for CTO branch
-                team_user_ids = None  # None == no user_id filter (org-wide)
+                pls = Employee  
+                team_user_ids = None 
             else:
                 pls = Employee.search([
                     ('task_forge_tpm_id', '=', employee.id),
@@ -90,9 +85,6 @@ class DashboardController(http.Controller):
             log_start = kwargs.get('start_date')
             log_end = kwargs.get('end_date')
             project_id_raw = kwargs.get('project_id')
-            # Project scope:
-            #   CTO -> all projects with a backend.
-            #   TPM -> only live projects led by PLs reporting to this TPM.
             domain = [('connected_table', '!=', False)]
             if is_tpm:
                 domain += [('project_lead', 'in', pls.ids)] + request.env['project.project']._task_forge_live_domain()
@@ -101,10 +93,6 @@ class DashboardController(http.Controller):
             projects = request.env['project.project'].sudo().search(domain)
             for project in projects:
                 backend = request.env[project.connected_table].sudo()
-                # Task count source:
-                #   CTO -> get_performance_metrics() (role-aware; org-wide for CTO).
-                #   TPM -> explicit user_id filter; get_performance_metrics gives
-                #          TPM FULL_ACCESS and would return org-wide otherwise.
                 if is_cto:
                     if not hasattr(backend, 'get_performance_metrics'):
                         continue
