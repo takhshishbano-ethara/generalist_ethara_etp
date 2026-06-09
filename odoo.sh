@@ -12,7 +12,7 @@ start() {
     fi
 
     echo "Starting Odoo 19..."
-    source venv/bin/activate
+    source .venv/bin/activate
     nohup python src/odoo-bin -c odoo.conf >> "$LOGFILE" 2>&1 &
     echo $! > "$PIDFILE"
     sleep 5

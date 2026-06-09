@@ -193,6 +193,126 @@ class EtpAssessmentCandidateController(http.Controller):
         )
 
     @http.route(
+        "/api/v1/etp_assessment_ext/assessments/<int:assessment_id>/candidates/<int:assignment_id>/detail",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def get_candidate_detail(self, assessment_id, assignment_id, **kwargs):
+        """Per-candidate deep view: their responses, question by question.
+
+        `assignment_id` is the `etp.assessment.evaluator` PK (i.e. the row
+        the candidate represents in the candidate list of an assessment).
+        Returns the candidate header, plus one entry per question they were
+        served, with score / state / per-dimension selected option.
+        """
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        env = request.env
+        Evaluator = env["etp.assessment.evaluator"].sudo()
+        assignment = Evaluator.browse(assignment_id)
+        if not assignment.exists():
+            return return_Response(
+                message="Candidate assignment not found", status=404,
+            )
+        if assignment.assessment_id.id != assessment_id:
+            return return_Response(
+                message="Candidate assignment does not belong to this assessment",
+                status=404,
+            )
+
+        state_labels = dict(Evaluator._fields["state"].selection)
+        Response = env["etp.assessment.response"].sudo()
+        resp_state_labels = dict(Response._fields["state"].selection)
+        Question = env["etp.assessment.question"].sudo()
+        type_labels = dict(Question._fields["question_type"].selection)
+
+        responses = Response.search(
+            [("assessment_evaluator_id", "=", assignment_id)],
+            order="create_date asc, id asc",
+        )
+
+        response_rows = []
+        for r in responses:
+            q = r.question_id
+            lines = []
+            for line in r.line_ids:
+                lines.append({
+                    "id": line.id,
+                    "dimension_id": (
+                        line.dimension_id.id if line.dimension_id else 0
+                    ),
+                    "dimension_name": (
+                        line.dimension_id.name if line.dimension_id else ""
+                    ),
+                    "selected_option_id": (
+                        line.selected_option_id.id
+                        if line.selected_option_id else 0
+                    ),
+                    "selected_option_name": (
+                        line.selected_option_id.name
+                        if line.selected_option_id else ""
+                    ),
+                })
+            response_rows.append({
+                "id": r.id,
+                "question_id": q.id if q else 0,
+                "question_name": q.name if q else "",
+                "question_type": q.question_type if q else "",
+                "question_type_label": (
+                    type_labels.get(q.question_type or "", "") if q else ""
+                ),
+                "category_id": q.category_id.id if q and q.category_id else 0,
+                "category_name": (
+                    q.category_id.name if q and q.category_id else ""
+                ),
+                "justification": r.justification or "",
+                "state": r.state,
+                "state_label": resp_state_labels.get(r.state, ""),
+                "score": r.score or 0,
+                "max_score": r.max_score or 0,
+                "lines": lines,
+                "create_date": (
+                    r.create_date.isoformat() if r.create_date else None
+                ),
+            })
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "role": user_role_tag(env),
+                "candidate": _serialize_assignment(assignment, state_labels),
+                "assessment": {
+                    "id": assignment.assessment_id.id,
+                    "name": assignment.assessment_id.name or "",
+                    "duration_minutes": (
+                        assignment.assessment_id.duration_minutes or 0
+                    ),
+                    "state": assignment.assessment_id.state,
+                },
+                "responses": response_rows,
+                "summary": {
+                    "total_questions": assignment.total_questions or 0,
+                    "answered_count": assignment.answered_count or 0,
+                    "total_score": assignment.total_score or 0,
+                    "max_possible_score": assignment.max_possible_score or 0,
+                    "progress_percent": pct(
+                        assignment.answered_count, assignment.total_questions,
+                    ),
+                    "is_violated": bool(assignment.is_violated),
+                    "violation_reason": assignment.violation_reason or "",
+                },
+            },
+        )
+
+    @http.route(
         "/api/v1/etp_assessment_ext/assessments/<int:assessment_id>/candidates",
         type="http",
         auth="none",

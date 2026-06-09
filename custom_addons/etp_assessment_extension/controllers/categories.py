@@ -129,6 +129,94 @@ class EtpAssessmentCategoryController(http.Controller):
         )
 
     @http.route(
+        "/api/v1/etp_assessment_ext/categories/<int:category_id>/detail",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def get_category_detail(self, category_id, **kwargs):
+        """Deep category view: category header + every question in it +
+        every assessment that targets it. Used when the user clicks a
+        question's category from inside the assessment detail screen.
+        """
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        env = request.env
+        Category = env["etp.assessment.category"].sudo()
+        category = Category.browse(category_id)
+        if not category.exists():
+            return return_Response(message="Category not found", status=404)
+
+        Question = env["etp.assessment.question"].sudo()
+        type_labels = dict(Question._fields["question_type"].selection)
+        questions = Question.search(
+            [("category_id", "=", category_id), ("active", "=", True)],
+            order="sequence, id",
+        )
+
+        type_counts = {}
+        question_rows = []
+        for q in questions:
+            qtype = q.question_type or ""
+            type_counts[qtype] = type_counts.get(qtype, 0) + 1
+            question_rows.append({
+                "id": q.id,
+                "name": q.name or "",
+                "sequence": q.sequence or 0,
+                "question_type": qtype,
+                "question_type_label": type_labels.get(qtype, ""),
+                "prompt": q.prompt or "",
+                "dimension_count": len(q.question_dimension_ids),
+                "active": bool(q.active),
+            })
+
+        Assessment = env["etp.assessment"].sudo()
+        assessment_state_labels = dict(Assessment._fields["state"].selection)
+        assessments = Assessment.search(
+            [("category_id", "=", category_id)],
+            order="create_date desc",
+        )
+        assessment_rows = [{
+            "id": a.id,
+            "name": a.name or "",
+            "state": a.state,
+            "state_label": assessment_state_labels.get(a.state, ""),
+            "question_limit": a.question_limit or 0,
+            "candidate_count": len(a.evaluator_ids),
+            "start_date": a.start_date.isoformat() if a.start_date else None,
+            "end_date": a.end_date.isoformat() if a.end_date else None,
+        } for a in assessments]
+
+        total = sum(type_counts.values())
+        type_breakdown = [
+            {
+                "key": k or "unspecified",
+                "label": type_labels.get(k, k or "Unspecified"),
+                "value": v,
+                "percent": (round((v / total) * 100.0, 2) if total else 0.0),
+            }
+            for k, v in sorted(type_counts.items(), key=lambda kv: -kv[1])
+        ]
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "role": user_role_tag(env),
+                "category": _serialize(category),
+                "questions": question_rows,
+                "type_breakdown": type_breakdown,
+                "assessments": assessment_rows,
+            },
+        )
+
+    @http.route(
         "/api/v1/etp_assessment_ext/categories",
         type="http",
         auth="none",

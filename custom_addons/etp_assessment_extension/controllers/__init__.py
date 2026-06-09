@@ -5,4 +5,5 @@ from . import questions
 from . import assessments
 from . import candidates
 from . import responses
+from . import violations
 from . import portal

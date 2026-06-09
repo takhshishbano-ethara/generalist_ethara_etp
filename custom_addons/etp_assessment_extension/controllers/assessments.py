@@ -234,6 +234,122 @@ class EtpAssessmentController(http.Controller):
         )
 
     @http.route(
+        "/api/v1/etp_assessment_ext/assessments/<int:assessment_id>/detail",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def get_assessment_detail(self, assessment_id, **kwargs):
+        """Deep assessment view: header + stats + candidate roster + questions.
+
+        Designed for the assessment detail screen ("etp.assessment/<id>") so
+        the frontend can render everything in one round-trip instead of
+        chaining list calls.
+        """
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        env = request.env
+        Assessment = env["etp.assessment"].sudo()
+        assessment = Assessment.browse(assessment_id)
+        if not assessment.exists():
+            return return_Response(message="Assessment not found", status=404)
+
+        state_labels = dict(Assessment._fields["state"].selection)
+        Evaluator = env["etp.assessment.evaluator"].sudo()
+        evaluator_state_labels = dict(Evaluator._fields["state"].selection)
+        Question = env["etp.assessment.question"].sudo()
+        type_labels = dict(Question._fields["question_type"].selection)
+        Response = env["etp.assessment.response"].sudo()
+
+        candidates = []
+        violator_count = 0
+        for ev in assessment.assessment_evaluator_ids:
+            emp = ev.employee_id
+            if ev.is_violated:
+                violator_count += 1
+            candidates.append({
+                "assignment_id": ev.id,
+                "employee_id": emp.id if emp else 0,
+                "employee_name": emp.name if emp else "",
+                "employee_email": (
+                    (emp.work_email or emp.private_email) if emp else ""
+                ),
+                "state": ev.state,
+                "state_label": evaluator_state_labels.get(ev.state, ""),
+                "answered_count": ev.answered_count or 0,
+                "total_questions": ev.total_questions or 0,
+                "progress_percent": pct(ev.answered_count, ev.total_questions),
+                "total_score": ev.total_score or 0,
+                "max_possible_score": ev.max_possible_score or 0,
+                "is_locked": bool(ev.is_locked),
+                "is_violated": bool(ev.is_violated),
+                "violation_reason": ev.violation_reason or "",
+                "violation_datetime": (
+                    ev.violation_datetime.isoformat()
+                    if ev.violation_datetime else None
+                ),
+                "started_at": (
+                    ev.started_at.isoformat() if ev.started_at else None
+                ),
+                "deadline_datetime": (
+                    ev.deadline_datetime.isoformat()
+                    if ev.deadline_datetime else None
+                ),
+            })
+
+        questions = []
+        for q in assessment.question_ids:
+            questions.append({
+                "id": q.id,
+                "name": q.name or "",
+                "question_type": q.question_type or "",
+                "question_type_label": type_labels.get(q.question_type or "", ""),
+                "category_id": q.category_id.id if q.category_id else 0,
+                "category_name": q.category_id.name if q.category_id else "",
+                "prompt": q.prompt or "",
+                "dimension_count": len(q.question_dimension_ids),
+                "active": bool(q.active),
+            })
+
+        total_responses = Response.search_count([
+            ("assessment_id", "=", assessment_id),
+        ])
+        submitted_responses = Response.search_count([
+            ("assessment_id", "=", assessment_id),
+            ("state", "=", "submitted"),
+        ])
+        total_cands = len(assessment.assessment_evaluator_ids)
+        submitted_cands = sum(
+            1 for ev in assessment.assessment_evaluator_ids
+            if ev.state == "submitted"
+        )
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "role": user_role_tag(env),
+                "assessment": _serialize_assessment(assessment, state_labels),
+                "stats": {
+                    "total_candidates": total_cands,
+                    "submitted_candidates": submitted_cands,
+                    "violators": violator_count,
+                    "total_responses": total_responses,
+                    "submitted_responses": submitted_responses,
+                    "completion_rate": pct(submitted_cands, total_cands),
+                },
+                "candidates": candidates,
+                "questions": questions,
+            },
+        )
+
+    @http.route(
         "/api/v1/etp_assessment_ext/assessments",
         type="http",
         auth="none",
