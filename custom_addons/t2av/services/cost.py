@@ -68,38 +68,19 @@ def _parse_ratio(aspect_ratio: str) -> tuple[int, int]:
 
 
 def pixels_for(resolution: str, aspect_ratio: str) -> tuple[int, int]:
-    """Return ``(width, height)`` for a given resolution + aspect ratio.
+    """Return ``(width, height)`` for the resolution.
 
-    480p/720p/1080p define the SHORT side for non-landscape ratios:
-      - 16:9, 4:3, 3:2, 21:9 -> landscape, height = resolution height,
-        width = round(height * num / den)
-      - 9:16, 3:4, 2:3, 9:21 -> portrait, width = resolution height
-        (the short side), height = round(width * den / num)
-      - 1:1 -> both = resolution height
-
-    Returns even integers (round to nearest even; video encoders prefer it).
+    OpenRouter bills Seedance 2.0 at flat per-second rates per resolution
+    ($0.06726/480p, $0.15120/720p, $0.34020/1080p), equivalent to using
+    the 16:9 baseline pixel count regardless of ``aspect_ratio``. The
+    parameter is validated for format only. Switching to a provider with
+    aspect-specific pricing (fal.ai, ByteDance direct) would require
+    restoring per-aspect dimensions.
     """
     if resolution not in RESOLUTION_PIXELS_16_9:
         raise ValueError(f"Unknown resolution: {resolution}")
-
-    num, den = _parse_ratio(aspect_ratio)
-    baseline_width, baseline_height = RESOLUTION_PIXELS_16_9[resolution]
-
-    # Exact 16:9 matches the canonical table verbatim.
-    if (num, den) == (16, 9):
-        return baseline_width, baseline_height
-
-    if num == den:
-        return baseline_height, baseline_height
-    if num > den:
-        # Landscape: keep the baseline height, derive width from ratio.
-        h = baseline_height
-        w = _round_even(h * num / den)
-        return w, h
-    # Portrait: short side equals the baseline height; height grows from ratio.
-    w = baseline_height
-    h = _round_even(w * den / num)
-    return w, h
+    _parse_ratio(aspect_ratio)
+    return RESOLUTION_PIXELS_16_9[resolution]
 
 
 def estimate(resolution: str, duration: int, aspect_ratio: str) -> tuple[int, float]:

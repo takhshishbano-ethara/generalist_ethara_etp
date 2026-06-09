@@ -20,7 +20,8 @@ _VALID_PRIORITIES = {"medium", "high", "highest"}
 _VALID_COMPLEXITIES = {"simple", "moderate", "complex"}
 _BOOL_TRUE = {"true", "1", "yes", "y", "t"}
 _BOOL_FALSE = {"false", "0", "no", "n", "f"}
-_MAX_PROMPT_LEN = 2000
+_MAX_PROMPT_LEN = 20000
+_MAX_META_PROMPT_LEN = 10000
 _MAX_TOPIC_LEN = 200
 _MAX_SUB_CATEGORY_LEN = 200
 _MAX_LANGUAGE_LEN = 50
@@ -28,11 +29,11 @@ _MAX_DIALOGUE_TRANSCRIPT_LEN = 4000
 _MAX_SEED = 2_147_483_647
 _MAX_SPEAKER_COUNT = 16
 
-_REQUIRED_COLUMNS = ("prompt", "category")
+_REQUIRED_COLUMNS = ("prompt", "category", "meta_prompt", "sub_category", "topic")
 _OPTIONAL_COLUMNS = (
     "negative_prompt", "duration", "resolution",
     "aspect_ratio", "seed", "generate_audio",
-    "sub_category", "style", "priority", "topic", "complexity",
+    "style", "priority", "complexity",
     "language", "speaker_count", "dialogue_transcript",
 )
 
@@ -68,10 +69,10 @@ class T2AVImportWizard(models.TransientModel):
         if missing_required:
             raise UserError(_(
                 "CSV is missing required column(s): %(cols)s. "
-                "Required: prompt, category. "
+                "Required: prompt, category, meta_prompt, sub_category, topic. "
                 "Optional: negative_prompt, duration, resolution, "
                 "aspect_ratio, seed, generate_audio, "
-                "sub_category, style, priority, topic, complexity, "
+                "style, priority, complexity, "
                 "language, speaker_count, dialogue_transcript."
             ) % {"cols": ", ".join(missing_required)})
 
@@ -154,10 +155,21 @@ class T2AVImportWizard(models.TransientModel):
 
         vals = {
             "prompt": prompt,
+            "raw_prompt": prompt,
             "category": category_slug,
             "source": "import",
             "user_id": self.env.user.id,
         }
+
+        meta_prompt = get("meta_prompt")
+        if not meta_prompt:
+            errors.append(_("Row %d: meta_prompt is required.") % row_num)
+        elif len(meta_prompt) > _MAX_META_PROMPT_LEN:
+            errors.append(_(
+                "Row %(row)d: meta_prompt is %(len)d chars; max is %(max)d."
+            ) % {"row": row_num, "len": len(meta_prompt), "max": _MAX_META_PROMPT_LEN})
+        else:
+            vals["meta_prompt"] = meta_prompt
 
         negative_prompt = get("negative_prompt")
         if negative_prompt:
@@ -232,7 +244,9 @@ class T2AVImportWizard(models.TransientModel):
                 ) % {"row": row_num, "val": generate_audio})
 
         style = get("style")
-        if style:
+        if not style:
+            vals["style"] = "casual"
+        else:
             normalized = style.lower()
             if normalized not in _VALID_STYLES:
                 errors.append(_(
@@ -271,22 +285,24 @@ class T2AVImportWizard(models.TransientModel):
                 vals["complexity"] = normalized
 
         topic = get("topic")
-        if topic:
-            if len(topic) > _MAX_TOPIC_LEN:
-                errors.append(_(
-                    "Row %(row)d: topic is %(len)d chars; max is %(max)d."
-                ) % {"row": row_num, "len": len(topic), "max": _MAX_TOPIC_LEN})
-            else:
-                vals["topic"] = topic
+        if not topic:
+            errors.append(_("Row %d: topic is required.") % row_num)
+        elif len(topic) > _MAX_TOPIC_LEN:
+            errors.append(_(
+                "Row %(row)d: topic is %(len)d chars; max is %(max)d."
+            ) % {"row": row_num, "len": len(topic), "max": _MAX_TOPIC_LEN})
+        else:
+            vals["topic"] = topic
 
         sub_category = get("sub_category")
-        if sub_category:
-            if len(sub_category) > _MAX_SUB_CATEGORY_LEN:
-                errors.append(_(
-                    "Row %(row)d: sub_category is %(len)d chars; max is %(max)d."
-                ) % {"row": row_num, "len": len(sub_category), "max": _MAX_SUB_CATEGORY_LEN})
-            else:
-                vals["sub_category"] = sub_category
+        if not sub_category:
+            errors.append(_("Row %d: sub_category is required.") % row_num)
+        elif len(sub_category) > _MAX_SUB_CATEGORY_LEN:
+            errors.append(_(
+                "Row %(row)d: sub_category is %(len)d chars; max is %(max)d."
+            ) % {"row": row_num, "len": len(sub_category), "max": _MAX_SUB_CATEGORY_LEN})
+        else:
+            vals["sub_category"] = sub_category
 
         language = get("language")
         if language:

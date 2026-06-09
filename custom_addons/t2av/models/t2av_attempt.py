@@ -400,8 +400,8 @@ class T2AVAttempt(models.Model):
             stripped = (rec.prompt or "").strip()
             if not stripped:
                 raise ValidationError(_("Prompt is required."))
-            if len(stripped) > 2000:
-                raise ValidationError(_("Prompt must be at most 2000 characters."))
+            if len(stripped) > 20000:
+                raise ValidationError(_("Prompt must be at most 20000 characters."))
 
     # ------------------------------------------------------------------
     # CRUD / state-machine guard
@@ -640,18 +640,14 @@ class T2AVAttempt(models.Model):
             self._fail("no_video_url", "OpenRouter reported completed but returned no URL.")
             return
 
-        # Compare-and-set: only one path (webhook OR cron) transitions to downloading.
+        # Compare-and-set on state only; prevents webhook/cron double completion.
         self.env.cr.execute(
             """UPDATE t2av_attempt
-               SET state = 'downloading',
-                   tokens_used = %s,
-                   cost_usd = %s,
-                   video_temporary_url = %s,
-                   video_expires_at = %s
+               SET state = 'downloading'
                WHERE id = %s
                  AND state IN ('submitting', 'processing')
                RETURNING id""",
-            (tokens, cost, video_url, fields.Datetime.now() + timedelta(days=7), self.id),
+            (self.id,),
         )
         if not self.env.cr.fetchone():
             _logger.info(
@@ -660,8 +656,18 @@ class T2AVAttempt(models.Model):
             )
             return
 
-        # Refresh ORM cache so subsequent reads see the new values
+        _logger.info(
+            "T2AV attempt %s: completion received | tokens=%s cost=$%.4f",
+            self.id, tokens, cost,
+        )
         self.invalidate_recordset()
+        # ORM write (not SQL) so parent's @api.depends('attempt_ids.cost_usd') fires.
+        self.write({
+            "tokens_used": tokens,
+            "cost_usd": cost,
+            "video_temporary_url": video_url,
+            "video_expires_at": fields.Datetime.now() + timedelta(days=7),
+        })
         if fps_value:
             self.write({"fps": fps_value})
         self.message_post(body=_("OpenRouter completed; downloading video (cost $%.4f).") % cost)

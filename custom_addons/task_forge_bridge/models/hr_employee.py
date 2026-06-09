@@ -72,6 +72,9 @@ class HrEmployee(models.Model):
             return 'qr'
         if user.has_group('etp_user_roles.group_quality_lead') or (user.user_role.id in [self.env.ref('api_auth_gateway.role_qc_technical').id, self.env.ref('api_auth_gateway.role_qc_stem').id, self.env.ref('api_auth_gateway.role_qc_non_stem').id] and self.is_ql_type):
             return 'ql'
+        hr_role = self.env.ref('api_auth_gateway.role_hr_technical', raise_if_not_found=False)
+        if hr_role and user.user_role.id == hr_role.id:
+            return 'hr'
         return 'tasker'
 
     def _get_team_employee_ids(self):
@@ -79,18 +82,15 @@ class HrEmployee(models.Model):
         self.ensure_one()
         role = self._get_task_forge_role()
         Employee = self.env['hr.employee'].sudo()
-        if role == 'admin':
-            return Employee.search([('task_forge_active', '=', True)]).ids
+        if role in ('admin', 'hr'):
+            return Employee.search([]).ids
         elif role == 'tpm':
             pl_ids = Employee.search([('task_forge_tpm_id', '=', self.id)]).ids
             return Employee.search([
-                '|',
+                '|', '|',
                 ('id', '=', self.id),
-                '&',
-                '|',
                 ('task_forge_tpm_id', '=', self.id),
                 ('task_forge_pl_id', 'in', pl_ids),
-                ('task_forge_active', '=', True),
             ]).ids
         elif role == 'pl':
             return Employee.search([

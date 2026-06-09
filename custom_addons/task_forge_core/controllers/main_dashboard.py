@@ -291,58 +291,74 @@ class MainDashboardController(http.Controller):
 
             today = date.today()
             yesterday = today - timedelta(days=1)
+            today_from, today_to = _day_bounds(today)
+            yesterday_from, yesterday_to = _day_bounds(yesterday)
 
             Employee = request.env['hr.employee'].sudo()
             Project = request.env['project.project'].sudo()
-            TaskLog = request.env['task.forge.log'].sudo()
 
             project_ids = _project_ids_in_category(kw)
-            project_domain = [('id', 'in', project_ids)] if project_ids is not None else []
 
-            # --- Live tasking ---
-            live_task_domain = [('state', '=', 'in_progress')]
+            scoped_proj_domain = []
             if project_ids is not None:
-                live_task_domain.append(('project_id', 'in', project_ids))
-            live_tasks = TaskLog.search(live_task_domain)
-            online_now = len(live_tasks.mapped('employee_id'))
+                scoped_proj_domain.append(('id', 'in', project_ids))
+            scoped_projects = Project.search(scoped_proj_domain)
 
-            # Distinct active projects with in-progress tasks right now.
-            live_project_ids = set(live_tasks.mapped('project_id').ids)
+            table_to_project_ids = {}
+            for proj in scoped_projects:
+                table = (getattr(proj, 'connected_table', None) or '').strip()
+                if not table:
+                    continue
+                table_to_project_ids.setdefault(table, []).append(proj.id)
 
-            # Total active taskers = workforce tasker count (capacity denominator).
+            online_user_ids = set()
+            live_project_ids = set()
+            completed_today = 0
+            completed_yesterday = 0
+            overdue_by_project = {}
+
+            for table, pids in table_to_project_ids.items():
+                if table not in request.env:
+                    continue
+                Model = request.env[table].sudo()
+                if not hasattr(Model, 'get_main_dashboard_metrics'):
+                    continue
+                try:
+                    metrics = Model.get_main_dashboard_metrics(
+                        today_from, today_to, yesterday_from, yesterday_to,
+                    )
+                except Exception:
+                    _logger.exception(
+                        'get_main_dashboard_metrics failed on %s', table,
+                    )
+                    continue
+                online_user_ids.update(metrics.get('in_progress_user_ids') or [])
+                completed_today += int(metrics.get('completed_today') or 0)
+                completed_yesterday += int(metrics.get('completed_yesterday') or 0)
+                if metrics.get('has_in_progress_work'):
+                    live_project_ids.update(pids)
+
+            if online_user_ids:
+                online_now = Employee.search_count([
+                    ('user_id', 'in', list(online_user_ids)),
+                    ('task_forge_active', '=', True),
+                ])
+            else:
+                online_now = 0
+
             workforce = _workforce_breakdown()
             total_taskers_capacity = workforce['taskers']
 
-            # --- Tasks completed today / yesterday ---
-            completed_today_domain = [
-                ('date', '=', today),
-                ('state', '=', 'completed'),
-            ]
-            completed_yesterday_domain = [
-                ('date', '=', yesterday),
-                ('state', '=', 'completed'),
-            ]
-            if project_ids is not None:
-                completed_today_domain.append(('project_id', 'in', project_ids))
-                completed_yesterday_domain.append(('project_id', 'in', project_ids))
-            completed_today = TaskLog.search_count(completed_today_domain)
-            completed_yesterday = TaskLog.search_count(completed_yesterday_domain)
-
-            # --- Active projects (live per either status convention) ---
             active_proj_domain = _live_project_domain()
             if project_ids is not None:
                 active_proj_domain.append(('id', 'in', project_ids))
             active_projects = Project.search(active_proj_domain)
             active_projects_count = len(active_projects)
 
-            # "At Risk" = live projects with many open blockers or overdue tasks.
             at_risk = 0
             for proj in active_projects:
                 proj_blockers = _count_open_blockers([('project_id', '=', proj.id)])
-                proj_overdue = TaskLog.search_count([
-                    ('project_id', '=', proj.id),
-                    ('state', '=', 'overdue'),
-                ])
+                proj_overdue = overdue_by_project.get(proj.id, 0)
                 if (proj_blockers > HEALTH_AT_RISK_BLOCKERS or
                         proj_overdue > HEALTH_AT_RISK_OVERDUE):
                     at_risk += 1
@@ -420,62 +436,47 @@ class MainDashboardController(http.Controller):
             if err:
                 return err
 
-            TaskLog = request.env['task.forge.log'].sudo()
+            Project = request.env['project.project'].sudo()
             date_from, date_to = _parse_range(kw)
             project_ids = _project_ids_in_category(kw)
 
-            domain = [
-                ('state', '=', 'completed'),
-                ('date', '>=', date_from),
-                ('date', '<=', date_to),
-            ]
+            project_domain = []
             if project_ids is not None:
-                domain.append(('project_id', 'in', project_ids))
+                project_domain.append(('id', 'in', project_ids))
 
             try:
                 single_project_id = int(kw.get('project_id')) if kw.get('project_id') else None
             except (TypeError, ValueError):
                 single_project_id = None
             if single_project_id:
-                domain.append(('project_id', '=', single_project_id))
+                project_domain.append(('id', '=', single_project_id))
 
-            # One aggregated SQL call via read_group.
-            grouped = TaskLog.read_group(
-                domain=domain,
-                fields=['date'],
-                groupby=['date:day'],
-                lazy=False,
-            )
+            projects = Project.search(project_domain)
 
-            # Build an index {date_iso: count}. read_group returns the
-            # bucket label (e.g. "28 Mar 2026") plus a __domain; we use
-            # date_count because `date` is itself a Date field.
+            tables = set()
+            for proj in projects:
+                table = (getattr(proj, 'connected_table', None) or '').strip()
+                if table:
+                    tables.add(table)
+
+            dt_from = datetime.combine(date_from, time.min)
+            dt_to = datetime.combine(date_to, time.max)
+
             counts_by_date = {}
-            for row in grouped:
-                # For Date fields, read_group returns the date as a string
-                # in the 'date' key when groupby='date:day'.
-                raw = row.get('date:day') or row.get('date')
-                if not raw:
+            for table in tables:
+                if table not in request.env:
+                    continue
+                Model = request.env[table]
+                if not hasattr(Model, 'get_tasks_completed_timeseries'):
                     continue
                 try:
-                    # raw may be "28 Mar 2026" or already a date - normalise.
-                    if isinstance(raw, date):
-                        key = raw.isoformat()
-                    else:
-                        # Try multiple formats that Odoo may emit.
-                        parsed = None
-                        for fmt in ('%Y-%m-%d', '%d %b %Y', '%d %B %Y'):
-                            try:
-                                parsed = datetime.strptime(raw, fmt).date()
-                                break
-                            except ValueError:
-                                continue
-                        if not parsed:
-                            continue
-                        key = parsed.isoformat()
-                    counts_by_date[key] = row.get('__count', 0)
+                    rows = Model.get_tasks_completed_timeseries(dt_from, dt_to) or []
                 except Exception:
                     continue
+                for iso, count in rows:
+                    if not iso:
+                        continue
+                    counts_by_date[iso] = counts_by_date.get(iso, 0) + int(count or 0)
 
             # Fill missing days with 0 for clean chart rendering.
             series = []

@@ -25,7 +25,20 @@ class EtpProjectAwsBudget(models.Model):
 
     budget_amount = fields.Monetary(
         currency_field="currency_id", required=True, tracking=True,
+        string="Final Project Budget",
+    )
+    project_budget = fields.Monetary(
+        currency_field="currency_id", tracking=True,
         string="Project Budget",
+        help="Initial allocated budget for the project. Auto-incremented when an approved token purchase request is completed.",
+    )
+    purchase_request_ids = fields.One2many(
+        "etp.project.token.purchase.request", "budget_id",
+        string="Token Purchase Requests",
+    )
+    purchase_request_count = fields.Integer(
+        compute="_compute_purchase_request_count", store=False,
+        string="Purchase Requests",
     )
     currency_id = fields.Many2one(
         "res.currency",
@@ -232,26 +245,106 @@ class EtpProjectAwsBudget(models.Model):
                 "etp.project.aws.budget %s threshold %s: no recipients", self.name, threshold,
             )
             return
+
+        accent = {75: "#f59e0b", 90: "#ea580c", 100: "#dc2626"}.get(threshold, "#dc2626")
+        label = {
+            75: _("Heads up"),
+            90: _("Warning"),
+            100: _("Budget exhausted"),
+        }.get(threshold, _("Alert"))
+        symbol = self.currency_id.symbol or self.currency_id.name or ""
+        budget_val = self.budget_amount or 0.0
+        used_val = self.total_consumed or 0.0
+        remaining_val = self.remaining or 0.0
+        bar_width = max(2, min(threshold, 100))
+
         subject = _("[AWS Budget %(t)s%%] %(n)s") % {"t": threshold, "n": self.name}
-        body = _(
-            "<p>Project <b>%(p)s</b> AWS budget <b>%(n)s</b> has reached "
-            "<b>%(t)s%%</b> of the configured budget.</p>"
-            "<ul>"
-            "<li>Budget: %(b).2f %(c)s</li>"
-            "<li>Consumed: %(used).2f %(c)s</li>"
-            "<li>Remaining: %(r).2f %(c)s</li>"
-            "<li>Tag: %(tk)s = %(tv)s</li>"
-            "</ul>"
+
+        body = (
+            '<div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;'
+            'max-width:560px;margin:0 auto;">'
+              '<div style="background:%(accent)s;color:#ffffff;padding:14px 18px;'
+              'border-radius:6px 6px 0 0;font-size:15px;font-weight:600;">'
+                '%(label)s &middot; %(t)s%% of AWS budget reached'
+              '</div>'
+              '<div style="border:1px solid #e5e7eb;border-top:0;'
+              'border-radius:0 0 6px 6px;padding:18px;background:#ffffff;">'
+                '<p style="margin:0 0 12px 0;font-size:14px;line-height:1.5;">'
+                  '%(intro)s'
+                '</p>'
+                '<table cellspacing="0" cellpadding="0" border="0" '
+                'style="width:100%%;border-collapse:collapse;font-size:13px;margin:4px 0 14px 0;">'
+                  '<tr>'
+                    '<td style="padding:6px 0;color:#6b7280;width:130px;">%(lbl_name)s</td>'
+                    '<td style="padding:6px 0;color:#111827;font-weight:600;">%(name)s</td>'
+                  '</tr>'
+                  '<tr>'
+                    '<td style="padding:6px 0;color:#6b7280;">%(lbl_tag)s</td>'
+                    '<td style="padding:6px 0;color:#111827;">%(tk)s = %(tv)s</td>'
+                  '</tr>'
+                '</table>'
+                '<div style="background:#f3f4f6;border-radius:4px;height:10px;'
+                'overflow:hidden;margin:6px 0 16px 0;">'
+                  '<div style="background:%(accent)s;height:10px;width:%(bar)s%%;"></div>'
+                '</div>'
+                '<table cellspacing="0" cellpadding="0" border="0" '
+                'style="width:100%%;border-collapse:collapse;font-size:13px;">'
+                  '<tr>'
+                    '<td style="padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
+                    'border-radius:4px;width:33%%;vertical-align:top;">'
+                      '<div style="color:#6b7280;font-size:11px;text-transform:uppercase;'
+                      'letter-spacing:.04em;">%(lbl_budget)s</div>'
+                      '<div style="color:#111827;font-weight:600;font-size:15px;margin-top:4px;">'
+                        '%(sym)s %(b).2f'
+                      '</div>'
+                    '</td>'
+                    '<td style="width:6px;"></td>'
+                    '<td style="padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
+                    'border-radius:4px;width:33%%;vertical-align:top;">'
+                      '<div style="color:#6b7280;font-size:11px;text-transform:uppercase;'
+                      'letter-spacing:.04em;">%(lbl_consumed)s</div>'
+                      '<div style="color:%(accent)s;font-weight:600;font-size:15px;margin-top:4px;">'
+                        '%(sym)s %(used).2f'
+                      '</div>'
+                    '</td>'
+                    '<td style="width:6px;"></td>'
+                    '<td style="padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
+                    'border-radius:4px;width:33%%;vertical-align:top;">'
+                      '<div style="color:#6b7280;font-size:11px;text-transform:uppercase;'
+                      'letter-spacing:.04em;">%(lbl_remaining)s</div>'
+                      '<div style="color:#111827;font-weight:600;font-size:15px;margin-top:4px;">'
+                        '%(sym)s %(r).2f'
+                      '</div>'
+                    '</td>'
+                  '</tr>'
+                '</table>'
+                '<p style="margin:18px 0 0 0;font-size:12px;color:#6b7280;">'
+                  '%(footer)s'
+                '</p>'
+              '</div>'
+            '</div>'
         ) % {
-            "p": self.project_id.display_name,
-            "n": self.name,
+            "accent": accent,
+            "label": label,
             "t": threshold,
-            "b": self.budget_amount or 0.0,
-            "used": self.total_consumed or 0.0,
-            "r": self.remaining or 0.0,
-            "c": self.currency_id.name or "",
-            "tk": self.tag_key or "",
-            "tv": self.tag_value or "",
+            "bar": bar_width,
+            "intro": _(
+                "The AWS budget for project <b>%(p)s</b> has crossed the "
+                "<b>%(t)s%%</b> threshold."
+            ) % {"p": self.project_id.display_name or "", "t": threshold},
+            "lbl_name": _("Budget name"),
+            "lbl_tag": _("Tag"),
+            "lbl_budget": _("Budget"),
+            "lbl_consumed": _("Consumed"),
+            "lbl_remaining": _("Remaining"),
+            "footer": _("Automated notification from Aurora cost watch."),
+            "name": self.name or "",
+            "tk": self.tag_key or "—",
+            "tv": self.tag_value or "—",
+            "sym": symbol,
+            "b": budget_val,
+            "used": used_val,
+            "r": remaining_val,
         }
         self.message_post(
             body=body, subject=subject,
@@ -265,3 +358,20 @@ class EtpProjectAwsBudget(models.Model):
             rec.alert_90_sent = False
             rec.alert_100_sent = False
         return True
+
+    @api.depends("purchase_request_ids")
+    def _compute_purchase_request_count(self):
+        for rec in self:
+            rec.purchase_request_count = len(rec.purchase_request_ids)
+
+    def action_view_purchase_requests(self):
+        self.ensure_one()
+        action = self.env["ir.actions.act_window"]._for_xml_id(
+            "etp_projects.action_etp_project_token_purchase_request"
+        )
+        action["domain"] = [("budget_id", "=", self.id)]
+        action["context"] = {
+            "default_budget_id": self.id,
+            "default_project_id": self.project_id.id,
+        }
+        return action

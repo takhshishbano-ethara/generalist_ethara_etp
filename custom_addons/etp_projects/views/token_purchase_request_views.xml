@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_etp_project_token_purchase_request_list" model="ir.ui.view">
+        <field name="name">etp.project.token.purchase.request.list</field>
+        <field name="model">etp.project.token.purchase.request</field>
+        <field name="arch" type="xml">
+            <list string="Token Purchase Requests"
+                  decoration-info="state == 'pending'"
+                  decoration-success="state == 'approved' or state == 'completed'"
+                  decoration-danger="state == 'rejected'"
+                  decoration-muted="state == 'draft'">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="budget_id"/>
+                <field name="model_name"/>
+                <field name="requested_amount" widget="monetary" sum="Requested"/>
+                <field name="approved_amount" widget="monetary" sum="Approved"/>
+                <field name="currency_id" column_invisible="True"/>
+                <field name="requester_id"/>
+                <field name="approver_id" optional="show"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'pending'"
+                       decoration-success="state == 'approved' or state == 'completed'"
+                       decoration-danger="state == 'rejected'"/>
+                <field name="create_date" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_etp_project_token_purchase_request_form" model="ir.ui.view">
+        <field name="name">etp.project.token.purchase.request.form</field>
+        <field name="model">etp.project.token.purchase.request</field>
+        <field name="arch" type="xml">
+            <form string="Token Purchase Request">
+                <header>
+                    <button name="action_submit" type="object" string="Submit for Approval"
+                            class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_approve" type="object" string="Approve"
+                            class="btn-success"
+                            invisible="state != 'pending' or not can_approve"/>
+                    <button name="action_reject" type="object" string="Reject"
+                            class="btn-danger"
+                            invisible="state != 'pending' or not can_approve"
+                            confirm="Reject this request?"/>
+                    <button name="action_complete" type="object" string="Mark Completed"
+                            class="btn-primary" invisible="state != 'approved'"/>
+                    <button name="action_reset_to_draft" type="object" string="Reset to Draft"
+                            invisible="state != 'rejected'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,pending,approved,completed"/>
+                    <field name="can_approve" invisible="1"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Request">
+                            <field name="budget_id"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}"/>
+                            <field name="project_id" readonly="1"/>
+                            <field name="model_name" readonly="state != 'draft'"/>
+                            <field name="requested_amount" widget="monetary"
+                                   readonly="state != 'draft'"/>
+                            <field name="currency_id" invisible="1"/>
+                        </group>
+                        <group string="Status">
+                            <field name="requester_id" readonly="1"/>
+                            <field name="approver_id" readonly="1"
+                                   invisible="state in ('draft','pending')"/>
+                            <field name="approval_date" readonly="1"
+                                   invisible="state in ('draft','pending')"/>
+                            <field name="completed_by_id" readonly="1"
+                                   invisible="state != 'completed'"/>
+                            <field name="completed_date" readonly="1"
+                                   invisible="state != 'completed'"/>
+                        </group>
+                    </group>
+                    <group string="Business Justification">
+                        <field name="description" nolabel="1" readonly="state != 'draft'"
+                               placeholder="Describe the business need for this purchase..."/>
+                    </group>
+                    <notebook>
+                        <page string="Post-Approval Details" name="post_approval"
+                              invisible="state in ('draft','pending','rejected')">
+                            <group>
+                                <group>
+                                    <field name="approved_amount" widget="monetary"
+                                           readonly="state == 'completed'"/>
+                                    <field name="cost_center"
+                                           readonly="state == 'completed'"/>
+                                </group>
+                            </group>
+                            <group string="Supporting Documents">
+                                <field name="supporting_document_ids" nolabel="1"
+                                       widget="many2many_binary"
+                                       readonly="state == 'completed'"/>
+                            </group>
+                        </page>
+                        <page string="Rejection" name="rejection"
+                              invisible="state != 'rejected'">
+                            <group>
+                                <field name="rejection_reason" nolabel="1" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_etp_project_token_purchase_request_search" model="ir.ui.view">
+        <field name="name">etp.project.token.purchase.request.search</field>
+        <field name="model">etp.project.token.purchase.request</field>
+        <field name="arch" type="xml">
+            <search string="Token Purchase Requests">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="budget_id"/>
+                <field name="model_name"/>
+                <field name="requester_id"/>
+                <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
+                <filter name="filter_pending" string="Pending Approval" domain="[('state','=','pending')]"/>
+                <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
+                <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
+                <filter name="filter_completed" string="Completed" domain="[('state','=','completed')]"/>
+                <filter name="filter_my_requests" string="My Requests"
+                        domain="[('requester_id','=', uid)]"/>
+                <group>
+                    <filter name="group_state" string="Status" context="{'group_by':'state'}"/>
+                    <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
+                    <filter name="group_requester" string="Requester" context="{'group_by':'requester_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_project_token_purchase_request" model="ir.actions.act_window">
+        <field name="name">Token Purchase Requests</field>
+        <field name="res_model">etp.project.token.purchase.request</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_etp_project_token_purchase_request_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a token purchase request</p>
+            <p>Submit a request for AI model/token purchases. Approval from any configured approver is required.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_etp_project_token_purchase_request"
+              name="Token Purchase Requests"
+              parent="menu_etp_project_aws_root"
+              action="action_etp_project_token_purchase_request"
+              sequence="15"/>
+
+</odoo>

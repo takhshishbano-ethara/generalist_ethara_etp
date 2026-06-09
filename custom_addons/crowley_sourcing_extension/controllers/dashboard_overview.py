@@ -11,8 +11,6 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from .analytics_dashboard import _scope as _role_scope
 
 BUDGET_PARAM = "crowley_sourcing.budget_usd"
-DEFAULT_TREND_WEEKS = 6
-MAX_TREND_WEEKS = 26
 IN_FLIGHT_STATES = ("processing", "exporting")
 FAILED_STATES = ("error",)
 DONE_STATES = ("exported",)
@@ -126,25 +124,6 @@ def _date_filter_domain(params):
             ("create_date", "<=", datetime.combine(end_date, datetime.max.time()))
         )
     return domain, None
-
-
-def _resolve_trend_weeks(params):
-    raw = (params.get("weeks") or "").strip()
-    if not raw:
-        return DEFAULT_TREND_WEEKS, None
-    try:
-        weeks = int(raw)
-    except (TypeError, ValueError):
-        return None, return_Response(
-            message=f"Invalid weeks '{raw}'. Expected integer between 1 and {MAX_TREND_WEEKS}.",
-            status=400,
-        )
-    if weeks < 1 or weeks > MAX_TREND_WEEKS:
-        return None, return_Response(
-            message=f"weeks must be between 1 and {MAX_TREND_WEEKS}.",
-            status=400,
-        )
-    return weeks, None
 
 
 def _budget_usd(env):
@@ -284,17 +263,17 @@ def _compute_kpi(env, gen_scope):
             sub_string="today",
         ),
     ]
-    return {"count": str(len(items)), "items": items}
+    return {"count": len(items), "items": items}
 
 
-# "Stage Funnel" — cumulative stages a record passes through. Each stage
-# counts records that REACHED it, so counts are non-increasing (Draft is the
-# whole pipeline; Done is the final exported state).
-PROCESSED_OR_BEYOND = ("processed", "exporting", "exported")
-STAGE_BUCKETS = [
-    ("draft", "Draft", None),
-    ("processed", "Processed", [("state", "in", list(PROCESSED_OR_BEYOND))]),
-    ("done", "Done", [("state", "in", list(DONE_STATES))]),
+# "Stage Funnel" — the three pipeline stages a sourcing record moves through
+# (Draft → Processed → Done), mapped from `state`. These are the funnel bars in
+# the design; `conversion_pct` is Done/total and `rejected_rework` counts QC
+# rejections (the "✕ N rejected / rework" drop line).
+STAGE_FUNNEL = [
+    ("draft", "Draft", ("draft",)),
+    ("processed", "Processed", ("processing", "exporting", "processed")),
+    ("done", "Done", ("exported",)),
 ]
 
 
@@ -302,11 +281,11 @@ def _compute_task_progress(env, gen_scope):
     Project = env["video.editor.project"].sudo()
     total = Project.search_count(gen_scope)
     items = []
-    done = 0
-    for key, label, domain in STAGE_BUCKETS:
-        count = total if domain is None else Project.search_count(gen_scope + domain)
+    done_count = 0
+    for key, label, states in STAGE_FUNNEL:
+        count = Project.search_count(gen_scope + [("state", "in", list(states))])
         if key == "done":
-            done = count
+            done_count = count
         items.append({
             "key": key,
             "label": label,
@@ -315,68 +294,14 @@ def _compute_task_progress(env, gen_scope):
         })
     rejected_rework = Project.search_count(
         gen_scope + [("review_status", "=", "rejected")]
-    ) + Project.search_count(gen_scope + [("state", "in", list(FAILED_STATES))])
+    )
     return {
         "label": "Stage Funnel",
         "total": total,
-        "count": str(len(items)),
+        "count": len(items),
         "items": items,
-        "conversion_pct": _pct(done, total),
+        "conversion_pct": _pct(done_count, total),
         "rejected_rework": rejected_rework,
-    }
-
-
-def _compute_approved_per_week(env, gen_scope, weeks):
-    Project = env["video.editor.project"].sudo()
-    today = fields.Date.context_today(env.user)
-    current_week_start = _week_start(today)
-    earliest_week_start = current_week_start - timedelta(weeks=weeks - 1)
-    prior_week_start = earliest_week_start - timedelta(weeks=1)
-    window_start_dt = datetime.combine(prior_week_start, datetime.min.time())
-
-    rows = Project.search_read(
-        gen_scope
-        + [
-            ("review_status", "=", "approved"),
-            ("review_decided_at", ">=", window_start_dt),
-        ],
-        fields=["review_decided_at"],
-    )
-
-    bucket = {}
-    for row in rows:
-        decided = row.get("review_decided_at")
-        if not decided:
-            continue
-        d = decided.date() if isinstance(decided, datetime) else decided
-        ws = _week_start(d)
-        bucket[ws] = bucket.get(ws, 0) + 1
-
-    items = []
-    prev_count = bucket.get(prior_week_start, 0)
-    for i in range(weeks):
-        ws = earliest_week_start + timedelta(weeks=i)
-        we = ws + timedelta(days=6)
-        count = bucket.get(ws, 0)
-        delta = count - prev_count
-        items.append({
-            "key": f"w{ws.isocalendar()[1]}",
-            "label": f"W{ws.isocalendar()[1]}",
-            "value": count,
-            "week_start": ws.isoformat(),
-            "week_end": we.isoformat(),
-            "delta_vs_prev_week": delta,
-            "pattern": "up" if delta > 0 else ("down" if delta < 0 else ""),
-            "sign": "+" if delta > 0 else ("-" if delta < 0 else ""),
-        })
-        prev_count = count
-
-    return {
-        "label": "Approved per Week",
-        "sub_string": f"Trailing {weeks} weeks",
-        "total": sum(item["value"] for item in items),
-        "count": str(len(items)),
-        "items": items,
     }
 
 
@@ -577,6 +502,23 @@ KPI_KEYS_BY_VIEW = {
     ),
 }
 
+# Which section blocks each view's page actually shows (per the Crowley
+# Sourcing overview designs). Every section KEY is always present in the
+# response; a section is filled with real data only when it belongs to this
+# view's set and is returned blank ({}) otherwise — the key belongs to the
+# schema, the data only fills in for the roles whose page displays it.
+SECTIONS_BY_VIEW = {
+    "manager": (
+        "budget",
+        "burn_rate",
+        "accepted_per_day",
+        "task_progress",
+        "recent_activity",
+    ),
+    "ql": ("task_progress", "recent_activity"),
+    "tasker": ("accepted_per_day", "recent_activity"),
+}
+
 
 class CrowleySourcingDashboardOverviewController(http.Controller):
 
@@ -604,7 +546,8 @@ class CrowleySourcingDashboardOverviewController(http.Controller):
         gen_scope = base_scope + date_domain
         view = VIEW_BY_ROLE.get(role_tag, "tasker")
 
-        # KPI block — only this view's cards (one card per item).
+        # KPI section — only this view's cards (one item per card). The card
+        # set differs per role per the Crowley overview designs.
         kpi_by_key = {
             item["key"]: item for item in _compute_kpi(env, gen_scope)["items"]
         }
@@ -613,32 +556,49 @@ class CrowleySourcingDashboardOverviewController(http.Controller):
             for key in KPI_KEYS_BY_VIEW[view]
             if key in kpi_by_key
         ]
-        blocks = [{"type": "kpi", "items": kpi_items}]
 
-        # Section blocks — only the ones this view's page shows, in layout order.
-        if view == "manager":
-            blocks.append({"type": "budget", **_compute_budget(env, gen_scope)})
-            blocks.append({"type": "burn_rate", **_compute_burn_rate(env, gen_scope)})
-            blocks.append(
-                {"type": "accepted_per_day", **_compute_accepted_per_day(env, gen_scope)}
-            )
-            blocks.append(
-                {"type": "task_progress", **_compute_task_progress(env, gen_scope)}
-            )
-        elif view == "ql":
-            blocks.append(
-                {"type": "task_progress", **_compute_task_progress(env, gen_scope)}
-            )
-        else:  # tasker
-            blocks.append(
-                {"type": "accepted_per_day", **_compute_accepted_per_day(env, gen_scope)}
-            )
-        blocks.append(
-            {"type": "recent_activity", **_compute_recent_activity(env, gen_scope)}
-        )
+        # Single `overview` wrapper. Both Crowley extensions expose the SAME
+        # 12-key schema so one frontend model fits both; a section is filled
+        # with real data only when it belongs to this view's page
+        # (SECTIONS_BY_VIEW) and is returned blank ({}) otherwise.
+        # `approved_per_week`, `coordination_events`, `tasks_done_chart`,
+        # `burned_amount_chart` and `my_activity` are crowley_extension-only
+        # sections — kept here as always-blank keys for schema parity. KPI
+        # items are the role-specific cards; `overview.role` tells the view.
+        sections = SECTIONS_BY_VIEW[view]
+
+        def _section(key, builder):
+            return builder() if key in sections else {}
+
+        overview = {
+            "role": role_tag or "tasker",
+            "kpi": {"count": len(kpi_items), "items": kpi_items},
+            "budget": _section(
+                "budget", lambda: _compute_budget(env, gen_scope)
+            ),
+            "burn_rate": _section(
+                "burn_rate", lambda: _compute_burn_rate(env, gen_scope)
+            ),
+            "accepted_per_day": _section(
+                "accepted_per_day",
+                lambda: _compute_accepted_per_day(env, gen_scope),
+            ),
+            "task_progress": _section(
+                "task_progress", lambda: _compute_task_progress(env, gen_scope)
+            ),
+            "approved_per_week": {},
+            "recent_activity": _section(
+                "recent_activity",
+                lambda: _compute_recent_activity(env, gen_scope),
+            ),
+            "coordination_events": {},
+            "tasks_done_chart": {},
+            "burned_amount_chart": {},
+            "my_activity": {},
+        }
 
         return return_Response(
             message="OK",
             status=200,
-            data={"role": role_tag or "tasker", "blocks": blocks},
+            data={"overview": overview},
         )

@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_etp_projects" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.etp.projects</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="ETP Projects"
+                     string="ETP Projects"
+                     name="etp_projects"
+                     groups="base.group_system">
+                    <block title="Token Purchase Approval"
+                           name="etp_projects_token_purchase_approval">
+                        <setting id="token_purchase_approvers_setting"
+                                 string="Token Purchase Approvers"
+                                 help="Users who receive token purchase approval emails. Any one approval is sufficient.">
+                            <field name="token_purchase_approver_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True}"
+                                   placeholder="Select approver users..."/>
+                        </setting>
+                    </block>
+                    <block title="Token Purchase Post-Approval"
+                           name="etp_projects_token_purchase_finance">
+                        <setting id="token_purchase_finance_users_setting"
+                                 string="Finance / Infra Team Users"
+                                 help="Users notified once a token purchase request is approved. They receive a link to a public form to enter the approved amount, cost center, and supporting document.">
+                            <field name="token_purchase_finance_user_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True}"
+                                   placeholder="Select finance / infra team users..."/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_etp_projects_settings" model="ir.actions.act_window">
+        <field name="name">ETP Projects Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'etp_projects'}</field>
+    </record>
+
+    <menuitem id="menu_etp_projects_settings"
+              name="Settings"
+              parent="menu_etp_project_aws_root"
+              action="action_etp_projects_settings"
+              sequence="100"
+              groups="base.group_system"/>
+
+</odoo>

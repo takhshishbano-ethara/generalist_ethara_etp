@@ -866,117 +866,242 @@ def _build_analytics_kpi(env, ctx, view):
 
 def _build_spend_by_category(env, ctx):
     Gen = env["video.editor.project"].sudo()
-    labels = dict(Gen._fields["category"].selection)
     rows = Gen.formatted_read_group(
         ctx["scope"] + [("category", "!=", False)],
-        ["category"], ["llm_qc_cost_usd:sum"],
+        ["category"],
+        ["llm_qc_cost_usd:sum"],
     )
-    amount_by = {r["category"]: round(r["llm_qc_cost_usd:sum"] or 0.0, 2) for r in rows}
-    total = round(sum(amount_by.values()), 2)
-    items = [
-        {"label": labels.get(cat, cat), "value": amt, "percent": _pct1(amt, total)}
-        for cat, amt in sorted(amount_by.items(), key=lambda kv: -kv[1])
-    ]
-    return {"type": "chart", "variant": "bar", "title": "Spend by Category", "items": items}
+    amount_by_cat = {r["category"]: round(r["llm_qc_cost_usd:sum"] or 0.0, 4) for r in rows}
+    total = round(sum(amount_by_cat.values()), 4)
+
+    selection = list(Gen._fields["category"].selection)
+    ordered = sorted(selection, key=lambda kv: (-amount_by_cat.get(kv[0], 0.0), kv[1]))
+
+    items = []
+    for idx, (key, label) in enumerate(ordered):
+        amount = amount_by_cat.get(key, 0.0)
+        percentage = _pct1(amount, total)
+        items.append({
+            "key": key,
+            "label": label,
+            "value": f"{_money(amount)} ({percentage:.0f}%)",
+            "amount": amount,
+            "percentage": percentage,
+            "color_token": _color(idx),
+        })
+
+    return {
+        "title": "Spend by Category",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "horizontal_bar",
+        "total": total,
+        "items": items,
+    }
 
 
 def _build_pass_rate_by_ql(env, ctx):
     Gen = env["video.editor.project"].sudo()
-    approved = _counts_by_user(Gen, ctx["scope"], [("review_status", "=", "approved")])
+    scope = ctx["scope"]
+    ql_taskers = ctx["ql_taskers"]
+    ql_name = ctx["ql_name"]
+
+    totals = _counts_by_user(Gen, scope)
+    approved = _counts_by_user(Gen, scope, [("review_status", "=", "approved")])
     reviewed = _counts_by_user(
-        Gen, ctx["scope"], [("review_status", "in", ["approved", "rejected"])]
+        Gen, scope, [("review_status", "in", ["approved", "rejected"])]
     )
+
     items = []
-    for ql_id, uids in ctx["ql_taskers"].items():
+    for ql_id, uids in ql_taskers.items():
+        tasks = sum(totals.get(u, 0) for u in uids)
         appr = sum(approved.get(u, 0) for u in uids)
         rev = sum(reviewed.get(u, 0) for u in uids)
         rate = _pct1(appr, rev)
+        name = ql_name.get(ql_id, UNASSIGNED_QL_LABEL)
         items.append({
-            "label": ctx["ql_name"].get(ql_id, "Unassigned"),
-            "value": rate,
-            "percent": rate,
+            "key": ql_id,
+            "label": name,
+            "initials": _initials(name),
+            "value": f"{rate}% · {tasks} tasks",
+            "pass_rate": rate,
+            "tasks": tasks,
+            "reviewed": rev,
+            "taskers": len(uids),
+            "color_token": "success" if rate >= PASS_RATE_GOOD else "warn",
         })
-    items.sort(key=lambda i: -i["value"])
-    return {"type": "chart", "variant": "bar", "title": "QC Pass Rate by QL", "items": items}
+
+    items.sort(key=lambda i: (-i["pass_rate"], -i["tasks"], i["label"]))
+    return {
+        "title": "QC Pass Rate by QL",
+        "sub_title": "",
+        "type": "horizontal_bar",
+        "items": items,
+    }
 
 
 def _build_daily_burn_rate(env, ctx):
     Gen = env["video.editor.project"].sudo()
+    rng = ctx["rng"]
     ql_of_user = ctx["ql_of_user"]
     ql_name = ctx["ql_name"]
-    per_ql = {}
-    for gen in Gen.search(ctx["scope"]):
-        ql_id = ql_of_user.get(gen.assigned_to.id, 0)
-        per_ql[ql_id] = per_ql.get(ql_id, 0.0) + (gen.llm_qc_cost_usd or 0.0)
-    total = round(sum(per_ql.values()), 2)
-    items = [
-        {"label": ql_name.get(q, "Unassigned"), "value": round(v, 2),
-         "percent": _pct1(v, total)}
-        for q, v in sorted(per_ql.items(), key=lambda kv: -kv[1])
+
+    gens = Gen.search(ctx["scope"])
+
+    per_day = {}
+    per_ql_total = {}
+    ql_ids = set()
+    for gen in gens:
+        day = gen.create_date.date() if gen.create_date else None
+        if not day:
+            continue
+        ql_id = ql_of_user.get(gen.assigned_to.id, UNASSIGNED_QL)
+        ql_ids.add(ql_id)
+        cost = gen.llm_qc_cost_usd or 0.0
+        per_day.setdefault(day, {})
+        per_day[day][ql_id] = per_day[day].get(ql_id, 0.0) + cost
+        per_ql_total[ql_id] = per_ql_total.get(ql_id, 0.0) + cost
+
+    color_by_ql = {ql_id: _color(idx) for idx, ql_id in enumerate(sorted(ql_ids))}
+
+    data = []
+    cursor = rng["start"]
+    grand_total = 0.0
+    while cursor <= rng["end"]:
+        day_map = per_day.get(cursor, {})
+        day_total = round(sum(day_map.values()), 4)
+        grand_total += day_total
+        data.append({
+            "date": cursor.isoformat(),
+            "total": day_total,
+            "segments": [
+                {"key": ql_id, "value": round(day_map.get(ql_id, 0.0), 4)}
+                for ql_id in sorted(ql_ids)
+                if day_map.get(ql_id)
+            ],
+        })
+        cursor += timedelta(days=1)
+
+    legend = [
+        {
+            "key": ql_id,
+            "label": ql_name.get(ql_id, UNASSIGNED_QL_LABEL),
+            "value": _money(per_ql_total.get(ql_id, 0.0)),
+            "amount": round(per_ql_total.get(ql_id, 0.0), 4),
+            "color_token": color_by_ql[ql_id],
+        }
+        for ql_id in sorted(ql_ids, key=lambda q: -per_ql_total.get(q, 0.0))
     ]
-    return {"type": "chart", "variant": "bar", "title": "Daily Burn Rate", "items": items}
+
+    return {
+        "title": "Daily Burn Rate",
+        "sub_title": "",
+        "type": "stacked_bar",
+        "headline": _money(grand_total),
+        "headline_caption": _range_label(rng),
+        "legend": legend,
+        "data": data,
+    }
 
 
-def _build_tasks_submitted_per_day(env, ctx):
+def _per_day_series(env, ctx, extra=None):
     Gen = env["video.editor.project"].sudo()
     rng = ctx["rng"]
     per_day = {}
-    for gen in Gen.search(ctx["scope"]):
+    for gen in Gen.search(ctx["scope"] + (extra or [])):
         if gen.create_date:
-            d = gen.create_date.date()
-            per_day[d] = per_day.get(d, 0) + 1
-    total = sum(per_day.values())
-    items = []
+            day = gen.create_date.date()
+            per_day[day] = per_day.get(day, 0) + 1
+    data = []
+    total = 0
     cursor = rng["start"]
     while cursor <= rng["end"]:
-        c = per_day.get(cursor, 0)
-        items.append({"label": cursor.strftime("%b %d"), "value": c,
-                      "percent": _pct1(c, total)})
+        count = per_day.get(cursor, 0)
+        total += count
+        data.append({
+            "date": cursor.isoformat(),
+            "label": cursor.strftime("%b %d"),
+            "value": count,
+        })
         cursor += timedelta(days=1)
-    return {"type": "chart", "variant": "line",
-            "title": "Tasks Submitted per Day", "items": items}
+    return data, total
+
+
+def _build_tasks_submitted_per_day(env, ctx):
+    data, total = _per_day_series(env, ctx)
+    return {
+        "title": "Tasks Submitted per Day",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "line",
+        "total": total,
+        "data": data,
+    }
 
 
 def _build_qc_verdict_mix(env, ctx):
     Gen = env["video.editor.project"].sudo()
-    counts = {"Pass": 0, "Fail": 0, "Force-Pass": 0}
+    counts = {"pass": 0, "fail": 0, "force_pass": 0}
     for gen in Gen.search(ctx["scope"]):
         if gen.llm_qc_force_passed:
-            counts["Force-Pass"] += 1
+            counts["force_pass"] += 1
         elif gen.llm_qc_result == "pass":
-            counts["Pass"] += 1
+            counts["pass"] += 1
         elif gen.llm_qc_result == "fail":
-            counts["Fail"] += 1
+            counts["fail"] += 1
     total = sum(counts.values())
-    items = [{"label": k, "value": v, "percent": _pct1(v, total)}
-             for k, v in counts.items()]
-    return {"type": "chart", "variant": "stacked_bar",
-            "title": "QC Verdict Mix", "items": items}
+    labels = {"pass": "Pass", "fail": "Fail", "force_pass": "Force-Pass"}
+    colors = {"pass": "success", "fail": "danger", "force_pass": "warn"}
+    items = []
+    for key in ("pass", "fail", "force_pass"):
+        amount = counts[key]
+        percentage = _pct1(amount, total)
+        items.append({
+            "key": key,
+            "label": labels[key],
+            "value": f"{amount} ({percentage:.0f}%)",
+            "amount": amount,
+            "percentage": percentage,
+            "color_token": colors[key],
+        })
+    return {
+        "title": "QC Verdict Mix",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "stacked_bar",
+        "total": total,
+        "items": items,
+    }
 
 
 def _build_qc_verdicts_per_day(env, ctx):
-    Gen = env["video.editor.project"].sudo()
-    rng = ctx["rng"]
-    per_day = {}
-    for gen in Gen.search(
-        ctx["scope"] + [("review_status", "in", ["approved", "rejected"])]
-    ):
-        if gen.create_date:
-            d = gen.create_date.date()
-            per_day[d] = per_day.get(d, 0) + 1
-    total = sum(per_day.values())
-    items = []
-    cursor = rng["start"]
-    while cursor <= rng["end"]:
-        c = per_day.get(cursor, 0)
-        items.append({"label": cursor.strftime("%b %d"), "value": c,
-                      "percent": _pct1(c, total)})
-        cursor += timedelta(days=1)
-    return {"type": "chart", "variant": "line",
-            "title": "QC Verdicts per Day", "items": items}
+    data, total = _per_day_series(
+        env, ctx, [("review_status", "in", ["approved", "rejected"])]
+    )
+    return {
+        "title": "QC Verdicts per Day",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "line",
+        "total": total,
+        "data": data,
+    }
 
 
 ANALYTICS_VIEW_BY_TAG = {"full": "manager", "pl": "manager", "qr": "ql", "tasker": "ql"}
+
+# Which analytics blocks each view's page actually shows (mirrors the UI).
+# Every section KEY is always present in the response; sections NOT in a view's
+# set are returned blank ({}) for that role rather than computed.
+SECTIONS_BY_VIEW = {
+    "manager": (
+        "spend_by_category",
+        "qc_pass_rate_by_ql",
+        "daily_burn_rate",
+        "tasks_submitted_per_day",
+    ),
+    "ql": (
+        "qc_pass_rate_by_ql",
+        "qc_verdict_mix",
+        "qc_verdicts_per_day",
+    ),
+}
 
 
 def _resolve_role_context(env, params):
@@ -999,16 +1124,34 @@ def _resolve_role_context(env, params):
 
 def _build_analytics(env, ctx):
     view = ANALYTICS_VIEW_BY_TAG.get(ctx["tag"], "ql")
-    kpi = _build_analytics_kpi(env, ctx, view)
-    return [
-        {"type": "kpi", "items": kpi["items"]},
-        _build_pass_rate_by_ql(env, ctx),
-        _build_daily_burn_rate(env, ctx),
-        _build_spend_by_category(env, ctx),
-        _build_tasks_submitted_per_day(env, ctx),
-        _build_qc_verdict_mix(env, ctx),
-        _build_qc_verdicts_per_day(env, ctx),
-    ]
+    sections = SECTIONS_BY_VIEW[view]
+
+    def _section(key, builder):
+        return builder() if key in sections else {}
+
+    return {
+        "role": ctx["tag"] or "tasker",
+        "kpi": _build_analytics_kpi(env, ctx, view),
+        "spend_by_category": _section(
+            "spend_by_category", lambda: _build_spend_by_category(env, ctx)
+        ),
+        "qc_pass_rate_by_ql": _section(
+            "qc_pass_rate_by_ql", lambda: _build_pass_rate_by_ql(env, ctx)
+        ),
+        "daily_burn_rate": _section(
+            "daily_burn_rate", lambda: _build_daily_burn_rate(env, ctx)
+        ),
+        "tasks_submitted_per_day": _section(
+            "tasks_submitted_per_day",
+            lambda: _build_tasks_submitted_per_day(env, ctx),
+        ),
+        "qc_verdict_mix": _section(
+            "qc_verdict_mix", lambda: _build_qc_verdict_mix(env, ctx)
+        ),
+        "qc_verdicts_per_day": _section(
+            "qc_verdicts_per_day", lambda: _build_qc_verdicts_per_day(env, ctx)
+        ),
+    }
 
 
 class CrowleySourcingAnalyticsDashboardController(http.Controller):
@@ -1030,5 +1173,5 @@ class CrowleySourcingAnalyticsDashboardController(http.Controller):
         return return_Response(
             message="OK",
             status=200,
-            data={"role": ctx["tag"], "blocks": _build_analytics(env, ctx)},
+            data=_build_analytics(env, ctx),
         )

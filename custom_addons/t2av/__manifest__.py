@@ -1,6 +1,6 @@
 {
     "name": "T2AV - Video Generation",
-    "version": "19.0.1.19.0",
+    "version": "19.0.1.20.0",
     "category": "Tools",
     "summary": "Generate videos from prompts via OpenRouter Seedance 2.0",
     "author": "Ethara",
@@ -38,8 +38,6 @@
             "t2av/static/src/components/live_status/live_status.scss",
             "t2av/static/src/components/video_player/video_player.js",
             "t2av/static/src/components/video_player/video_player.xml",
-            "t2av/static/src/components/cog_menu_patch/cog_menu_patch.js",
-            "t2av/static/src/components/cog_menu_patch/list_view_patch.xml",
             "t2av/static/src/dashboard/dashboard.js",
             "t2av/static/src/dashboard/dashboard.xml",
             "t2av/static/src/dashboard/dashboard.scss",
