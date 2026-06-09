@@ -255,7 +255,7 @@ class TaskForgeLeaveController(http.Controller):
 
             approver_role = approver_employee._get_task_forge_role()
 
-            if approver_role not in ('admin', 'pl', 'qr', 'ql'):
+            if approver_role not in ('admin', 'tpm', 'pl', 'qr', 'ql', 'hr'):
                 return return_Response(message="Insufficient permissions to approve leaves", status=403)
 
             Leave = request.env['hr.leave'].sudo()
@@ -269,20 +269,17 @@ class TaskForgeLeaveController(http.Controller):
 
             requestor_role = requestor_employee._get_task_forge_role()
 
-            can_approve = False
-            if requestor_role == 'tasker':
-                can_approve = approver_role in ('qr', 'ql', 'pl', 'admin')
-            elif requestor_role in ('qr', 'ql'):
-                can_approve = approver_role in ('pl', 'admin')
-            elif requestor_role == 'pl':
+            if approver_role == 'hr':
+                can_approve = True
+            elif approver_employee.id == requestor_employee.id:
                 can_approve = approver_role == 'admin'
-            elif requestor_role == 'admin':
-                can_approve = False
+            else:
+                can_approve = requestor_employee.id in approver_employee._get_team_employee_ids()
 
             if not can_approve:
-                role_labels = {'tasker': 'Tasker', 'qr': 'QC', 'ql': 'QC Lead', 'pl': 'PL', 'admin': 'CTO'}
+                role_labels = {'tasker': 'Tasker', 'qr': 'QC', 'ql': 'QC Lead', 'pl': 'PL', 'tpm': 'TPM', 'admin': 'CTO', 'hr': 'HR'}
                 return return_Response(
-                    message=f"A {role_labels.get(approver_role, approver_role)} cannot approve leave for a {role_labels.get(requestor_role, requestor_role)}. Only higher authorities can approve.",
+                    message=f"A {role_labels.get(approver_role, approver_role)} cannot approve leave for a {role_labels.get(requestor_role, requestor_role)}. Only authorized roles in the hierarchy can approve.",
                     status=403
                 )
 
@@ -320,7 +317,7 @@ class TaskForgeLeaveController(http.Controller):
 
             approver_role = approver_employee._get_task_forge_role()
 
-            if approver_role not in ('admin', 'pl', 'qr', 'ql'):
+            if approver_role not in ('admin', 'tpm', 'pl', 'qr', 'ql', 'hr'):
                 return return_Response(message="Insufficient permissions to reject leaves", status=403)
 
             Leave = request.env['hr.leave'].sudo()
@@ -334,20 +331,17 @@ class TaskForgeLeaveController(http.Controller):
 
             requestor_role = requestor_employee._get_task_forge_role()
 
-            can_reject = False
-            if requestor_role == 'tasker':
-                can_reject = approver_role in ('qr', 'ql', 'pl', 'admin')
-            elif requestor_role in ('qr', 'ql'):
-                can_reject = approver_role in ('pl', 'admin')
-            elif requestor_role == 'pl':
+            if approver_role == 'hr':
+                can_reject = True
+            elif approver_employee.id == requestor_employee.id:
                 can_reject = approver_role == 'admin'
-            elif requestor_role == 'admin':
-                can_reject = False
+            else:
+                can_reject = requestor_employee.id in approver_employee._get_team_employee_ids()
 
             if not can_reject:
-                role_labels = {'tasker': 'Tasker', 'qr': 'QC', 'ql': 'QC Lead', 'pl': 'PL', 'admin': 'CTO'}
+                role_labels = {'tasker': 'Tasker', 'qr': 'QC', 'ql': 'QC Lead', 'pl': 'PL', 'tpm': 'TPM', 'admin': 'CTO', 'hr': 'HR'}
                 return return_Response(
-                    message=f"A {role_labels.get(approver_role, approver_role)} cannot reject leave for a {role_labels.get(requestor_role, requestor_role)}. Only higher authorities can reject.",
+                    message=f"A {role_labels.get(approver_role, approver_role)} cannot reject leave for a {role_labels.get(requestor_role, requestor_role)}. Only authorized roles in the hierarchy can reject.",
                     status=403
                 )
 
