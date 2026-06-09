@@ -1,4 +1,4 @@
-from odoo import api, models
+from odoo import api, fields, models
 
 
 FULL_ACCESS_ROLE_XMLIDS = (
@@ -48,6 +48,68 @@ def _pct(part, whole):
 
 class Kensei2Task(models.Model):
     _inherit = "kensei2.kensei2"
+
+    state = fields.Char(
+        string="State",
+        compute="_compute_state",
+        search="_search_state",
+        help=(
+            "Cross-extension alias for task_status. Generic controllers in "
+            "benchmark addons (gohan/vegeta/leviathan/employee_extension) "
+            "filter every connected task model by a field literally named "
+            "'state' with values like 'submitted' / 'done' / 'in_progress'. "
+            "kensei2.kensei2 uses task_status instead; this computed field "
+            "lets those generic controllers work against Kensei without "
+            "schema changes inside kensei2."
+        ),
+    )
+
+    @api.depends("task_status")
+    def _compute_state(self):
+        for rec in self:
+            rec.state = (
+                "submitted" if rec.task_status == "Submitted" else "in_progress"
+            )
+
+    def _search_state(self, operator, value):
+        submitted_aliases = ("submitted", "done", "completed")
+        in_progress_aliases = (
+            "in_progress",
+            "draft",
+            "pending",
+            "notsubmitted",
+            "not_submitted",
+        )
+        values = value if isinstance(value, (list, tuple)) else [value]
+        matches_submitted = any(
+            str(v).lower() in submitted_aliases for v in values
+        )
+        matches_in_progress = any(
+            str(v).lower() in in_progress_aliases for v in values
+        )
+        if operator in ("=", "in"):
+            targets = []
+            if matches_submitted:
+                targets.append("Submitted")
+            if matches_in_progress:
+                targets.append("NotSubmitted")
+            return (
+                [("task_status", "in", targets)]
+                if targets
+                else [("id", "=", False)]
+            )
+        if operator in ("!=", "not in"):
+            excluded = []
+            if matches_submitted:
+                excluded.append("Submitted")
+            if matches_in_progress:
+                excluded.append("NotSubmitted")
+            return (
+                [("task_status", "not in", excluded)]
+                if excluded
+                else [("id", "!=", False)]
+            )
+        return [("id", "!=", False)]
 
     @api.model
     def _performance_scope_domain(self):
