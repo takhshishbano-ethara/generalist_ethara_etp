@@ -71,6 +71,45 @@ class Kensei2Task(models.Model):
                 "submitted" if rec.task_status == "Submitted" else "in_progress"
             )
 
+    duration_seconds = fields.Float(
+        string="Duration (seconds)",
+        compute="_compute_duration_seconds",
+        help=(
+            "Cross-extension shim for kensei2.kensei2. Generic dashboard "
+            "controllers in task_forge_bridge aggregate per-task duration "
+            "via `mapped('duration_seconds')`. Kensei2 does not track "
+            "per-task timing the way gohan does, so this always returns "
+            "0.0 \u2014 'no duration data' is the correct semantic. Without "
+            "this field, callers raise KeyError when the project's "
+            "connected_table points at kensei2.kensei2."
+        ),
+    )
+
+    @api.depends()
+    def _compute_duration_seconds(self):
+        for rec in self:
+            rec.duration_seconds = 0.0
+
+    quality_score = fields.Float(
+        string="Quality Score",
+        compute="_compute_quality_score",
+        help=(
+            "Cross-extension shim for kensei2.kensei2. "
+            "task_forge_bridge.dashboard_controllers.get_tasker_dashboard_list "
+            "aggregates per-day quality via "
+            "`read_group(fields=['quality_score'], groupby=['write_date:day'])`. "
+            "Kensei2 dropped the score/quality concept (per its README) — "
+            "QC outcome is captured as `qc_status` (passed/failed/pending) "
+            "instead. This always returns 0.0 so the read_group does not "
+            "raise KeyError when the connected_table points at kensei2."
+        ),
+    )
+
+    @api.depends()
+    def _compute_quality_score(self):
+        for rec in self:
+            rec.quality_score = 0.0
+
     def _search_state(self, operator, value):
         submitted_aliases = ("submitted", "done", "completed")
         in_progress_aliases = (
