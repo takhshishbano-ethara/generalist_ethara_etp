@@ -15,11 +15,7 @@ class TaskForgeLeaveController(http.Controller):
     @http.route('/api/v2/get_leave_types', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     def get_leave_types(self, **kwargs):
         try:
-            user = request.env.user
-            LeaveType = request.env['hr.leave.type']
-            if user.employee_id:
-                LeaveType = LeaveType.with_context(employee_id=user.employee_id.id)
-            leave_types = LeaveType.search([('active', '=', True)])
+            leave_types = request.env['hr.leave.type'].sudo().search([('active', '=', True)])
             type_list = [{'id': lt.id, 'name': lt.name or ""} for lt in leave_types]
             return return_Response(message="Leave types fetched successfully", status=200, data={"record": type_list})
         except Exception as e:
