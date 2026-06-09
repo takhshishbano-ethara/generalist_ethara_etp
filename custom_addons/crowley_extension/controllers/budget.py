@@ -2,8 +2,6 @@ import calendar
 import logging
 from datetime import date, datetime, timedelta
 
-from dateutil.relativedelta import relativedelta
-
 from odoo import http
 from odoo.http import request
 
@@ -12,7 +10,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .main import _job_scope_domain, _require_leviathan_user
+from .analytics_dashboard import _scope, _user_role_tag
 
 _logger = logging.getLogger(__name__)
 
@@ -227,8 +225,8 @@ def _build_service_costs(env, budgets, filters):
 
 
 def _build_aht_overview(env, filters):
-    Job = env["leviathan.job"].sudo()
-    scope = _job_scope_domain()
+    Job = env["crowley.generation"].sudo()
+    scope = _scope(env)[1]
     job_domain = scope + [("duration_seconds", ">", 0)]
     if filters["start"]:
         job_domain.append((
@@ -339,10 +337,10 @@ def _build_daily_burn_graph(env, budgets, filters):
     }
 
 
-class LeviathanBudgetController(http.Controller):
+class CrowleyBudgetController(http.Controller):
 
     @http.route(
-        "/api/v1/leviathan_ext/budget/info",
+        "/api/v1/crowley_ext/budget/info",
         type="http",
         auth="none",
         methods=["GET"],
@@ -350,12 +348,14 @@ class LeviathanBudgetController(http.Controller):
         cors="*",
     )
     @validate_token
-    def leviathan_ext_budget_info(self, **kwargs):
-        guard = _require_leviathan_user()
-        if guard is not None:
-            return guard
-
+    def crowley_ext_budget_info(self, **kwargs):
         env = request.env
+        if _user_role_tag(env) is None:
+            return return_Response(
+                message="You are not allowed to access Crowley budget.",
+                status=403,
+            )
+
         params = request.params or {}
 
         project_id, error = _resolve_project_id(env, params)
@@ -376,7 +376,7 @@ class LeviathanBudgetController(http.Controller):
             aht_overview = _build_aht_overview(env, filters)
             burn_graph = _build_daily_burn_graph(env, budgets, filters)
         except Exception as e:
-            _logger.exception("leviathan_ext_budget_info failed")
+            _logger.exception("crowley_ext_budget_info failed")
             return return_Response(
                 message="Failed to build budget info.",
                 status=400,
