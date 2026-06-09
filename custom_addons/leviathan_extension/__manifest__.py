@@ -11,7 +11,7 @@
         " - GET  /api/v1/leviathan_ext/analytics/status_chart    task-count-by-status chart\n"
         " - GET  /api/v1/leviathan_ext/analytics/submission_trend weekly/monthly/yearly trend\n"
         " - GET  /api/v1/leviathan_ext/analytics/dashboard       consolidated dashboard analytics\n"
-        " - GET  /api/v1/leviathan_ext/budget/info               AWS + LLM budget KPIs, model breakdown, QC spend and daily burn graph\n\n"
+        " - GET  /api/v1/leviathan_ext/budget/info               AWS budget KPIs, service breakdown, AHT overview and daily burn graph\n\n"
         "All endpoints reuse the api_auth_gateway access_token mechanism and "
         "require membership of the Leviathan Administrator group "
         "(leviathan.group_leviathan_admin), which is the only group permitted "

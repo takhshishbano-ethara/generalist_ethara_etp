@@ -1,5 +1,8 @@
+import calendar
 import logging
 from datetime import date, datetime, timedelta
+
+from dateutil.relativedelta import relativedelta
 
 from odoo import http
 from odoo.http import request
@@ -13,7 +16,6 @@ from .main import _job_scope_domain, _require_leviathan_user
 
 _logger = logging.getLogger(__name__)
 
-QC_USE_CASE_KEYWORDS = ("qc", "quality")
 DEFAULT_BURN_GRAPH_DAYS = 30
 MAX_BURN_GRAPH_DAYS = 365
 
@@ -147,6 +149,15 @@ def _budget_domain(project_id, include_inactive):
     return domain
 
 
+def _cost_line_domain(budgets, filters):
+    domain = [("budget_id", "in", budgets.ids)]
+    if filters["start"]:
+        domain.append(("period", ">=", filters["start"].replace(day=1)))
+    if filters["end"]:
+        domain.append(("period", "<=", filters["end"]))
+    return domain
+
+
 def _build_budget_kpi(env, project_id, include_inactive):
     Budget = env["etp.project.aws.budget"].sudo()
     budgets = Budget.search(_budget_domain(project_id, include_inactive))
@@ -184,32 +195,26 @@ def _build_budget_kpi(env, project_id, include_inactive):
     }, budgets
 
 
-def _build_model_costs(env, filters):
-    Usage = env["aws.cost.ai.usage"].sudo()
-    domain = []
-    if filters["start"]:
-        domain.append(("period", ">=", filters["start"]))
-    if filters["end"]:
-        domain.append(("period", "<=", filters["end"]))
-    rows = Usage.search(domain)
+def _build_service_costs(env, budgets, filters):
+    if not budgets:
+        return {"total_amount": 0.0, "services": []}, 0.0
+
+    Line = env["etp.project.aws.cost.line"].sudo()
+    lines = Line.search(_cost_line_domain(budgets, filters))
 
     totals = {}
-    qc_total = 0.0
     grand_total = 0.0
-    for row in rows:
-        amount = row.total_cost_inr or 0.0
+    for line in lines:
+        amount = line.amount_inr or 0.0
         if not amount:
             continue
         grand_total += amount
-        key = row.model_name or "Unknown"
+        key = line.service_name or "Unknown"
         totals[key] = totals.get(key, 0.0) + amount
-        use_case = (row.use_case or "").lower()
-        if any(token in use_case for token in QC_USE_CASE_KEYWORDS):
-            qc_total += amount
 
     breakdown = [
         {
-            "model_name": name,
+            "service_name": name,
             "amount": _round2(amount),
             "percentage": _pct(amount, grand_total),
         }
@@ -217,11 +222,11 @@ def _build_model_costs(env, filters):
     ]
     return {
         "total_amount": _round2(grand_total),
-        "models": breakdown,
-    }, grand_total, qc_total
+        "services": breakdown,
+    }, grand_total
 
 
-def _build_qc_spend(env, filters, llm_total, qc_total):
+def _build_aht_overview(env, filters):
     Job = env["leviathan.job"].sudo()
     scope = _job_scope_domain()
     job_domain = scope + [("duration_seconds", ">", 0)]
@@ -242,13 +247,10 @@ def _build_qc_spend(env, filters, llm_total, qc_total):
     rows = Job.read_group(job_domain, fields=["duration_seconds:sum"], groupby=[])
     total_seconds = (rows[0].get("duration_seconds") if rows else 0.0) or 0.0
     total_minutes = total_seconds / 60.0
-    total_hours = total_seconds / 3600.0
 
     avg_rows = Job.read_group(job_domain, fields=["duration_seconds:avg"], groupby=[])
     avg_seconds = (avg_rows[0].get("duration_seconds") if avg_rows else 0.0) or 0.0
     avg_minutes = avg_seconds / 60.0
-
-    cost_per_aht_hour = (qc_total / total_hours) if total_hours else 0.0
 
     target = filters["target_aht"]
     target_indicator = "no_target"
@@ -261,18 +263,15 @@ def _build_qc_spend(env, filters, llm_total, qc_total):
             target_indicator = "above_target"
 
     return {
-        "qc_spend_amount": _round2(qc_total),
-        "qc_spend_percentage": _pct(qc_total, llm_total),
         "aht_measured_count": measured,
         "aht_total_minutes": _round2(total_minutes),
         "aht_average_minutes": _round2(avg_minutes),
-        "qc_cost_per_aht_hour": _round2(cost_per_aht_hour),
         "target_aht_minutes": _round2(target) if target else None,
         "target_indicator": target_indicator,
     }
 
 
-def _build_daily_burn_graph(env, filters):
+def _build_daily_burn_graph(env, budgets, filters):
     today = date.today()
     end = filters["end"] or today
     if filters["start"]:
@@ -280,33 +279,56 @@ def _build_daily_burn_graph(env, filters):
     else:
         start = end - timedelta(days=filters["graph_days"] - 1)
 
-    Daily = env["ai.cost.daily"].sudo()
-    rows = Daily.read_group(
-        domain=[("date", ">=", start), ("date", "<=", end)],
-        fields=["amount_inr:sum"],
-        groupby=["date:day"],
-        lazy=False,
-    )
-    by_date = {}
-    for row in rows:
-        raw = row.get("date:day")
-        if not raw:
-            continue
-        try:
-            parsed = datetime.strptime(raw, "%d %b %Y").date()
-        except ValueError:
-            continue
-        by_date[parsed] = (row.get("amount_inr") or 0.0)
-
     series = []
+    if not budgets:
+        cursor = start
+        while cursor <= end:
+            series.append({"date": cursor.isoformat(), "amount": 0.0})
+            cursor += timedelta(days=1)
+        return {
+            "window": {"start": start.isoformat(), "end": end.isoformat()},
+            "total_amount": 0.0,
+            "average_per_day": 0.0,
+            "peak_day": None,
+            "series": series,
+        }
+
+    Line = env["etp.project.aws.cost.line"].sudo()
+    window_start_month = start.replace(day=1)
+    window_end_month = end.replace(day=1)
+    lines = Line.search([
+        ("budget_id", "in", budgets.ids),
+        ("period", ">=", window_start_month),
+        ("period", "<=", window_end_month),
+    ])
+
+    monthly_totals = {}
+    for line in lines:
+        amount = line.amount_inr or 0.0
+        if not amount or not line.period:
+            continue
+        month_key = line.period.replace(day=1)
+        monthly_totals[month_key] = monthly_totals.get(month_key, 0.0) + amount
+
+    daily_by_date = {}
+    for month_start, month_total in monthly_totals.items():
+        days_in_month = calendar.monthrange(month_start.year, month_start.month)[1]
+        per_day = month_total / days_in_month if days_in_month else 0.0
+        for offset in range(days_in_month):
+            day = month_start + timedelta(days=offset)
+            if start <= day <= end:
+                daily_by_date[day] = daily_by_date.get(day, 0.0) + per_day
+
     cursor = start
     while cursor <= end:
-        amount = by_date.get(cursor, 0.0)
+        amount = daily_by_date.get(cursor, 0.0)
         series.append({"date": cursor.isoformat(), "amount": _round2(amount)})
         cursor += timedelta(days=1)
 
     total = sum(point["amount"] for point in series)
     peak = max(series, key=lambda p: p["amount"]) if series else None
+    if peak and peak["amount"] == 0.0:
+        peak = None
     average = total / len(series) if series else 0.0
     return {
         "window": {"start": start.isoformat(), "end": end.isoformat()},
@@ -349,10 +371,10 @@ class LeviathanBudgetController(http.Controller):
         )
 
         try:
-            kpi, _budgets = _build_budget_kpi(env, project_id, include_inactive)
-            model_costs, llm_total, qc_total = _build_model_costs(env, filters)
-            qc_spend = _build_qc_spend(env, filters, llm_total, qc_total)
-            burn_graph = _build_daily_burn_graph(env, filters)
+            kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
+            service_costs, _service_total = _build_service_costs(env, budgets, filters)
+            aht_overview = _build_aht_overview(env, filters)
+            burn_graph = _build_daily_burn_graph(env, budgets, filters)
         except Exception as e:
             _logger.exception("leviathan_ext_budget_info failed")
             return return_Response(
@@ -376,8 +398,8 @@ class LeviathanBudgetController(http.Controller):
                     ),
                 },
                 "kpi": kpi,
-                "model_costs": model_costs,
-                "qc_spend": qc_spend,
+                "service_costs": service_costs,
+                "aht_overview": aht_overview,
                 "daily_burn_graph": burn_graph,
             },
         )

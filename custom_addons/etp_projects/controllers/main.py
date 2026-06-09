@@ -33,7 +33,6 @@ class EtpProjectsAwsCostController(http.Controller):
         '/api/v1/etp_projects/aws_cost/update_all',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
     )
-    @validate_token
     def update_all_aws_cost(self, **params):
         try:
             jdata = self._read_json_body()
