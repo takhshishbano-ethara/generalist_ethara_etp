@@ -12,7 +12,10 @@ patch(CogMenu.prototype, {
     },
 
     get isT2AVCompleteVisible() {
-        return this.env?.searchModel?.resModel === T2AV_MODEL;
+        return (
+            this.env?.searchModel?.resModel === T2AV_MODEL &&
+            this.env?.config?.viewType === "list"
+        );
     },
 
     _t2avSelectedIds() {
