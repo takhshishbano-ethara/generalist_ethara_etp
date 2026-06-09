@@ -5,6 +5,15 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request, safe_get_value
 )
+
+# Backend job models have a different state vocabulary
+# than the legacy task.forge.log. "Active / currently working" maps to the
+# pipeline-running states below. Done/terminal states live in DONE_STATES so
+# the two are kept in one place.
+ACTIVE_STATES = ('extracting', 'extracted', 'generating', 'generated', 'scoring', 'scored', 'qc_running')
+DONE_STATES = ('done', 'submitted')
+
+
 class DashboardController(http.Controller):
 
     @validate_token
@@ -13,11 +22,43 @@ class DashboardController(http.Controller):
     def v2_get_cto_dashboard_list(self, **kwargs):
         try:
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
+            # CTO takes precedence: group_cto implies group_tpm via the etp_user_roles hierarchy,
+            # so a CTO user has is_tpm=True from has_group(). Treat them as CTO only.
+            is_cto = (
+                user_id.has_group('etp_user_roles.group_cto')
+                or user_id.user_role.id == request.env.ref('api_auth_gateway.role_cto_technical').id
+            )
+            is_tpm = not is_cto and (
+                user_id.has_group('etp_user_roles.group_tpm')
+                or user_id.user_role.id == request.env.ref('api_auth_gateway.role_tpm_technical').id
+            )
+            if not (is_cto or is_tpm):
+                return return_Response(message="CTO or TPM role required", status=403)
             employee = user_id.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
-            team_ids = employee._get_team_employee_ids()
+            # Team scope:
+            #   CTO -> org-wide via _get_team_employee_ids().
+            #   TPM -> PLs reporting to this TPM + everyone reporting to those PLs + TPM themselves.
+            Employee = request.env['hr.employee'].sudo()
+            if is_cto:
+                team_ids = employee._get_team_employee_ids()
+                pls = Employee  # unused for CTO branch
+                team_user_ids = None  # None == no user_id filter (org-wide)
+            else:
+                pls = Employee.search([
+                    ('task_forge_tpm_id', '=', employee.id),
+                    ('task_forge_active', '=', True),
+                ])
+                team_ids = Employee.search([
+                    '|', '|',
+                    ('task_forge_tpm_id', '=', employee.id),
+                    ('task_forge_pl_id', 'in', pls.ids),
+                    ('id', '=', employee.id),
+                    ('task_forge_active', '=', True),
+                ]).ids
+                team_user_ids = Employee.browse(team_ids).mapped('user_id').ids
 
             priority = {
                 '0': 'Low',
@@ -43,40 +84,76 @@ class DashboardController(http.Controller):
                             # ('date_to', '>=', datetime.datetime.now().date())
                         ])
 
-            complete_task_count = request.env['task.forge.log'].sudo().search_count([('state', 'in', ['completed']), ('date', '=', datetime.datetime.now().date())])
+            
+            complete_task_count = 0
+            daily_counts = {}
+            log_start = kwargs.get('start_date')
+            log_end = kwargs.get('end_date')
+            project_id_raw = kwargs.get('project_id')
+            # Project scope:
+            #   CTO -> all projects with a backend.
+            #   TPM -> only live projects led by PLs reporting to this TPM.
+            domain = [('connected_table', '!=', False)]
+            if is_tpm:
+                domain += [('project_lead', 'in', pls.ids)] + request.env['project.project']._task_forge_live_domain()
+            if project_id_raw:
+                domain.append(('id', '=', int(project_id_raw)))
+            projects = request.env['project.project'].sudo().search(domain)
+            for project in projects:
+                backend = request.env[project.connected_table].sudo()
+                # Task count source:
+                #   CTO -> get_performance_metrics() (role-aware; org-wide for CTO).
+                #   TPM -> explicit user_id filter; get_performance_metrics gives
+                #          TPM FULL_ACCESS and would return org-wide otherwise.
+                if is_cto:
+                    if not hasattr(backend, 'get_performance_metrics'):
+                        continue
+                    project_metrics = backend.get_performance_metrics() or {}
+                    complete_task_count += project_metrics.get('total_task_count', 0)
+                else:
+                    if not team_user_ids:
+                        continue
+                    complete_task_count += backend.search_count([('user_id', 'in', team_user_ids)])
 
-            blockers = request.env['task.forge.blocker'].sudo().read_group(
-                domain=[('state', 'not in', ['no_issue', 'resolved'])],
-                fields=['priority'],
-                groupby=['priority']
-            )
-            blockers_count = request.env['task.forge.blocker'].sudo().search_count(domain=[('state', 'not in', ['no_issue', 'resolved'])])
-            blockers_info = ", ".join([f"{block['priority_count']} {priority[block['priority']]}" for block in blockers])
+                # Per-day done/submitted counts for the completion graph.
+                # Backend models have no end_time field, so we group by write_date
+                # (set when the row was last modified — i.e. when state moved to done).
+                graph_domain = [('state', 'in', DONE_STATES)]
+                if is_tpm:
+                    graph_domain.append(('user_id', 'in', team_user_ids))
+                if log_start and log_end:
+                    if log_start == log_end:
+                        graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                        graph_domain.append(('write_date', '<=', f"{log_start} 23:59:00"))
+                    else:
+                        graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                        graph_domain.append(('write_date', '<=', f"{log_end} 23:59:00"))
+                rows = backend.read_group(
+                    domain=graph_domain,
+                    fields=['write_date'],
+                    groupby=['write_date:day'],
+                )
+                for line in rows:
+                    day = line.get('write_date:day') or ''
+                    count = line.get('write_date_count', 0)
+                    if day:
+                        daily_counts[day] = daily_counts.get(day, 0) + count
+            
+            # blockers = request.env['task.forge.blocker'].sudo().read_group(
+            #     domain=[('state', 'not in', ['no_issue', 'resolved'])],
+            #     fields=['priority'],
+            #     groupby=['priority']
+            # )
+            #blockers_count = request.env['task.forge.blocker'].sudo().search_count(domain=[('state', 'not in', ['no_issue', 'resolved'])])
+            #blockers_info = ", ".join([f"{block['priority_count']} {priority[block['priority']]}" for block in blockers])
             diff_percent = 0.0
 
             if present_yesterday_today > 0:
                 diff_percent = ((len(present_today) - present_yesterday_today) / present_yesterday_today) * 100
             elif len(present_today) > 0:
                 diff_percent = 100.0
-            log_domain = [('state', 'in', ['completed']), ('end_time', '!=', False)]
-
-            if kwargs.get('start_date') and kwargs.get('end_date'):
-                if kwargs['start_date'] == kwargs['end_date']:
-                    log_domain.append(('end_time', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    log_domain.append(('end_time', '<=', f"{kwargs['start_date']} 23:59:00"))
-                else:
-                    log_domain.append(('end_time', '>=', f"{kwargs['start_date']} 00:00:00"))
-                    log_domain.append(('end_time', '<=', f"{kwargs['end_date']} 23:59:00"))
-            data = request.env['task.forge.log'].sudo().read_group(
-                domain=log_domain,
-                fields=['end_time', 'name'],
-                groupby=['end_time:day']
-            )
-            labels = []
-            values = []
-            for line in data:
-                labels.append(line['end_time:day'])
-                values.append(line['end_time_count'])
+            labels = list(daily_counts.keys())
+            values = list(daily_counts.values())
             pl_record = present_today.filtered(lambda a: a.employee_id.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id])
             qc_record = present_today.filtered(lambda a: a.employee_id.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id])
             tasker_record = present_today.filtered(lambda a: a.employee_id.user_id.user_role.id in [request.env.ref('api_auth_gateway.role_tasker_technical').id, request.env.ref('api_auth_gateway.role_tasker_stem').id, request.env.ref('api_auth_gateway.role_tasker_non_stem').id])
@@ -106,8 +183,8 @@ class DashboardController(http.Controller):
                     'total_done_task': complete_task_count
                 },
                 'open_blockers':{
-                    'open_blockers_count': blockers_count,
-                    'blocker_info': blockers_info
+                    'open_blockers_count': 0,
+                    'blocker_info': ""
                 },
                 'task_completion_graph': {
                     'days': labels,
@@ -124,64 +201,85 @@ class DashboardController(http.Controller):
     def v2_get_pl_dashboard_list(self, **kwargs):
         try:
             user_id = request.env['res.users'].sudo().browse(request.env.uid)
-            if not user_id.employee_id:
-                return return_Response(message="Employee not found", status=404)
-            team_ids = user_id.employee_id._get_team_employee_ids()
+            if not (user_id.has_group('etp_user_roles.group_project_lead') or user_id.user_role.id in [
+                request.env.ref('api_auth_gateway.role_pl_technical').id,
+                request.env.ref('api_auth_gateway.role_pl_stem').id,
+                request.env.ref('api_auth_gateway.role_pl_non_stem').id,
+            ]):
+                return return_Response(message="PL role required", status=403)
+            employee = user_id.employee_id
+            if not employee:
+                return return_Response(message="Employee profile not found", status=404)
 
-            domain = [('project_lead', '=', user_id.employee_id.id)] + request.env['project.project']._task_forge_live_domain()
-            if kwargs.get('project_type'):
-                domain.append(('y_project_type', '=', kwargs.get('project_type')))
-
-            if kwargs.get('start_date') and kwargs.get('end_date'):
-                if kwargs['start_date'] == kwargs['end_date']:
-                    domain.append(('date_start', '=', kwargs['start_date']))
-                else:
-                    domain.append(('date_start', '>=', kwargs['start_date']))
-                    domain.append(('date', '<=', kwargs['end_date']))
-
-            current_projects = request.env['project.project'].sudo().search(domain)
-            # total_task = request.env['task.forge.log'].sudo().search_count([('project_id', 'in', current_projects.ids)])
-            #
-            # total_members = request.env['hr.employee'].sudo().search([('id', 'in', team_ids)])
+            team_ids = employee._get_team_employee_ids()
 
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
                 ('employee_id', 'in', team_ids),
                 ('state', '=', 'confirm'),
-                # ('date_from', '<=', datetime.datetime.now().date()),
-                # ('date_to', '>=', datetime.datetime.now().date())
             ])
-            # escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('project_id', 'in', current_projects.ids), ('state','not in', ['no_issue', 'resolved'])])
-            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([('state','in', ['escalated_to_pl']), ('employee_id', 'in', team_ids)])
+            escalated_task_count = request.env['task.forge.blocker'].sudo().search_count([
+                ('state', 'in', ['escalated_to_pl']),
+                ('employee_id', 'in', team_ids),
+            ])
 
-            data = request.env['task.forge.log'].sudo().read_group(
-                domain=[('project_id', 'in', current_projects.ids), ('state', 'in', ['completed']), ('end_time', '!=', False)],
-                fields=['end_time', 'name'],
-                groupby=['end_time:day']
-            )
-            labels = []
-            values = []
+            daily_counts = {}
+            log_start = kwargs.get('start_date')
+            log_end = kwargs.get('end_date')
+            project_id_raw = kwargs.get('project_id')
+            project_domain = [('connected_table', '!=', False), ('project_lead', '=', employee.id)] + request.env['project.project']._task_forge_live_domain()
+            if project_id_raw:
+                project_domain.append(('id', '=', int(project_id_raw)))
+            current_projects = request.env['project.project'].sudo().search(project_domain)
+            seen_backends = set()
+            for project in current_projects:
+                backend_name = project.connected_table
+                if not backend_name or backend_name in seen_backends:
+                    continue
+                seen_backends.add(backend_name)
+                if backend_name not in request.env:
+                    continue
+                backend = request.env[backend_name].sudo()
 
-            for line in data:
-                labels.append(line['end_time:day'])
-                values.append(line['end_time_count'])
+                graph_domain = [('state', 'in', DONE_STATES)]
+                if log_start and log_end:
+                    if log_start == log_end:
+                        graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                        graph_domain.append(('write_date', '<=', f"{log_start} 23:59:00"))
+                    else:
+                        graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                        graph_domain.append(('write_date', '<=', f"{log_end} 23:59:00"))
+                rows = backend.read_group(
+                    domain=graph_domain,
+                    fields=['write_date'],
+                    groupby=['write_date:day'],
+                )
+                for line in rows:
+                    day = line.get('write_date:day') or ''
+                    count = line.get('write_date_count', 0)
+                    if day:
+                        daily_counts[day] = daily_counts.get(day, 0) + count
+
+            labels = list(daily_counts.keys())
+            values = list(daily_counts.values())
+
             vals = {
-                'total_task':{
-                  'total_task_count': len(team_ids),
+                'total_task': {
+                    'total_task_count': len(team_ids),
                     'active_projects': len(current_projects),
                 },
-                'active_project':{
-                  'active_project_count': len(current_projects),
+                'active_project': {
+                    'active_project_count': len(current_projects),
                 },
-                'escalated_task':{
-                  'escalated_task_count': escalated_task_count,
+                'escalated_task': {
+                    'escalated_task_count': escalated_task_count,
                 },
-                'pending_leave_count':{
-                    'pending_leave_count':  pending_leave_count
+                'pending_leave_count': {
+                    'pending_leave_count': pending_leave_count,
                 },
                 'task_completion_graph': {
                     'days': labels,
                     'total_completed': values,
-                }
+                },
             }
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
@@ -212,13 +310,35 @@ class DashboardController(http.Controller):
             # current_projects = request.env['project.project'].sudo().search(domain)
             # for project in current_projects:
             employees = request.env['hr.employee'].sudo().search([('id', 'in', team_ids)])
+
+            # All distinct backend models registered across the org's projects.
+            # Computed once and reused per-employee so the active check works
+            # for taskers/QRs/QLs who aren't leads of any project.
+            all_backends = set(
+                request.env['project.project'].sudo()
+                .search([('connected_table', '!=', False)])
+                .mapped('connected_table')
+            )
+
             for emp in employees:
                 project = request.env['project.project'].sudo().search([('project_lead', '=', emp.id)] + request.env['project.project']._task_forge_live_domain(), limit=1)
+
+                # Active = the employee has any in-progress row on any backend.
+                is_active = False
+                if emp.user_id:
+                    for backend_name in all_backends:
+                        if backend_name not in request.env:
+                            continue
+                        backend = request.env[backend_name].sudo()
+                        if backend.search_count([('state', 'in', ACTIVE_STATES), ('user_id', '=', emp.user_id.id)]):
+                            is_active = True
+                            break
+
                 temp.append({
                     'name':emp.name if emp.name else "",
                     'project_name':project.name if project and project.name else "",
                     'qr_name':emp.task_forge_qr_id.name if emp.task_forge_qr_id.name else "",
-                    'status': 'Active' if request.env['task.forge.log'].sudo().search_count([('state', 'in', ['in_progress'])]) else "Idle"
+                    'status': 'Active' if is_active else "Idle"
                 })
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:
@@ -228,81 +348,97 @@ class DashboardController(http.Controller):
     @http.route('/api/v2/get_qc_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
     def get_qc_dashboard_list(self, **kwargs):
         try:
-            from datetime import datetime, date, time
-            # 1. Use the authenticated user from the token (provided by @validate_token)
             user = request.env.user
+            if not (user.has_group('etp_user_roles.group_quality_lead') or user.has_group('etp_user_roles.group_quality_reviewer') or user.user_role.id in [
+                request.env.ref('api_auth_gateway.role_qc_technical').id,
+                request.env.ref('api_auth_gateway.role_qc_stem').id,
+                request.env.ref('api_auth_gateway.role_qc_non_stem').id,
+            ]):
+                return return_Response(message="Quality role required", status=403)
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
-            # 2. Build Project Domain
-            project_domain = [('project_qc_reviewer', '=', employee.id)] + request.env['project.project']._task_forge_live_domain()
-            if kwargs.get('project_type'):
-                project_domain.append(('y_project_type', '=', kwargs.get('project_type')))
+            total_tasker = request.env['hr.employee'].sudo().search([('task_forge_qr_id', '=', employee.id)])
+            tasker_user_ids = total_tasker.mapped('user_id').ids
 
-            # Date handling for projects
-            if kwargs.get('start_date') and kwargs.get('end_date'):
-                project_domain.extend([
-                    ('date_start', '>=', kwargs['start_date']),
-                    ('date_start', '<=', kwargs['end_date'])
-                ])
-
+            log_start = kwargs.get('start_date')
+            log_end = kwargs.get('end_date')
+            project_id_raw = kwargs.get('project_id')
+            project_domain = [('connected_table', '!=', False), ('project_qc_reviewer', '=', employee.id)] + request.env['project.project']._task_forge_live_domain()
+            if project_id_raw:
+                project_domain.append(('id', '=', int(project_id_raw)))
             current_projects = request.env['project.project'].sudo().search(project_domain)
 
-            # 3. Tasker Stats (Working vs Idle)
-            # Find all taskers assigned to this QC Reviewer
-            total_tasker = request.env['hr.employee'].sudo().search([('task_forge_qr_id', '=', employee.id)])
+            today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
+            today_end = datetime.datetime.combine(datetime.date.today(), datetime.time.max)
 
-            # Find logs for these taskers that are currently 'in_progress'
-            working_logs = request.env['task.forge.log'].sudo().search([
-                ('employee_id', 'in', total_tasker.ids),
-                ('state', '=', 'in_progress')
-            ])
+            working_user_ids = set()
+            task_done_today = 0
+            daily_counts = {}
+            seen_backends = set()
+            for project in current_projects:
+                backend_name = project.connected_table
+                if not backend_name or backend_name in seen_backends:
+                    continue
+                seen_backends.add(backend_name)
+                if backend_name not in request.env:
+                    continue
+                backend = request.env[backend_name].sudo()
 
-            # Get unique employees who are actually working
-            working_tasker_ids = working_logs.mapped('employee_id')
-            idle_tasker = total_tasker - working_tasker_ids
+                if tasker_user_ids:
+                    working_rows = backend.search([
+                        ('user_id', 'in', tasker_user_ids),
+                        ('state', 'in', ACTIVE_STATES),
+                    ])
+                    working_user_ids.update(working_rows.mapped('user_id').ids)
 
-            # 4. Daily Task Counts
-            today_start = datetime.combine(date.today(), time.min)
-            today_end = datetime.combine(date.today(), time.max)
+                task_done_today += backend.search_count([
+                    ('state', 'in', DONE_STATES),
+                    ('write_date', '>=', today_start),
+                    ('write_date', '<=', today_end),
+                ])
 
-            task_done_today = request.env['task.forge.log'].sudo().search_count([
-                ('project_id', 'in', current_projects.ids),
-                ('end_time', '>=', today_start),
-                ('end_time', '<=', today_end),
-                ('state', '=', 'completed')
-            ])
+                graph_domain = [('state', 'in', DONE_STATES)]
+                if log_start and log_end:
+                    if log_start == log_end:
+                        graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                        graph_domain.append(('write_date', '<=', f"{log_start} 23:59:00"))
+                    else:
+                        graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                        graph_domain.append(('write_date', '<=', f"{log_end} 23:59:00"))
+                rows = backend.read_group(
+                    domain=graph_domain,
+                    fields=['write_date'],
+                    groupby=['write_date:day'],
+                )
+                for line in rows:
+                    day = line.get('write_date:day') or ''
+                    count = line.get('write_date_count', 0)
+                    if day:
+                        daily_counts[day] = daily_counts.get(day, 0) + count
 
-            # 5. Pending Items
+            working_taskers = total_tasker.filtered(lambda t: t.user_id and t.user_id.id in working_user_ids)
+            idle_taskers = total_tasker - working_taskers
+
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
-                # ('project_id', 'in', current_projects.ids),
                 ('qr_id', '=', employee.id),
-                ('state','not in', ['no_issue', 'resolved'])
+                ('state', 'not in', ['no_issue', 'resolved']),
             ])
 
             pending_leave_count = request.env['hr.leave'].sudo().search_count([
                 ('employee_id', 'in', total_tasker.ids),
                 ('state', '=', 'confirm'),
-                # ('date_from', '<=', date.today()),
-                # ('date_to', '>=', date.today())
             ])
 
-            # 6. Throughput Graph Data
-            graph_data = request.env['task.forge.log'].sudo().read_group(
-                domain=[('project_id', 'in', current_projects.ids), ('state', '=', 'completed')],
-                fields=['end_time', 'name'],
-                groupby=['end_time:day']
-            )
-
-            labels = [line['end_time:day'] for line in graph_data]
-            values = [line['end_time_count'] for line in graph_data]
+            labels = list(daily_counts.keys())
+            values = list(daily_counts.values())
 
             vals = {
                 'my_tasker': {
                     'total_count': len(total_tasker),
-                    'working_count': len(working_tasker_ids),
-                    'idle_count': len(idle_tasker),
+                    'working_count': len(working_taskers),
+                    'idle_count': len(idle_taskers),
                 },
                 'task_today': {
                     'task_done_today': task_done_today,
@@ -311,13 +447,13 @@ class DashboardController(http.Controller):
                     'count': pending_blocker_count,
                 },
                 'pending_leave': {
-                    'count': pending_leave_count
+                    'count': pending_leave_count,
                 },
                 'review_throughput_graph': {
                     'days': labels,
                     'total_completed': values,
                 },
-                'reporting_to': employee.task_forge_pl_id.name if employee.task_forge_pl_id and employee.task_forge_pl_id.name else ""
+                'reporting_to': employee.task_forge_pl_id.name if employee.task_forge_pl_id and employee.task_forge_pl_id.name else "",
             }
             return return_Response(message="Success", status=200, data=vals)
 
@@ -349,16 +485,33 @@ class DashboardController(http.Controller):
             attendance = request.env['hr.attendance'].sudo().search([('check_in', '>=', f"{datetime.datetime.now().date()} 00:00:00"), ('check_in', '<', f"{datetime.datetime.now().date()} 23:59:00")])
             present_employees = attendance.mapped('employee_id')
             for tasker in total_tasker:
-                total_task = request.env['task.forge.log'].sudo().search([('project_id', 'in', current_projects.ids), ('employee_id', '=', tasker.id)])
-                total_count = len(total_task)
-                done_task = total_task.filtered(lambda t: t.state == 'completed')
-                done_count = len(done_task)
+                # per-tasker aggregation across each project's backend.
+                # Field translation: employee_id → user_id, 'completed' →
+                # ('done','submitted'), time_taken_mins → duration_seconds/60,
+                # end_time → create_date (semantic drift — "created today"
+                # instead of "finished today").
+                total_count = 0
+                done_count = 0
+                today_count = 0
+                total_seconds = 0
                 today_start = datetime.datetime.combine(datetime.date.today(), datetime.time.min)
                 today_end = datetime.datetime.combine(datetime.date.today(), datetime.time.max)
-                today_task = total_task.filtered(lambda t: t.end_time and today_start <= t.end_time <= today_end)
-                avg_mins = 0.0
-                if total_count > 0:
-                    avg_mins = sum(total_task.mapped('time_taken_mins')) / total_count
+                seen_backends_for_tasker = set()
+                tasker_user_id = tasker.user_id.id if tasker.user_id else 0
+                for project in current_projects:
+                    backend_name = project.connected_table
+                    if not backend_name or backend_name in seen_backends_for_tasker:
+                        continue
+                    seen_backends_for_tasker.add(backend_name)
+                    if backend_name not in request.env or not tasker_user_id:
+                        continue
+                    backend = request.env[backend_name].sudo()
+                    rows = backend.search([('user_id', '=', tasker_user_id)])
+                    total_count += len(rows)
+                    done_count += len(rows.filtered(lambda r: r.state in ('done', 'submitted')))
+                    today_count += len(rows.filtered(lambda r: r.create_date and today_start <= r.create_date <= today_end))
+                    total_seconds += sum(rows.mapped('duration_seconds'))
+                avg_mins = (total_seconds / 60.0 / total_count) if total_count > 0 else 0.0
                 hours, mins = divmod(int(round(avg_mins)), 60)
                 duration_display = f"{hours:02d}:{mins:02d}"
                 completion_percent = 0.0
@@ -373,7 +526,7 @@ class DashboardController(http.Controller):
                     'status': "Present" if tasker in present_employees else "Absent",
                     'total_task': total_count,
                     'done_task': done_count,
-                    'today_task': len(today_task),
+                    'today_task': today_count,
                     'quality': round(completion_percent, 2),
                     'completion': round(completion_percent, 2),
                     'aht': duration_display,
@@ -399,8 +552,21 @@ class DashboardController(http.Controller):
             for p in projects:
                 team_ids = (p.project_lead.ids + p.project_aire.ids + p.project_swe.ids)
                 unique_team_count = len(set(team_ids))
-                total = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id)])
-                done = request.env['task.forge.log'].sudo().search_count([('project_id', '=', p.id), ('state', '=', 'completed')])
+
+                # query the project's backend model directly via
+                # `connected_table`, instead of going through task.forge.log.
+                # Assumes one backend = one project's data (the convention the
+                # `connected_table` field encodes today).
+                # State vocabulary: backend models use 'done'/'submitted' for
+                # what task.forge.log called 'completed'.
+                backend_name = p.connected_table
+                if backend_name and backend_name in request.env:
+                    backend = request.env[backend_name].sudo()
+                    total = backend.search_count([])
+                    done = backend.search_count([('state', 'in', ('done', 'submitted'))])
+                else:
+                    total = 0
+                    done = 0
 
                 percentage = (done / total * 100) if total > 0 else 0.0
 
@@ -476,26 +642,29 @@ class DashboardController(http.Controller):
                 offset = 0
             projects = request.env['project.project'].sudo().search(domain, order='id desc', limit=limit, offset=offset)
             project_data = []
-            TaskLog = request.env['task.forge.log'].sudo()
+            # TaskLog = request.env['task.forge.log'].sudo()  # replaced by per-project backend lookup
             for p in projects:
                 all_member_ids = set(
                     p.project_lead.ids + p.project_qc_reviewer.ids +
                     p.project_tasker.ids + p.project_aire.ids + p.project_swe.ids
                 )
 
-                total = TaskLog.search_count([('project_id', '=', p.id)])
-                done = TaskLog.search_count([('project_id', '=', p.id), ('state', '=', 'completed')])
+                # per-project counts + AHT from the project's backend.
+                # Assumes one backend = one project (the convention encoded in
+                # `connected_table`). AHT loses the role-based `task_domain`
+                # scoping since backend rows have no employee_id; it now reflects
+                # all jobs on this backend.
+                backend_name = p.connected_table
+                if backend_name and backend_name in request.env:
+                    backend = request.env[backend_name].sudo()
+                    total = backend.search_count([])
+                    done = backend.search_count([('state', 'in', ('done', 'submitted'))])
+                    aht_time = int(sum(backend.search([]).mapped('duration_seconds')) // 60)
+                else:
+                    total = 0
+                    done = 0
+                    aht_time = 0
                 percentage = (done / total * 100) if total > 0 else 0.0
-
-                aht_time = 0
-                task_records = TaskLog.search(task_domain + [('project_id', '=', p.id)])
-                for t in task_records:
-                    if t.pause_time:
-                        try:
-                            aht_time += int(t.pause_time)
-                        except (ValueError, TypeError):
-                            pass
-                aht_time = aht_time // 60 if aht_time else 0
 
                 pl_names = ', '.join(p.project_lead.mapped('name')) if p.project_lead else ''
                 qr_names = ', '.join(p.project_qc_reviewer.mapped('name')) if p.project_qc_reviewer else ''
@@ -568,77 +737,112 @@ class DashboardController(http.Controller):
     def get_tasker_dashboard_list(self, **kwargs):
         try:
             user = request.env.user
+            if not (user.has_group('etp_user_roles.group_tasker') or user.user_role.id in [
+                request.env.ref('api_auth_gateway.role_tasker_technical').id,
+                request.env.ref('api_auth_gateway.role_tasker_stem').id,
+                request.env.ref('api_auth_gateway.role_tasker_non_stem').id,
+            ]):
+                return return_Response(message="Tasker role required", status=403)
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
-            from datetime import datetime, date
 
-            today = date.today()
-            # start_date_param = kwargs.get('start_date')
-            # end_date_param = kwargs.get('end_date')
+            today = datetime.date.today()
+            today_start = datetime.datetime.combine(today, datetime.time.min)
+            today_end = datetime.datetime.combine(today, datetime.time.max)
 
-            Attendance = request.env['hr.attendance'].sudo()
-            attendance = Attendance.search([
+            attendance = request.env['hr.attendance'].sudo().search([
                 ('employee_id', '=', employee.id),
-                ('check_in', '>=', datetime.combine(today, datetime.min.time())),
-                ('check_in', '<=', datetime.combine(today, datetime.max.time())),
+                ('check_in', '>=', today_start),
+                ('check_in', '<=', today_end),
             ], limit=1)
-
             duration_display = "00.00"
-            if attendance and attendance.check_in and attendance.check_out:
-                diff = attendance.check_out - attendance.check_in
-                total_seconds = int(diff.total_seconds())
+            if attendance and attendance.check_in:
+                end = attendance.check_out or datetime.datetime.now()
+                total_seconds = int((end - attendance.check_in).total_seconds())
                 hours = total_seconds // 3600
                 minutes = (total_seconds % 3600) // 60
                 duration_display = f"{hours:02d}.{minutes:02d}"
 
-            elif attendance and attendance.check_in and not attendance.check_out:
-                diff = datetime.now() - attendance.check_in
-                total_seconds = int(diff.total_seconds())
-                hours = total_seconds // 3600
-                minutes = (total_seconds % 3600) // 60
-                duration_display = f"{hours:02d}.{minutes:02d}"
+            log_start = kwargs.get('start_date')
+            log_end = kwargs.get('end_date')
+            project_id_raw = kwargs.get('project_id')
+            project_domain = [('connected_table', '!=', False), ('project_tasker', '=', employee.id)] + request.env['project.project']._task_forge_live_domain()
+            if project_id_raw:
+                project_domain.append(('id', '=', int(project_id_raw)))
+            current_projects = request.env['project.project'].sudo().search(project_domain)
 
-            task_record = request.env['task.forge.log'].sudo().search([('employee_id', '=', employee.id), ('date', '=', date.today())])
-            pause_times = [int(p.pause_time) for p in task_record if p.pause_time and p.pause_time.isdigit()]
-            total_pause_mins = sum(pause_times)
+            user_id_val = user.id
+            completed_today_count = 0
+            productive_seconds = 0
+            daily_quality = {}
+            seen_backends = set()
+            for project in current_projects:
+                backend_name = project.connected_table
+                if not backend_name or backend_name in seen_backends:
+                    continue
+                seen_backends.add(backend_name)
+                if backend_name not in request.env:
+                    continue
+                backend = request.env[backend_name].sudo()
 
-            # 3. Calculate Productive Duration (in hours)
-            hours = total_pause_mins // 3600
-            minutes = (total_pause_mins % 3600) // 60
+                completed_today_count += backend.search_count([
+                    ('user_id', '=', user_id_val),
+                    ('state', 'in', DONE_STATES),
+                    ('write_date', '>=', today_start),
+                    ('write_date', '<=', today_end),
+                ])
+
+                if 'duration_seconds' in backend._fields:
+                    today_rows = backend.search([
+                        ('user_id', '=', user_id_val),
+                        ('write_date', '>=', today_start),
+                        ('write_date', '<=', today_end),
+                    ])
+                    productive_seconds += sum(today_rows.mapped('duration_seconds'))
+
+                if 'quality_score' in backend._fields:
+                    graph_domain = [('user_id', '=', user_id_val), ('state', 'in', DONE_STATES)]
+                    if log_start and log_end:
+                        if log_start == log_end:
+                            graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                            graph_domain.append(('write_date', '<=', f"{log_start} 23:59:00"))
+                        else:
+                            graph_domain.append(('write_date', '>=', f"{log_start} 00:00:00"))
+                            graph_domain.append(('write_date', '<=', f"{log_end} 23:59:00"))
+                    rows = backend.read_group(
+                        domain=graph_domain,
+                        fields=['quality_score'],
+                        groupby=['write_date:day'],
+                    )
+                    for line in rows:
+                        day = line.get('write_date:day') or ''
+                        score = line.get('quality_score') or 0
+                        if day:
+                            daily_quality[day] = daily_quality.get(day, 0) + score
+
+            hours = productive_seconds // 3600
+            minutes = (productive_seconds % 3600) // 60
             productive_duration = f"{hours:02d}.{minutes:02d}"
-
-
-            # 4. Get completed tasks for the graph
-            # Note: Since you already have task_record, filtering in memory is faster than a new search
-            completed_tasks = task_record.filtered(lambda p: p.state == 'completed')
-
-            graph_data = completed_tasks.read_group(
-                domain=[('id', 'in', completed_tasks.ids)],
-                fields=['quality_score'],
-                groupby=['end_time:day']
-            )
-
-            # Extract values for your frontend
-            labels = [line.get('end_time:day') or '' for line in graph_data]
-            quality_sums = [line.get('quality_score') or 0 for line in graph_data]
 
             pending_blocker_count = request.env['task.forge.blocker'].sudo().search_count([
                 ('employee_id', '=', employee.id),
-                ('state', '=', 'pending')
+                ('state', '=', 'pending'),
             ])
 
-            today_weekday = date.today().weekday()
+            labels = list(daily_quality.keys())
+            quality_sums = list(daily_quality.values())
+
             vals = {
                 'session_duration': duration_display,
-                'completed_task_count': len(completed_tasks),
+                'completed_task_count': completed_today_count,
                 'productive_duration': productive_duration,
                 'pending_blocker_count': pending_blocker_count,
                 'quality_trend_graph': {
                     'days': labels,
                     'total_completed': quality_sums,
                 },
-                'daily_streak': today_weekday + 1,
+                'daily_streak': today.weekday() + 1,
             }
             return return_Response(message="Success", status=200, data=vals)
 
@@ -662,4 +866,5 @@ class DashboardController(http.Controller):
             return return_Response(message="Success", status=200, data={"records": temp, "count": len(temp)})
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+
 
