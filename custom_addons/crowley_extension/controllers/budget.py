@@ -337,6 +337,62 @@ def _build_daily_burn_graph(env, budgets, filters):
     }
 
 
+def _build_budget_info_payload(env, project_id, include_inactive, filters):
+    kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
+    service_costs, _service_total = _build_service_costs(env, budgets, filters)
+    aht_overview = _build_aht_overview(env, filters)
+    burn_graph = _build_daily_burn_graph(env, budgets, filters)
+
+    return {
+        "filters": {
+            "project_id": project_id,
+            "include_inactive": include_inactive,
+            "start_date": filters["start"].isoformat() if filters["start"] else None,
+            "end_date": filters["end"].isoformat() if filters["end"] else None,
+            "graph_days": filters["graph_days"],
+            "target_aht_minutes": (
+                _round2(filters["target_aht"]) if filters["target_aht"] else None
+            ),
+        },
+        "kpi": kpi,
+        "service_costs": service_costs,
+        "aht_overview": aht_overview,
+        "daily_burn_graph": burn_graph,
+        "budget_timeline": env["etp.project.token.purchase.request"]
+            .sudo()._get_budget_timeline_for_project(
+                project_id,
+                start=filters["start"],
+                end=filters["end"],
+                graph_days=filters["graph_days"],
+            ),
+        "burn_per_batch": {
+            "title": "Burn per batch",
+            "batches": [
+                {
+                    "batch_id": "B-023",
+                    "videos": 640,
+                    "burn": 3380,
+                    "approval": {
+                        "rate": 86,
+                        "status": "approved"
+                    },
+                    "feedback": "Everything was good",
+                    "tasks": [
+                        {
+                            "ref": "CRW000211",
+                            "category": "Human Activities",
+                            "status": "Revision",
+                            "burn": 3.70
+                        }
+                    ]
+                }
+            ]
+        },
+        "allocation_ledger": env["etp.project.token.purchase.request"]
+            .sudo()._get_allocation_ledger_for_project(project_id),
+    }
+
+
 class CrowleyBudgetController(http.Controller):
 
     @http.route(
@@ -371,10 +427,7 @@ class CrowleyBudgetController(http.Controller):
         )
 
         try:
-            kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
-            service_costs, _service_total = _build_service_costs(env, budgets, filters)
-            aht_overview = _build_aht_overview(env, filters)
-            burn_graph = _build_daily_burn_graph(env, budgets, filters)
+            data = _build_budget_info_payload(env, project_id, include_inactive, filters)
         except Exception as e:
             _logger.exception("crowley_ext_budget_info failed")
             return return_Response(
@@ -383,95 +436,78 @@ class CrowleyBudgetController(http.Controller):
                 errors=[str(e)],
             )
 
-        return return_Response(
-            message="OK",
-            status=200,
-            data={
-                "filters": {
-                    "project_id": project_id,
-                    "include_inactive": include_inactive,
-                    "start_date": filters["start"].isoformat() if filters["start"] else None,
-                    "end_date": filters["end"].isoformat() if filters["end"] else None,
-                    "graph_days": filters["graph_days"],
-                    "target_aht_minutes": (
-                        _round2(filters["target_aht"]) if filters["target_aht"] else None
-                    ),
-                },
-                "kpi": kpi,
-                "service_costs": service_costs,
-                "aht_overview": aht_overview,
-                "daily_burn_graph": burn_graph,
-                "budget_timeline": {
-                    "title": "Budget Added & Consumption Over Time",
-                    "range": "7d",
-                    "available_now": 7550,
-                    "y_axis": {"min": 0, "max": 20000, "step": 5000},
-                    "window": {"start": "2026-05-14", "end": "2026-06-09"},
-                    "series": [
-                        {
-                            "date": "2026-05-14",
-                            "available_balance": 10000,
-                            "consumed_to_date": 0,
-                            "added_to_date": 10000,
-                            "event": {}
-                        },
-                        {
-                            "date": "2026-05-20",
-                            "available_balance": 19500,
-                            "consumed_to_date": 1200,
-                            "added_to_date": 20000,
-                            "event": {
-                                "type": "top_up",
-                                "label": "Top-up",
-                                "added": 5000,
-                                "available_after": 19500,
-                                "spent_since_last_topup": 1200
-                            }
-                        }
-                    ]
-                },
-                "burn_per_batch": {
-                    "title": "Burn per batch",
-                    "batches": [
-                        {
-                            "batch_id": "B-023",
-                            "videos": 640,
-                            "burn": 3380,
-                            "approval": {
-                                "rate": 86,
-                                "status": "approved"
-                            },
-                            "feedback": "Everything was good",
-                            "tasks": [
-                                {
-                                    "ref": "CRW000211",
-                                    "category": "Human Activities",
-                                    "status": "Revision",
-                                    "burn": 3.70
-                                }
-                            ]
-                        }
-                    ]
-                },
-                "allocation_ledger": {
-                    "title": "Allocation Ledger",
-                    "entries": [
-                        {
-                            "datetime": "2026-05-20T09:30:00Z",
-                            "action": "top_up",
-                            "action_label": "Top-up",
-                            "amount": 5000,
-                            "balance_before": 8600
-                        },
-                        {
-                            "datetime": "2026-05-14T11:15:00Z",
-                            "action": "set_initial",
-                            "action_label": "Set initial",
-                            "amount": 10000,
-                            "balance_before": ""
-                        }
-                    ]
-                }
+        return return_Response(message="OK", status=200, data=data)
 
-            },
+    @http.route(
+        "/api/v1/crowley_ext/budget/fetch",
+        type="http",
+        auth="none",
+        methods=["POST"],
+        csrf=False,
+        cors="*",
+    )
+    @validate_token
+    def crowley_ext_budget_fetch(self, **kwargs):
+        env = request.env
+        if _user_role_tag(env) is None:
+            return return_Response(
+                message="You are not allowed to access Crowley budget.",
+                status=403,
+            )
+
+        params = request.params or {}
+
+        project_id, error = _resolve_project_id(env, params)
+        if error is not None:
+            return error
+
+        filters, error = _resolve_filters(params)
+        if error is not None:
+            return error
+
+        include_inactive = (params.get("include_inactive") or "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
+        Budget = env["etp.project.aws.budget"].sudo()
+        budgets_to_fetch = Budget.search(_budget_domain(project_id, include_inactive))
+
+        fetch_errors = []
+        fetched_count = 0
+        for budget in budgets_to_fetch:
+            try:
+                budget._fetch_cost_one()
+                budget._maybe_alert_thresholds()
+                fetched_count += 1
+            except Exception as e:
+                _logger.exception(
+                    "crowley_ext_budget_fetch: budget %s failed", budget.id,
+                )
+                fetch_errors.append({
+                    "budget_id": budget.id,
+                    "name": budget.name,
+                    "error": str(e),
+                })
+
+        try:
+            data = _build_budget_info_payload(env, project_id, include_inactive, filters)
+        except Exception as e:
+            _logger.exception("crowley_ext_budget_fetch failed")
+            return return_Response(
+                message="Failed to build budget info after fetch.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        data["fetch_summary"] = {
+            "budgets_total": len(budgets_to_fetch),
+            "budgets_fetched": fetched_count,
+            "errors": fetch_errors,
+        }
+
+        return return_Response(
+            message="OK" if not fetch_errors else "Fetched with errors",
+            status=200,
+            errors=fetch_errors or None,
+            data=data,
         )

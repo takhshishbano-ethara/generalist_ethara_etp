@@ -10,6 +10,8 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
+BUDGET_MODEL = 'etp.project.aws.budget'
+
 _logger = logging.getLogger(__name__)
 
 
@@ -148,6 +150,71 @@ class EtpProjectsAwsCostController(http.Controller):
             )
         except Exception as e:
             _logger.exception("update_all_aws_cost failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
+    @http.route(
+        '/api/v1/etp_projects/aws_budget/list',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def list_aws_budgets(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            domain = []
+            if not bool(jdata.get('include_inactive')):
+                domain.append(('active', '=', True))
+
+            budget_ids = jdata.get('budget_ids') or []
+            project_ids = jdata.get('project_ids') or []
+            if budget_ids:
+                if not isinstance(budget_ids, list) or not all(isinstance(x, int) for x in budget_ids):
+                    return return_Response(
+                        message="'budget_ids' must be a list of integers.",
+                        status=400,
+                    )
+                domain.append(('id', 'in', budget_ids))
+            if project_ids:
+                if not isinstance(project_ids, list) or not all(isinstance(x, int) for x in project_ids):
+                    return return_Response(
+                        message="'project_ids' must be a list of integers.",
+                        status=400,
+                    )
+                domain.append(('project_id', 'in', project_ids))
+
+            Budget = request.env[BUDGET_MODEL].sudo()
+            budgets = Budget.search(domain, order='project_id, name')
+
+            records = []
+            for budget in budgets:
+                records.append({
+                    "id": budget.id,
+                    "seq": budget.name or "",
+                    "project_id": budget.project_id.id if budget.project_id else False,
+                    "project_name": budget.project_id.name if budget.project_id else "",
+                    "project_budget": float(budget.project_budget or 0.0),
+                    "final_budget": float(budget.budget_amount or 0.0),
+                    "total_used_cost": float(budget.total_consumed or 0.0),
+                    "remaining_cost": float(budget.remaining or 0.0),
+                    "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
+                    "currency": budget.currency_id.name if budget.currency_id else "",
+                    "currency_symbol": budget.currency_id.symbol if budget.currency_id else "",
+                })
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": {
+                    "total": len(records),
+                    "records": records,
+                }},
+            )
+        except Exception as e:
+            _logger.exception("list_aws_budgets failed")
             return return_Response(
                 message="Something went wrong.",
                 status=400,

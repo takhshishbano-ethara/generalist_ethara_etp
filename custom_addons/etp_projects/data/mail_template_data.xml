@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+
+        <!-- 1. Approval Required -->
+        <record id="email_token_purchase_request_approval" model="mail.template">
+            <field name="name">Token Purchase Request: Approval Required</field>
+            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
+            <field name="email_from">{{ (object.requester_id.email_formatted or user.email_formatted) }}</field>
+            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('approver_partner_ids') or [])) }}</field>
+            <field name="subject">Approval Required – Token Purchase Request for Project {{ object.project_id.name or '' }}</field>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:32px;text-align:center;">
+                <h1 style="color:#ffffff;margin:0;font-size:22px;">Token Purchase Approval Request</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding:32px;">
+                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">Hello,</p>
+                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
+                    A new Token Purchase Request has been submitted and requires your action.
+                </p>
+                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
+                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">TPR/.../...</t></p>
+                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">Project</t></p>
+                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Requested Amount:</strong>
+                        <span t-out="object.currency_id.symbol or ''"/> <t t-out="'%.2f' % (object.requested_amount or 0.0)">0.00</t>
+                    </p>
+                    <p style="margin:4px 0;"><strong>Description:</strong> <t t-out="object.description or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Requested By:</strong> <t t-out="object.requester_id.name or ''">-</t></p>
+                </div>
+                <p style="font-size:14px;color:#555;margin:16px 0;">
+                    Approval from any one of the configured approvers is sufficient.
+                    Please open the request in Odoo to review and Approve or Reject it.
+                </p>
+                <div style="text-align:center;margin:24px 0;">
+                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"
+                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
+                        Open Request in Odoo
+                    </a>
+                </div>
+                <p style="font-size:12px;color:#999;margin-top:24px;">
+                    Thank you,<br/>ETP Projects System
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+        <!-- 2. Finance: Action Required – Complete Approved Token Purchase Details -->
+        <record id="email_token_purchase_request_finance" model="mail.template">
+            <field name="name">Token Purchase Request: Finance Action Required</field>
+            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
+            <field name="email_from">{{ (object.approver_id.email_formatted or user.email_formatted) }}</field>
+            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('finance_partner_ids') or [])) }}</field>
+            <field name="subject">Action Required – Complete Approved Token Purchase Details</field>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background:linear-gradient(135deg,#0ea5e9 0%,#2563eb 100%);padding:32px;text-align:center;">
+                <h1 style="color:#ffffff;margin:0;font-size:22px;">Approved – Finance Action Required</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding:32px;">
+                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">Hello,</p>
+                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
+                    A Token Purchase Request has been approved and requires final processing.
+                </p>
+                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
+                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">TPR/.../...</t></p>
+                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">Project</t></p>
+                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Approved Amount (Requested):</strong>
+                        <span t-out="object.currency_id.symbol or ''"/> <t t-out="'%.2f' % (object.requested_amount or 0.0)">0.00</t>
+                    </p>
+                    <p style="margin:4px 0;"><strong>Approved By:</strong> <t t-out="object.approver_id.name or ''">-</t></p>
+                </div>
+                <p style="font-size:14px;color:#555;margin:16px 0;">
+                    Please open the request in Odoo and complete the post-approval details:
+                </p>
+                <ul style="font-size:14px;color:#555;line-height:1.7;">
+                    <li>Approved Amount</li>
+                    <li>Module / Cost Center</li>
+                    <li>Supporting Document</li>
+                </ul>
+                <div style="text-align:center;margin:24px 0;">
+                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"
+                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
+                        Open Request in Odoo
+                    </a>
+                </div>
+                <p style="font-size:12px;color:#777;margin:0 0 8px 0;text-align:center;">
+                    Once Approved Amount, Cost Center, and Supporting Document are filled, click <strong>Mark Completed</strong>; the Project Budget will update automatically.
+                </p>
+                <p style="font-size:12px;color:#999;margin-top:24px;">
+                    Thank you,<br/>ETP Projects System
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+        <!-- 3. Requester: Approved -->
+        <record id="email_token_purchase_request_approved_requester" model="mail.template">
+            <field name="name">Token Purchase Request: Approved (Requester)</field>
+            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
+            <field name="email_from">{{ (object.approver_id.email_formatted or user.email_formatted) }}</field>
+            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('requester_partner_ids') or [])) }}</field>
+            <field name="subject">Approved – Token Purchase Request {{ object.name or '' }}</field>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background:linear-gradient(135deg,#16a34a 0%,#15803d 100%);padding:32px;text-align:center;">
+                <h1 style="color:#ffffff;margin:0;font-size:22px;">Request Approved</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding:32px;">
+                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">
+                    Hello <strong><t t-out="object.requester_id.name or ''">-</t></strong>,
+                </p>
+                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
+                    Your Token Purchase Request has been approved.
+                </p>
+                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
+                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Approved By:</strong> <t t-out="object.approver_id.name or ''">-</t></p>
+                </div>
+                <p style="font-size:14px;color:#555;margin:16px 0;">
+                    The finance team will complete the post-approval processing.
+                </p>
+                <p style="font-size:12px;color:#999;margin-top:24px;">
+                    Thank you,<br/>ETP Projects System
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+        <!-- 4. Requester: Rejected -->
+        <record id="email_token_purchase_request_rejected_requester" model="mail.template">
+            <field name="name">Token Purchase Request: Rejected (Requester)</field>
+            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
+            <field name="email_from">{{ (object.approver_id.email_formatted or user.email_formatted) }}</field>
+            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('requester_partner_ids') or [])) }}</field>
+            <field name="subject">Rejected – Token Purchase Request {{ object.name or '' }}</field>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background:linear-gradient(135deg,#dc2626 0%,#991b1b 100%);padding:32px;text-align:center;">
+                <h1 style="color:#ffffff;margin:0;font-size:22px;">Request Rejected</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding:32px;">
+                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">
+                    Hello <strong><t t-out="object.requester_id.name or ''">-</t></strong>,
+                </p>
+                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
+                    Your Token Purchase Request has been rejected.
+                </p>
+                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
+                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
+                    <p style="margin:4px 0;"><strong>Rejected By:</strong> <t t-out="object.approver_id.name or ''">-</t></p>
+                    <t t-if="object.rejection_reason">
+                        <p style="margin:4px 0;"><strong>Reason:</strong> <t t-out="object.rejection_reason or ''">-</t></p>
+                    </t>
+                </div>
+                <p style="font-size:12px;color:#999;margin-top:24px;">
+                    Thank you,<br/>ETP Projects System
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+    </data>
+</odoo>

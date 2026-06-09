@@ -1,4 +1,5 @@
 import logging
+from datetime import date, datetime
 
 from odoo import api, models
 
@@ -22,6 +23,7 @@ QR_ROLE_XMLIDS = (
 )
 
 DONE_STATES = ("exported",)
+IN_PROGRESS_STATES = ("processing", "exporting")
 
 APPROVED_VERDICTS = ("approved",)
 REWORK_VERDICTS = ("rejected",)
@@ -127,4 +129,79 @@ class VideoEditorProject(models.Model):
             "total_cost_usd": round(total_cost, 6),
             "average_cost_usd": round(avg_cost, 6),
             "cost_measured_count": cost_measured_count,
+        }
+
+    @api.model
+    def get_tasks_completed_timeseries(self, dt_from, dt_to):
+        domain = [
+            ("state", "in", list(DONE_STATES)),
+            ("review_decided_at", ">=", dt_from),
+            ("review_decided_at", "<=", dt_to),
+        ]
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=["review_decided_at"],
+            groupby=["review_decided_at:day"],
+            lazy=False,
+        )
+        out = []
+        for row in rows:
+            raw = row.get("review_decided_at:day") or row.get("review_decided_at")
+            count = int(row.get("__count") or 0)
+            if not raw or not count:
+                continue
+            if isinstance(raw, datetime):
+                iso = raw.date().isoformat()
+            elif isinstance(raw, date):
+                iso = raw.isoformat()
+            else:
+                parsed = None
+                for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+                    try:
+                        parsed = datetime.strptime(str(raw), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not parsed:
+                    continue
+                iso = parsed.isoformat()
+            out.append((iso, count))
+        return out
+
+    @api.model
+    def get_main_dashboard_metrics(self, today_from, today_to, yesterday_from, yesterday_to):
+        """Return raw founder-summary metrics from this task table.
+
+        Every key is always present so the controller can aggregate
+        uniformly across heterogeneous connected tables. video.editor.project
+        uses ``assigned_to`` for the worker and ``review_decided_at`` for
+        completion timestamps.
+
+            in_progress_user_ids: res.users IDs currently running tasks
+            has_in_progress_work: any in-progress row exists right now
+            completed_today:      exported rows with review_decided_at today
+            completed_yesterday:  exported rows with review_decided_at yesterday
+            overdue_task_count:   0 (no overdue state on video.editor.project)
+        """
+        Proj = self.sudo()
+        in_progress = Proj.search([("state", "in", list(IN_PROGRESS_STATES))])
+        in_progress_user_ids = list({
+            uid for uid in in_progress.mapped("assigned_to").ids if uid
+        })
+        completed_today = Proj.search_count([
+            ("state", "in", list(DONE_STATES)),
+            ("review_decided_at", ">=", today_from),
+            ("review_decided_at", "<=", today_to),
+        ])
+        completed_yesterday = Proj.search_count([
+            ("state", "in", list(DONE_STATES)),
+            ("review_decided_at", ">=", yesterday_from),
+            ("review_decided_at", "<=", yesterday_to),
+        ])
+        return {
+            "in_progress_user_ids": in_progress_user_ids,
+            "has_in_progress_work": bool(in_progress),
+            "completed_today": completed_today,
+            "completed_yesterday": completed_yesterday,
+            "overdue_task_count": 0,
         }

@@ -401,35 +401,13 @@ class CrowleySourcingBudgetController(http.Controller):
                 "service_costs": service_costs,
                 "aht_overview": aht_overview,
                 "daily_burn_graph": burn_graph,
-                "budget_timeline": {
-                    "title": "Budget Added & Consumption Over Time",
-                    "range": "7d",
-                    "available_now": 7550,
-                    "y_axis": {"min": 0, "max": 20000, "step": 5000},
-                    "window": {"start": "2026-05-14", "end": "2026-06-09"},
-                    "series": [
-                        {
-                            "date": "2026-05-14",
-                            "available_balance": 10000,
-                            "consumed_to_date": 0,
-                            "added_to_date": 10000,
-                            "event": {}
-                        },
-                        {
-                            "date": "2026-05-20",
-                            "available_balance": 19500,
-                            "consumed_to_date": 1200,
-                            "added_to_date": 20000,
-                            "event": {
-                                "type": "top_up",
-                                "label": "Top-up",
-                                "added": 5000,
-                                "available_after": 19500,
-                                "spent_since_last_topup": 1200
-                            }
-                        }
-                    ]
-                },
+                "budget_timeline": env["etp.project.token.purchase.request"]
+                    .sudo()._get_budget_timeline_for_project(
+                        project_id,
+                        start=filters["start"],
+                        end=filters["end"],
+                        graph_days=filters["graph_days"],
+                    ),
                 "burn_per_batch": {
                     "title": "Burn per batch",
                     "batches": [
@@ -453,25 +431,8 @@ class CrowleySourcingBudgetController(http.Controller):
                         }
                     ]
                 },
-                "allocation_ledger": {
-                    "title": "Allocation Ledger",
-                    "entries": [
-                        {
-                            "datetime": "2026-05-20T09:30:00Z",
-                            "action": "top_up",
-                            "action_label": "Top-up",
-                            "amount": 5000,
-                            "balance_before": 8600
-                        },
-                        {
-                            "datetime": "2026-05-14T11:15:00Z",
-                            "action": "set_initial",
-                            "action_label": "Set initial",
-                            "amount": 10000,
-                            "balance_before": ""
-                        }
-                    ]
-                }
+                "allocation_ledger": env["etp.project.token.purchase.request"]
+                    .sudo()._get_allocation_ledger_for_project(project_id)
 
             },
         )

@@ -25,7 +25,20 @@ class EtpProjectAwsBudget(models.Model):
 
     budget_amount = fields.Monetary(
         currency_field="currency_id", required=True, tracking=True,
+        string="Final Project Budget",
+    )
+    project_budget = fields.Monetary(
+        currency_field="currency_id", tracking=True,
         string="Project Budget",
+        help="Initial allocated budget for the project. Auto-incremented when an approved token purchase request is completed.",
+    )
+    purchase_request_ids = fields.One2many(
+        "etp.project.token.purchase.request", "budget_id",
+        string="Token Purchase Requests",
+    )
+    purchase_request_count = fields.Integer(
+        compute="_compute_purchase_request_count", store=False,
+        string="Purchase Requests",
     )
     currency_id = fields.Many2one(
         "res.currency",
@@ -345,3 +358,20 @@ class EtpProjectAwsBudget(models.Model):
             rec.alert_90_sent = False
             rec.alert_100_sent = False
         return True
+
+    @api.depends("purchase_request_ids")
+    def _compute_purchase_request_count(self):
+        for rec in self:
+            rec.purchase_request_count = len(rec.purchase_request_ids)
+
+    def action_view_purchase_requests(self):
+        self.ensure_one()
+        action = self.env["ir.actions.act_window"]._for_xml_id(
+            "etp_projects.action_etp_project_token_purchase_request"
+        )
+        action["domain"] = [("budget_id", "=", self.id)]
+        action["context"] = {
+            "default_budget_id": self.id,
+            "default_project_id": self.project_id.id,
+        }
+        return action
