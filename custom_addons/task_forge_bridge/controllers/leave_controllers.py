@@ -269,10 +269,10 @@ class TaskForgeLeaveController(http.Controller):
 
             requestor_role = requestor_employee._get_task_forge_role()
 
-            if approver_role == 'hr':
+            if approver_employee.id == requestor_employee.id:
+                can_approve = approver_role in ('admin', 'hr')
+            elif approver_role == 'hr':
                 can_approve = True
-            elif approver_employee.id == requestor_employee.id:
-                can_approve = approver_role == 'admin'
             else:
                 can_approve = requestor_employee.id in approver_employee._get_team_employee_ids()
 
@@ -331,10 +331,10 @@ class TaskForgeLeaveController(http.Controller):
 
             requestor_role = requestor_employee._get_task_forge_role()
 
-            if approver_role == 'hr':
+            if approver_employee.id == requestor_employee.id:
+                can_reject = approver_role in ('admin', 'hr')
+            elif approver_role == 'hr':
                 can_reject = True
-            elif approver_employee.id == requestor_employee.id:
-                can_reject = approver_role == 'admin'
             else:
                 can_reject = requestor_employee.id in approver_employee._get_team_employee_ids()
 
