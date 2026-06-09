@@ -4,7 +4,7 @@
         <field name="name">t2av.batch_publish.wizard.form</field>
         <field name="model">t2av.batch_publish.wizard</field>
         <field name="arch" type="xml">
-            <form string="Publish to RabbitMQ">
+            <form string="Batch Processing">
                 <sheet>
                     <div class="alert alert-info" role="alert">
                         <b>Manual mode:</b> if you ticked rows in the list,
@@ -62,9 +62,9 @@
                 </sheet>
                 <footer>
                     <button name="action_publish" type="object"
-                            string="Publish to RabbitMQ"
+                            string="Start Batch Processing"
                             class="btn-primary"
-                            confirm="Publish these records to the RabbitMQ pipeline? They will be marked queued and excluded from future batches until they complete."/>
+                            confirm="Start batch processing for these records? They will be marked queued and excluded from future batches until they complete."/>
                     <button string="Cancel" special="cancel" class="btn-secondary"/>
                 </footer>
             </form>
@@ -72,7 +72,7 @@
     </record>
 
     <record id="action_t2av_batch_publish_wizard" model="ir.actions.act_window">
-        <field name="name">Publish to RabbitMQ</field>
+        <field name="name">Batch Processing</field>
         <field name="res_model">t2av.batch_publish.wizard</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>

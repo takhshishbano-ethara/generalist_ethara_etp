@@ -1853,7 +1853,7 @@ class T2AVGeneration(models.Model):
             eligible.ids, user_id=self.env.user.id, source="list_view_publish",
         )
         for rec in eligible:
-            rec.message_post(body=_("Published to RabbitMQ pipeline."))
+            rec.message_post(body=_("Sent to batch processing pipeline."))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -1889,8 +1889,20 @@ class T2AVGeneration(models.Model):
         rabbitmq_service.publish_pipeline_task(
             self.id, user_id=self.env.user.id, source="manual_retry",
         )
-        self.message_post(body=_("Republished to RabbitMQ pipeline."))
+        self.message_post(body=_("Re-sent to batch processing pipeline."))
         return self._display_queued_notification()
+
+    def action_export_complete_csv(self):
+        return self._export_complete_action("csv")
+
+    def action_export_complete_xlsx(self):
+        return self._export_complete_action("xlsx")
+
+    def _export_complete_action(self, fmt):
+        url = "/t2av/export/complete?format=%s" % fmt
+        if self.ids:
+            url += "&ids=" + ",".join(str(i) for i in self.ids)
+        return {"type": "ir.actions.act_url", "url": url, "target": "self"}
 
     @api.model
     def run_pipeline_sync(self, record_id):

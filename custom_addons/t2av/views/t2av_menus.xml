@@ -13,6 +13,13 @@
                   action="action_t2av_generation"
                   sequence="10"/>
 
+        <menuitem id="menu_t2av_complete"
+                  name="Export"
+                  parent="menu_t2av_root"
+                  action="action_t2av_generation_complete"
+                  sequence="15"
+                  groups="t2av.group_t2av_user"/>
+
         <menuitem id="menu_t2av_sheets"
                   name="Sequence Sheets"
                   parent="menu_t2av_root"
