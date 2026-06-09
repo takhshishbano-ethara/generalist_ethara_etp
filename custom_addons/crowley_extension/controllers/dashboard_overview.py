@@ -722,11 +722,13 @@ class CrowleyDashboardOverviewController(http.Controller):
             if key in kpi_by_key
         ]
 
-        # Single `overview` wrapper. Every role's response carries the SAME
-        # section keys; a section is filled with real data only when it belongs
-        # to this view's page (SECTIONS_BY_VIEW) and is returned blank ({})
-        # otherwise. KPI items are the role-specific cards. `overview.role`
-        # tells the frontend which view it is.
+        # Single `overview` wrapper. Both Crowley extensions expose the SAME
+        # 12-key schema so one frontend model fits both; a section is filled
+        # with real data only when it belongs to this view's page
+        # (SECTIONS_BY_VIEW) and is returned blank ({}) otherwise. `budget`,
+        # `burn_rate` and `accepted_per_day` are sourcing-only sections — kept
+        # here as always-blank keys for schema parity. KPI items are the
+        # role-specific cards; `overview.role` tells the frontend the view.
         sections = SECTIONS_BY_VIEW[view]
 
         def _section(key, builder):
@@ -735,6 +737,9 @@ class CrowleyDashboardOverviewController(http.Controller):
         overview = {
             "role": role_tag or "tasker",
             "kpi": {"count": str(len(kpi_items)), "items": kpi_items},
+            "budget": {},
+            "burn_rate": {},
+            "accepted_per_day": {},
             "task_progress": _section(
                 "task_progress", lambda: _compute_task_progress(env, gen_scope)
             ),

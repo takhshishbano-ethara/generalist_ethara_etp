@@ -1002,11 +1002,19 @@ def _build_daily_burn_rate(env, ctx):
 
 
 def _build_analytics(env, ctx):
+    # Schema parity with crowley_sourcing_extension analytics: both expose the
+    # same top-level keys so one frontend model fits both. `tasks_submitted_per_day`,
+    # `qc_verdict_mix` and `qc_verdicts_per_day` are sourcing-only sections —
+    # emitted here as always-blank ({}) keys.
     return {
+        "role": _user_role_tag(env) or "tasker",
         "kpi": _build_kpi_v2(env, ctx),
         "spend_by_category": _build_spend_by_category(env, ctx),
         "qc_pass_rate_by_ql": _build_pass_rate_by_ql(env, ctx),
         "daily_burn_rate": _build_daily_burn_rate(env, ctx),
+        "tasks_submitted_per_day": {},
+        "qc_verdict_mix": {},
+        "qc_verdicts_per_day": {},
     }
 
 
