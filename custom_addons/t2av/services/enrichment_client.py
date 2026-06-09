@@ -315,3 +315,112 @@ def enrich(
         max_attempts=max_attempts,
         timeout=timeout,
     )
+
+
+DEFAULT_QC_MODEL_ID = "google/gemini-3.5-flash"
+DEFAULT_QC_TEMPERATURE = 0.3
+DEFAULT_QC_TOP_P = 1.0
+DEFAULT_QC_MAX_TOKENS = 1500
+DEFAULT_QC_REASONING_EFFORT = "low"
+DEFAULT_QC_MAX_ATTEMPTS = 3
+DEFAULT_QC_TIMEOUT = 120
+
+_QC_SYSTEM_PROMPT_FILENAME = "meta_qc_system_prompt.md"
+_cached_qc_system_prompt: str | None = None
+
+
+def load_qc_system_prompt() -> str:
+    global _cached_qc_system_prompt
+    if _cached_qc_system_prompt is not None:
+        return _cached_qc_system_prompt
+    import os
+    module_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(module_root, _QC_SYSTEM_PROMPT_FILENAME)
+    with open(path, "r", encoding="utf-8") as fp:
+        _cached_qc_system_prompt = fp.read()
+    return _cached_qc_system_prompt
+
+
+def build_qc_user_turn(
+    *,
+    meta_prompt: str,
+    category: str,
+    sub_category: str,
+    topic: str,
+    style: str,
+    bad_sample: str,
+    reasons,
+    language: str = "english",
+    complexity: str = "moderate",
+) -> str:
+    reasons_str = ", ".join(reasons) if reasons else "(none reported)"
+    return (
+        f"META_PROMPT:\n{meta_prompt or '(empty)'}\n\n"
+        f"CATEGORY: {category or '(unspecified)'}\n"
+        f"SUB_CATEGORY: {sub_category or '(unspecified)'}\n"
+        f"TOPIC: {topic or '(unspecified)'}\n"
+        f"STYLE: {style or 'casual'}\n"
+        f"LANGUAGE: {language or 'english'}\n"
+        f"COMPLEXITY: {complexity or 'moderate'}\n\n"
+        f"BAD_SAMPLE (do NOT replicate):\n{bad_sample or '(empty)'}\n\n"
+        f"DEFECT_REASONS: {reasons_str}\n\n"
+        f"Generate the corrected prompt now. Output ONLY the prompt text."
+    )
+
+
+def enrich_qc(
+    *,
+    openrouter_api_key: str,
+    meta_prompt: str,
+    category: str,
+    sub_category: str,
+    topic: str,
+    style: str,
+    bad_sample: str,
+    reasons,
+    language: str = "english",
+    complexity: str = "moderate",
+    model_id: str = DEFAULT_QC_MODEL_ID,
+    temperature: float = DEFAULT_QC_TEMPERATURE,
+    top_p: float = DEFAULT_QC_TOP_P,
+    max_tokens: int = DEFAULT_QC_MAX_TOKENS,
+    reasoning_effort: str = DEFAULT_QC_REASONING_EFFORT,
+    max_attempts: int = DEFAULT_QC_MAX_ATTEMPTS,
+    http_referer: str = "",
+    app_title: str = "Ethara T2AV",
+    timeout: float = DEFAULT_QC_TIMEOUT,
+) -> dict:
+    if not openrouter_api_key:
+        raise EnrichmentAuthError(
+            "OpenRouter auth required for ambiguity recovery: configure "
+            "'OpenRouter API Key' in Settings > T2AV."
+        )
+
+    system_prompt = load_qc_system_prompt()
+    user_turn = build_qc_user_turn(
+        meta_prompt=meta_prompt,
+        category=category,
+        sub_category=sub_category,
+        topic=topic,
+        style=style,
+        bad_sample=bad_sample,
+        reasons=reasons,
+        language=language,
+        complexity=complexity,
+    )
+
+    return _enrich_via_openrouter(
+        api_key=openrouter_api_key,
+        model_id=model_id,
+        fallback_models=(),
+        system_prompt=system_prompt,
+        user_turn=user_turn,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        reasoning_effort=reasoning_effort,
+        http_referer=http_referer,
+        app_title=app_title,
+        max_attempts=max_attempts,
+        timeout=timeout,
+    )

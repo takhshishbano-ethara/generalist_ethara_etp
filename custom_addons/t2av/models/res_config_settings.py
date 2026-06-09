@@ -133,6 +133,16 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="t2av.enrichment_max_attempts",
         default=3,
     )
+    t2av_ambiguity_recovery_enabled = fields.Boolean(
+        string="Enable Ambiguity Recovery",
+        config_parameter="t2av.ambiguity_recovery_enabled",
+        default=False,
+        help="Pre-enrichment guard that detects garbage prompts "
+             "(chat-template tokens, repetition loops, length outliers) "
+             "and recovers them via Tier 1 Gemini QC then Tier 2 "
+             "deterministic templates. Default OFF on upgrade; admin opts "
+             "in after staging verification.",
+    )
     # ── QC Provider Toggle (Human Stack vs. legacy Gemini surface) ────────
     t2av_enable_gemini_qc = fields.Boolean(
         string="Enable Gemini QC (legacy)",
