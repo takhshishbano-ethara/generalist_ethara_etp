@@ -93,6 +93,10 @@
                                      help="How many enrichment attempts a job can spend before the row is locked out. Each attempt = one full LLM call with prior validator failures injected.">
                                 <field name="t2av_enrichment_max_attempts"/>
                             </setting>
+                            <setting string="Enable Ambiguity Recovery (use meta_prompt)"
+                                     help="When ON: detects garbage prompts (chat-template tokens, repetition loops, length outliers) and recovers them via Tier 1 Gemini QC using meta_prompt, falling back to Tier 2 deterministic templates. When OFF: original prompt goes straight to enrichment with no recovery. Default: OFF (admin opts in after staging verification).">
+                                <field name="t2av_ambiguity_recovery_enabled"/>
+                            </setting>
                             <div class="text-muted o_text_neutral">
                                 <i class="fa fa-info-circle"/> Enrichment now runs via OpenRouter (Gemini 3.5 Flash by default). The OpenRouter API key from the section above is reused — no separate auth needed.
                             </div>
