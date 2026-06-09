@@ -147,6 +147,15 @@
                                     <i class="fa fa-exclamation-triangle"/>
                                     <strong> Not Golden:</strong> validator has warnings or hasn't been re-run. Click <em>Run QC</em>.
                                 </div>
+                                <field name="meta_prompt" widget="text" colspan="2"
+                                       placeholder="Generator instruction from CSV. Recovery source when prompt is ambiguous."/>
+                                <field name="raw_prompt" widget="text" colspan="2" readonly="1"
+                                       invisible="not raw_prompt"
+                                       placeholder="Original prompt from CSV (preserved). Differs from 'prompt' when recovery overwrote it."/>
+                                <field name="ambiguity_detected" invisible="not ambiguity_detected"/>
+                                <field name="ambiguity_reasons" invisible="not ambiguity_reasons"/>
+                                <field name="recovery_used" invisible="not recovery_used"/>
+                                <field name="recovery_tier" invisible="recovery_tier == 'none'"/>
                                 <field name="duration"
                                        readonly="state != 'draft' and not ui_retry_pending"/>
                                 <field name="resolution"
@@ -524,6 +533,15 @@
                             domain="[('review_status', '=', 'review')]"/>
                     <filter name="filter_review_fail" string="Review: Fail"
                             domain="[('review_status', '=', 'fail')]"/>
+                    <separator/>
+                    <filter name="filter_ambiguous" string="Ambiguous Inputs"
+                            domain="[('ambiguity_detected', '=', True)]"/>
+                    <filter name="filter_recovered" string="Recovered"
+                            domain="[('recovery_used', '=', True)]"/>
+                    <filter name="filter_recovered_tier1" string="Recovered (Tier 1 LLM)"
+                            domain="[('recovery_tier', '=', 'tier1')]"/>
+                    <filter name="filter_recovered_tier2" string="Recovered (Tier 2 Template)"
+                            domain="[('recovery_tier', '=', 'tier2')]"/>
                     <separator/>
                     <filter name="filter_stuck" string="Stuck (needs reconcile)"
                             domain="[

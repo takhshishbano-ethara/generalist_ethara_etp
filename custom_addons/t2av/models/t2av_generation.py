@@ -57,6 +57,7 @@ _TERMINAL = {_STATE_DONE, _STATE_FAILED, _STATE_CANCELLED}
 MAX_ATTEMPTS = 3
 
 CATEGORY_SELECTION = [
+    ("advertisements",         "Advertisements"),
     ("animals_wildlife",       "Animals Wildlife"),
     ("animated_styles",        "Animated Styles"),
     ("animated_text",          "Animated Text"),
@@ -70,6 +71,7 @@ CATEGORY_SELECTION = [
     ("multi_speaker_dialogue", "Multi-Speaker Dialogue"),
     ("music_performance",      "Music Performance"),
     ("narrative_cinematic",    "Narrative Cinematic"),
+    ("narrative_sequences",    "Narrative Sequences"),
     ("natural_patterns",       "Natural Patterns"),
     ("nature_weather",         "Nature Weather"),
     ("person_emoting",         "Person Emoting"),
@@ -127,6 +129,21 @@ class T2AVGeneration(models.Model):
         tracking=True,
     )
     negative_prompt = fields.Text(string="Negative Prompt")
+    meta_prompt = fields.Text(
+        string="Meta Prompt",
+        tracking=True,
+        help="Full generator instruction from CSV. Used as the recovery "
+             "source when prompt is ambiguous/garbage. Required at import.",
+    )
+    raw_prompt = fields.Text(
+        string="Raw Prompt",
+        readonly=True,
+        tracking=True,
+        copy=False,
+        help="Original prompt as ingested from CSV. Preserved untouched "
+             "for audit. May contain garbage. Compare against 'prompt' "
+             "to see if recovery overwrote the working value.",
+    )
     duration = fields.Selection(
         [
             ("4", "4s"), ("5", "5s"), ("6", "6s"), ("7", "7s"), ("8", "8s"),
@@ -217,6 +234,46 @@ class T2AVGeneration(models.Model):
         string="Golden Source", readonly=True, copy=False,
         help="Which layer of the enrichment pipeline produced the current "
              "Golden Prompt. Used for observability.",
+    )
+
+    # ------------------------------------------------------------------
+    # Ambiguity recovery telemetry (Stage 0 detector + Tier 1/2 fallback).
+    # Pre-enrichment guard runs on Enrich click; overwrites `prompt` if
+    # recovery succeeded. `raw_prompt` always preserves the original.
+    # ------------------------------------------------------------------
+    ambiguity_detected = fields.Boolean(
+        string="Ambiguity Detected",
+        default=False,
+        tracking=True,
+        copy=False,
+        help="True if Stage 0 detector flagged raw_prompt as ambiguous "
+             "before enrichment ran.",
+    )
+    ambiguity_reasons = fields.Char(
+        string="Ambiguity Reasons",
+        copy=False,
+        help="Semicolon-separated reason codes from the Stage 0 detector "
+             "(e.g., 'llm_special_token;concat_repeat'). Blank if clean.",
+    )
+    recovery_used = fields.Boolean(
+        string="Recovery Used",
+        default=False,
+        copy=False,
+        help="True if ambiguity recovery (Tier 1 LLM or Tier 2 template) "
+             "produced the working `prompt`. Compare with raw_prompt to "
+             "see the original input.",
+    )
+    recovery_tier = fields.Selection(
+        [
+            ("none", "None"),
+            ("tier1", "Tier 1 (LLM)"),
+            ("tier2", "Tier 2 (Template)"),
+        ],
+        string="Recovery Tier",
+        default="none",
+        copy=False,
+        help="Which recovery layer produced the working prompt. "
+             "'tier1' = Gemini QC; 'tier2' = deterministic template fallback.",
     )
 
     # ------------------------------------------------------------------
@@ -665,8 +722,8 @@ class T2AVGeneration(models.Model):
             stripped = (rec.prompt or "").strip()
             if not stripped:
                 raise ValidationError(_("Prompt is required."))
-            if len(stripped) > 2000:
-                raise ValidationError(_("Prompt must be at most 2000 characters."))
+            if len(stripped) > 20000:
+                raise ValidationError(_("Prompt must be at most 20000 characters."))
 
     @api.constrains("seed")
     def _check_seed(self):
@@ -1375,6 +1432,109 @@ class T2AVGeneration(models.Model):
             },
         }
 
+    def _t2av_run_ambiguity_recovery_pass(self):
+        self.ensure_one()
+        icp = self.env["ir.config_parameter"].sudo()
+        if icp.get_param(
+            "t2av.ambiguity_recovery_enabled", "False"
+        ).strip().lower() != "true":
+            return
+        if self.recovery_used:
+            return
+
+        from ..services import ambiguity_detector, enrichment_client, recovery_templates
+
+        prompt = self.prompt or ""
+        result = ambiguity_detector.detect_ambiguity(
+            prompt,
+            language=self.language,
+            topic=self.topic,
+            category=self.category,
+        )
+        if not result["is_ambiguous"]:
+            return
+
+        reasons = result["reasons"]
+        self.write({
+            "ambiguity_detected": True,
+            "ambiguity_reasons": ";".join(reasons),
+        })
+
+        meta_prompt = (self.meta_prompt or "").strip()
+        if not meta_prompt:
+            self.message_post(body=_(
+                "Ambiguity detected (%s) but meta_prompt is empty. "
+                "Enrichment will run on the original prompt; no recovery applied."
+            ) % ";".join(reasons))
+            return
+
+        api_key = credential_manager.get_openrouter_api_key(self.env)
+        if not api_key:
+            self.message_post(body=_(
+                "Ambiguity detected (%s) but OpenRouter API key missing. "
+                "Falling back to Tier 2 template recovery."
+            ) % ";".join(reasons))
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        http_referer = icp.get_param("t2av.http_referer", "")
+        app_title = icp.get_param("t2av.app_title", "Ethara T2AV")
+
+        try:
+            qc = enrichment_client.enrich_qc(
+                openrouter_api_key=api_key,
+                meta_prompt=meta_prompt,
+                category=self.category or "",
+                sub_category=self.sub_category or "",
+                topic=self.topic or "",
+                style=self.style or "casual",
+                bad_sample=prompt,
+                reasons=reasons,
+                language=self.language or "english",
+                complexity=self.complexity or "moderate",
+                http_referer=http_referer,
+                app_title=app_title,
+            )
+            derived = (qc.get("text") or "").strip()
+        except enrichment_client.EnrichmentError as exc:
+            self.message_post(body=_(
+                "Tier 1 recovery LLM failed: %s. Falling back to Tier 2."
+            ) % exc)
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        if not derived:
+            self.message_post(body=_(
+                "Tier 1 returned empty output. Falling back to Tier 2."
+            ))
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        recheck = ambiguity_detector.detect_ambiguity(derived)
+        if recheck["is_ambiguous"]:
+            self.message_post(body=_(
+                "Tier 1 output still ambiguous (%s). Falling back to Tier 2."
+            ) % ";".join(recheck["reasons"]))
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        self._t2av_apply_recovery(derived, "tier1", reasons)
+
+    def _t2av_apply_recovery(self, derived_prompt, tier, reasons):
+        self.write({
+            "prompt": derived_prompt,
+            "recovery_used": True,
+            "recovery_tier": tier,
+        })
+        self.message_post(body=_(
+            "Ambiguity recovery successful via %s. Reasons: %s. "
+            "Working `prompt` overwritten; `raw_prompt` preserves the original."
+        ) % (tier, ";".join(reasons)))
+
     def action_enrich(self):
         self.ensure_one()
         if not (self.prompt or "").strip():
@@ -1395,6 +1555,8 @@ class T2AVGeneration(models.Model):
                 "Maximum %d enrichment attempts reached for %s. "
                 "Edit the prompt or metadata to start a fresh row."
             ) % (max_attempts, self.display_name))
+
+        self._t2av_run_ambiguity_recovery_pass()
 
         access_key = credential_manager.get_aws_access_key(self.env)
         secret_key = credential_manager.get_aws_secret_key(self.env)

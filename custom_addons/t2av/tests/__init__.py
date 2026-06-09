@@ -1,4 +1,8 @@
 from . import (
+    test_ambiguity_detector as test_ambiguity_detector,
+    test_qc_recovery as test_qc_recovery,
+    test_qc_recovery_e2e as test_qc_recovery_e2e,
+    test_recovery_templates as test_recovery_templates,
     test_attempt_lifecycle as test_attempt_lifecycle,
     test_auto_repair as test_auto_repair,
     test_consumer_helpers as test_consumer_helpers,
