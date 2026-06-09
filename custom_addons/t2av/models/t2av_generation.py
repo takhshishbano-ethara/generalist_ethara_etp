@@ -23,6 +23,7 @@ import time
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.tools import SQL
 
 from . import credential_manager
 
@@ -87,6 +88,19 @@ class T2AVGeneration(models.Model):
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "create_date desc"
     _rec_name = "name"
+
+    _NATURAL_SORT_FIELDS = ("duration", "resolution")
+
+    def _order_field_to_sql(self, alias, field_name, direction, nulls, query):
+        if field_name in self._NATURAL_SORT_FIELDS:
+            sql_field = self._field_to_sql(alias, field_name, query)
+            sql_expr = SQL(
+                "CAST(NULLIF(REGEXP_REPLACE(%s, '[^0-9]', '', 'g'), '') AS INTEGER)",
+                sql_field,
+            )
+            query._order_groupby.append(sql_expr)
+            return SQL("%s %s %s", sql_expr, direction, nulls)
+        return super()._order_field_to_sql(alias, field_name, direction, nulls, query)
 
     # ------------------------------------------------------------------
     # Identity / ownership
