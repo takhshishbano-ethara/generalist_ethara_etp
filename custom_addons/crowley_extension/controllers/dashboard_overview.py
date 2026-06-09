@@ -25,6 +25,16 @@ KPI_KEYS_BY_VIEW = {
     "ql": ("approved_today", "qc_pass_rate", "total_tasks_done", "total_burned"),
 }
 
+# Which section blocks each view's page actually shows. Every section KEY is
+# always present in the response; sections NOT in a view's set are returned
+# blank ({}) for that role rather than computed — the key belongs to the
+# schema, but the data only fills in for the roles whose page displays it.
+SECTIONS_BY_VIEW = {
+    "cto_pl": ("task_progress", "approved_per_week", "recent_activity"),
+    "tpm": ("task_progress", "approved_per_week", "coordination_events"),
+    "ql": ("tasks_done_chart", "burned_amount_chart", "my_activity"),
+}
+
 
 def _overview_view(env, role_tag):
     if role_tag in ("full", "pl"):
@@ -701,7 +711,7 @@ class CrowleyDashboardOverviewController(http.Controller):
         attempt_scope = attempt_base + attempt_date
         view = _overview_view(env, role_tag)
 
-        # KPI block — only this view's cards (one card per item).
+        # KPI — role-specific cards (one card per item), in this view's order.
         kpi_by_key = {
             item["key"]: item
             for item in _compute_kpi(env, gen_scope, attempt_scope)["items"]
@@ -711,42 +721,50 @@ class CrowleyDashboardOverviewController(http.Controller):
             for key in KPI_KEYS_BY_VIEW[view]
             if key in kpi_by_key
         ]
-        blocks = [{"type": "kpi", "items": kpi_items}]
 
-        # Section blocks — only the ones this view's page shows, in layout order.
-        if view in ("cto_pl", "tpm"):
-            blocks.append(
-                {"type": "task_progress", **_compute_task_progress(env, gen_scope)}
-            )
-            blocks.append({
-                "type": "approved_per_week",
-                **_compute_approved_per_week(env, attempt_base, weeks),
-            })
-            if view == "tpm":
-                blocks.append({
-                    "type": "coordination_events",
-                    **_compute_coordination_events(env, gen_scope),
-                })
-            else:
-                blocks.append({
-                    "type": "recent_activity",
-                    **_compute_recent_activity(env, gen_scope),
-                })
-        else:  # ql / individual view
-            blocks.append({
-                "type": "tasks_done_chart",
-                **_compute_tasks_done_chart(env, gen_scope),
-            })
-            blocks.append({
-                "type": "burned_amount_chart",
-                **_compute_burned_amount_chart(env, gen_scope),
-            })
-            blocks.append(
-                {"type": "my_activity", **_compute_my_activity(env, gen_scope)}
-            )
+        # Single `overview` wrapper. Every role's response carries the SAME
+        # section keys; a section is filled with real data only when it belongs
+        # to this view's page (SECTIONS_BY_VIEW) and is returned blank ({})
+        # otherwise. KPI items are the role-specific cards. `overview.role`
+        # tells the frontend which view it is.
+        sections = SECTIONS_BY_VIEW[view]
+
+        def _section(key, builder):
+            return builder() if key in sections else {}
+
+        overview = {
+            "role": role_tag or "tasker",
+            "kpi": {"count": str(len(kpi_items)), "items": kpi_items},
+            "task_progress": _section(
+                "task_progress", lambda: _compute_task_progress(env, gen_scope)
+            ),
+            "approved_per_week": _section(
+                "approved_per_week",
+                lambda: _compute_approved_per_week(env, attempt_base, weeks),
+            ),
+            "recent_activity": _section(
+                "recent_activity",
+                lambda: _compute_recent_activity(env, gen_scope),
+            ),
+            "coordination_events": _section(
+                "coordination_events",
+                lambda: _compute_coordination_events(env, gen_scope),
+            ),
+            "tasks_done_chart": _section(
+                "tasks_done_chart",
+                lambda: _compute_tasks_done_chart(env, gen_scope),
+            ),
+            "burned_amount_chart": _section(
+                "burned_amount_chart",
+                lambda: _compute_burned_amount_chart(env, gen_scope),
+            ),
+            "my_activity": _section(
+                "my_activity", lambda: _compute_my_activity(env, gen_scope)
+            ),
+        }
 
         return return_Response(
             message="OK",
             status=200,
-            data={"role": role_tag or "tasker", "blocks": blocks},
+            data={"overview": overview},
         )
