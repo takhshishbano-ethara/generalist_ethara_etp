@@ -220,12 +220,11 @@ class FenrirDriveService(models.AbstractModel):
             task_folder_id = self._create_folder(
                 service, task.code or f"task_{task.id}", parent_id)
 
-        # Wipe the task's S3 prefix so re-uploads don't leave stale files.
-        try:
-            s3.delete_prefix(s3_prefix + "/")
-        except Exception as exc:  # noqa: BLE001
-            _logger.warning(
-                "Fenrir: S3 prefix cleanup failed for %s: %s", s3_prefix, exc)
+        # NOTE: we no longer wholesale-wipe the task's S3 prefix here —
+        # attachments are pushed to S3 at attach time (see
+        # fenrir.task.attachment._maybe_push_to_s3) and the wipe would
+        # erase those before we could restore them. Re-uploads overwrite
+        # the same keys (deterministic naming) so duplicates don't pile up.
 
         folder_cache = {(): task_folder_id}
 
@@ -237,7 +236,8 @@ class FenrirDriveService(models.AbstractModel):
             folder_cache[dir_parts] = folder_id
             return folder_id
 
-        for rel_path, content, mime, is_binary_upload in task._collect_export_files():
+        for rel_path, content, mime, is_binary_upload, existing_s3_key in \
+                task._collect_export_files():
             parts = rel_path.split("/")
             file_name = parts[-1]
             dir_parts = tuple(parts[:-1])
@@ -250,7 +250,8 @@ class FenrirDriveService(models.AbstractModel):
 
             # Binary uploads also go to S3 for backup / external pipeline access.
             # If S3 fails, log but don't block Drive — Drive copy is authoritative.
-            if is_binary_upload:
+            # Skip when the file was already pushed at attach time.
+            if is_binary_upload and not existing_s3_key:
                 s3_key = f"{s3_prefix}/{rel_path}"
                 try:
                     s3.upload_bytes(s3_key, content, content_mime)

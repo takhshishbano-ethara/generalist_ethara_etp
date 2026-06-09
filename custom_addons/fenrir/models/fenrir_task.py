@@ -399,17 +399,22 @@ class FenrirTask(models.Model):
     def _write_rich_export(self, zf, root):
         self.ensure_one()
         # ZIP includes the actual binary content (no S3 indirection); just
-        # ignore the is_binary_upload flag.
-        for rel_path, content, _mime, _is_binary in self._collect_export_files():
+        # ignore the is_binary_upload / existing_s3_key flags.
+        for rel_path, content, _mime, _is_binary, _s3 in self._collect_export_files():
             zf.writestr(f"{root}/{rel_path}", content)
 
     def _collect_export_files(self):
-        """Return [(rel_path, bytes, mime, is_binary_upload), ...].
+        """Return [(rel_path, bytes, mime, is_binary_upload, existing_s3_key), ...].
 
         is_binary_upload = True for files that came in as uploads (Binary
         fields, ir.attachment). The Drive uploader sends these to S3 and
         replaces them with .url.txt pointers in Drive. ZIP export keeps the
         actual content regardless.
+
+        existing_s3_key is the S3 object key when the file was already
+        pushed at attach time (see fenrir.task.attachment._maybe_push_to_s3);
+        None otherwise. The Drive uploader uses it to skip the redundant
+        S3 mirror.
         """
         self.ensure_one()
         import mimetypes
@@ -421,11 +426,11 @@ class FenrirTask(models.Model):
         if self.instruction_md_file:
             files.append(("instruction.md",
                           base64.b64decode(self.instruction_md_file),
-                          "text/markdown", UPLOADED))
+                          "text/markdown", UPLOADED, None))
         else:
             files.append(("instruction.md",
                           self._build_instruction_md(include_remarks=True).encode("utf-8"),
-                          "text/markdown", GENERATED))
+                          "text/markdown", GENERATED, None))
 
         files.append(("rubrics.json",
                       json.dumps([
@@ -434,18 +439,18 @@ class FenrirTask(models.Model):
                            "description": r.description or ""}
                           for r in self.rubric_ids.sorted("sequence")
                       ], indent=2).encode("utf-8"),
-                      "application/json", GENERATED))
+                      "application/json", GENERATED, None))
 
         if self.rubrics_file:
             name = _slug(self.rubrics_filename or "rubrics_source")
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            files.append((name, base64.b64decode(self.rubrics_file), mime, UPLOADED))
+            files.append((name, base64.b64decode(self.rubrics_file), mime, UPLOADED, None))
 
         if self.assets_file:
             name = _slug(self.assets_filename or "assets")
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
             files.append((f"resources/{name}",
-                          base64.b64decode(self.assets_file), mime, UPLOADED))
+                          base64.b64decode(self.assets_file), mime, UPLOADED, None))
 
         generated_env_names = set()
         generated_test_names = set()
@@ -453,9 +458,9 @@ class FenrirTask(models.Model):
         wrote_licenses = False
 
         for att in self.attachment_ids:
-            if not att.attachment:
+            if not att.has_content():
                 continue
-            file_bytes = base64.b64decode(att.attachment)
+            file_bytes = att._fetch_bytes()
             safe_name = _slug(att.file_name or f"attachment_{att.id}")
             folder = att.folder or "resources"
             mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
@@ -474,29 +479,29 @@ class FenrirTask(models.Model):
             # Auto-generated attachments (env/tests/json files we created)
             # are generated content. User-uploaded attachments go to S3.
             tag = GENERATED if att.is_generated else UPLOADED
-            files.append((rel, file_bytes, mime, tag))
+            files.append((rel, file_bytes, mime, tag, att.s3_key or None))
 
         if not wrote_task_metadata:
             files.append(("task_metadata.json",
                           json.dumps(gen.build_task_metadata(self), indent=2).encode("utf-8"),
-                          "application/json", GENERATED))
+                          "application/json", GENERATED, None))
         if not wrote_licenses:
             files.append(("licenses.json",
                           json.dumps(self._build_license_doc(), indent=2).encode("utf-8"),
-                          "application/json", GENERATED))
+                          "application/json", GENERATED, None))
 
         # Legacy per-task binary uploads (user-uploaded Dockerfile etc.).
         for filename, content in self._environment_files():
             if filename in generated_env_names:
                 continue
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            files.append((f"environment/{filename}", content, mime, UPLOADED))
+            files.append((f"environment/{filename}", content, mime, UPLOADED, None))
 
         for filename, content in self._test_files():
             if filename in generated_test_names:
                 continue
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            files.append((f"tests/{filename}", content, mime, UPLOADED))
+            files.append((f"tests/{filename}", content, mime, UPLOADED, None))
 
         for offer in self.seller_offer_ids.sorted("seller_no"):
             seller_dir = f"submissions/seller_{offer.seller_no or offer.id}"
@@ -521,18 +526,18 @@ class FenrirTask(models.Model):
                 }
                 meta_bytes = json.dumps(fallback, indent=2, default=str).encode("utf-8")
             files.append((f"{seller_dir}/metadata.json",
-                          meta_bytes, "application/json", GENERATED))
+                          meta_bytes, "application/json", GENERATED, None))
             files.append((f"{seller_dir}/ratings.json",
                           json.dumps(self._build_ratings(offer), indent=2, default=str).encode("utf-8"),
-                          "application/json", GENERATED))
+                          "application/json", GENERATED, None))
             if offer.conversation:
                 files.append((f"{seller_dir}/conversation.txt",
                               offer.conversation.encode("utf-8"),
-                              "text/plain", GENERATED))
+                              "text/plain", GENERATED, None))
             if offer.automated_checks:
                 files.append((f"{seller_dir}/automated_checks.txt",
                               offer.automated_checks.encode("utf-8"),
-                              "text/plain", GENERATED))
+                              "text/plain", GENERATED, None))
 
             for att in offer.deliverable_attachment_ids:
                 if not att.datas:
@@ -542,7 +547,21 @@ class FenrirTask(models.Model):
                 mime = att.mimetype or mimetypes.guess_type(safe_name)[0] \
                     or "application/octet-stream"
                 files.append((f"{seller_dir}/deliverables/{safe_name}",
-                              content, mime, UPLOADED))
+                              content, mime, UPLOADED, None))
+
+            # S3-backed deliverables (uploaded via the new controller).
+            # Bytes are streamed back from S3 only for the Drive/ZIP export;
+            # the S3 mirror is skipped in the Drive uploader because
+            # existing_s3_key is set.
+            for deliv in offer.deliverable_file_ids:
+                if not deliv.s3_key:
+                    continue
+                safe_name = _slug(deliv.file_name or f"deliverable_{deliv.id}")
+                mime = (deliv.mime_type
+                        or mimetypes.guess_type(safe_name)[0]
+                        or "application/octet-stream")
+                files.append((f"{seller_dir}/deliverables/{safe_name}",
+                              deliv.fetch_bytes(), mime, UPLOADED, deliv.s3_key))
 
         return files
 

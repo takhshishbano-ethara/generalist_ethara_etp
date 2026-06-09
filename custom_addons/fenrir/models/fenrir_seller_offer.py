@@ -125,9 +125,26 @@ class FenrirSellerOffer(models.Model):
         comodel_name="ir.attachment",
         relation="fenrir_seller_offer_deliverable_rel",
         column1="offer_id", column2="attachment_id",
+        string="Deliverables (legacy)",
+        help="Legacy local-filestore uploads. New uploads go through "
+             "the S3-backed Deliverables field. Kept for backward compat.")
+    deliverable_file_ids = fields.One2many(
+        comodel_name="fenrir.seller.deliverable",
+        inverse_name="offer_id",
         string="Deliverables",
-        help="Upload one or more files. On task submit/export, these land "
-             "under submissions/seller_<N>/deliverables/.")
+        copy=False,
+        help="Files pushed directly to S3 via the upload controller; "
+             "bytes never land in Odoo's local filestore.")
+    deliverable_count = fields.Integer(
+        string="Deliverables",
+        compute="_compute_deliverable_count",
+        store=False,
+    )
+
+    @api.depends("deliverable_file_ids")
+    def _compute_deliverable_count(self):
+        for rec in self:
+            rec.deliverable_count = len(rec.deliverable_file_ids)
     data_media = fields.Char(string="Data (Media)")
     resources = fields.Char(string="Resources",
                             help="References and supporting documents")

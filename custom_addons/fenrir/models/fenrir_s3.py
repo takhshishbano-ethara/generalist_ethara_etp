@@ -75,6 +75,14 @@ class FenrirS3Service(models.AbstractModel):
             ExtraArgs={"ContentType": mime})
         return key
 
+    def download_bytes(self, key):
+        """Download one object's bytes. Used to re-hydrate attachments whose
+        local copy was cleared after the attach-time S3 push."""
+        client, bucket, _folder = self._build_client()
+        buf = io.BytesIO()
+        client.download_fileobj(bucket, key, buf)
+        return buf.getvalue()
+
     def delete_prefix(self, prefix):
         """Delete every object under the given key prefix (used on re-upload)."""
         client, bucket, _folder = self._build_client()

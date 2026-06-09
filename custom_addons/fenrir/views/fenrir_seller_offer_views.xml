@@ -99,9 +99,11 @@
                             <field name="deliverables_link" widget="url"/>
                         </group>
                     </group>
-                    <separator string="Deliverables (files)"/>
                     <field name="deliverable_attachment_ids"
-                           widget="many2many_binary" nolabel="1"/>
+                           widget="many2many_binary" nolabel="1"
+                           invisible="not deliverable_attachment_ids"
+                           readonly="1"
+                           string="Legacy deliverables (local filestore)"/>
 
                     <separator string="Artifacts"/>
                     <group>

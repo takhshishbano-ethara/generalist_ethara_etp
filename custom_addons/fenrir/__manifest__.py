@@ -1,6 +1,6 @@
 {
     "name": "Fenrir",
-    "version": "19.0.1.16.0",
+    "version": "19.0.1.22.0",
     "category": "Tools",
     "summary": "Fenrir — Freelancer task & seller negotiation tracker",
     "description": """
@@ -32,4 +32,18 @@
     "installable": True,
     "application": True,
     "license": "LGPL-3",
+    "assets": {
+        "web.assets_backend": [
+            "fenrir/static/src/views/fields/deliverable_files/deliverable_files.js",
+            "fenrir/static/src/views/fields/deliverable_files/deliverable_files.xml",
+            "fenrir/static/src/views/fields/deliverable_files/deliverable_files.scss",
+            "fenrir/static/src/views/fields/deliverable_inline/deliverable_inline.js",
+            "fenrir/static/src/views/fields/deliverable_inline/deliverable_inline.xml",
+            "fenrir/static/src/views/fields/deliverable_inline/deliverable_inline.scss",
+            "fenrir/static/src/views/widgets/attachment_uploader/attachment_uploader.js",
+            "fenrir/static/src/views/widgets/attachment_uploader/attachment_uploader.xml",
+            "fenrir/static/src/views/widgets/attachment_uploader/attachment_uploader.scss",
+            "fenrir/static/src/views/fenrir_seller_stacked.scss",
+        ],
+    },
 }

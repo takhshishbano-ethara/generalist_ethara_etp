@@ -1,0 +1,66 @@
+.fenrir-deliverable-files {
+    .fenrir-deliv-header {
+        gap: 0.5rem;
+        flex-wrap: wrap;
+    }
+
+    .fenrir-dropzone {
+        border: 1.5px dashed var(--bs-border-color, #ced4da);
+        border-radius: 6px;
+        padding: 1rem 1.25rem;
+        text-align: center;
+        background: var(--bs-tertiary-bg, #f8f9fa);
+        cursor: pointer;
+        transition: background-color 120ms ease, border-color 120ms ease,
+                    padding 120ms ease;
+
+        &:hover {
+            background: rgba(13, 110, 253, 0.05);
+            border-color: var(--bs-primary, #0d6efd);
+        }
+        &.is-dragover {
+            background: rgba(13, 110, 253, 0.12);
+            border-color: var(--bs-primary, #0d6efd);
+        }
+        &.is-uploading {
+            cursor: progress;
+        }
+        // When files already exist, shrink the dropzone to a thin bar
+        // so the list view becomes the primary UI.
+        &.is-compact {
+            padding: 0.4rem 0.75rem;
+            font-size: 0.85rem;
+            text-align: left;
+        }
+    }
+
+    .fenrir-deliv-list {
+        margin-top: 0.75rem;
+        border: 1px solid var(--bs-border-color, #dee2e6);
+        border-radius: 6px;
+        overflow: hidden;
+
+        table {
+            margin-bottom: 0;
+        }
+        thead th {
+            background: var(--bs-tertiary-bg, #f8f9fa);
+            font-weight: 500;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            color: var(--bs-secondary-color, #6c757d);
+            border-bottom: 1px solid var(--bs-border-color, #dee2e6);
+        }
+        tbody td {
+            vertical-align: middle;
+        }
+        tbody tr.fenrir-row-pending {
+            background: rgba(255, 193, 7, 0.06);
+        }
+        .fa {
+            width: 1rem;
+            text-align: center;
+        }
+    }
+}
