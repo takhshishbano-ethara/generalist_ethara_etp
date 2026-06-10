@@ -1,0 +1,4 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_skoll_batch_delivery_user,skoll.batch.delivery user,model_skoll_batch_delivery,etp_user_roles.group_tasker,1,1,1,0
+access_skoll_batch_delivery_pl,skoll.batch.delivery pl,model_skoll_batch_delivery,etp_user_roles.group_project_lead,1,1,1,1
+access_skoll_batch_delivery_add_wizard_user,skoll.batch.delivery.add.wizard user,model_skoll_batch_delivery_add_wizard,etp_user_roles.group_tasker,1,1,1,0

@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+  <t t-name="fenrir.DeliverableFiles">
+    <div class="fenrir-deliverable-files o_field_widget">
+
+      <div class="fenrir-deliv-header d-flex align-items-center mb-2">
+        <span class="text-muted small">
+          <t t-if="rows.length">
+            <strong t-esc="rows.length"/>
+            <t t-if="rows.length === 1"> file</t>
+            <t t-else=""> files</t>
+            <t t-if="pendingCount">
+              (<t t-esc="pendingCount"/> pending)
+            </t>
+          </t>
+          <t t-else="">No deliverables yet</t>
+        </span>
+        <span class="ms-2 badge text-bg-light fw-normal" title="Storage backend">
+          <i class="fa fa-cloud me-1" aria-hidden="true"/>S3
+        </span>
+        <div class="ms-auto d-flex gap-2">
+          <button t-if="pendingCount" type="button" class="btn btn-sm btn-success"
+                  t-on-click="onSaveAndUpload"
+                  t-att-disabled="state.uploading">
+            <i class="fa fa-cloud-upload me-1" aria-hidden="true"/>
+            Save &amp; upload (<t t-esc="pendingCount"/>)
+          </button>
+          <button type="button" class="btn btn-sm btn-primary"
+                  t-on-click="onPickClick"
+                  t-att-disabled="state.uploading">
+            <i class="fa fa-plus me-1" aria-hidden="true"/>
+            Add files
+          </button>
+          <input type="file" t-ref="fileInput" multiple="multiple"
+                 style="display:none" t-on-change="onFileChange"/>
+        </div>
+      </div>
+
+      <div class="fenrir-dropzone"
+           t-att-class="{ 'is-dragover': state.dragOver, 'is-compact': rows.length > 0, 'is-uploading': state.uploading }"
+           t-on-dragover="onDragOver"
+           t-on-dragleave="onDragLeave"
+           t-on-drop="onDrop"
+           t-on-click="onPickClick"
+           role="button">
+        <div t-if="!state.uploading">
+          <i class="fa fa-cloud-upload me-2" aria-hidden="true"/>
+          <span t-if="!rows.length">
+            <strong>Drop files here</strong> or click to choose.
+            The form auto-saves before each upload — fill any missing required fields.
+          </span>
+          <span t-else="" class="small text-muted">
+            Drop more files — they auto-save and upload to S3.
+          </span>
+        </div>
+        <div t-if="state.uploading" class="w-100">
+          <div class="d-flex align-items-center small">
+            <i class="fa fa-spinner fa-spin me-2" aria-hidden="true"/>
+            <span class="text-truncate flex-grow-1">
+              <t t-if="state.totalCount &gt; 1">
+                (<t t-esc="state.currentIndex"/>/<t t-esc="state.totalCount"/>)
+              </t>
+              Uploading <strong t-esc="state.currentName"/>…
+            </span>
+            <span class="ms-2 text-muted"><t t-esc="state.progress"/>%</span>
+          </div>
+          <div class="progress mt-1" style="height:4px">
+            <div class="progress-bar bg-primary" role="progressbar"
+                 t-att-style="`width:${state.progress}%`"/>
+          </div>
+        </div>
+      </div>
+
+      <div class="fenrir-deliv-list table-responsive" t-if="rows.length">
+        <table class="o_list_table table table-sm table-hover align-middle mb-0">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th class="text-end" style="width:7rem">Size</th>
+              <th class="d-none d-md-table-cell" style="width:11rem">Uploaded</th>
+              <th class="text-end" style="width:6rem">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr t-foreach="rows" t-as="row" t-key="row.id"
+                t-att-class="row.pending ? 'fenrir-row-pending' : ''">
+              <td>
+                <div class="d-flex align-items-center">
+                  <i t-att-class="row.icon + ' me-2 text-secondary'" aria-hidden="true"/>
+                  <div class="flex-grow-1 text-truncate" style="min-width:0">
+                    <div class="text-truncate fw-medium" t-att-title="row.file_name">
+                      <span t-esc="row.file_name"/>
+                      <span t-if="row.pending"
+                            class="badge text-bg-warning fw-normal ms-2">
+                        <i class="fa fa-clock-o me-1" aria-hidden="true"/>queued
+                      </span>
+                    </div>
+                    <div t-if="!row.pending" class="small text-muted text-truncate"
+                         t-att-title="row.s3_key">
+                      <i class="fa fa-cloud me-1" aria-hidden="true"/>
+                      <span t-esc="row.s3_key"/>
+                    </div>
+                    <div t-else="" class="small text-warning text-truncate">
+                      Will upload to S3 on save
+                    </div>
+                  </div>
+                </div>
+              </td>
+              <td class="text-end text-nowrap" t-esc="row.file_size_h"/>
+              <td class="d-none d-md-table-cell small text-muted text-nowrap"
+                  t-esc="row.s3_uploaded_at"/>
+              <td class="text-end text-nowrap">
+                <button t-if="!row.pending" type="button" class="btn btn-sm btn-link p-1"
+                        t-att-title="'Download ' + row.file_name"
+                        t-on-click="() => this.onDownload(row)">
+                  <i class="fa fa-download" aria-hidden="true"/>
+                </button>
+                <button type="button" class="btn btn-sm btn-link p-1 text-danger"
+                        t-att-title="(row.pending ? 'Remove from queue: ' : 'Delete ') + row.file_name"
+                        t-on-click="() => this.onDelete(row)">
+                  <i t-att-class="row.pending ? 'fa fa-times' : 'fa fa-trash-o'" aria-hidden="true"/>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </t>
+
+</templates>

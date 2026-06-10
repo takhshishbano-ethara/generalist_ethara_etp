@@ -231,3 +231,75 @@ def republish_with_retry(record_id: int, retry_count: int, source: str = "consum
         source=source,
         retry_count=retry_count,
     )
+
+
+POLL_WORK_QUEUE = os.getenv("RABBITMQ_POLL_QUEUE", "t2av_poll")
+POLL_DELAY_QUEUE = os.getenv("RABBITMQ_POLL_DELAY_QUEUE", "t2av_poll.delay")
+POLL_DLX_EXCHANGE = os.getenv("RABBITMQ_POLL_DLX", "t2av_poll.dlx")
+
+
+def _declare_poll_topology(channel) -> None:
+    channel.exchange_declare(
+        exchange=POLL_DLX_EXCHANGE,
+        exchange_type="direct",
+        durable=True,
+    )
+    channel.queue_declare(queue=POLL_WORK_QUEUE, durable=True)
+    channel.queue_bind(
+        queue=POLL_WORK_QUEUE,
+        exchange=POLL_DLX_EXCHANGE,
+        routing_key=POLL_WORK_QUEUE,
+    )
+    channel.queue_declare(
+        queue=POLL_DELAY_QUEUE,
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": POLL_DLX_EXCHANGE,
+            "x-dead-letter-routing-key": POLL_WORK_QUEUE,
+        },
+    )
+
+
+def schedule_poll(attempt_id: int, delay_seconds: int = 15) -> None:
+    """Publish to delay queue with per-message TTL; dead-letters to work queue after delay."""
+    payload = {
+        "attempt_id": int(attempt_id),
+        "scheduled_at": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    body = json.dumps(payload).encode("utf-8")
+    expiration_ms = str(int(delay_seconds) * 1000)
+    props = pika.BasicProperties(
+        delivery_mode=2,
+        content_type="application/json",
+        expiration=expiration_ms,
+    )
+    try:
+        ch = _get_channel()
+        _declare_poll_topology(ch)
+        ch.basic_publish(
+            exchange="",
+            routing_key=POLL_DELAY_QUEUE,
+            body=body,
+            properties=props,
+        )
+    except (
+        pika.exceptions.AMQPConnectionError,
+        pika.exceptions.AMQPChannelError,
+    ) as exc:
+        _logger.warning(
+            "T2AV schedule_poll lost connection (attempt_id=%s); reconnecting: %s",
+            attempt_id, exc,
+        )
+        _reset_connection()
+        ch = _get_channel()
+        _declare_poll_topology(ch)
+        ch.basic_publish(
+            exchange="",
+            routing_key=POLL_DELAY_QUEUE,
+            body=body,
+            properties=props,
+        )
+    _logger.info(
+        "T2AV scheduled poll attempt_id=%s delay=%ds",
+        attempt_id, delay_seconds,
+    )

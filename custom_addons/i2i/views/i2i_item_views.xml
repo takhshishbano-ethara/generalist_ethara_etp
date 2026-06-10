@@ -1,0 +1,338 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_i2i_item_list" model="ir.ui.view">
+            <field name="name">i2i.item.list</field>
+            <field name="model">i2i.item</field>
+            <field name="arch" type="xml">
+                <list string="I2I Items">
+                    <field name="name"/>
+                    <field name="project_type"/>
+                    <field name="instruction" optional="hide"/>
+                    <field name="user_id"/>
+                    <field name="llm_status" widget="badge" decoration-success="llm_status == 'done'" decoration-warning="llm_status == 'pending'" decoration-info="llm_status == 'processing'" decoration-danger="llm_status == 'failed'"/>
+                    <field name="state" widget="badge" decoration-success="state == 'approved'" decoration-danger="state == 'rejected'" decoration-info="state == 'human_qc'" decoration-muted="state == 'draft'"/>
+                    <field name="has_disagreement" widget="boolean_toggle" optional="show" groups="i2i.group_i2i_manager"/>
+                    <field name="qc_reviewer_id" optional="show"/>
+                    <field name="qc_date" optional="show"/>
+                    <field name="create_date" optional="hide"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_i2i_item_form" model="ir.ui.view">
+            <field name="name">i2i.item.form</field>
+            <field name="model">i2i.item</field>
+            <field name="arch" type="xml">
+                <form string="I2I Item">
+                    <header>
+                        <button name="action_run_llm_qc" type="object" string="Quality Check" class="btn-primary" invisible="llm_status == 'processing' or state in ('approved', 'rejected')" groups="i2i.group_i2i_manager"/>
+                        <button name="action_send_to_human_qc" type="object" string="Submit" class="btn-primary" invisible="state != 'draft'"/>
+                        <button name="action_approve" type="object" string="Approve" class="btn-success" invisible="state != 'human_qc'" groups="i2i.group_i2i_manager"/>
+                        <button name="action_reject" type="object" string="Reject" class="btn-danger" invisible="state != 'human_qc'" groups="i2i.group_i2i_manager"/>
+                        <button name="action_reset_to_draft" type="object" string="Reset to Draft" invisible="state not in ('approved', 'rejected')" groups="i2i.group_i2i_manager"/>
+                        <field name="state" widget="statusbar" statusbar_visible="draft,human_qc,approved"/>
+                    </header>
+                    <sheet>
+                        <div class="oe_title">
+                            <label for="name"/>
+                            <h1><field name="name" readonly="1"/></h1>
+                        </div>
+                        <group>
+                            <group string="Intake">
+                                <field name="project_type"/>
+                                <field name="user_id" readonly="1" force_save="1"/>
+                            </group>
+                            <group string="QC Decision" invisible="state not in ('approved', 'rejected')">
+                                <field name="qc_verdict" readonly="1"/>
+                                <field name="qc_reviewer_id" readonly="1"/>
+                                <field name="qc_date" readonly="1"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Instruction &amp; Images" name="intake">
+                                <group>
+                                    <field name="instruction" placeholder="Describe what the edit was supposed to do..."/>
+                                </group>
+                                <group string="Image URLs">
+                                    <field name="original_image_url" widget="url" placeholder="https://..."/>
+                                    <field name="edited_image_url" widget="url" placeholder="https://..."/>
+                                </group>
+                                <separator string="Image Preview"/>
+                                <div class="i2i-image-compare-section">
+                                    <div class="i2i-image-compare-row" style="display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;">
+                                        <div style="flex: 1 1 320px; min-width: 0;">
+                                            <strong>Original</strong>
+                                            <div class="i2i-image-zoom" title="Click to expand">
+                                                <field name="original_image_url" widget="image_url" options="{'size': [300, 300]}" nolabel="1"/>
+                                                <span class="i2i-zoom-hint">Click to expand</span>
+                                            </div>
+                                        </div>
+                                        <div style="flex: 1 1 320px; min-width: 0;">
+                                            <strong>Edited</strong>
+                                            <div class="i2i-image-zoom" title="Click to expand">
+                                                <field name="edited_image_url" widget="image_url" options="{'size': [300, 300]}" nolabel="1"/>
+                                                <span class="i2i-zoom-hint">Click to expand</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="text-center" style="margin-top: 12px;">
+                                        <button type="button" class="btn btn-secondary i2i-flip-compare-btn" title="Open both images in a flip-compare lightbox (press F to swap)">
+                                            <i class="fa fa-exchange"/> Flip Compare (Original vs Edited)
+                                        </button>
+                                    </div>
+                                </div>
+                            </page>
+                            <page string="Human Ratings" name="human_ratings">
+                                <div class="alert alert-info" role="alert">
+                                    <strong>Independent Judgement Required.</strong>
+                                    Rate each question based on YOUR OWN observation of the images. Do not rely on automated suggestions.
+                                    <br/>
+                                    <strong>Golden Rule:</strong> If you are unsure on any answer, choose <b>No</b>.
+                                </div>
+                                <group>
+                                    <field name="edit_only_instructed"/>
+                                    <field name="images_aligned"/>
+                                    <field name="free_of_ai_slop"/>
+                                </group>
+                                <group string="QC Remark">
+                                    <field name="qc_remark" nolabel="1" placeholder="Required when rejecting..."/>
+                                </group>
+                                <separator string="Inspection Checklist (12 areas) - use the Flip Compare tool to compare Original vs Edited"/>
+                                <div class="row" style="margin-top: 8px;">
+                                    <div class="col-md-6">
+                                        <div><strong>Face</strong> - proportions, symmetry, expression</div>
+                                        <div><strong>Hair</strong> - texture, edges, flyaways</div>
+                                        <div><strong>Body</strong> - proportions, posture, limbs</div>
+                                        <div><strong>Hands &amp; Fingers</strong> - 5 fingers, no melting, no merging</div>
+                                        <div><strong>Clothing</strong> - folds, seams, logos</div>
+                                        <div><strong>Background</strong> - unchanged regions, no shift</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div><strong>Objects</strong> - geometry, no floating, no duplicates</div>
+                                        <div><strong>Text</strong> - readable, no gibberish, intact logos</div>
+                                        <div><strong>Shadows</strong> - direction, consistency</div>
+                                        <div><strong>Reflections</strong> - match physical world</div>
+                                        <div><strong>Image Edges</strong> - no crops, no zoom</div>
+                                        <div><strong>Camera Framing</strong> - same angle, same crop</div>
+                                    </div>
+                                </div>
+                                <separator string="AI Slop Categories (Q3) - Mark NO if you spot any of these in either image"/>
+                                <div class="row" style="margin-top: 8px;">
+                                    <div class="col-md-6">
+                                        <div><strong>Hand Errors</strong> - 6 fingers, missing fingers, merged or melted hands</div>
+                                        <div><strong>Face Errors</strong> - misaligned eyes, warped features, melted ears</div>
+                                        <div><strong>Text Errors</strong> - gibberish (e.g. "NIK3A"), broken logos</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div><strong>Object Errors</strong> - floating, half-rendered, duplicated, impossible geometry</div>
+                                        <div><strong>Texture Errors</strong> - plastic skin, waxy faces, over-smoothing</div>
+                                        <div><strong>Environment Errors</strong> - bent buildings, broken reflections, impossible shadows</div>
+                                    </div>
+                                </div>
+                            </page>
+                            <page string="LLM &amp; Comparison" name="llm_ratings" groups="i2i.group_i2i_manager">
+                                <div class="alert alert-warning" invisible="not has_disagreement" role="alert">
+                                    <strong>Disagreement Detected:</strong> Tasker and LLM rated differently on one or more questions. Review carefully before approving or rejecting.
+                                </div>
+                                <div class="alert alert-info" invisible="llm_status != 'pending'" role="alert">
+                                    LLM QC is queued. Result will appear within ~2 minutes (background cron), or click <b>Quality Check</b> in the header to run it now.
+                                </div>
+                                <div class="alert alert-secondary" invisible="llm_status != 'none'" role="alert">
+                                    LLM QC has not been run for this item yet. Click <b>Quality Check</b> in the header.
+                                </div>
+                                <group>
+                                    <group string="LLM Status">
+                                        <field name="llm_status" widget="badge"/>
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_called_at" readonly="1"/>
+                                    </group>
+                                    <group string="LLM Cost">
+                                        <field name="llm_tokens_used" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1" digits="[12, 2]"/>
+                                    </group>
+                                </group>
+                                <div class="i2i-llm-decision-banner" invisible="not llm_decision">
+                                    <div class="i2i-llm-decision-header">
+                                        <span class="i2i-llm-decision-label">LLM Verdict:</span>
+                                        <field name="llm_rubric_verdict" widget="badge" decoration-success="llm_rubric_verdict == 'pass'" decoration-danger="llm_rubric_verdict == 'fail'" readonly="1" nolabel="1"/>
+                                    </div>
+                                    <div class="i2i-llm-decision-text">
+                                        <field name="llm_decision" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <separator string="Tasker vs LLM Scorecard" invisible="llm_status != 'done'"/>
+                                <div class="i2i-llm-scorecard" invisible="llm_status != 'done'">
+                                    <div class="i2i-q-card">
+                                        <div class="i2i-q-card-header">
+                                            <span class="i2i-q-card-title">Q1 - Instruction</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-disagree" invisible="not disagree_edit_only">DISAGREE</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-agree" invisible="disagree_edit_only">AGREE</span>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">Tasker</span>
+                                            <field name="edit_only_instructed" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">LLM</span>
+                                            <field name="llm_edit_only_instructed" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q1_fail_code">
+                                            <span class="i2i-q-card-label">Fail Code</span>
+                                            <span class="i2i-q-card-failcode"><field name="llm_q1_fail_code" readonly="1" nolabel="1"/></span>
+                                        </div>
+                                        <div class="i2i-q-card-evidence" invisible="not llm_q1_evidence">
+                                            <strong>Evidence</strong>
+                                            <field name="llm_q1_evidence" readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                    <div class="i2i-q-card">
+                                        <div class="i2i-q-card-header">
+                                            <span class="i2i-q-card-title">Q2 - Alignment</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-disagree" invisible="not disagree_aligned">DISAGREE</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-agree" invisible="disagree_aligned">AGREE</span>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">Tasker</span>
+                                            <field name="images_aligned" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">LLM</span>
+                                            <field name="llm_images_aligned" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q2_fail_code">
+                                            <span class="i2i-q-card-label">Fail Code</span>
+                                            <span class="i2i-q-card-failcode"><field name="llm_q2_fail_code" readonly="1" nolabel="1"/></span>
+                                        </div>
+                                        <div class="i2i-q-card-evidence" invisible="not llm_q2_evidence">
+                                            <strong>Evidence</strong>
+                                            <field name="llm_q2_evidence" readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                    <div class="i2i-q-card">
+                                        <div class="i2i-q-card-header">
+                                            <span class="i2i-q-card-title">Q3 - AI Slop</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-disagree" invisible="not disagree_slop">DISAGREE</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-agree" invisible="disagree_slop">AGREE</span>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">Tasker</span>
+                                            <field name="free_of_ai_slop" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">LLM</span>
+                                            <field name="llm_free_of_ai_slop" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q3_fail_code">
+                                            <span class="i2i-q-card-label">Fail Code</span>
+                                            <span class="i2i-q-card-failcode"><field name="llm_q3_fail_code" readonly="1" nolabel="1"/></span>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q3_failed_image or llm_q3_failed_image == 'none'">
+                                            <span class="i2i-q-card-label">Failed Image</span>
+                                            <field name="llm_q3_failed_image" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-evidence" invisible="not llm_q3_evidence">
+                                            <strong>Evidence</strong>
+                                            <field name="llm_q3_evidence" readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="i2i-findings-block" invisible="not llm_findings">
+                                    <div class="i2i-findings-header">
+                                        <i class="fa fa-exclamation-triangle"/> Findings (<field name="llm_findings_count" readonly="1" nolabel="1"/>)
+                                    </div>
+                                    <div class="i2i-findings-body">
+                                        <field name="llm_findings" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="i2i-llm-legacy-reasoning" invisible="llm_decision or llm_status != 'done' or not llm_reasoning">
+                                    <span class="i2i-llm-legacy-reasoning-label">LLM Reasoning (legacy)</span>
+                                    <field name="llm_reasoning" readonly="1" nolabel="1"/>
+                                </div>
+                                <group string="LLM Error" invisible="not llm_error">
+                                    <field name="llm_error" nolabel="1" readonly="1"/>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_i2i_item_kanban" model="ir.ui.view">
+            <field name="name">i2i.item.kanban</field>
+            <field name="model">i2i.item</field>
+            <field name="arch" type="xml">
+                <kanban default_group_by="state" class="o_kanban_small_column" sample="1">
+                    <field name="name"/>
+                    <field name="instruction"/>
+                    <field name="project_type"/>
+                    <field name="state"/>
+                    <field name="llm_status"/>
+                    <field name="edited_image_url"/>
+                    <field name="qc_reviewer_id"/>
+                    <field name="has_disagreement"/>
+                    <templates>
+                        <t t-name="card">
+                            <div class="o_kanban_record_top">
+                                <div class="o_kanban_record_headings">
+                                    <strong class="o_kanban_record_title"><field name="name"/></strong>
+                                </div>
+                                <field name="llm_status" widget="label_selection"/>
+                            </div>
+                            <div class="o_kanban_record_body">
+                                <field name="instruction"/>
+                            </div>
+                            <div class="o_kanban_record_bottom">
+                                <div class="oe_kanban_bottom_left">
+                                    <field name="project_type"/>
+                                </div>
+                                <div class="oe_kanban_bottom_right">
+                                    <field name="qc_reviewer_id" widget="many2one_avatar_user"/>
+                                </div>
+                            </div>
+                        </t>
+                    </templates>
+                </kanban>
+            </field>
+        </record>
+
+        <record id="view_i2i_item_search" model="ir.ui.view">
+            <field name="name">i2i.item.search</field>
+            <field name="model">i2i.item</field>
+            <field name="arch" type="xml">
+                <search>
+                    <field name="name"/>
+                    <field name="instruction"/>
+                    <field name="user_id"/>
+                    <field name="qc_reviewer_id"/>
+                    <filter string="Draft" name="state_draft" domain="[('state', '=', 'draft')]"/>
+                    <filter string="Pending" name="state_human" domain="[('state', '=', 'human_qc')]"/>
+                    <filter string="Approved" name="state_approved" domain="[('state', '=', 'approved')]"/>
+                    <filter string="Rejected" name="state_rejected" domain="[('state', '=', 'rejected')]"/>
+                    <separator/>
+                    <filter string="LLM Failed" name="llm_failed" domain="[('llm_status', '=', 'failed')]"/>
+                    <filter string="LLM Pending" name="llm_pending" domain="[('llm_status', '=', 'pending')]"/>
+                    <filter string="LLM Done" name="llm_done" domain="[('llm_status', '=', 'done')]"/>
+                    <separator/>
+                    <filter string="Has Disagreement" name="has_disagreement" domain="[('has_disagreement', '=', True)]" groups="i2i.group_i2i_manager"/>
+                    <separator/>
+                    <filter string="Assigned to Me" name="assigned_me" domain="[('user_id', '=', uid)]"/>
+                    <separator/>
+                    <filter string="Project Type" name="group_project_type" context="{'group_by': 'project_type'}"/>
+                    <filter string="State" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="QC Reviewer" name="group_reviewer" context="{'group_by': 'qc_reviewer_id'}"/>
+                    <filter string="LLM Status" name="group_llm" context="{'group_by': 'llm_status'}"/>
+                </search>
+            </field>
+        </record>
+
+        <record id="action_i2i_item" model="ir.actions.act_window">
+            <field name="name">I2I Items</field>
+            <field name="res_model">i2i.item</field>
+            <field name="view_mode">list,kanban,form</field>
+            <field name="search_view_id" ref="view_i2i_item_search"/>
+        </record>
+    </data>
+</odoo>

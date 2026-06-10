@@ -1,6 +1,7 @@
 import logging
+from datetime import date, datetime
 
-from odoo import api, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ QR_ROLE_XMLIDS = (
 )
 
 DONE_STATES = ("done", "submitted")
+IN_PROGRESS_STATES = ("extracting", "generating", "scoring")
 
 APPROVED_VERDICTS = ("shippable", "fixes")
 REWORK_VERDICTS = ("not_shippable",)
@@ -52,6 +54,13 @@ def _pct(part, whole):
 
 class VegetaJob(models.Model):
     _inherit = "vegeta.job"
+
+    llm_qc_cost_usd = fields.Float(
+        string="LLM QC Cost (USD)",
+        digits=(12, 6),
+        default=0.0,
+        help="USD cost of LLM-based QC for this job. Populated by the QC pipeline.",
+    )
 
     @api.model
     def _performance_scope_domain(self):
@@ -128,4 +137,114 @@ class VegetaJob(models.Model):
             "rework_count": rework_count,
             "qc_reviewed_count": qc_reviewed_count,
             "aht_measured_count": aht_measured_count,
+        }
+
+    @api.model
+    def get_tasks_completed_timeseries(self, dt_from, dt_to):
+        domain = [
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", dt_from),
+            ("completed_at", "<=", dt_to),
+        ]
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=["completed_at"],
+            groupby=["completed_at:day"],
+            lazy=False,
+        )
+        out = []
+        for row in rows:
+            raw = row.get("completed_at:day") or row.get("completed_at")
+            count = int(row.get("__count") or 0)
+            if not raw or not count:
+                continue
+            if isinstance(raw, datetime):
+                iso = raw.date().isoformat()
+            elif isinstance(raw, date):
+                iso = raw.isoformat()
+            else:
+                parsed = None
+                for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+                    try:
+                        parsed = datetime.strptime(str(raw), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not parsed:
+                    continue
+                iso = parsed.isoformat()
+            out.append((iso, count))
+        return out
+
+    @api.model
+    def get_daily_burn_timeseries(self, dt_from, dt_to):
+        domain = [
+            ("llm_qc_cost_usd", ">", 0),
+            ("completed_at", ">=", dt_from),
+            ("completed_at", "<=", dt_to),
+        ]
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=["completed_at", "llm_qc_cost_usd:sum"],
+            groupby=["completed_at:day"],
+            lazy=False,
+        )
+        out = []
+        for row in rows:
+            raw = row.get("completed_at:day") or row.get("completed_at")
+            cost = float(row.get("llm_qc_cost_usd") or 0.0)
+            if not raw or cost <= 0:
+                continue
+            if isinstance(raw, datetime):
+                iso = raw.date().isoformat()
+            elif isinstance(raw, date):
+                iso = raw.isoformat()
+            else:
+                parsed = None
+                for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+                    try:
+                        parsed = datetime.strptime(str(raw), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not parsed:
+                    continue
+                iso = parsed.isoformat()
+            out.append((iso, cost))
+        return out
+
+    @api.model
+    def get_main_dashboard_metrics(self, today_from, today_to, yesterday_from, yesterday_to):
+        """Return raw founder-summary metrics from this task table.
+
+        Every key is always present so the controller can aggregate
+        uniformly across heterogeneous connected tables:
+
+            in_progress_user_ids: res.users IDs currently running tasks
+            has_in_progress_work: any in-progress row exists right now
+            completed_today:      done rows with completion ts today
+            completed_yesterday:  done rows with completion ts yesterday
+            overdue_task_count:   0 (no overdue state on vegeta.job)
+        """
+        Job = self.sudo()
+        in_progress = Job.search([("state", "in", list(IN_PROGRESS_STATES))])
+        in_progress_user_ids = list({
+            uid for uid in in_progress.mapped("user_id").ids if uid
+        })
+        completed_today = Job.search_count([
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", today_from),
+            ("completed_at", "<=", today_to),
+        ])
+        completed_yesterday = Job.search_count([
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", yesterday_from),
+            ("completed_at", "<=", yesterday_to),
+        ])
+        return {
+            "in_progress_user_ids": in_progress_user_ids,
+            "has_in_progress_work": bool(in_progress),
+            "completed_today": completed_today,
+            "completed_yesterday": completed_yesterday,
+            "overdue_task_count": 0,
         }

@@ -794,59 +794,73 @@ def _kpi(key, label, value, sub_string="", pattern="", sign=""):
     }
 
 
-def _build_kpi_v2(env, ctx):
+def _budget_usd(env):
+    raw = env["ir.config_parameter"].sudo().get_param(
+        "crowley_sourcing.budget_usd", "0"
+    )
+    try:
+        return float(raw or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _longest_streak(env, ctx):
+    rng = ctx["rng"]
+    counts = _completed_day_counts(
+        env, ctx.get("role_domain", []), rng["start"], rng["end"]
+    )
+    best = streak = 0
+    cursor = rng["start"]
+    while cursor <= rng["end"]:
+        if counts.get(cursor, 0) > 0:
+            streak += 1
+            best = max(best, streak)
+        else:
+            streak = 0
+        cursor += timedelta(days=1)
+    return best
+
+
+def _build_analytics_kpi(env, ctx, view):
     Gen = env["video.editor.project"].sudo()
     scope = ctx["scope"]
-
-    gens_count = Gen.search_count(scope)
-
-    spend_rows = Gen.formatted_read_group(scope, [], ["llm_qc_cost_usd:sum"])
-    total_spend = (spend_rows[0]["llm_qc_cost_usd:sum"] if spend_rows else 0.0) or 0.0
-    avg_per_task = (total_spend / gens_count) if gens_count else 0.0
-
+    total = Gen.search_count(scope)
     approved = Gen.search_count(scope + [("review_status", "=", "approved")])
-    reviewed = approved + Gen.search_count(scope + [("review_status", "=", "rejected")])
+    rejected = Gen.search_count(scope + [("review_status", "=", "rejected")])
+    reviewed = approved + rejected
+    force_passed = Gen.search_count(scope + [("llm_qc_force_passed", "=", True)])
+    spend_rows = Gen.formatted_read_group(scope, [], ["llm_qc_cost_usd:sum"])
+    spent = (spend_rows[0]["llm_qc_cost_usd:sum"] if spend_rows else 0.0) or 0.0
+    budget = _budget_usd(env)
     pass_rate = _pct1(approved, reviewed)
-
-    avg_tokens = 0
-
-    dur_rows = Gen.formatted_read_group(
-        scope + [("state", "=", DONE_STATE), ("duration_seconds", ">", 0)],
-        [],
-        ["duration_seconds:avg"],
+    force_rate = _pct1(force_passed, reviewed)
+    re_verify_rate = _pct1(rejected, reviewed)
+    budget_used = _pct1(spent, budget)
+    pass_kpi = _kpi(
+        "qc_pass_rate", "QC Pass Rate", f"{pass_rate}%",
+        sub_string=f"{approved} of {reviewed} reviewed",
     )
-    avg_wall = (dur_rows[0]["duration_seconds:avg"] if dur_rows else 0.0) or 0.0
-
-    items = [
-        _kpi(
-            "total_spend",
-            "Total Spend",
-            _money(total_spend),
-            sub_string=f"Avg {_money(avg_per_task)}/task · {gens_count} generations",
-        ),
-        _kpi(
-            "qc_pass_rate",
-            "QC Pass Rate",
-            f"{pass_rate}%",
-            sub_string=(
-                f"{approved} of {reviewed} reviewed" if reviewed else "No reviews yet"
-            ),
-            pattern="badge" if reviewed else "",
-            sign="+" if pass_rate >= PASS_RATE_GOOD else "-" if reviewed else "",
-        ),
-        _kpi(
-            "avg_tokens_per_task",
-            "Avg Tokens / Task",
-            avg_tokens,
-            sub_string="per generation",
-        ),
-        _kpi(
-            "avg_wall_time",
-            "Avg Wall Time",
-            f"{round(avg_wall)}s",
-            sub_string=f"{round(avg_wall / 60.0, 1)} min per generation",
-        ),
-    ]
+    force_kpi = _kpi(
+        "force_pass_rate", "Force-Pass Rate", f"{force_rate}%",
+        sub_string=f"{force_passed} force-passes",
+    )
+    if view == "manager":
+        items = [
+            pass_kpi, force_kpi,
+            _kpi("budget_used", "Budget Used", f"{budget_used}%",
+                 sub_string=f"{_money(spent)} of {_money(budget)}"),
+            _kpi("tasks_submitted", "Tasks Submitted", str(total),
+                 sub_string=_range_label(ctx["rng"])),
+        ]
+    else:
+        items = [
+            pass_kpi, force_kpi,
+            _kpi("re_verify_rate", "Re-Verify Rate", f"{re_verify_rate}%",
+                 sub_string=f"{rejected} re-verifies"),
+            _kpi("longest_streak", "Longest Streak",
+                 f"{_longest_streak(env, ctx)} days",
+                 sub_string="consecutive active days"),
+        ]
     return {"count": len(items), "items": items}
 
 
@@ -871,7 +885,7 @@ def _build_spend_by_category(env, ctx):
             "key": key,
             "label": label,
             "value": f"{_money(amount)} ({percentage:.0f}%)",
-            "amount": amount or 100,
+            "amount": amount,
             "percentage": percentage,
             "color_token": _color(idx),
         })
@@ -989,12 +1003,154 @@ def _build_daily_burn_rate(env, ctx):
     }
 
 
-def _build_analytics(env, ctx):
+def _per_day_series(env, ctx, extra=None):
+    Gen = env["video.editor.project"].sudo()
+    rng = ctx["rng"]
+    per_day = {}
+    for gen in Gen.search(ctx["scope"] + (extra or [])):
+        if gen.create_date:
+            day = gen.create_date.date()
+            per_day[day] = per_day.get(day, 0) + 1
+    data = []
+    total = 0
+    cursor = rng["start"]
+    while cursor <= rng["end"]:
+        count = per_day.get(cursor, 0)
+        total += count
+        data.append({
+            "date": cursor.isoformat(),
+            "label": cursor.strftime("%b %d"),
+            "value": count,
+        })
+        cursor += timedelta(days=1)
+    return data, total
+
+
+def _build_tasks_submitted_per_day(env, ctx):
+    data, total = _per_day_series(env, ctx)
     return {
-        "kpi": _build_kpi_v2(env, ctx),
-        "spend_by_category": _build_spend_by_category(env, ctx),
-        "qc_pass_rate_by_ql": _build_pass_rate_by_ql(env, ctx),
-        "daily_burn_rate": _build_daily_burn_rate(env, ctx),
+        "title": "Tasks Submitted per Day",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "line",
+        "total": total,
+        "data": data,
+    }
+
+
+def _build_qc_verdict_mix(env, ctx):
+    Gen = env["video.editor.project"].sudo()
+    counts = {"pass": 0, "fail": 0, "force_pass": 0}
+    for gen in Gen.search(ctx["scope"]):
+        if gen.llm_qc_force_passed:
+            counts["force_pass"] += 1
+        elif gen.llm_qc_result == "pass":
+            counts["pass"] += 1
+        elif gen.llm_qc_result == "fail":
+            counts["fail"] += 1
+    total = sum(counts.values())
+    labels = {"pass": "Pass", "fail": "Fail", "force_pass": "Force-Pass"}
+    colors = {"pass": "success", "fail": "danger", "force_pass": "warn"}
+    items = []
+    for key in ("pass", "fail", "force_pass"):
+        amount = counts[key]
+        percentage = _pct1(amount, total)
+        items.append({
+            "key": key,
+            "label": labels[key],
+            "value": f"{amount} ({percentage:.0f}%)",
+            "amount": amount,
+            "percentage": percentage,
+            "color_token": colors[key],
+        })
+    return {
+        "title": "QC Verdict Mix",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "stacked_bar",
+        "total": total,
+        "items": items,
+    }
+
+
+def _build_qc_verdicts_per_day(env, ctx):
+    data, total = _per_day_series(
+        env, ctx, [("review_status", "in", ["approved", "rejected"])]
+    )
+    return {
+        "title": "QC Verdicts per Day",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "line",
+        "total": total,
+        "data": data,
+    }
+
+
+ANALYTICS_VIEW_BY_TAG = {"full": "manager", "pl": "manager", "qr": "ql", "tasker": "ql"}
+
+# Which analytics blocks each view's page actually shows (mirrors the UI).
+# Every section KEY is always present in the response; sections NOT in a view's
+# set are returned blank ({}) for that role rather than computed.
+SECTIONS_BY_VIEW = {
+    "manager": (
+        "spend_by_category",
+        "qc_pass_rate_by_ql",
+        "daily_burn_rate",
+        "tasks_submitted_per_day",
+    ),
+    "ql": (
+        "qc_pass_rate_by_ql",
+        "qc_verdict_mix",
+        "qc_verdicts_per_day",
+    ),
+}
+
+
+def _resolve_role_context(env, params):
+    tag = _user_role_tag(env)
+    if tag is None:
+        return None, return_Response(
+            message="You are not allowed to access Crowley Sourcing analytics.",
+            status=403,
+        )
+    rng, error = _resolve_range(params)
+    if error is not None:
+        return None, error
+    _t, role_domain, projects = _scope(env)
+    taskers = projects.mapped("project_tasker")
+    ctx = {"tag": tag, "rng": rng, "projects": projects, "role_domain": role_domain}
+    ctx.update(_build_ql_maps(taskers))
+    ctx["scope"] = role_domain + _range_domain(rng)
+    return ctx, None
+
+
+def _build_analytics(env, ctx):
+    view = ANALYTICS_VIEW_BY_TAG.get(ctx["tag"], "ql")
+    sections = SECTIONS_BY_VIEW[view]
+
+    def _section(key, builder):
+        return builder() if key in sections else {}
+
+    return {
+        "role": ctx["tag"] or "tasker",
+        "kpi": _build_analytics_kpi(env, ctx, view),
+        "spend_by_category": _section(
+            "spend_by_category", lambda: _build_spend_by_category(env, ctx)
+        ),
+        "qc_pass_rate_by_ql": _section(
+            "qc_pass_rate_by_ql", lambda: _build_pass_rate_by_ql(env, ctx)
+        ),
+        "daily_burn_rate": _section(
+            "daily_burn_rate", lambda: _build_daily_burn_rate(env, ctx)
+        ),
+        "tasks_submitted_per_day": _section(
+            "tasks_submitted_per_day",
+            lambda: _build_tasks_submitted_per_day(env, ctx),
+        ),
+        "qc_verdict_mix": _section(
+            "qc_verdict_mix", lambda: _build_qc_verdict_mix(env, ctx)
+        ),
+        "qc_verdicts_per_day": _section(
+            "qc_verdicts_per_day", lambda: _build_qc_verdicts_per_day(env, ctx)
+        ),
     }
 
 
@@ -1011,9 +1167,11 @@ class CrowleySourcingAnalyticsDashboardController(http.Controller):
     @validate_token
     def crowley_sourcing_ext_analytics_dashboard(self, **kwargs):
         env = request.env
-        ctx, error = _resolve_context(env, request.params or {})
+        ctx, error = _resolve_role_context(env, request.params or {})
         if error is not None:
             return error
         return return_Response(
-            message="OK", status=200, data=_build_analytics(env, ctx)
+            message="OK",
+            status=200,
+            data=_build_analytics(env, ctx),
         )

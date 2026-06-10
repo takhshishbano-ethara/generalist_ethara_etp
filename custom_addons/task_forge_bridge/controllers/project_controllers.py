@@ -375,6 +375,7 @@ class TaskForgeProjectController(http.Controller):
                     'client_name': project.client_name if project.client_name else "",
                     'status': project.non_stemp_project_status if project.project_category == 'non_stem' else project.stage_id.name,
                     'category': project.project_category if project.project_category else "",
+                    'project_classification': project.project_classification if project.project_classification else "",
                     'date_start': str(project.date_start) if project.date_start else "",
                     'date_end': str(project.date) if project.date else "",
                     'done_task_count': done_task_count,
@@ -605,7 +606,7 @@ class TaskForgeProjectController(http.Controller):
                     'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id else "",
                     'active': emp.active,
                     'avg_time': avg_time,
-                    'since': str(emp.joining_date) if emp.joining_date else ""
+                    'since': str(emp.create_date.date()) if emp.create_date else ""
                 })
 
             # 7. Final response

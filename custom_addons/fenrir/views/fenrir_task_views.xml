@@ -35,6 +35,9 @@
                     <button name="action_submit_task" type="object"
                             string="Submit Task" class="btn-primary"
                             invisible="status not in (False, 'draft')"/>
+                    <button name="action_submit_task" type="object"
+                            string="Re-Submit" class="btn-warning"
+                            invisible="status != 'pending_review'"/>
                     <button name="action_approve_task" type="object"
                             string="Approve" class="btn-primary"
                             groups="fenrir.group_fenrir_manager"
@@ -79,7 +82,6 @@
                             <field name="buyer_id" widget="many2one_avatar_user"/>
                             <field name="pricing" widget="float"/>
                             <field name="price_tier"/>
-                            <field name="price_bracket" placeholder="$0-$50"/>
                             <field name="delivery_time"/>
                             <field name="order_accepted_date"/>
                         </group>
@@ -99,10 +101,17 @@
                     <group>
                         <group string="Environment">
                             <field name="environment_type" readonly="1"/>
-                            <field name="environment_base_runtime"
-                                   placeholder="e.g. node:18, python:3.11"/>
-                            <field name="key_dependencies"
-                                   placeholder="imagemagick, librsvg2-bin, file"/>
+                            <field name="environment_base_runtime_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True, 'no_quick_create': True}"
+                                   placeholder="Pick one or more runtimes..."/>
+                            <field name="key_dependency_ids"
+                                   widget="many2many_tags"
+                                   readonly="1"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <!-- Legacy free-text fields, hidden but kept for safety -->
+                            <field name="environment_base_runtime" invisible="1"/>
+                            <field name="key_dependencies" invisible="1"/>
                         </group>
                     </group>
 
@@ -211,10 +220,13 @@
                     </field>
 
                     <separator string="Attachments" name="sep_attachments"/>
-                    <field name="attachment_ids" nolabel="1" mode="kanban,list">
+                    <widget name="fenrir_attachment_uploader"/>
+                    <field name="attachment_ids" nolabel="1" mode="kanban,list"
+                           domain="[('folder', '!=', 'data')]">
                         <kanban class="o_kanban_dashboard">
                             <field name="file_name"/>
                             <field name="attachment"/>
+                            <field name="s3_key"/>
                             <field name="description"/>
                             <field name="sequence"/>
                             <templates>
@@ -230,15 +242,19 @@
                                         <div class="text-muted small mt-1 text-truncate" t-if="record.description.raw_value">
                                             <field name="description"/>
                                         </div>
-                                        <div class="mt-2">
+                                        <div class="mt-2" t-if="!record.s3_key.raw_value">
                                             <field name="attachment" filename="file_name" widget="binary"/>
+                                        </div>
+                                        <div class="mt-2 small text-success" t-if="record.s3_key.raw_value">
+                                            <i class="fa fa-cloud" aria-hidden="true"/> Stored in S3
                                         </div>
                                     </div>
                                 </t>
                             </templates>
                         </kanban>
                         <list editable="bottom" string="Attachments"
-                              decoration-info="is_generated">
+                              decoration-info="is_generated"
+                              decoration-success="s3_key">
                             <field name="sequence" widget="handle"/>
                             <field name="file_name" placeholder="logo.png"/>
                             <field name="folder"/>
@@ -247,7 +263,14 @@
                             <field name="license"/>
                             <field name="source_url" optional="hide"
                                    placeholder="https://..."/>
-                            <field name="attachment" filename="file_name" string="File"/>
+                            <field name="attachment" filename="file_name" string="File"
+                                   invisible="s3_key"/>
+                            <field name="s3_key" optional="show" readonly="1"/>
+                            <field name="s3_uploaded_at" optional="hide" readonly="1"/>
+                            <field name="file_size" optional="hide" readonly="1"/>
+                            <button name="action_open_s3_download" type="object"
+                                    icon="fa-cloud-download" title="Download from S3"
+                                    invisible="not s3_key"/>
                             <field name="description" optional="hide"
                                    placeholder="Optional caption..."/>
                             <field name="notes"
@@ -274,7 +297,17 @@
                                 </group>
                                 <separator string="File"/>
                                 <field name="attachment" filename="file_name"
-                                       nolabel="1" widget="binary"/>
+                                       nolabel="1" widget="binary"
+                                       invisible="s3_key"/>
+                                <div invisible="not s3_key" class="alert alert-info mb-2" role="status">
+                                    Stored in S3 —
+                                    <field name="s3_key" readonly="1" class="oe_inline"/>
+                                    (<field name="file_size" readonly="1" class="oe_inline"/> bytes,
+                                    uploaded <field name="s3_uploaded_at" readonly="1" class="oe_inline"/>).
+                                    <button name="action_open_s3_download" type="object"
+                                            string="Download" class="btn-link"
+                                            icon="fa-cloud-download"/>
+                                </div>
                                 <separator string="Notes"/>
                                 <field name="notes" nolabel="1"
                                        placeholder="Notes about this asset (used in license.json)..."/>
@@ -282,9 +315,76 @@
                         </form>
                     </field>
 
-                    <separator string="Seller Offers" name="sep_sellers"/>
-                    <field name="seller_offer_ids" nolabel="1" mode="list,kanban">
+                    <separator string="Data" name="sep_data"/>
+                    <widget name="fenrir_attachment_uploader" default_folder="data"/>
+                    <field name="data_attachment_ids" nolabel="1" mode="kanban,list"
+                           context="{'default_folder': 'data'}">
                         <kanban class="o_kanban_dashboard">
+                            <field name="file_name"/>
+                            <field name="attachment"/>
+                            <field name="s3_key"/>
+                            <field name="description"/>
+                            <field name="sequence"/>
+                            <templates>
+                                <t t-name="card">
+                                    <div class="oe_kanban_card oe_kanban_global_click p-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="fa fa-database fa-lg text-primary"
+                                               title="Data" aria-label="Data" role="img"/>
+                                            <strong class="text-truncate flex-grow-1">
+                                                <field name="file_name" placeholder="File name"/>
+                                            </strong>
+                                        </div>
+                                        <div class="text-muted small mt-1 text-truncate" t-if="record.description.raw_value">
+                                            <field name="description"/>
+                                        </div>
+                                        <div class="mt-2" t-if="!record.s3_key.raw_value">
+                                            <field name="attachment" filename="file_name" widget="binary"/>
+                                        </div>
+                                        <div class="mt-2 small text-success" t-if="record.s3_key.raw_value">
+                                            <i class="fa fa-cloud" aria-hidden="true"/> Stored in S3
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <list editable="bottom" string="Data"
+                              decoration-success="s3_key">
+                            <field name="sequence" widget="handle"/>
+                            <field name="file_name" placeholder="dataset.csv"/>
+                            <field name="folder" column_invisible="1"/>
+                            <field name="license"/>
+                            <field name="source_url" optional="hide"
+                                   placeholder="https://..."/>
+                            <field name="attachment" filename="file_name" string="File"
+                                   invisible="s3_key"/>
+                            <field name="s3_key" optional="show" readonly="1"/>
+                            <field name="s3_uploaded_at" optional="hide" readonly="1"/>
+                            <field name="file_size" optional="hide" readonly="1"/>
+                            <button name="action_open_s3_download" type="object"
+                                    icon="fa-cloud-download" title="Download from S3"
+                                    invisible="not s3_key"/>
+                            <field name="description" optional="hide"
+                                   placeholder="Optional caption..."/>
+                            <field name="notes"
+                                   placeholder="Notes for license.json..."/>
+                        </list>
+                    </field>
+
+                    <separator string="Seller Offers" name="sep_sellers"/>
+                    <div class="mb-2" invisible="not id">
+                        <button name="action_renumber_sellers"
+                                type="object"
+                                string="Renumber Sellers"
+                                class="btn-secondary"
+                                icon="fa-sort-numeric-asc"
+                                confirm="This will reassign seller_no sequentially (1, 2, 3, …) to all seller offers on this task. Continue?"/>
+                        <span class="text-muted small ms-2">
+                            (use once to fix duplicate seller_no values from old data)
+                        </span>
+                    </div>
+                    <field name="seller_offer_ids" nolabel="1" mode="kanban,list">
+                        <kanban class="o_kanban_dashboard fenrir-seller-stacked">
                             <field name="seller_no"/>
                             <field name="seller"/>
                             <field name="received_custom_offer"/>
@@ -296,10 +396,11 @@
                             <field name="delivery_received"/>
                             <field name="accepted_delivery"/>
                             <field name="overall_rating"/>
+                            <field name="deliverable_file_ids"/>
                             <templates>
                                 <t t-name="card">
-                                    <div class="oe_kanban_card oe_kanban_global_click p-2">
-                                        <div class="d-flex justify-content-between align-items-start">
+                                    <div class="oe_kanban_card p-2">
+                                        <div class="d-flex justify-content-between align-items-start oe_kanban_global_click">
                                             <h4 class="m-0">
                                                 Seller&#160;<field name="seller_no"/>
                                             </h4>
@@ -307,11 +408,12 @@
                                                 <field name="accepted"/>
                                             </span>
                                         </div>
-                                        <div class="text-muted small text-truncate" t-if="record.seller.raw_value">
+                                        <div class="text-muted small text-truncate oe_kanban_global_click"
+                                             t-if="record.seller.raw_value">
                                             <field name="seller"/>
                                         </div>
                                         <hr class="my-2"/>
-                                        <div class="d-flex justify-content-between small">
+                                        <div class="d-flex justify-content-between small oe_kanban_global_click">
                                             <span>Initial:
                                                 <strong><field name="sellers_initial_ask"/></strong>
                                             </span>
@@ -319,7 +421,7 @@
                                                 <strong><field name="negotiated_offer"/></strong>
                                             </span>
                                         </div>
-                                        <div class="d-flex justify-content-between small mt-1">
+                                        <div class="d-flex justify-content-between small mt-1 oe_kanban_global_click">
                                             <span>Final:
                                                 <strong>
                                                     <field name="final_payment_amount"/>
@@ -327,15 +429,24 @@
                                                 </strong>
                                             </span>
                                         </div>
-                                        <div class="small mt-2">
+                                        <div class="small mt-2 oe_kanban_global_click">
                                             <span class="me-2">Delivery: <field name="delivery_received"/></span>
                                             <span>Accepted: <field name="accepted_delivery"/></span>
                                         </div>
-                                        <div class="small mt-1" t-if="record.overall_rating.raw_value">
+                                        <div class="small mt-1 oe_kanban_global_click"
+                                             t-if="record.overall_rating.raw_value">
                                             <i class="fa fa-star text-warning me-1"
                                                title="Overall rating" aria-label="Overall rating" role="img"/>
                                             Overall: <strong><field name="overall_rating"/></strong>
                                         </div>
+                                        <hr class="my-2"/>
+                                        <div class="small text-muted mb-1">
+                                            <i class="fa fa-cloud me-1" aria-hidden="true"/>
+                                            Deliverables (S3)
+                                        </div>
+                                        <field name="deliverable_file_ids"
+                                               widget="fenrir_deliverable_files"
+                                               nolabel="1"/>
                                     </div>
                                 </t>
                             </templates>
@@ -350,6 +461,9 @@
                             <field name="final_payment_currency"/>
                             <field name="delivery_received"/>
                             <field name="accepted_delivery"/>
+                            <field name="deliverable_file_ids"
+                                   widget="fenrir_deliverable_inline"
+                                   string="Files" optional="show"/>
                         </list>
                         <form string="Seller Offer">
                             <sheet>
@@ -413,6 +527,11 @@
                                                widget="url"/>
                                     </group>
                                 </group>
+                                <field name="deliverable_attachment_ids"
+                                       widget="many2many_binary" nolabel="1"
+                                       invisible="not deliverable_attachment_ids"
+                                       readonly="1"
+                                       string="Legacy deliverables (local filestore)"/>
 
                                 <separator string="Artifacts"/>
                                 <group>
@@ -439,6 +558,20 @@
                                 <field name="notes" nolabel="1"/>
 
                                 <separator string="Rubric Scoring"/>
+                                <div class="mb-2 d-flex gap-2 align-items-center"
+                                     invisible="not id">
+                                    <button name="action_export_rubric_scores"
+                                            type="object"
+                                            string="Export to CSV"
+                                            class="btn-secondary"
+                                            icon="fa-download"/>
+                                    <button name="%(fenrir.fenrir_rubric_score_import_wizard_action)d"
+                                            type="action"
+                                            string="Import from CSV"
+                                            class="btn-secondary"
+                                            icon="fa-upload"
+                                            context="{'default_seller_offer_id': id}"/>
+                                </div>
                                 <field name="rubric_score_ids" nolabel="1">
                                     <list editable="bottom"
                                           create="0" delete="0"

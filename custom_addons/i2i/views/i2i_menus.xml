@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <menuitem id="menu_i2i_root"
+                  name="I2I"
+                  sequence="95"
+                  groups="i2i.group_i2i_user"/>
+
+        <menuitem id="menu_i2i_items"
+                  name="Projects"
+                  parent="menu_i2i_root"
+                  action="action_i2i_item"
+                  sequence="20"/>
+
+        <menuitem id="menu_i2i_qc"
+                  name="QC Queue"
+                  parent="menu_i2i_root"
+                  action="action_i2i_item_qc"
+                  sequence="30"
+                  groups="i2i.group_i2i_manager"/>
+
+        <menuitem id="menu_i2i_config"
+                  name="Configuration"
+                  parent="menu_i2i_root"
+                  sequence="90"
+                  groups="i2i.group_i2i_manager"/>
+
+        <menuitem id="menu_i2i_import"
+                  name="Import Items"
+                  parent="menu_i2i_config"
+                  action="action_i2i_import_wizard"
+                  sequence="10"/>
+
+        <menuitem id="menu_i2i_settings"
+                  name="Settings"
+                  parent="menu_i2i_config"
+                  action="action_i2i_config_settings"
+                  sequence="30"/>
+    </data>
+</odoo>

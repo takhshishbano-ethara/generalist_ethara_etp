@@ -4,35 +4,28 @@ import logging
 import os
 import random
 import time
-import urllib.parse
 
 import requests
 
 _logger = logging.getLogger(__name__)
 
-BEDROCK_RUNTIME_ENDPOINT_TEMPLATE = "https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
 
 _MODULE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ENHANCE_MD_PATH = os.path.join(_MODULE_ROOT, "enhance.md")
 
 _cached_system_prompt: str | None = None
 
-DEFAULT_MODEL_ID = "anthropic.claude-3-5-sonnet-20241022-v2:0"
-DEFAULT_REGION = "ap-south-1"
-DEFAULT_MAX_TOKENS = 600
+DEFAULT_MODEL_ID = "google/gemini-3.5-flash"
+DEFAULT_FALLBACK_MODELS = ("google/gemini-3.1-flash-lite", "google/gemini-2.5-flash")
+DEFAULT_MAX_TOKENS = 8000
 DEFAULT_TEMPERATURE = 0.8
-DEFAULT_TOP_P = 0.9
+DEFAULT_TOP_P = 1.0
+DEFAULT_REASONING_EFFORT = "low"
 DEFAULT_MAX_ATTEMPTS = 5
+DEFAULT_TIMEOUT = 120
 
-_RETRYABLE_ERROR_NAMES = {
-    "ThrottlingException",
-    "TooManyRequestsException",
-    "ServiceUnavailableException",
-    "InternalServerException",
-    "ModelTimeoutException",
-    "ModelStreamErrorException",
-    "RequestTimeout",
-}
+_RETRYABLE_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 _USER_TURN_KEYS = [
     ("Category", "Category"),
@@ -98,6 +91,8 @@ def build_user_turn(metadata: dict, previous_failures=None) -> str:
         lines.append(f"{label}: {val}")
     out = _build_word_budget_header(metadata.get("Style")) + "\n".join(lines)
     if previous_failures:
+        from . import retry_hints
+        targeted = retry_hints.build_hint(previous_failures)
         feedback = ["", "PREVIOUS_ATTEMPT_FAILURES:",
                     "Your last attempt failed the deterministic T2AV validator. "
                     "Address every issue below in your next output. Do not repeat "
@@ -110,92 +105,106 @@ def build_user_turn(metadata: dict, previous_failures=None) -> str:
             if ev:
                 line += f" (offending text from prior output: {ev[:200]!r})"
             feedback.append(line)
+        feedback.append("")
+        feedback.append("RULE-TARGETED CORRECTIONS:")
+        feedback.append(targeted)
         out = out + "\n\n" + "\n".join(feedback)
     return out
 
 
-def _is_retryable(exc: BaseException) -> bool:
-    resp = getattr(exc, "response", None)
-    if isinstance(resp, dict):
-        code = (resp.get("Error") or {}).get("Code", "")
-        if code in _RETRYABLE_ERROR_NAMES:
-            return True
-    name = exc.__class__.__name__
-    if name in _RETRYABLE_ERROR_NAMES:
-        return True
-    return isinstance(exc, (ConnectionError, TimeoutError, OSError))
-
-
-def _enrich_via_bedrock_api_key(
+def _enrich_via_openrouter(
     *,
     api_key: str,
-    region: str,
     model_id: str,
+    fallback_models: tuple[str, ...] | list[str],
     system_prompt: str,
     user_turn: str,
     max_tokens: int,
     temperature: float,
     top_p: float,
+    reasoning_effort: str,
+    http_referer: str,
+    app_title: str,
     max_attempts: int,
+    timeout: float,
 ) -> dict:
-    encoded_model = urllib.parse.quote(model_id, safe="")
-    url = BEDROCK_RUNTIME_ENDPOINT_TEMPLATE.format(
-        region=region, model_id=encoded_model,
-    )
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    body = {
-        "system": [{"text": system_prompt}],
-        "messages": [{"role": "user", "content": [{"text": user_turn}]}],
-        "inferenceConfig": {
-            "maxTokens": max_tokens,
-            "temperature": temperature,
-        },
+    if http_referer:
+        headers["HTTP-Referer"] = http_referer
+    if app_title:
+        headers["X-Title"] = app_title
+
+    payload: dict = {
+        "model": model_id,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_turn},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "top_p": top_p,
     }
+    if fallback_models:
+        payload["models"] = [model_id] + list(fallback_models)
+        payload["route"] = "fallback"
+    if reasoning_effort:
+        payload["reasoning"] = {"effort": reasoning_effort}
+
     last_exc: BaseException | None = None
     resp = None
     for attempt in range(1, max_attempts + 1):
         try:
-            resp = requests.post(url, headers=headers, json=body, timeout=180)
+            resp = requests.post(
+                OPENROUTER_ENDPOINT,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+            )
             if resp.status_code in (401, 403):
                 raise EnrichmentAuthError(
-                    f"Bedrock API key rejected (HTTP {resp.status_code}): "
+                    f"OpenRouter API key rejected (HTTP {resp.status_code}): "
                     f"{resp.text[:500]}"
+                )
+            if resp.status_code == 402:
+                raise EnrichmentError(
+                    f"OpenRouter billing/credits error (HTTP 402): "
+                    f"{resp.text[:500]}. Top up at https://openrouter.ai/credits"
                 )
             if resp.status_code == 400:
                 detail = resp.text[:1000]
                 try:
                     j = resp.json()
                     detail = (
-                        j.get("message") or j.get("Message")
-                        or j.get("error") or j.get("__type") or detail
+                        (j.get("error") or {}).get("message")
+                        or j.get("message")
+                        or detail
                     )
                 except Exception:
                     pass
-                req_id = (
-                    resp.headers.get("x-amzn-RequestId")
-                    or resp.headers.get("x-amz-bedrock-request-id")
-                    or ""
-                )
                 raise EnrichmentError(
-                    f"Bedrock returned HTTP 400 (request rejected). "
-                    f"Bedrock said: {detail!r}. "
-                    f"URL: {url}. "
-                    f"Body sent: keys=system+messages+inferenceConfig, "
-                    f"maxTokens={max_tokens}, temperature={temperature}. "
-                    f"x-amzn-RequestId: {req_id!r}."
+                    f"OpenRouter returned HTTP 400 (request rejected). "
+                    f"OpenRouter said: {detail!r}. "
+                    f"Model: {model_id}. "
+                    f"maxTokens={max_tokens}, temperature={temperature}."
                 )
-            if resp.status_code == 429 or resp.status_code >= 500:
+            if resp.status_code in _RETRYABLE_STATUS_CODES:
                 if attempt >= max_attempts:
                     raise EnrichmentError(
-                        f"Bedrock HTTP {resp.status_code} after "
+                        f"OpenRouter HTTP {resp.status_code} after "
                         f"{max_attempts} attempts: {resp.text[:500]}"
                     )
-                delay = min(30.0, (2 ** attempt) + random.random())
+                retry_after = resp.headers.get("Retry-After")
+                delay = min(60.0, (2 ** attempt) + random.random())
+                if retry_after:
+                    try:
+                        delay = max(delay, float(retry_after))
+                    except (TypeError, ValueError):
+                        pass
                 _logger.warning(
-                    "Bedrock API-key retry %d/%d in %.1fs (HTTP %d)",
+                    "OpenRouter enrichment retry %d/%d in %.1fs (HTTP %d)",
                     attempt, max_attempts, delay, resp.status_code,
                 )
                 time.sleep(delay)
@@ -212,144 +221,206 @@ def _enrich_via_bedrock_api_key(
                 raise EnrichmentError(
                     f"{exc.__class__.__name__}: {exc}"
                 ) from exc
-            delay = min(30.0, (2 ** attempt) + random.random())
+            delay = min(60.0, (2 ** attempt) + random.random())
             _logger.warning(
-                "Bedrock API-key retry %d/%d in %.1fs (%s)",
+                "OpenRouter enrichment retry %d/%d in %.1fs (%s)",
                 attempt, max_attempts, delay, exc.__class__.__name__,
             )
             time.sleep(delay)
+
     if resp is None:
         raise EnrichmentError(
-            f"Bedrock API-key call exhausted after {max_attempts} attempts: {last_exc}"
+            f"OpenRouter call exhausted after {max_attempts} attempts: {last_exc}"
         )
+
     try:
         data = resp.json()
-        blocks = data["output"]["message"]["content"]
-    except (KeyError, TypeError, ValueError) as e:
+    except ValueError as e:
         raise EnrichmentError(
-            f"Unexpected Bedrock response shape: {resp.text[:300]!r}"
+            f"OpenRouter response not JSON: {resp.text[:300]!r}"
         ) from e
-    text_parts = [b.get("text", "") for b in blocks if "text" in b]
-    text = "".join(text_parts).strip()
-    stop_reason = data.get("stopReason") or ""
+
+    if data.get("error"):
+        err = data["error"]
+        msg = err.get("message") if isinstance(err, dict) else str(err)
+        raise EnrichmentError(f"OpenRouter returned error in body: {msg}")
+
+    try:
+        choice = data["choices"][0]
+        message = choice["message"]
+        text = message.get("content") or ""
+        finish_reason = choice.get("finish_reason") or ""
+    except (KeyError, IndexError, TypeError) as e:
+        raise EnrichmentError(
+            f"Unexpected OpenRouter response shape: {resp.text[:300]!r}"
+        ) from e
+
+    text = str(text).strip()
+
     usage = data.get("usage") or {}
+    request_id = (
+        resp.headers.get("X-Request-Id")
+        or resp.headers.get("x-request-id")
+        or data.get("id", "")
+    )
+    served_model = data.get("model") or model_id
+
     return {
         "text": text,
-        "input_tokens": int(usage.get("inputTokens") or 0),
-        "output_tokens": int(usage.get("outputTokens") or 0),
-        "stop_reason": stop_reason,
-        "request_id": resp.headers.get("x-amzn-RequestId", "")
-                     or resp.headers.get("x-amz-bedrock-request-id", ""),
+        "input_tokens": int(usage.get("prompt_tokens") or 0),
+        "output_tokens": int(usage.get("completion_tokens") or 0),
+        "stop_reason": finish_reason,
+        "request_id": request_id,
+        "served_model": served_model,
     }
 
 
 def enrich(
     *,
-    access_key: str = "",
-    secret_key: str = "",
-    bedrock_api_key: str = "",
-    region: str = DEFAULT_REGION,
+    openrouter_api_key: str = "",
     model_id: str = DEFAULT_MODEL_ID,
+    fallback_models: tuple[str, ...] | list[str] = DEFAULT_FALLBACK_MODELS,
     metadata: dict,
     previous_failures=None,
     max_tokens: int = DEFAULT_MAX_TOKENS,
     temperature: float = DEFAULT_TEMPERATURE,
     top_p: float = DEFAULT_TOP_P,
+    reasoning_effort: str = DEFAULT_REASONING_EFFORT,
+    http_referer: str = "",
+    app_title: str = "Ethara T2AV",
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    timeout: float = DEFAULT_TIMEOUT,
 ) -> dict:
-    if not bedrock_api_key and (not access_key or not secret_key):
+    if not openrouter_api_key:
         raise EnrichmentAuthError(
-            "Bedrock auth required: provide either (a) Bedrock API Key "
-            "(starts with ABSK...), OR (b) AWS Access Key ID + Secret Access Key. "
-            "Configure in Settings > T2AV."
+            "OpenRouter auth required: configure 'OpenRouter API Key' "
+            "in Settings > T2AV. Get a key at https://openrouter.ai/keys"
         )
-    if bedrock_api_key:
-        system_prompt = load_system_prompt()
-        user_turn = build_user_turn(metadata, previous_failures=previous_failures)
-        return _enrich_via_bedrock_api_key(
-            api_key=bedrock_api_key,
-            region=region,
-            model_id=model_id,
-            system_prompt=system_prompt,
-            user_turn=user_turn,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            max_attempts=max_attempts,
-        )
-
-    try:
-        import boto3
-        from botocore.config import Config
-    except ImportError as e:
-        raise EnrichmentConfigError(
-            "boto3 is required for Bedrock enrichment. "
-            "Install with: pip install boto3"
-        ) from e
 
     system_prompt = load_system_prompt()
     user_turn = build_user_turn(metadata, previous_failures=previous_failures)
 
-    boto_config = Config(
-        retries={"max_attempts": 0, "mode": "standard"},
-        read_timeout=180,
-        connect_timeout=10,
-    )
-    client = boto3.client(
-        "bedrock-runtime",
-        region_name=region,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        config=boto_config,
+    return _enrich_via_openrouter(
+        api_key=openrouter_api_key,
+        model_id=model_id,
+        fallback_models=fallback_models,
+        system_prompt=system_prompt,
+        user_turn=user_turn,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        reasoning_effort=reasoning_effort,
+        http_referer=http_referer,
+        app_title=app_title,
+        max_attempts=max_attempts,
+        timeout=timeout,
     )
 
-    last_exc: BaseException | None = None
-    resp = None
-    for attempt in range(1, max_attempts + 1):
-        try:
-            resp = client.converse(
-                modelId=model_id,
-                system=[{"text": system_prompt}],
-                messages=[{"role": "user", "content": [{"text": user_turn}]}],
-                inferenceConfig={
-                    "maxTokens": max_tokens,
-                    "temperature": temperature,
-                },
-            )
-            break
-        except Exception as exc:
-            last_exc = exc
-            if attempt >= max_attempts or not _is_retryable(exc):
-                raise EnrichmentError(
-                    f"{exc.__class__.__name__}: {exc}"
-                ) from exc
-            delay = min(30.0, (2 ** attempt) + random.random())
-            _logger.warning(
-                "Bedrock retry %d/%d in %.1fs (%s: %s)",
-                attempt, max_attempts, delay, exc.__class__.__name__, exc,
-            )
-            time.sleep(delay)
 
-    if resp is None:
-        raise EnrichmentError(
-            f"Bedrock call exhausted after {max_attempts} attempts: {last_exc}"
+DEFAULT_QC_MODEL_ID = "google/gemini-3.5-flash"
+DEFAULT_QC_TEMPERATURE = 0.3
+DEFAULT_QC_TOP_P = 1.0
+DEFAULT_QC_MAX_TOKENS = 1500
+DEFAULT_QC_REASONING_EFFORT = "low"
+DEFAULT_QC_MAX_ATTEMPTS = 3
+DEFAULT_QC_TIMEOUT = 120
+
+_QC_SYSTEM_PROMPT_FILENAME = "meta_qc_system_prompt.md"
+_cached_qc_system_prompt: str | None = None
+
+
+def load_qc_system_prompt() -> str:
+    global _cached_qc_system_prompt
+    if _cached_qc_system_prompt is not None:
+        return _cached_qc_system_prompt
+    import os
+    module_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(module_root, _QC_SYSTEM_PROMPT_FILENAME)
+    with open(path, "r", encoding="utf-8") as fp:
+        _cached_qc_system_prompt = fp.read()
+    return _cached_qc_system_prompt
+
+
+def build_qc_user_turn(
+    *,
+    meta_prompt: str,
+    category: str,
+    sub_category: str,
+    topic: str,
+    style: str,
+    bad_sample: str,
+    reasons,
+    language: str = "english",
+    complexity: str = "moderate",
+) -> str:
+    reasons_str = ", ".join(reasons) if reasons else "(none reported)"
+    return (
+        f"META_PROMPT:\n{meta_prompt or '(empty)'}\n\n"
+        f"CATEGORY: {category or '(unspecified)'}\n"
+        f"SUB_CATEGORY: {sub_category or '(unspecified)'}\n"
+        f"TOPIC: {topic or '(unspecified)'}\n"
+        f"STYLE: {style or 'casual'}\n"
+        f"LANGUAGE: {language or 'english'}\n"
+        f"COMPLEXITY: {complexity or 'moderate'}\n\n"
+        f"BAD_SAMPLE (do NOT replicate):\n{bad_sample or '(empty)'}\n\n"
+        f"DEFECT_REASONS: {reasons_str}\n\n"
+        f"Generate the corrected prompt now. Output ONLY the prompt text."
+    )
+
+
+def enrich_qc(
+    *,
+    openrouter_api_key: str,
+    meta_prompt: str,
+    category: str,
+    sub_category: str,
+    topic: str,
+    style: str,
+    bad_sample: str,
+    reasons,
+    language: str = "english",
+    complexity: str = "moderate",
+    model_id: str = DEFAULT_QC_MODEL_ID,
+    temperature: float = DEFAULT_QC_TEMPERATURE,
+    top_p: float = DEFAULT_QC_TOP_P,
+    max_tokens: int = DEFAULT_QC_MAX_TOKENS,
+    reasoning_effort: str = DEFAULT_QC_REASONING_EFFORT,
+    max_attempts: int = DEFAULT_QC_MAX_ATTEMPTS,
+    http_referer: str = "",
+    app_title: str = "Ethara T2AV",
+    timeout: float = DEFAULT_QC_TIMEOUT,
+) -> dict:
+    if not openrouter_api_key:
+        raise EnrichmentAuthError(
+            "OpenRouter auth required for ambiguity recovery: configure "
+            "'OpenRouter API Key' in Settings > T2AV."
         )
 
-    try:
-        blocks = resp["output"]["message"]["content"]
-    except (KeyError, TypeError) as e:
-        raise EnrichmentError(f"Unexpected Bedrock response shape: {resp!r}") from e
+    system_prompt = load_qc_system_prompt()
+    user_turn = build_qc_user_turn(
+        meta_prompt=meta_prompt,
+        category=category,
+        sub_category=sub_category,
+        topic=topic,
+        style=style,
+        bad_sample=bad_sample,
+        reasons=reasons,
+        language=language,
+        complexity=complexity,
+    )
 
-    text_parts = [b.get("text", "") for b in blocks if "text" in b]
-    text = "".join(text_parts).strip()
-
-    stop_reason = resp.get("stopReason") or ""
-    usage = resp.get("usage") or {}
-    request_id = (resp.get("ResponseMetadata") or {}).get("RequestId", "")
-    return {
-        "text": text,
-        "input_tokens": int(usage.get("inputTokens") or 0),
-        "output_tokens": int(usage.get("outputTokens") or 0),
-        "stop_reason": stop_reason,
-        "request_id": request_id,
-    }
+    return _enrich_via_openrouter(
+        api_key=openrouter_api_key,
+        model_id=model_id,
+        fallback_models=(),
+        system_prompt=system_prompt,
+        user_turn=user_turn,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        top_p=top_p,
+        reasoning_effort=reasoning_effort,
+        http_referer=http_referer,
+        app_title=app_title,
+        max_attempts=max_attempts,
+        timeout=timeout,
+    )

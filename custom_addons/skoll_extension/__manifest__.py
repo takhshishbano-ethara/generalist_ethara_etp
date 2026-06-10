@@ -1,0 +1,22 @@
+{
+    "name": "Skoll Extension",
+    "version": "19.0.1.0.0",
+    "category": "Tools",
+    "summary": "Role-scoped analytics dashboard REST API for Skoll tasks.",
+    "author": "Ethara",
+    "license": "LGPL-3",
+    "depends": [
+        "base",
+        "web",
+        "hr",
+        "skoll_project",
+        "api_auth_gateway",
+    ],
+    "data": [
+        "security/ir.model.access.csv",
+        "data/batch_delivery_data.xml",
+        "views/batch_delivery_views.xml",
+    ],
+    "installable": True,
+    "application": False,
+}

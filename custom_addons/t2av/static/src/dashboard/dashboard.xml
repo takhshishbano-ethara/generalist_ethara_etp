@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="t2av.Dashboard">
+        <div class="o_t2av_dashboard">
+
+            <!-- ===== Header: title, actions, window filter, refresh ===== -->
+            <div class="d-flex flex-wrap align-items-center mb-3 gap-2">
+                <h2 class="mb-0 me-3">Dashboard</h2>
+
+                <div class="btn-group btn-group-sm" role="group">
+                    <button class="btn" t-att-class="state.window === 'all' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-on-click="() => this.setWindow('all')">All time</button>
+                    <button class="btn" t-att-class="state.window === '7d' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-on-click="() => this.setWindow('7d')">Last 7d</button>
+                    <button class="btn" t-att-class="state.window === '24h' ? 'btn-primary' : 'btn-outline-secondary'"
+                            t-on-click="() => this.setWindow('24h')">Last 24h</button>
+                </div>
+
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-outline-secondary" t-on-click="() => this.load()">
+                        <i class="fa fa-refresh me-1"/>Refresh
+                    </button>
+                    <button class="btn btn-sm btn-secondary" t-on-click="() => this.openImport()">
+                        <i class="fa fa-upload me-1"/>Import
+                    </button>
+                    <button class="btn btn-sm btn-primary" t-on-click="() => this.openList('All Tasks', [])">
+                        <i class="fa fa-list me-1"/>Open Tasks
+                    </button>
+                    <span class="badge text-bg-success"><i class="fa fa-circle me-1 small"/>live</span>
+                </div>
+            </div>
+
+            <t t-if="state.loading and !state.data">
+                <div class="text-center text-muted py-5"><i class="fa fa-spinner fa-spin fa-2x"/></div>
+            </t>
+
+            <t t-if="state.data">
+
+                <!-- ===== KPI tiles (number + label, no bars) ===== -->
+                <div class="row g-3 mb-3">
+                    <div class="col-6 col-md-3 col-xl">
+                        <div class="card h-100 o_t2av_tile" t-on-click="() => this.openList('All Tasks', [])">
+                            <div class="card-body py-3">
+                                <div class="o_t2av_tile_num"><t t-esc="state.data.kpis.total"/></div>
+                                <div class="text-muted small text-uppercase">Total Tasks</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 col-xl">
+                        <div class="card h-100 o_t2av_tile border-start border-info border-3" t-on-click="() => this.openInProgress()">
+                            <div class="card-body py-3">
+                                <div class="o_t2av_tile_num text-info"><t t-esc="state.data.kpis.in_progress"/></div>
+                                <div class="text-muted small text-uppercase">In Progress</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 col-xl">
+                        <div class="card h-100 o_t2av_tile border-start border-success border-3" t-on-click="() => this.openByState('done')">
+                            <div class="card-body py-3">
+                                <div class="o_t2av_tile_num text-success"><t t-esc="state.data.kpis.done"/></div>
+                                <div class="text-muted small text-uppercase">Done</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 col-xl">
+                        <div class="card h-100 o_t2av_tile border-start border-danger border-3" t-on-click="() => this.openFailed()">
+                            <div class="card-body py-3">
+                                <div class="o_t2av_tile_num text-danger"><t t-esc="state.data.kpis.failed"/></div>
+                                <div class="text-muted small text-uppercase">Failed</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6 col-md-3 col-xl">
+                        <div class="card h-100">
+                            <div class="card-body py-3">
+                                <div class="o_t2av_tile_num">$<t t-esc="state.data.kpis.total_cost"/></div>
+                                <div class="text-muted small text-uppercase">Total Cost</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+
+                    <!-- ===== Lifecycle (count list, badge per state) ===== -->
+                    <div class="col-12">
+                        <div class="card h-100">
+                            <div class="card-header">
+                                <div class="fw-bold">Pipeline Lifecycle</div>
+                                <div class="text-muted small">Where each task is in its video lifecycle — click a stage to see those tasks</div>
+                            </div>
+                            <div class="list-group list-group-flush">
+                                <t t-foreach="state.data.by_status" t-as="s" t-key="s.key">
+                                    <button class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+                                            t-on-click="() => this.openByState(s.key)">
+                                        <span><t t-esc="s.label"/></span>
+                                        <span class="badge rounded-pill" t-att-class="this.stateBadge(s.key)"><t t-esc="s.count"/></span>
+                                    </button>
+                                </t>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== By Category (clean table, no bars) ===== -->
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <div class="fw-bold">By Category</div>
+                        <div class="text-muted small">Task counts per category — click a row to open that category</div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Category</th>
+                                    <th class="text-end">Total</th>
+                                    <th class="text-end">Done</th>
+                                    <th class="text-end">In Progress</th>
+                                    <th class="text-end">Failed</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.data.by_category" t-as="c" t-key="c.key">
+                                    <tr class="o_t2av_clickable" t-on-click="() => this.openByCategory(c.key, c.label)">
+                                        <td><t t-esc="c.label"/></td>
+                                        <td class="text-end fw-bold"><t t-esc="c.total"/></td>
+                                        <td class="text-end text-success"><t t-esc="c.done"/></td>
+                                        <td class="text-end text-info"><t t-esc="c.in_progress"/></td>
+                                        <td class="text-end text-danger"><t t-esc="c.failed"/></td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ===== Recent activity ===== -->
+                <div class="card">
+                    <div class="card-header fw-bold">Recent Activity</div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0 align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Ref</th><th>Category</th><th>Prompt</th>
+                                    <th>Status</th><th class="text-end">Cost</th><th>Created</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.data.recent" t-as="r" t-key="r.id">
+                                    <tr class="o_t2av_clickable" t-on-click="() => this.openRecord(r.id)">
+                                        <td class="fw-bold"><t t-esc="r.name"/></td>
+                                        <td><t t-esc="r.category"/></td>
+                                        <td class="text-muted text-truncate" style="max-width: 320px;"><t t-esc="r.prompt"/></td>
+                                        <td><span class="badge" t-att-class="this.stateBadge(r.state)"><t t-esc="r.state_label"/></span></td>
+                                        <td class="text-end">$<t t-esc="r.cost"/></td>
+                                        <td class="text-muted small"><t t-esc="r.create_date"/></td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </t>
+        </div>
+    </t>
+
+</templates>

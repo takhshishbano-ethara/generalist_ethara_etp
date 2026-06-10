@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+  <t t-name="fenrir.DeliverableInline">
+    <div class="fenrir-deliv-inline d-flex flex-wrap align-items-center gap-1"
+         t-on-click="(ev) => ev.stopPropagation()">
+
+      <span t-foreach="files" t-as="f" t-key="f.id"
+            class="fenrir-deliv-chip badge text-bg-light fw-normal d-inline-flex align-items-center">
+        <span class="fenrir-deliv-chip-name d-inline-flex align-items-center"
+              t-att-title="'Download ' + f.name + (f.s3_key ? ' — ' + f.s3_key : '')"
+              t-on-click="(ev) => this.onDownloadClick(ev, f)"
+              role="button">
+          <i class="fa fa-file-o me-1 text-secondary" aria-hidden="true"/>
+          <span class="text-truncate" style="max-width: 12rem" t-esc="f.name"/>
+        </span>
+        <button type="button" class="fenrir-deliv-chip-del btn btn-link p-0 ms-2 text-danger"
+                t-att-title="'Delete ' + f.name"
+                t-on-click="(ev) => this.onDeleteClick(ev, f)">
+          <i class="fa fa-times" aria-hidden="true"/>
+        </button>
+      </span>
+
+      <span t-if="!files.length" class="text-muted small me-1">
+        no files
+      </span>
+
+      <button type="button" class="btn btn-sm btn-link p-0 ms-1"
+              t-att-title="state.uploading ? 'Uploading…' : 'Upload deliverables to S3'"
+              t-att-disabled="state.uploading"
+              t-on-click="onUploadClick">
+        <i t-if="!state.uploading" class="fa fa-cloud-upload" aria-hidden="true"/>
+        <i t-if="state.uploading" class="fa fa-spinner fa-spin" aria-hidden="true"/>
+      </button>
+
+      <input type="file" t-ref="fileInput" multiple="multiple"
+             style="display:none" t-on-change="onFileChange"
+             t-on-click="(ev) => ev.stopPropagation()"/>
+    </div>
+  </t>
+
+</templates>

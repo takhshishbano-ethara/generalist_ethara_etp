@@ -76,23 +76,32 @@
                                 <field name="t2av_verify_after_upload"/>
                             </setting>
                         </block>
-                        <block title="Bedrock Enrichment" name="t2av_bedrock_block">
-                            <setting string="Bedrock API Key (preferred)"
-                                     help="AWS Bedrock API Key (starts with ABSK...). Single-key auth, no AWS Access Key + Secret Key required. When set, this is used INSTEAD of AWS Credentials for all Bedrock calls (enrichment + optional Bedrock-backed review).">
-                                <field name="t2av_bedrock_api_key_is_set" invisible="1"/>
-                                <field name="t2av_bedrock_api_key" password="True"/>
-                                <div class="text-success mt8" invisible="not t2av_bedrock_api_key_is_set">
-                                    <i class="fa fa-check"/> Bedrock API key configured (used instead of AWS Access/Secret)
-                                </div>
+                        <block title="Prompt Enrichment (OpenRouter)" name="t2av_enrichment_block">
+                            <setting string="Enrichment Model ID (OpenRouter)"
+                                     help="OpenRouter model slug for prompt enrichment. Default: google/gemini-3.5-flash (fast, cheap, 1M context). Change only if you have validated an alternative model.">
+                                <field name="t2av_openrouter_enrichment_model_id"/>
                             </setting>
-                            <setting string="Bedrock AWS Region"
-                                     help="AWS region for the Bedrock Converse API used by prompt enrichment. Defaults to ap-south-1.">
-                                <field name="t2av_bedrock_region"/>
+                            <setting string="OpenRouter Enrichment Max Retries"
+                                     help="Per-call HTTP retry attempts on transient OpenRouter errors (429, 5xx). Honours Retry-After header.">
+                                <field name="t2av_openrouter_enrichment_max_retries"/>
                             </setting>
-                            <setting string="Enrichment Model ID (Bedrock)"
-                                     help="Target: Claude Sonnet 4.6 — paste exact ARN when AWS publishes it. Default falls back to Claude 3.5 Sonnet.">
-                                <field name="t2av_bedrock_model_id"/>
+                            <setting string="OpenRouter top_p"
+                                     help="Nucleus sampling parameter for enrichment. Values &lt;= 0 omit the field from the request (recommended for Gemini).">
+                                <field name="t2av_openrouter_top_p"/>
                             </setting>
+                            <setting string="Enrichment Max Attempts per Job"
+                                     help="How many enrichment attempts a job can spend before the row is locked out. Each attempt = one full LLM call with prior validator failures injected.">
+                                <field name="t2av_enrichment_max_attempts"/>
+                            </setting>
+                            <setting string="Enable Ambiguity Recovery (use meta_prompt)"
+                                     help="When ON: detects garbage prompts (chat-template tokens, repetition loops, length outliers) and recovers them via Tier 1 Gemini QC using meta_prompt, falling back to Tier 2 deterministic templates. When OFF: original prompt goes straight to enrichment with no recovery. Default: OFF (admin opts in after staging verification).">
+                                <field name="t2av_ambiguity_recovery_enabled"/>
+                            </setting>
+                            <div class="text-muted o_text_neutral">
+                                <i class="fa fa-info-circle"/> Enrichment now runs via OpenRouter (Gemini 3.5 Flash by default). The OpenRouter API key from the section above is reused — no separate auth needed.
+                            </div>
+                        </block>
+                        <block title="Video Review" name="t2av_review_provider_block">
                             <setting string="Video Review Provider"
                                      help="OpenRouter (Gemini multimodal) is the default — sends prompt + presigned video URL in one turn. Switch to Bedrock for Claude vision via 20 ffmpeg-extracted frames.">
                                 <field name="t2av_review_provider"/>
@@ -101,17 +110,22 @@
                                      help="OpenRouter model slug when Review Provider is OpenRouter. Default: google/gemini-3.1-pro-preview (multimodal). Existing live value is preserved on upgrade.">
                                 <field name="t2av_openrouter_review_model_id"/>
                             </setting>
-                            <setting string="Bedrock Max Retries"
-                                     help="Per-call retry attempts on transient Bedrock errors (throttling, 5xx).">
+                            <setting string="Bedrock API Key (for Bedrock review only)"
+                                     help="AWS Bedrock API Key (starts with ABSK...). ONLY used when Video Review Provider is set to Bedrock. Enrichment no longer uses Bedrock.">
+                                <field name="t2av_bedrock_api_key_is_set" invisible="1"/>
+                                <field name="t2av_bedrock_api_key" password="True"/>
+                                <div class="text-success mt8" invisible="not t2av_bedrock_api_key_is_set">
+                                    <i class="fa fa-check"/> Bedrock API key configured
+                                </div>
+                            </setting>
+                            <setting string="Bedrock AWS Region (for Bedrock review only)"
+                                     help="AWS region for Bedrock when Video Review Provider is Bedrock. Defaults to ap-south-1.">
+                                <field name="t2av_bedrock_region"/>
+                            </setting>
+                            <setting string="Bedrock Max Retries (for Bedrock review only)"
+                                     help="Per-call retry attempts on transient Bedrock errors when Bedrock review is used.">
                                 <field name="t2av_bedrock_max_retries"/>
                             </setting>
-                            <setting string="Enrichment Max Attempts"
-                                     help="How many enrichment attempts a job can spend before the row is locked out.">
-                                <field name="t2av_enrichment_max_attempts"/>
-                            </setting>
-                            <div class="text-muted o_text_neutral">
-                                <i class="fa fa-info-circle"/> Bedrock uses the AWS credentials configured in the section below. Once you add the AWS Access Key ID and Secret Access Key, prompt enrichment via Claude on Bedrock becomes available.
-                            </div>
                         </block>
                         <block title="Video Review (Gemini)" name="t2av_review_block">
                             <setting string="Review Max Attempts per Attempt"

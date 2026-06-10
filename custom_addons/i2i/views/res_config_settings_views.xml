@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_i2i_config_settings_form" model="ir.ui.view">
+            <field name="name">res.config.settings.view.form.inherit.i2i</field>
+            <field name="model">res.config.settings</field>
+            <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//form" position="inside">
+                    <app data-string="I2I" string="I2I" name="i2i" groups="i2i.group_i2i_manager">
+                        <block title="OpenRouter Credentials" name="i2i_openrouter">
+                            <setting id="i2i_api_key_setting" string="API Key" help="OpenRouter API key for the LLM QC layer.">
+                                <field name="i2i_api_key_is_set" invisible="1"/>
+                                <field name="i2i_openrouter_api_key" password="True" placeholder="********"/>
+                                <div class="text-success mt8" invisible="not i2i_api_key_is_set">
+                                    <i class="fa fa-check"/> API key configured
+                                </div>
+                            </setting>
+                        </block>
+                        <block title="LLM QC Defaults" name="i2i_llm_defaults">
+                            <setting id="i2i_default_model_setting" string="LLM Model">
+                                <field name="i2i_default_model" placeholder="google/gemini-3.5-flash"/>
+                            </setting>
+                            <setting id="i2i_app_title_setting" string="App Title">
+                                <field name="i2i_app_title"/>
+                            </setting>
+                            <setting id="i2i_http_referer_setting" string="HTTP Referer">
+                                <field name="i2i_http_referer"/>
+                            </setting>
+                            <setting id="i2i_max_retries_setting" string="Max Retries">
+                                <field name="i2i_openrouter_max_retries"/>
+                            </setting>
+                            <setting id="i2i_cost_setting" string="USD per 1M tokens">
+                                <field name="i2i_usd_per_mtoken"/>
+                            </setting>
+                        </block>
+                    </app>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="action_i2i_config_settings" model="ir.actions.act_window">
+            <field name="name">I2I Settings</field>
+            <field name="res_model">res.config.settings</field>
+            <field name="view_mode">form</field>
+            <field name="target">current</field>
+            <field name="context">{'module': 'i2i'}</field>
+        </record>
+    </data>
+</odoo>

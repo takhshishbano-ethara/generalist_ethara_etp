@@ -12,7 +12,7 @@ import json
 import logging
 import time
 import traceback
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -316,7 +316,7 @@ class T2AVAttempt(models.Model):
     def _compute_video_file(self):
         for rec in self:
             if rec.category and rec.sequence_number:
-                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:07d}.mp4"
+                rec.video_file = f"T2AV_{rec.category}_{rec.sequence_number:06d}.mp4"
             else:
                 rec.video_file = False
 
@@ -400,8 +400,8 @@ class T2AVAttempt(models.Model):
             stripped = (rec.prompt or "").strip()
             if not stripped:
                 raise ValidationError(_("Prompt is required."))
-            if len(stripped) > 2000:
-                raise ValidationError(_("Prompt must be at most 2000 characters."))
+            if len(stripped) > 20000:
+                raise ValidationError(_("Prompt must be at most 20000 characters."))
 
     # ------------------------------------------------------------------
     # CRUD / state-machine guard
@@ -540,9 +540,62 @@ class T2AVAttempt(models.Model):
         self.message_post(body=_("Submitted to OpenRouter (job %s).") % job_id)
         self._push_bus()
 
-    # ------------------------------------------------------------------
-    # Pipeline — Phase 3: poll for completion
-    # ------------------------------------------------------------------
+        from ..services import rabbitmq_service
+        try:
+            rabbitmq_service.schedule_poll(self.id, delay_seconds=15)
+        except Exception:
+            _logger.exception(
+                "T2AV attempt %s: failed to schedule first poll; "
+                "attempt will need manual reconcile.", self.id,
+            )
+
+    @api.model
+    def handle_poll_message(self, attempt_id):
+        attempt = self.browse(int(attempt_id)).exists()
+        if not attempt:
+            return True
+
+        if attempt.state in (_STATE_SUBMITTING, _STATE_PROCESSING):
+            attempt._run_poll()
+            attempt.invalidate_recordset()
+
+        from ..services import rabbitmq_service
+
+        if attempt.state in (_STATE_SUBMITTING, _STATE_PROCESSING):
+            rabbitmq_service.schedule_poll(attempt.id, delay_seconds=15)
+            return True
+
+        if attempt.state == _STATE_DOWNLOADING:
+            rabbitmq_service.schedule_poll(attempt.id, delay_seconds=30)
+            return True
+
+        job = attempt.job_id
+        if not job:
+            return True
+
+        if job.pipeline_status in ("done", "failed"):
+            return True
+
+        if attempt.state == _STATE_DONE:
+            job.write({
+                "pipeline_status": "done",
+                "pipeline_finished_at": fields.Datetime.now(),
+            })
+            job.message_post(body=_("Pipeline complete; video ready."))
+        else:
+            error_msg = (
+                attempt.error_message
+                or attempt.error_code
+                or "attempt %s" % attempt.state
+            )
+            job.write({
+                "pipeline_status": "failed",
+                "pipeline_finished_at": fields.Datetime.now(),
+                "pipeline_error_text": error_msg,
+            })
+            job.message_post(body=_("Pipeline failed: %s") % error_msg)
+        return True
+
     def _run_poll(self):
         """Single poll iteration. Called by cron or by reconcile button."""
         self.ensure_one()
@@ -640,18 +693,14 @@ class T2AVAttempt(models.Model):
             self._fail("no_video_url", "OpenRouter reported completed but returned no URL.")
             return
 
-        # Compare-and-set: only one path (webhook OR cron) transitions to downloading.
+        # Compare-and-set on state only; prevents webhook/cron double completion.
         self.env.cr.execute(
             """UPDATE t2av_attempt
-               SET state = 'downloading',
-                   tokens_used = %s,
-                   cost_usd = %s,
-                   video_temporary_url = %s,
-                   video_expires_at = %s
+               SET state = 'downloading'
                WHERE id = %s
                  AND state IN ('submitting', 'processing')
                RETURNING id""",
-            (tokens, cost, video_url, fields.Datetime.now() + timedelta(days=7), self.id),
+            (self.id,),
         )
         if not self.env.cr.fetchone():
             _logger.info(
@@ -660,8 +709,18 @@ class T2AVAttempt(models.Model):
             )
             return
 
-        # Refresh ORM cache so subsequent reads see the new values
+        _logger.info(
+            "T2AV attempt %s: completion received | tokens=%s cost=$%.4f",
+            self.id, tokens, cost,
+        )
         self.invalidate_recordset()
+        # ORM write (not SQL) so parent's @api.depends('attempt_ids.cost_usd') fires.
+        self.write({
+            "tokens_used": tokens,
+            "cost_usd": cost,
+            "video_temporary_url": video_url,
+            "video_expires_at": fields.Datetime.now() + timedelta(days=7),
+        })
         if fps_value:
             self.write({"fps": fps_value})
         self.message_post(body=_("OpenRouter completed; downloading video (cost $%.4f).") % cost)
@@ -717,9 +776,8 @@ class T2AVAttempt(models.Model):
         # _fail() writes via a fresh cursor that commits independently). Dataset
         # consumers should filter on video_file IS NOT NULL, not on sequence_number
         # being contiguous.
-        today = datetime.utcnow().strftime("%Y%m%d")
-        video_filename = f"T2AV_{category}_{seq_int:07d}.mp4"
-        s3_key = f"generated_videos/{today}/master/{video_filename}"
+        video_filename = f"T2AV_{category}_{seq_int:06d}.mp4"
+        s3_key = f"T2AV/{category}/{video_filename}"
 
         try:
             info = s3_publisher.persist_video_to_s3(

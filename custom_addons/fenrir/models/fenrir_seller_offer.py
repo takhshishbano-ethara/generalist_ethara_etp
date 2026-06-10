@@ -1,3 +1,7 @@
+import base64
+import csv
+import io
+
 from odoo import api, fields, models
 
 
@@ -117,6 +121,30 @@ class FenrirSellerOffer(models.Model):
     )
 
     deliverables_link = fields.Char(string="Deliverables Link")
+    deliverable_attachment_ids = fields.Many2many(
+        comodel_name="ir.attachment",
+        relation="fenrir_seller_offer_deliverable_rel",
+        column1="offer_id", column2="attachment_id",
+        string="Deliverables (legacy)",
+        help="Legacy local-filestore uploads. New uploads go through "
+             "the S3-backed Deliverables field. Kept for backward compat.")
+    deliverable_file_ids = fields.One2many(
+        comodel_name="fenrir.seller.deliverable",
+        inverse_name="offer_id",
+        string="Deliverables",
+        copy=False,
+        help="Files pushed directly to S3 via the upload controller; "
+             "bytes never land in Odoo's local filestore.")
+    deliverable_count = fields.Integer(
+        string="Deliverables",
+        compute="_compute_deliverable_count",
+        store=False,
+    )
+
+    @api.depends("deliverable_file_ids")
+    def _compute_deliverable_count(self):
+        for rec in self:
+            rec.deliverable_count = len(rec.deliverable_file_ids)
     data_media = fields.Char(string="Data (Media)")
     resources = fields.Char(string="Resources",
                             help="References and supporting documents")
@@ -192,10 +220,17 @@ class FenrirSellerOffer(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         vals_list = [self._strip_empty_score_cmds(v) for v in vals_list]
+        # Track next seller_no PER task across the batch so multi-create in
+        # one save doesn't give every new offer seller_no = 1.
+        next_no_per_task = {}
         for vals in vals_list:
             if not vals.get("seller_no") and vals.get("task_id"):
-                existing = self.search_count([("task_id", "=", vals["task_id"])])
-                vals["seller_no"] = existing + 1
+                task_id = vals["task_id"]
+                if task_id not in next_no_per_task:
+                    next_no_per_task[task_id] = self.search_count(
+                        [("task_id", "=", task_id)]) + 1
+                vals["seller_no"] = next_no_per_task[task_id]
+                next_no_per_task[task_id] += 1
         records = super().create(vals_list)
         Score = self.env["fenrir.rubric.score"]
         for rec in records:
@@ -210,3 +245,42 @@ class FenrirSellerOffer(models.Model):
                         "rubric_id": rubric.id,
                     })
         return records
+
+    # ── Rubric-score CSV export ──────────────────────────────────────────
+    def action_export_rubric_scores(self):
+        """Download a CSV of this seller's rubric scores.
+
+        Columns: rubric_name (key on import), rubric_description (info-only),
+        rating, justification. Annotators edit the rating + justification
+        columns in Excel and re-upload via Import from CSV.
+        """
+        self.ensure_one()
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([
+            "rubric_name", "rubric_description", "rating", "justification"])
+        for score in self.rubric_score_ids.sorted("rubric_sequence"):
+            writer.writerow([
+                score.rubric_name or "",
+                score.rubric_description or "",
+                score.rating or "",
+                score.justification or "",
+            ])
+        # utf-8-sig so Excel opens with the right encoding
+        csv_bytes = buf.getvalue().encode("utf-8-sig")
+        filename = (
+            f"{self.task_code or 'task'}_seller_{self.seller_no or self.id}"
+            f"_rubric_scores.csv")
+        attachment = self.env["ir.attachment"].create({
+            "name": filename,
+            "type": "binary",
+            "datas": base64.b64encode(csv_bytes),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "text/csv",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
+        }

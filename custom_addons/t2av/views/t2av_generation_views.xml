@@ -13,17 +13,17 @@
                                 class="btn-primary"
                                 groups="t2av.group_t2av_manager"
                                 invisible="state != 'draft' or last_enrichment_state in ('queued','submitting','validating')"
-                                confirm="Send the prompt to AWS Bedrock for enrichment? The enriched + validated text will appear below once complete."/>
+                                confirm="Send the prompt to OpenRouter (Gemini 3.5 Flash) for enrichment? The enriched + validated text will appear below once complete."/>
                         <button name="action_revalidate" string="Run QC" type="object"
                                 class="btn-secondary"
                                 groups="t2av.group_t2av_manager"
                                 invisible="not enriched_prompt or (state not in ('draft','failed') and not ui_retry_pending)"
-                                help="Re-run the T2AV validator on the enriched prompt without calling Bedrock. Available pre-generation (draft) or post-failure (failed) so you can re-validate before retrying. Hidden once the video is generated to prevent clobbering golden_prompt."/>
+                                help="Re-run the T2AV validator on the enriched prompt without calling OpenRouter. Available pre-generation (draft) or post-failure (failed) so you can re-validate before retrying. Hidden once the video is generated to prevent clobbering golden_prompt."/>
                         <button name="action_regenerate_with_failure" string="Regenerate with Failure Reason" type="object"
                                 class="btn-warning"
                                 groups="t2av.group_t2av_manager"
                                 invisible="last_enrichment_state != 'fatal'"
-                                confirm="Re-run enrichment with the validator's failure reasons fed to the LLM? This incurs another Bedrock call."
+                                confirm="Re-run enrichment with the validator's failure reasons fed to the LLM? This incurs another OpenRouter call."
                                 help="Spawn a new enrichment attempt that includes the previous attempt's validator failures as feedback. Auto-stops at the enrichment max-attempts cap."/>
 
                         <!-- First-run only -->
@@ -129,9 +129,11 @@
                                        readonly="state != 'draft' and not ui_retry_pending"
                                        required="1"/>
                                 <field name="enriched_prompt" readonly="1"
+                                       widget="text" colspan="2"
                                        invisible="not enriched_prompt"
                                        placeholder="Will be populated by the Enrich Prompt button."/>
                                 <field name="golden_prompt" readonly="1"
+                                       widget="text" colspan="2"
                                        invisible="not golden_prompt"
                                        placeholder="Set when QC passes clean."/>
                                 <field name="is_golden" invisible="1"/>
@@ -145,6 +147,15 @@
                                     <i class="fa fa-exclamation-triangle"/>
                                     <strong> Not Golden:</strong> validator has warnings or hasn't been re-run. Click <em>Run QC</em>.
                                 </div>
+                                <field name="meta_prompt" widget="text" colspan="2"
+                                       placeholder="Generator instruction from CSV. Recovery source when prompt is ambiguous."/>
+                                <field name="raw_prompt" widget="text" colspan="2" readonly="1"
+                                       invisible="not raw_prompt"
+                                       placeholder="Original prompt from CSV (preserved). Differs from 'prompt' when recovery overwrote it."/>
+                                <field name="ambiguity_detected" invisible="not ambiguity_detected"/>
+                                <field name="ambiguity_reasons" invisible="not ambiguity_reasons"/>
+                                <field name="recovery_used" invisible="not recovery_used"/>
+                                <field name="recovery_tier" invisible="recovery_tier == 'none'"/>
                                 <field name="duration"
                                        readonly="state != 'draft' and not ui_retry_pending"/>
                                 <field name="resolution"
@@ -191,11 +202,12 @@
                             <group>
                                 <field name="topic" placeholder="e.g. coffee shop morning"/>
                                 <field name="sub_category" placeholder="e.g. footstep_sync"/>
+                                <field name="prompt_language"/>
                             </group>
                         </group>
 
                         <notebook>
-                            <page string="Reviews" name="reviews">
+                            <page string="Reviews" name="reviews" invisible="1">
                                 <field name="review_ids" readonly="1">
                                     <list create="false" delete="false" edit="false"
                                           decoration-success="effective_verdict == 'accept'"
@@ -348,19 +360,24 @@
                                                     <field name="completed_at" readonly="1"/>
                                                 </group>
                                             </group>
-                                            <group string="Enriched Prompt" invisible="not enriched_text">
-                                                <field name="enriched_text" readonly="1" nolabel="1"/>
+                                            <group invisible="not reject_reason">
+                                                <field name="reject_reason" readonly="1"/>
                                             </group>
-                                            <group string="Validator Warnings" invisible="not validator_warnings">
-                                                <field name="validator_warnings" readonly="1" nolabel="1"/>
-                                            </group>
-                                            <group string="Validator Fatals" invisible="not validator_fatals">
-                                                <field name="validator_fatals" readonly="1" nolabel="1"/>
-                                            </group>
-                                            <group string="Error" invisible="not error_message">
+                                            <separator string="Enriched Prompt" invisible="not enriched_text"/>
+                                            <field name="enriched_text" readonly="1" nolabel="1"
+                                                   widget="text" invisible="not enriched_text"/>
+                                            <separator string="Validator Warnings" invisible="not validator_warnings"/>
+                                            <field name="validator_warnings" readonly="1" nolabel="1"
+                                                   widget="text" invisible="not validator_warnings"/>
+                                            <separator string="Validator Fatals" invisible="not validator_fatals"/>
+                                            <field name="validator_fatals" readonly="1" nolabel="1"
+                                                   widget="text" invisible="not validator_fatals"/>
+                                            <group invisible="not error_message">
                                                 <field name="error_code" readonly="1"/>
-                                                <field name="error_message" readonly="1" nolabel="1"/>
                                             </group>
+                                            <separator string="Error Message" invisible="not error_message"/>
+                                            <field name="error_message" readonly="1" nolabel="1"
+                                                   widget="text" invisible="not error_message"/>
                                         </sheet>
                                     </form>
                                 </field>
@@ -447,10 +464,12 @@
                       decoration-danger="state in ('failed','cancelled')"
                       decoration-info="state in ('queued','submitting','processing','downloading')">
                     <header>
-                        <button name="action_batch_publish_pipeline" string="Publish to RabbitMQ" type="object"
+                        <button name="%(t2av.action_t2av_batch_publish_wizard)d"
+                                string="Batch processing"
+                                type="action"
                                 class="btn-primary"
-                                confirm="Publish selected records to the RabbitMQ pipeline? Consumer will process at ~15 in parallel."
-                                display="always"/>
+                                display="always"
+                                groups="t2av.group_t2av_manager"/>
                     </header>
                     <field name="name"/>
                     <field name="prompt" optional="show"/>
@@ -515,6 +534,15 @@
                     <filter name="filter_review_fail" string="Review: Fail"
                             domain="[('review_status', '=', 'fail')]"/>
                     <separator/>
+                    <filter name="filter_ambiguous" string="Ambiguous Inputs"
+                            domain="[('ambiguity_detected', '=', True)]"/>
+                    <filter name="filter_recovered" string="Recovered"
+                            domain="[('recovery_used', '=', True)]"/>
+                    <filter name="filter_recovered_tier1" string="Recovered (Tier 1 LLM)"
+                            domain="[('recovery_tier', '=', 'tier1')]"/>
+                    <filter name="filter_recovered_tier2" string="Recovered (Tier 2 Template)"
+                            domain="[('recovery_tier', '=', 'tier2')]"/>
+                    <separator/>
                     <filter name="filter_stuck" string="Stuck (needs reconcile)"
                             domain="[
                                 ('state', 'in', ('submitting','processing','downloading')),
@@ -562,6 +590,58 @@
             <field name="help" type="html">
                 <p class="o_view_nocontent_smiling_face">Create your first video generation</p>
                 <p>Write a prompt, pick a resolution and duration, then hit Generate.</p>
+            </field>
+        </record>
+
+        <!-- Complete (state='done') List View -->
+        <record id="view_t2av_generation_list_complete" model="ir.ui.view">
+            <field name="name">t2av.generation.list.complete</field>
+            <field name="model">t2av.generation</field>
+            <field name="priority">99</field>
+            <field name="inherit_id" ref="view_t2av_generation_list"/>
+            <field name="mode">primary</field>
+            <field name="arch" type="xml">
+                <xpath expr="//list" position="attributes">
+                    <attribute name="create">false</attribute>
+                    <attribute name="edit">false</attribute>
+                    <attribute name="delete">false</attribute>
+                    <attribute name="duplicate">false</attribute>
+                    <attribute name="import">false</attribute>
+                    <attribute name="export_xlsx">false</attribute>
+                </xpath>
+                <xpath expr="//header" position="replace">
+                    <header>
+                        <button name="action_export_complete_csv"
+                                type="object"
+                                string="Download CSV"
+                                class="btn-secondary"
+                                display="always"
+                                groups="t2av.group_t2av_user"/>
+                        <button name="action_export_complete_xlsx"
+                                type="object"
+                                string="Download XLSX"
+                                class="btn-primary"
+                                display="always"
+                                groups="t2av.group_t2av_user"/>
+                    </header>
+                </xpath>
+            </field>
+        </record>
+
+        <!-- Complete (state='done') Action -->
+        <record id="action_t2av_generation_complete" model="ir.actions.act_window">
+            <field name="name">Complete</field>
+            <field name="res_model">t2av.generation</field>
+            <field name="view_mode">list,form</field>
+            <field name="view_ids" eval="[(5, 0, 0),
+                (0, 0, {'view_mode': 'list', 'view_id': ref('view_t2av_generation_list_complete')}),
+                (0, 0, {'view_mode': 'form', 'view_id': ref('view_t2av_generation_form')})]"/>
+            <field name="search_view_id" ref="view_t2av_generation_search"/>
+            <field name="domain">[('state', '=', 'done')]</field>
+            <field name="context">{}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No completed generations yet</p>
+                <p>Generations appear here once they reach the <b>Done</b> state. Use the buttons above to export CSV or XLSX.</p>
             </field>
         </record>
 

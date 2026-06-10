@@ -89,6 +89,33 @@
                                nolabel="1"
                                placeholder='{"type": "service_account", "project_id": "...", "private_key": "...", ...}'/>
                     </group>
+
+                    <separator string="S3 Storage (for uploaded attachments)"/>
+                    <div class="text-muted small mb-2">
+                        Uploaded files (deliverables, resources, etc.) go to S3.
+                        Drive receives small generated files plus a
+                        <code>&lt;filename&gt;.url.txt</code> pointer with a
+                        presigned download link for each S3-stored file.
+                    </div>
+                    <group>
+                        <group>
+                            <field name="s3_bucket"
+                                   placeholder="e.g. production-grtlabs-tag"/>
+                            <field name="s3_region"
+                                   placeholder="us-east-1"/>
+                            <field name="s3_folder"
+                                   placeholder="optional prefix, e.g. fenrir"/>
+                            <field name="s3_endpoint_url"
+                                   placeholder="leave empty for AWS S3"/>
+                        </group>
+                        <group>
+                            <field name="s3_access_key_id"
+                                   placeholder="AKIA..."/>
+                            <field name="s3_secret_access_key"
+                                   password="True"/>
+                            <field name="s3_presigned_url_expiry_days"/>
+                        </group>
+                    </group>
                     <div class="alert alert-warning mt-2" role="alert"
                          invisible="auth_method != 'service_account'">
                         <strong>Service Account setup (Workspace + Shared Drive required):</strong>

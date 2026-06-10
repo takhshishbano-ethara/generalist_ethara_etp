@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data noupdate="1">
+        <!--
+        Disabled 2026-06-10: moving fully away from ir.cron.
+        Replaced by self-rescheduling RabbitMQ poll messages per attempt
+        (see services/rabbitmq_service.schedule_poll and consumer.py poll handler).
+        Records remain in XML for rollback only.
+
         <record id="ir_cron_t2av_poll_openrouter" model="ir.cron">
             <field name="name">T2AV: Poll OpenRouter Attempts</field>
             <field name="model_id" ref="model_t2av_attempt"/>
@@ -20,6 +26,15 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+        -->
+
+        <!--
+        Disabled 2026-06-10: moving away from ir.cron-based workflow.
+        These three video-review crons are replaced by event-driven equivalents:
+          - watchdog_reviews     -> per-record TTL message on review submit (delayed RabbitMQ msg)
+          - run_queued_reviews   -> direct publish to a 't2av.review' queue on create; ThreadPool consumer handles them
+          - reap_stale_stack_locks -> postcommit one-shot timer per lock (or TransientModel autovacuum)
+        See chat 2026-06-10 for design. Records remain in XML for rollback only.
 
         <record id="ir_cron_t2av_watchdog_reviews" model="ir.cron">
             <field name="name">T2AV: Watchdog Stuck Video Reviews</field>
@@ -50,6 +65,11 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+        -->
+
+        <!--
+        Disabled 2026-06-10: superseded by handle_poll_message (event-driven).
+        Pipeline liveness no longer needs a periodic sweep.
 
         <record id="ir_cron_t2av_watchdog_pipeline" model="ir.cron">
             <field name="name">T2AV: Watchdog Stuck Pipelines</field>
@@ -60,5 +80,6 @@
             <field name="interval_type">minutes</field>
             <field name="active" eval="True"/>
         </record>
+        -->
     </data>
 </odoo>

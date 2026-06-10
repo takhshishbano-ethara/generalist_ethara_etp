@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_i2i_item" model="ir.sequence">
+            <field name="name">I2I Item</field>
+            <field name="code">i2i.item</field>
+            <field name="prefix">I2I/%(range_year)s/</field>
+            <field name="padding">6</field>
+            <field name="number_increment">1</field>
+            <field name="number_next_actual">1</field>
+            <field name="use_date_range" eval="True"/>
+            <field name="implementation">standard</field>
+        </record>
+
+        <record id="seq_i2i_project" model="ir.sequence">
+            <field name="name">I2I Project</field>
+            <field name="code">i2i.project</field>
+            <field name="prefix">I2IP/</field>
+            <field name="padding">4</field>
+            <field name="number_increment">1</field>
+            <field name="number_next_actual">1</field>
+            <field name="implementation">standard</field>
+        </record>
+    </data>
+</odoo>

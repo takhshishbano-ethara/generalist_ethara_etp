@@ -1,1 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_crowley_sourcing_batch_delivery_user,crowley.sourcing.batch.delivery user,model_crowley_sourcing_batch_delivery,video_editor_s3.group_video_editor_s3_user,1,1,1,0
+access_crowley_sourcing_batch_delivery_manager,crowley.sourcing.batch.delivery manager,model_crowley_sourcing_batch_delivery,video_editor_s3.group_video_editor_s3_manager,1,1,1,1
+access_crowley_sourcing_batch_delivery_add_wizard_user,crowley.sourcing.batch.delivery.add.wizard user,model_crowley_sourcing_batch_delivery_add_wizard,video_editor_s3.group_video_editor_s3_user,1,1,1,0

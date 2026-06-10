@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_talos_batch_delivery_list" model="ir.ui.view">
+        <field name="name">talos.batch.delivery.list</field>
+        <field name="model">talos.batch.delivery</field>
+        <field name="arch" type="xml">
+            <list string="Talos Batch Deliveries">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="job_count"/>
+                <field name="state" decoration-info="state == 'draft'" decoration-success="state == 'delivered'" decoration-warning="state == 'confirmed'" decoration-danger="state == 'cancelled'"/>
+                <field name="delivered_on"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_talos_batch_delivery_form" model="ir.ui.view">
+        <field name="name">talos.batch.delivery.form</field>
+        <field name="model">talos.batch.delivery</field>
+        <field name="arch" type="xml">
+            <form string="Talos Batch Delivery">
+                <header>
+                    <button name="action_confirm" type="object" string="Confirm" class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_mark_delivered" type="object" string="Mark Delivered" class="btn-primary" invisible="state != 'confirmed'"/>
+                    <button name="action_export_csv" type="object" string="Export CSV" invisible="state == 'cancelled'"/>
+                    <button name="action_reset_to_draft" type="object" string="Reset to Draft" invisible="state in ('draft', 'delivered')"/>
+                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('delivered', 'cancelled')"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,delivered"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="user_id"/>
+                            <field name="job_count"/>
+                        </group>
+                        <group>
+                            <field name="delivered_on"/>
+                            <field name="csv_filename" invisible="not csv_filename"/>
+                            <field name="csv_file" filename="csv_filename" invisible="not csv_file"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Tasks" name="tasks">
+                            <field name="job_ids" readonly="state != 'draft'">
+                                <list>
+                                    <field name="task_id"/>
+                                    <field name="employee_id"/>
+                                    <field name="task_status"/>
+                                    <field name="task_type"/>
+                                    <field name="difficulty"/>
+                                    <field name="qc_status"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="CSV Columns" name="csv_columns">
+                            <p class="text-muted">Leave empty to use defaults: <field name="column_ids" nolabel="1" widget="many2many_tags" options="{'no_create': True}"/></p>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_talos_batch_delivery_search" model="ir.ui.view">
+        <field name="name">talos.batch.delivery.search</field>
+        <field name="model">talos.batch.delivery</field>
+        <field name="arch" type="xml">
+            <search string="Talos Batch Deliveries">
+                <field name="name"/>
+                <field name="user_id"/>
+                <filter string="Draft" name="filter_draft" domain="[('state', '=', 'draft')]"/>
+                <filter string="Confirmed" name="filter_confirmed" domain="[('state', '=', 'confirmed')]"/>
+                <filter string="Delivered" name="filter_delivered" domain="[('state', '=', 'delivered')]"/>
+                <filter string="Cancelled" name="filter_cancelled" domain="[('state', '=', 'cancelled')]"/>
+                <separator/>
+                <filter string="My Batches" name="filter_mine" domain="[('user_id', '=', uid)]"/>
+                <group>
+                    <filter string="Status" name="group_state" context="{'group_by': 'state'}"/>
+                    <filter string="Owner" name="group_user" context="{'group_by': 'user_id'}"/>
+                    <filter string="Created" name="group_create_date" context="{'group_by': 'create_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_talos_batch_delivery" model="ir.actions.act_window">
+        <field name="name">Batch Deliveries</field>
+        <field name="res_model">talos.batch.delivery</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_talos_batch_delivery_search"/>
+    </record>
+
+    <menuitem id="menu_talos_batch_delivery"
+              name="Batch Deliveries"
+              parent="talos.menu_talos_root"
+              action="action_talos_batch_delivery"
+              sequence="50"/>
+
+    <record id="view_talos_batch_delivery_add_wizard_form" model="ir.ui.view">
+        <field name="name">talos.batch.delivery.add.wizard.form</field>
+        <field name="model">talos.batch.delivery.add.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Add to Batch Delivery">
+                <group>
+                    <field name="mode" widget="radio"/>
+                    <field name="batch_id" invisible="mode != 'existing'" required="mode == 'existing'"/>
+                    <field name="name" invisible="mode != 'new'"/>
+                    <field name="notes" invisible="mode != 'new'"/>
+                </group>
+                <group string="Selected Tasks">
+                    <field name="job_ids" nolabel="1" readonly="1">
+                        <list>
+                            <field name="task_id"/>
+                            <field name="employee_id"/>
+                            <field name="task_status"/>
+                        </list>
+                    </field>
+                </group>
+                <footer>
+                    <button name="action_apply" type="object" string="Apply" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

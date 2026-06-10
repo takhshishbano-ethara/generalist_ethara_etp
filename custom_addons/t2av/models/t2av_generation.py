@@ -23,6 +23,7 @@ import time
 
 from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError, ValidationError
+from odoo.tools import SQL
 
 from . import credential_manager
 
@@ -57,6 +58,7 @@ _TERMINAL = {_STATE_DONE, _STATE_FAILED, _STATE_CANCELLED}
 MAX_ATTEMPTS = 3
 
 CATEGORY_SELECTION = [
+    ("advertisements",         "Advertisements"),
     ("animals_wildlife",       "Animals Wildlife"),
     ("animated_styles",        "Animated Styles"),
     ("animated_text",          "Animated Text"),
@@ -70,6 +72,7 @@ CATEGORY_SELECTION = [
     ("multi_speaker_dialogue", "Multi-Speaker Dialogue"),
     ("music_performance",      "Music Performance"),
     ("narrative_cinematic",    "Narrative Cinematic"),
+    ("narrative_sequences",    "Narrative Sequences"),
     ("natural_patterns",       "Natural Patterns"),
     ("nature_weather",         "Nature Weather"),
     ("person_emoting",         "Person Emoting"),
@@ -85,6 +88,19 @@ class T2AVGeneration(models.Model):
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "create_date desc"
     _rec_name = "name"
+
+    _NATURAL_SORT_FIELDS = ("duration", "resolution")
+
+    def _order_field_to_sql(self, alias, field_name, direction, nulls, query):
+        if field_name in self._NATURAL_SORT_FIELDS:
+            sql_field = self._field_to_sql(alias, field_name, query)
+            sql_expr = SQL(
+                "CAST(NULLIF(REGEXP_REPLACE(%s, '[^0-9]', '', 'g'), '') AS INTEGER)",
+                sql_field,
+            )
+            query._order_groupby.append(sql_expr)
+            return SQL("%s %s %s", sql_expr, direction, nulls)
+        return super()._order_field_to_sql(alias, field_name, direction, nulls, query)
 
     # ------------------------------------------------------------------
     # Identity / ownership
@@ -127,6 +143,21 @@ class T2AVGeneration(models.Model):
         tracking=True,
     )
     negative_prompt = fields.Text(string="Negative Prompt")
+    meta_prompt = fields.Text(
+        string="Meta Prompt",
+        tracking=True,
+        help="Full generator instruction from CSV. Used as the recovery "
+             "source when prompt is ambiguous/garbage. Required at import.",
+    )
+    raw_prompt = fields.Text(
+        string="Raw Prompt",
+        readonly=True,
+        tracking=True,
+        copy=False,
+        help="Original prompt as ingested from CSV. Preserved untouched "
+             "for audit. May contain garbage. Compare against 'prompt' "
+             "to see if recovery overwrote the working value.",
+    )
     duration = fields.Selection(
         [
             ("4", "4s"), ("5", "5s"), ("6", "6s"), ("7", "7s"), ("8", "8s"),
@@ -160,6 +191,17 @@ class T2AVGeneration(models.Model):
     )
 
     sub_category = fields.Char(string="Sub-Category", tracking=True)
+    prompt_language = fields.Selection(
+        [
+            ("english", "English"),
+            ("non_english", "Non-English"),
+        ],
+        string="Prompt Language",
+        default="english",
+        tracking=True,
+        help="Manual-parity early-skip guard. Set to 'non_english' to skip "
+        "enrichment without an LLM call.",
+    )
     style = fields.Selection(
         [
             ("casual", "Casual"),
@@ -206,6 +248,46 @@ class T2AVGeneration(models.Model):
         string="Golden Source", readonly=True, copy=False,
         help="Which layer of the enrichment pipeline produced the current "
              "Golden Prompt. Used for observability.",
+    )
+
+    # ------------------------------------------------------------------
+    # Ambiguity recovery telemetry (Stage 0 detector + Tier 1/2 fallback).
+    # Pre-enrichment guard runs on Enrich click; overwrites `prompt` if
+    # recovery succeeded. `raw_prompt` always preserves the original.
+    # ------------------------------------------------------------------
+    ambiguity_detected = fields.Boolean(
+        string="Ambiguity Detected",
+        default=False,
+        tracking=True,
+        copy=False,
+        help="True if Stage 0 detector flagged raw_prompt as ambiguous "
+             "before enrichment ran.",
+    )
+    ambiguity_reasons = fields.Char(
+        string="Ambiguity Reasons",
+        copy=False,
+        help="Semicolon-separated reason codes from the Stage 0 detector "
+             "(e.g., 'llm_special_token;concat_repeat'). Blank if clean.",
+    )
+    recovery_used = fields.Boolean(
+        string="Recovery Used",
+        default=False,
+        copy=False,
+        help="True if ambiguity recovery (Tier 1 LLM or Tier 2 template) "
+             "produced the working `prompt`. Compare with raw_prompt to "
+             "see the original input.",
+    )
+    recovery_tier = fields.Selection(
+        [
+            ("none", "None"),
+            ("tier1", "Tier 1 (LLM)"),
+            ("tier2", "Tier 2 (Template)"),
+        ],
+        string="Recovery Tier",
+        default="none",
+        copy=False,
+        help="Which recovery layer produced the working prompt. "
+             "'tier1' = Gemini QC; 'tier2' = deterministic template fallback.",
     )
 
     # ------------------------------------------------------------------
@@ -654,8 +736,8 @@ class T2AVGeneration(models.Model):
             stripped = (rec.prompt or "").strip()
             if not stripped:
                 raise ValidationError(_("Prompt is required."))
-            if len(stripped) > 2000:
-                raise ValidationError(_("Prompt must be at most 2000 characters."))
+            if len(stripped) > 20000:
+                raise ValidationError(_("Prompt must be at most 20000 characters."))
 
     @api.constrains("seed")
     def _check_seed(self):
@@ -728,6 +810,12 @@ class T2AVGeneration(models.Model):
             ))
         self._validate_can_submit()
         attempt = self._spawn_attempt()
+        self.write({
+            "pipeline_status": "running",
+            "pipeline_started_at": fields.Datetime.now(),
+            "pipeline_finished_at": False,
+            "pipeline_error_text": False,
+        })
         self.message_post(body=_("Generation queued (attempt 1)."))
         attempt._defer("_run_submit")
         return self._display_queued_notification()
@@ -751,7 +839,21 @@ class T2AVGeneration(models.Model):
                             "Golden Prompt and Enriched Prompt invalidated because "
                             "source metadata changed. Re-run Enrich to refresh."
                         ))
-        return super().write(vals)
+
+        promote_to_queued = []
+        if vals.get("golden_prompt"):
+            for rec in self:
+                if rec.pipeline_status in ("not_published", "failed", False, None):
+                    promote_to_queued.append(rec.id)
+
+        result = super().write(vals)
+
+        if promote_to_queued:
+            self.browse(promote_to_queued).write({
+                "pipeline_status": "queued",
+            })
+
+        return result
 
     def action_batch_enrich(self):
         _logger.info(
@@ -1364,6 +1466,109 @@ class T2AVGeneration(models.Model):
             },
         }
 
+    def _t2av_run_ambiguity_recovery_pass(self):
+        self.ensure_one()
+        icp = self.env["ir.config_parameter"].sudo()
+        if icp.get_param(
+            "t2av.ambiguity_recovery_enabled", "False"
+        ).strip().lower() != "true":
+            return
+        if self.recovery_used:
+            return
+
+        from ..services import ambiguity_detector, enrichment_client, recovery_templates
+
+        prompt = self.prompt or ""
+        result = ambiguity_detector.detect_ambiguity(
+            prompt,
+            language=self.language,
+            topic=self.topic,
+            category=self.category,
+        )
+        if not result["is_ambiguous"]:
+            return
+
+        reasons = result["reasons"]
+        self.write({
+            "ambiguity_detected": True,
+            "ambiguity_reasons": ";".join(reasons),
+        })
+
+        meta_prompt = (self.meta_prompt or "").strip()
+        if not meta_prompt:
+            self.message_post(body=_(
+                "Ambiguity detected (%s) but meta_prompt is empty. "
+                "Enrichment will run on the original prompt; no recovery applied."
+            ) % ";".join(reasons))
+            return
+
+        api_key = credential_manager.get_openrouter_api_key(self.env)
+        if not api_key:
+            self.message_post(body=_(
+                "Ambiguity detected (%s) but OpenRouter API key missing. "
+                "Falling back to Tier 2 template recovery."
+            ) % ";".join(reasons))
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        http_referer = icp.get_param("t2av.http_referer", "")
+        app_title = icp.get_param("t2av.app_title", "Ethara T2AV")
+
+        try:
+            qc = enrichment_client.enrich_qc(
+                openrouter_api_key=api_key,
+                meta_prompt=meta_prompt,
+                category=self.category or "",
+                sub_category=self.sub_category or "",
+                topic=self.topic or "",
+                style=self.style or "casual",
+                bad_sample=prompt,
+                reasons=reasons,
+                language=self.language or "english",
+                complexity=self.complexity or "moderate",
+                http_referer=http_referer,
+                app_title=app_title,
+            )
+            derived = (qc.get("text") or "").strip()
+        except enrichment_client.EnrichmentError as exc:
+            self.message_post(body=_(
+                "Tier 1 recovery LLM failed: %s. Falling back to Tier 2."
+            ) % exc)
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        if not derived:
+            self.message_post(body=_(
+                "Tier 1 returned empty output. Falling back to Tier 2."
+            ))
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        recheck = ambiguity_detector.detect_ambiguity(derived)
+        if recheck["is_ambiguous"]:
+            self.message_post(body=_(
+                "Tier 1 output still ambiguous (%s). Falling back to Tier 2."
+            ) % ";".join(recheck["reasons"]))
+            derived = recovery_templates.tier2_template_fallback(self)
+            self._t2av_apply_recovery(derived, "tier2", reasons)
+            return
+
+        self._t2av_apply_recovery(derived, "tier1", reasons)
+
+    def _t2av_apply_recovery(self, derived_prompt, tier, reasons):
+        self.write({
+            "prompt": derived_prompt,
+            "recovery_used": True,
+            "recovery_tier": tier,
+        })
+        self.message_post(body=_(
+            "Ambiguity recovery successful via %s. Reasons: %s. "
+            "Working `prompt` overwritten; `raw_prompt` preserves the original."
+        ) % (tier, ";".join(reasons)))
+
     def action_enrich(self):
         self.ensure_one()
         if not (self.prompt or "").strip():
@@ -1384,6 +1589,8 @@ class T2AVGeneration(models.Model):
                 "Maximum %d enrichment attempts reached for %s. "
                 "Edit the prompt or metadata to start a fresh row."
             ) % (max_attempts, self.display_name))
+
+        self._t2av_run_ambiguity_recovery_pass()
 
         access_key = credential_manager.get_aws_access_key(self.env)
         secret_key = credential_manager.get_aws_secret_key(self.env)
@@ -1472,6 +1679,12 @@ class T2AVGeneration(models.Model):
         self._validate_can_submit()
         self.write({"ui_retry_pending": False})
         attempt = self._spawn_attempt()
+        self.write({
+            "pipeline_status": "running",
+            "pipeline_started_at": fields.Datetime.now(),
+            "pipeline_finished_at": False,
+            "pipeline_error_text": False,
+        })
         self.message_post(body=_(
             "Retry queued (attempt %(n)d). Changes: %(diff)s"
         ) % {
@@ -1555,6 +1768,11 @@ class T2AVGeneration(models.Model):
                     "T2AV: cancel_job best-effort failed for attempt %s",
                     a.id,
                 )
+        self.write({
+            "pipeline_status": "failed",
+            "pipeline_finished_at": fields.Datetime.now(),
+            "pipeline_error_text": "Cancelled by user",
+        })
         self.message_post(body=_("Attempt %d cancelled.") % a.attempt_number)
         return True
 
@@ -1666,7 +1884,7 @@ class T2AVGeneration(models.Model):
             eligible.ids, user_id=self.env.user.id, source="list_view_publish",
         )
         for rec in eligible:
-            rec.message_post(body=_("Published to RabbitMQ pipeline."))
+            rec.message_post(body=_("Sent to batch processing pipeline."))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -1702,8 +1920,20 @@ class T2AVGeneration(models.Model):
         rabbitmq_service.publish_pipeline_task(
             self.id, user_id=self.env.user.id, source="manual_retry",
         )
-        self.message_post(body=_("Republished to RabbitMQ pipeline."))
+        self.message_post(body=_("Re-sent to batch processing pipeline."))
         return self._display_queued_notification()
+
+    def action_export_complete_csv(self):
+        return self._export_complete_action("csv")
+
+    def action_export_complete_xlsx(self):
+        return self._export_complete_action("xlsx")
+
+    def _export_complete_action(self, fmt):
+        url = "/t2av/export/complete?format=%s" % fmt
+        if self.ids:
+            url += "&ids=" + ",".join(str(i) for i in self.ids)
+        return {"type": "ir.actions.act_url", "url": url, "target": "self"}
 
     @api.model
     def run_pipeline_sync(self, record_id):
@@ -1756,7 +1986,6 @@ class T2AVGeneration(models.Model):
                     "enrichment did not produce a golden_prompt"
                 )
             attempt = record._spawn_attempt()
-            attempt = attempt.with_context(t2av_inline_pipeline=True)
             attempt._run_submit()
             if attempt.state == _STATE_FAILED:
                 raise _PermanentPipelineError(
@@ -1764,25 +1993,6 @@ class T2AVGeneration(models.Model):
                         attempt.error_message or attempt.error_code or ""
                     )
                 )
-            self._pipeline_poll_until_terminal(attempt)
-            attempt.invalidate_recordset()
-            if attempt.state == _STATE_FAILED:
-                raise _PermanentPipelineError(
-                    "attempt failed: %s" % (
-                        attempt.error_message or attempt.error_code or ""
-                    )
-                )
-            if attempt.state == _STATE_CANCELLED:
-                raise _PermanentPipelineError("attempt cancelled")
-            if attempt.state != _STATE_DONE:
-                raise Exception(
-                    "attempt ended in unexpected state %s" % attempt.state
-                )
-            record.write({
-                "pipeline_status": "done",
-                "pipeline_finished_at": fields.Datetime.now(),
-            })
-            record.message_post(body=_("Pipeline complete; video ready."))
             return True
         except _PermanentPipelineError as exc:
             record.write({
@@ -1844,47 +2054,44 @@ class T2AVGeneration(models.Model):
                 "enrichment exhausted after %d attempts" % max_attempts
             )
 
-    def _pipeline_poll_until_terminal(self, attempt):
-        icp = self.env["ir.config_parameter"].sudo()
-        try:
-            wall_clock_cap = int(
-                icp.get_param("t2av.pipeline.max_wall_clock_seconds", "1800")
-            )
-        except (TypeError, ValueError):
-            wall_clock_cap = 1800
-        try:
-            poll_initial = int(
-                icp.get_param("t2av.pipeline.poll_initial_seconds", "15")
-            )
-        except (TypeError, ValueError):
-            poll_initial = 15
-        try:
-            poll_max = int(
-                icp.get_param("t2av.pipeline.poll_max_seconds", "60")
-            )
-        except (TypeError, ValueError):
-            poll_max = 60
-        # Wait for the cron _cron_poll_openrouter (every 60s) to transition
-        # the attempt to a fully terminal state. Consumer thread does NOT
-        # poll OpenRouter itself - having two pollers causes the cron's
-        # postcommit _run_download to fire in a separate cursor while the
-        # consumer races ahead, leaving pipeline_status stuck at 'running'.
-        # Single source of truth = cron.
-        deadline = time.monotonic() + wall_clock_cap
-        delay = poll_initial
-        while True:
-            attempt.invalidate_recordset()
-            if attempt.state in (
-                _STATE_DONE, _STATE_FAILED, _STATE_CANCELLED,
-            ):
-                return
-            if time.monotonic() >= deadline:
-                raise _PermanentPipelineError(
-                    "polling exceeded wall-clock cap of %ds" % wall_clock_cap
-                )
-            time.sleep(delay)
-            self._pipeline_heartbeat(attempt.job_id)
-            delay = min(delay * 2, poll_max)
+    # Disabled 2026-06-10: polling now async via rabbitmq_service.schedule_poll
+    # (see t2av_attempt._handle_poll_message). Method kept commented for rollback.
+    #
+    # def _pipeline_poll_until_terminal(self, attempt):
+    #     icp = self.env["ir.config_parameter"].sudo()
+    #     try:
+    #         wall_clock_cap = int(
+    #             icp.get_param("t2av.pipeline.max_wall_clock_seconds", "1800")
+    #         )
+    #     except (TypeError, ValueError):
+    #         wall_clock_cap = 1800
+    #     try:
+    #         poll_initial = int(
+    #             icp.get_param("t2av.pipeline.poll_initial_seconds", "15")
+    #         )
+    #     except (TypeError, ValueError):
+    #         poll_initial = 15
+    #     try:
+    #         poll_max = int(
+    #             icp.get_param("t2av.pipeline.poll_max_seconds", "60")
+    #         )
+    #     except (TypeError, ValueError):
+    #         poll_max = 60
+    #     deadline = time.monotonic() + wall_clock_cap
+    #     delay = poll_initial
+    #     while True:
+    #         attempt.invalidate_recordset()
+    #         if attempt.state in (
+    #             _STATE_DONE, _STATE_FAILED, _STATE_CANCELLED,
+    #         ):
+    #             return
+    #         if time.monotonic() >= deadline:
+    #             raise _PermanentPipelineError(
+    #                 "polling exceeded wall-clock cap of %ds" % wall_clock_cap
+    #             )
+    #         time.sleep(delay)
+    #         self._pipeline_heartbeat(attempt.job_id)
+    #         delay = min(delay * 2, poll_max)
 
     @api.model
     def _cron_watchdog_pipeline(self):

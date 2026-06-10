@@ -1,0 +1,23 @@
+// Force the Seller Offers kanban on the task form to render as a
+// vertical stack of full-width "section" cards instead of a tight grid.
+.fenrir-seller-stacked.o_kanban_renderer,
+.fenrir-seller-stacked .o_kanban_renderer {
+    flex-direction: column !important;
+
+    .o_kanban_record {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex-basis: auto !important;
+        margin-bottom: 0.75rem;
+    }
+}
+
+// Belt and braces: when the kanban class lands on the root element itself.
+.o_kanban_view.fenrir-seller-stacked,
+.fenrir-seller-stacked > .o_kanban_record {
+    .o_kanban_record {
+        width: 100% !important;
+        max-width: 100% !important;
+        flex-basis: auto !important;
+    }
+}

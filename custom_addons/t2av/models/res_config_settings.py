@@ -108,10 +108,40 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="t2av.bedrock_max_retries",
         default=5,
     )
+    t2av_openrouter_enrichment_model_id = fields.Char(
+        string="Enrichment Model ID (OpenRouter)",
+        config_parameter="t2av.openrouter_enrichment_model_id",
+        default="google/gemini-3.5-flash",
+        help="OpenRouter model slug for prompt enrichment. Default: "
+             "google/gemini-3.5-flash (fast, cheap, 1M context).",
+    )
+    t2av_openrouter_enrichment_max_retries = fields.Integer(
+        string="OpenRouter Enrichment Max Retries",
+        config_parameter="t2av.openrouter_enrichment_max_retries",
+        default=5,
+        help="Per-call HTTP retry attempts on transient errors (429/5xx).",
+    )
+    t2av_openrouter_top_p = fields.Float(
+        string="OpenRouter top_p",
+        config_parameter="t2av.openrouter_top_p",
+        default=1.0,
+        help="Nucleus sampling parameter for enrichment. Values <= 0 omit "
+             "the field from the request.",
+    )
     t2av_enrichment_max_attempts = fields.Integer(
         string="Enrichment Max Attempts per Job",
         config_parameter="t2av.enrichment_max_attempts",
         default=3,
+    )
+    t2av_ambiguity_recovery_enabled = fields.Boolean(
+        string="Enable Ambiguity Recovery",
+        config_parameter="t2av.ambiguity_recovery_enabled",
+        default=False,
+        help="Pre-enrichment guard that detects garbage prompts "
+             "(chat-template tokens, repetition loops, length outliers) "
+             "and recovers them via Tier 1 Gemini QC then Tier 2 "
+             "deterministic templates. Default OFF on upgrade; admin opts "
+             "in after staging verification.",
     )
     # ── QC Provider Toggle (Human Stack vs. legacy Gemini surface) ────────
     t2av_enable_gemini_qc = fields.Boolean(
@@ -341,6 +371,7 @@ class ResConfigSettings(models.TransientModel):
 
     @api.constrains(
         "t2av_bedrock_max_retries",
+        "t2av_openrouter_enrichment_max_retries",
         "t2av_enrichment_max_attempts",
         "t2av_review_max_attempts",
         "t2av_review_max_parallel",
@@ -352,6 +383,10 @@ class ResConfigSettings(models.TransientModel):
             if not (1 <= rec.t2av_bedrock_max_retries <= 10):
                 raise ValidationError(_(
                     "Bedrock Max Retries must be between 1 and 10."
+                ))
+            if not (1 <= rec.t2av_openrouter_enrichment_max_retries <= 10):
+                raise ValidationError(_(
+                    "OpenRouter Enrichment Max Retries must be between 1 and 10."
                 ))
             if not (1 <= rec.t2av_enrichment_max_attempts <= 5):
                 raise ValidationError(_(
