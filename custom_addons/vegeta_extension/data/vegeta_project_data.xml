@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- noupdate="1": the project + its tab mappings are auto-created on
+         install, then owned by the team — re-running an upgrade must not reset
+         the name or wipe the tasker / QC reviewer / lead assignments configured
+         in the UI. -->
+    <data noupdate="1">
+
+        <!-- Auto-created Vegeta project. Classified `internal` so the Flutter
+             project detail renders the InternalOverviewTab / InternalAnalyticsTab,
+             which parse the crowley-style response shape the vegeta_ext
+             endpoints return. (External projects render OverviewTab/AnalyticsTab,
+             which expect the gohan-style `overview_dashboard`/`dashboard` shape
+             and would show blank against this payload.) Internal projects are
+             managed from the base Project app; assign team members (PL / QC
+             reviewer / taskers) there after install so the project shows for
+             non-admin users and so the role-scoped dashboards return data. -->
+        <record id="project_vegeta_internal" model="project.project">
+            <field name="name">Vegeta</field>
+            <field name="project_classification">internal</field>
+            <field name="connected_table">vegeta.job</field>
+            <field name="category_url">/v1/vegeta_ext/categories</field>
+            <field name="tasker_url">/v1/vegeta_ext/taskers</field>
+            <!-- The project list domain (_task_forge_live_domain) only returns
+                 projects that are BOTH task_forge_status='live' AND
+                 non_stemp_project_status='production'; without these the project
+                 never appears in /projects. -->
+            <field name="task_forge_status">live</field>
+            <field name="non_stemp_project_status">production</field>
+        </record>
+
+        <!-- Tab → endpoint mappings. These feed the Flutter project detail
+             `tab_list`. Two rules the values MUST obey:
+               1. table_name normalizes (lowercase, strip spaces/underscores)
+                  to a key the app's tab switch knows: overview / analytics /
+                  tasks / logs. An unknown name renders a blank tab.
+               2. api_prefix is relative to BASE_URL (which already ends in
+                  `/api/`), so it starts at `/v1/...`, and ends with
+                  `?project_id=` so the app can append the project id and
+                  `&start_date=…&end_date=…` onto a valid query string. Without
+                  the `?`, the params fuse into the path and the request 404s. -->
+        <record id="api_map_vegeta_overview" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_vegeta_internal"/>
+            <field name="table_name">Overview</field>
+            <field name="field_name">overview</field>
+            <field name="api_prefix">/v1/vegeta_ext/dashboard_overview?project_id=</field>
+        </record>
+
+        <record id="api_map_vegeta_analytics" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_vegeta_internal"/>
+            <field name="table_name">Analytics</field>
+            <field name="field_name">analytics</field>
+            <field name="api_prefix">/v1/vegeta_ext/analytics_dashboard?project_id=</field>
+        </record>
+
+        <record id="api_map_vegeta_tasks" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_vegeta_internal"/>
+            <field name="table_name">Tasks</field>
+            <field name="field_name">tasks</field>
+            <field name="api_prefix">/v1/vegeta_ext/task_view_dashboard?project_id=</field>
+        </record>
+
+        <!-- Logs tab. "Logs" normalizes to the app's built-in LogsTab, which
+             fetches the project's grouped notification/activity feed from the
+             shared /v1/get_notification_grouped endpoint by project id (it does
+             NOT use this api_prefix). The prefix is set to that endpoint anyway
+             for consistency. -->
+        <record id="api_map_vegeta_logs" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_vegeta_internal"/>
+            <field name="table_name">Logs</field>
+            <field name="field_name">logs</field>
+            <field name="api_prefix">/v1/get_notification_grouped?project_id=</field>
+        </record>
+
+    </data>
+</odoo>
