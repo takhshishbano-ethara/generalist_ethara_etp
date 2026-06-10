@@ -139,14 +139,22 @@ def _build_task_view_domain(env, params):
         if raw_category.isdigit():
             domain.append(("category_id", "=", int(raw_category)))
         else:
-            domain.append(("category_id.name", "ilike", raw_category))
+            domain += [
+                "|",
+                ("category", "=", raw_category),
+                ("category_id.code", "=", raw_category),
+            ]
 
     raw_sub_category = (params.get("sub_category") or "").strip()
     if raw_sub_category:
         if raw_sub_category.isdigit():
             domain.append(("sub_category_id", "=", int(raw_sub_category)))
         else:
-            domain.append(("sub_category_id.name", "ilike", raw_sub_category))
+            domain += [
+                "|",
+                ("sub_category", "=", raw_sub_category),
+                ("sub_category_id.code", "=", raw_sub_category),
+            ]
 
     raw_assigned = (params.get("assigned") or params.get("tasker") or "").strip()
     if raw_assigned:
