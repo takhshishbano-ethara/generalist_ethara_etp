@@ -7,6 +7,7 @@ the per-assessment candidate roster (assignments + progress + score).
 import base64
 import csv
 import io
+import json
 
 from odoo import http
 from odoo.http import request
@@ -266,89 +267,65 @@ class EtpAssessmentCandidateController(http.Controller):
                 status=404,
             )
 
-        state_labels = dict(Evaluator._fields["state"].selection)
         Response = env["etp.assessment.response"].sudo()
-        resp_state_labels = dict(Response._fields["state"].selection)
-        Question = env["etp.assessment.question"].sudo()
-        type_labels = dict(Question._fields["question_type"].selection)
-
         responses = Response.search(
             [("assessment_evaluator_id", "=", assignment_id)],
-            order="create_date asc, id asc",
+            order="id desc",
         )
 
-        response_rows = []
+        response_ids_payload = []
         for r in responses:
             q = r.question_id
-            lines = []
-            for line in r.line_ids:
-                lines.append({
-                    "id": line.id,
-                    "dimension_id": (
-                        line.dimension_id.id if line.dimension_id else 0
-                    ),
-                    "dimension_name": (
-                        line.dimension_id.name if line.dimension_id else ""
-                    ),
-                    "selected_option_id": (
-                        line.selected_option_id.id
-                        if line.selected_option_id else 0
-                    ),
-                    "selected_option_name": (
-                        line.selected_option_id.name
-                        if line.selected_option_id else ""
-                    ),
-                })
-            response_rows.append({
+            response_ids_payload.append({
                 "id": r.id,
-                "question_id": q.id if q else 0,
-                "question_name": q.name if q else "",
-                "question_type": q.question_type if q else "",
-                "question_type_label": (
-                    type_labels.get(q.question_type or "", "") if q else ""
+                "question_id": (
+                    {"id": q.id, "display_name": q.display_name or q.name or ""}
+                    if q else False
                 ),
-                "category_id": q.category_id.id if q and q.category_id else 0,
-                "category_name": (
-                    q.category_id.name if q and q.category_id else ""
-                ),
-                "justification": r.justification or "",
-                "state": r.state,
-                "state_label": resp_state_labels.get(r.state, ""),
                 "score": r.score or 0,
-                "max_score": r.max_score or 0,
-                "lines": lines,
-                "create_date": (
-                    r.create_date.isoformat() if r.create_date else None
-                ),
+                "state": r.state,
             })
 
-        return return_Response(
-            message="OK",
-            status=200,
-            data={
-                "role": user_role_tag(env),
-                "candidate": _serialize_assignment(assignment, state_labels),
-                "assessment": {
-                    "id": assignment.assessment_id.id,
-                    "name": assignment.assessment_id.name or "",
-                    "duration_minutes": (
-                        assignment.assessment_id.duration_minutes or 0
-                    ),
-                    "state": assignment.assessment_id.state,
-                },
-                "responses": response_rows,
-                "summary": {
-                    "total_questions": assignment.total_questions or 0,
-                    "answered_count": assignment.answered_count or 0,
-                    "total_score": assignment.total_score or 0,
-                    "max_possible_score": assignment.max_possible_score or 0,
-                    "progress_percent": pct(
-                        assignment.answered_count, assignment.total_questions,
-                    ),
-                    "is_violated": bool(assignment.is_violated),
-                    "violation_reason": assignment.violation_reason or "",
-                },
-            },
+        assessment = assignment.assessment_id
+        employee = assignment.employee_id
+
+        def _dt(value):
+            return value.strftime("%Y-%m-%d %H:%M:%S") if value else False
+
+        result_row = {
+            "id": assignment.id,
+            "state": assignment.state,
+            "violation_reason": assignment.violation_reason or False,
+            "violation_datetime": _dt(assignment.violation_datetime),
+            "assessment_id": (
+                {"id": assessment.id, "display_name": assessment.display_name or assessment.name or ""}
+                if assessment else False
+            ),
+            "employee_id": (
+                {"id": employee.id, "display_name": employee.display_name or employee.name or ""}
+                if employee else False
+            ),
+            "total_questions": assignment.total_questions or 0,
+            "answered_count": assignment.answered_count or 0,
+            "total_score": assignment.total_score or 0,
+            "max_possible_score": assignment.max_possible_score or 0,
+            "is_locked": bool(assignment.is_locked),
+            "is_violated": bool(assignment.is_violated),
+            "response_ids": response_ids_payload,
+            "started_at": _dt(assignment.started_at),
+            "deadline_datetime": _dt(assignment.deadline_datetime),
+        }
+
+        rpc_id = kwargs.get("id")
+        try:
+            rpc_id = int(rpc_id) if rpc_id is not None else None
+        except (TypeError, ValueError):
+            pass
+
+        payload = {"jsonrpc": "2.0", "id": rpc_id, "result": [result_row]}
+        return request.make_response(
+            json.dumps(payload),
+            headers=[("Content-Type", "application/json")],
         )
 
     @http.route(
