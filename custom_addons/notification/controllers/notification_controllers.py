@@ -184,6 +184,8 @@ class KuberhaNotificationRestAPI(http.Controller):
                 base_domain.append(('project_id', '=', int(jdata.get('project_id'))))
             if jdata.get('priority'):
                 base_domain.append(('priority', '=', jdata.get('priority')))
+            if jdata.get('model_name'):
+                base_domain.append(('res_model', '=', jdata.get('model_name')))
             if jdata.get('status'):
                 if jdata.get('status') == 'read':
                     base_domain.append(('is_read', '=', True))

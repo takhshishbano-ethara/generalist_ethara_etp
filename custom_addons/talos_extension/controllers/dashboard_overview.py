@@ -8,19 +8,38 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-BUDGET_PARAM = "talos.budget_usd"
+from .analytics_dashboard import _scope as _role_scope, _total_tokens, _user_role_tag
+
+BUDGET_PARAM = "talos.budget_tokens"
 DEFAULT_TREND_WEEKS = 6
 MAX_TREND_WEEKS = 26
 
-IN_FLIGHT_STATUSES = ("NotSubmitted", "in_progress", "draft")
-DONE_STATUSES = ("Submitted", "completed")
+IN_FLIGHT_GOLDEN = ("generating",)
+IN_FLIGHT_AUTO = ("queued", "processing")
+FAILED_QC = ("failed",)
+FAILED_GOLDEN = ("error",)
+DONE_STATES = ("Submitted",)
 
-FULL_ACCESS_GROUPS = (
-    "talos.group_talos_admin",
+QC_PASS_RATE_WINDOW_DAYS = 30
+MY_ACTIVITY_WINDOW_DAYS = 30
+TASKS_DONE_WINDOW_DAYS = 7
+BURNED_TASKS_LIMIT = 30
+RECENT_ACTIVITY_LIMIT = 8
+COORDINATION_EVENTS_LIMIT = 8
+HEATMAP_LEVELS = 4
+
+WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+ROLE_GUARD_GROUPS = (
+    "etp_user_roles.group_tasker",
+    "etp_user_roles.group_quality_reviewer",
     "etp_user_roles.group_quality_lead",
+    "etp_user_roles.group_project_lead",
+    "etp_user_roles.group_delivery_manager",
+    "etp_user_roles.group_tpm",
+    "etp_user_roles.group_cto",
+    "etp_user_roles.group_founder",
 )
-PL_GROUPS = ("etp_user_roles.group_project_lead",)
-TASKER_GROUPS = ("etp_user_roles.group_tasker",)
 
 
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
@@ -44,40 +63,18 @@ def _week_start(d):
     return d - timedelta(days=d.weekday())
 
 
-def _user_in_any(env, xmlids):
-    user = env.user
-    for xmlid in xmlids:
-        if user.has_group(xmlid):
-            return True
-    return False
-
-
-def _user_role_tag(env):
-    if _user_in_any(env, FULL_ACCESS_GROUPS):
-        return "full"
-    if _user_in_any(env, PL_GROUPS):
-        return "pl"
-    if _user_in_any(env, TASKER_GROUPS):
-        return "tasker"
-    return None
-
-
-def _scope_domain(env):
-    tag = _user_role_tag(env)
-    if tag in ("full", "pl"):
-        return []
-    if tag == "tasker":
-        return [("user_id", "=", env.user.id)]
-    return [("id", "=", False)]
-
-
 def _require_talos_user():
-    if _user_role_tag(request.env) is None:
-        return return_Response(
-            message="You are not allowed to access Talos data.",
-            status=403,
-        )
-    return None
+    env = request.env
+    for xmlid in ROLE_GUARD_GROUPS:
+        try:
+            if env.user.has_group(xmlid):
+                return None
+        except Exception:
+            continue
+    return return_Response(
+        message="You are not allowed to access Talos data.",
+        status=403,
+    )
 
 
 def _parse_date(raw, label):
@@ -133,7 +130,7 @@ def _resolve_trend_weeks(params):
     return int(raw), None
 
 
-def _budget_usd(env):
+def _budget_tokens(env):
     raw = env["ir.config_parameter"].sudo().get_param(BUDGET_PARAM, "")
     try:
         return float(raw) if raw else 0.0
@@ -141,88 +138,117 @@ def _budget_usd(env):
         return 0.0
 
 
-_TOKEN_FIELDS = (
-    "claude_input_tokens", "claude_output_tokens",
-    "glm_input_tokens", "glm_output_tokens",
-    "oneP_input_tokens", "oneP_output_tokens",
-    "onePA_input_tokens", "onePA_output_tokens",
-    "onePB_input_tokens", "onePB_output_tokens",
-    "onePC_input_tokens", "onePC_output_tokens",
-    "onePD_input_tokens", "onePD_output_tokens",
-    "bedrock_input_tokens", "bedrock_output_tokens",
-    "traj_qc_input_tokens", "traj_qc_output_tokens",
-    "taskdesc_input_tokens", "taskdesc_output_tokens",
-    "golden_input_tokens", "golden_output_tokens",
-    "kimi_eval_input_tokens", "kimi_eval_output_tokens",
-)
+def _today_bounds(env):
+    today = fields.Datetime.now().date()
+    start = datetime.combine(today, datetime.min.time())
+    return start, start + timedelta(days=1)
 
 
-def _total_tokens(task):
-    fields_to_sum = (
-        "claude_input_tokens", "claude_output_tokens",
-        "glm_input_tokens", "glm_output_tokens",
-        "oneP_input_tokens", "oneP_output_tokens",
-        "onePA_input_tokens", "onePA_output_tokens",
-        "onePB_input_tokens", "onePB_output_tokens",
-        "onePC_input_tokens", "onePC_output_tokens",
-        "onePD_input_tokens", "onePD_output_tokens",
-        "bedrock_input_tokens", "bedrock_output_tokens",
-        "traj_qc_input_tokens", "traj_qc_output_tokens",
-        "taskdesc_input_tokens", "taskdesc_output_tokens",
-        "golden_input_tokens", "golden_output_tokens",
-        "kimi_eval_input_tokens", "kimi_eval_output_tokens",
-    )
-    total = 0
-    for fname in fields_to_sum:
-        total += getattr(task, fname, 0) or 0
-    return total
+def _sum_tokens_for(env, gen_scope):
+    records = env["talos.talos"].sudo().search(gen_scope)
+    return sum(_total_tokens(r) for r in records)
 
 
-def _compute_kpi(env, scope):
+def _compute_kpi(env, gen_scope):
     Talos = env["talos.talos"].sudo()
 
-    total_tasks = Talos.search_count(scope)
-    not_submitted = Talos.search_count(
-        scope + [("task_status", "in", list(IN_FLIGHT_STATUSES))]
+    total_tasks = Talos.search_count(gen_scope)
+    draft = Talos.search_count(gen_scope + [("task_status", "=", "NotSubmitted")])
+    in_flight = Talos.search_count(
+        gen_scope
+        + [
+            "|",
+            ("golden_status", "in", list(IN_FLIGHT_GOLDEN)),
+            ("auto_process_status", "in", list(IN_FLIGHT_AUTO)),
+        ]
     )
-    submitted = Talos.search_count(
-        scope + [("task_status", "in", list(DONE_STATUSES))]
+    active = draft + in_flight
+    tasks_done = Talos.search_count(
+        gen_scope + [("task_status", "in", list(DONE_STATES))]
     )
 
-    tasks_with_tokens = Talos.search(scope)
-    total_tokens = sum(_total_tokens(t) for t in tasks_with_tokens)
-    spent = round(total_tokens / 1000.0, 2)
-    budget = _budget_usd(env)
+    spent = round(_sum_tokens_for(env, gen_scope), 2)
+    budget = _budget_tokens(env)
     if budget > 0:
         burned_sub = (
-            f"of ${budget:,.2f} budget \u00b7 ${max(budget - spent, 0.0):,.2f} remaining"
+            f"of ${budget:,.2f} budget · ${max(budget - spent, 0.0):,.2f} remaining"
         )
         burned_pattern = "down" if spent > budget else ""
     else:
-        burned_sub = "Lifetime spend \u00b7 no budget configured"
+        burned_sub = "Lifetime spend · no budget configured"
         burned_pattern = ""
 
-    approved = Talos.search_count(scope + [("qc_status", "=", "passed")])
-    rejected = Talos.search_count(scope + [("qc_status", "=", "failed")])
+    approved = Talos.search_count(gen_scope + [("qc_status", "=", "passed")])
+    rejected = Talos.search_count(gen_scope + [("qc_status", "=", "failed")])
     reviewed = approved + rejected
     approval_rate = _pct(approved, reviewed)
 
     owner_rows = Talos.read_group(
-        scope, fields=["user_id"], groupby=["user_id"], lazy=False
+        gen_scope, fields=["user_id"], groupby=["user_id"], lazy=False
     )
     owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
     members = env["res.users"].sudo().browse(owner_ids)
-    ql_count = len(
-        members.filtered(
-            lambda u: u.has_group("etp_user_roles.group_quality_lead")
-        )
+    manager_group = env.ref(
+        "etp_user_roles.group_project_lead", raise_if_not_found=False
     )
+    manager_count = 0
+    if manager_group:
+        manager_ids = set(manager_group.users.ids)
+        manager_count = len([u for u in members if u.id in manager_ids])
+
+    today_start, today_end = _today_bounds(env)
+    yesterday_start = today_start - timedelta(days=1)
+    window_start = today_start - timedelta(days=QC_PASS_RATE_WINDOW_DAYS - 1)
+
+    approved_today = Talos.search_count(
+        gen_scope
+        + [
+            ("qc_status", "=", "passed"),
+            ("write_date", ">=", today_start),
+            ("write_date", "<", today_end),
+        ]
+    )
+    rejected_today = Talos.search_count(
+        gen_scope
+        + [
+            ("qc_status", "=", "failed"),
+            ("write_date", ">=", today_start),
+            ("write_date", "<", today_end),
+        ]
+    )
+    approved_yesterday = Talos.search_count(
+        gen_scope
+        + [
+            ("qc_status", "=", "passed"),
+            ("write_date", ">=", yesterday_start),
+            ("write_date", "<", today_start),
+        ]
+    )
+    today_pass_rate = _pct(approved_today, approved_today + rejected_today)
+    today_delta = approved_today - approved_yesterday
+
+    approved_30 = Talos.search_count(
+        gen_scope
+        + [
+            ("qc_status", "=", "passed"),
+            ("write_date", ">=", window_start),
+        ]
+    )
+    rejected_30 = Talos.search_count(
+        gen_scope
+        + [
+            ("qc_status", "=", "failed"),
+            ("write_date", ">=", window_start),
+        ]
+    )
+    reviewed_30 = approved_30 + rejected_30
+    qc_pass_rate = _pct(approved_30, reviewed_30)
 
     items = [
         _kpi_item(
             "total_burned",
             "Total Burned",
-            f"{spent:.2f}",
+            spent,
             sub_string=burned_sub,
             pattern=burned_pattern,
             sign="-" if burned_pattern == "down" else "",
@@ -230,24 +256,50 @@ def _compute_kpi(env, scope):
         _kpi_item(
             "active_tasks",
             "Active Tasks",
-            f"{not_submitted}/{total_tasks}",
-            sub_string=(
-                f"{not_submitted} unstarted \u00b7 {submitted} in progress"
-            ),
+            f"{active}/{total_tasks}",
+            sub_string=f"{draft} unstarted · {in_flight} in progress",
         ),
         _kpi_item(
             "approval_rate",
             "Approval Rate",
-            f"{approval_rate}",
+            approval_rate,
             sub_string=f"{approved} approved of {reviewed} reviewed",
         ),
         _kpi_item(
             "team_members",
             "Team Members",
-            f"{len(members)}",
+            len(members),
             sub_string=(
-                f"{ql_count} managers \u00b7 {len(members) - ql_count} users"
+                f"{manager_count} managers · {len(members) - manager_count} users"
             ),
+        ),
+        _kpi_item(
+            "approved_today",
+            "Approved Today",
+            approved_today,
+            sub_string=(
+                f"{today_pass_rate}% pass rate · "
+                f"{'+' if today_delta > 0 else ''}{today_delta} vs yesterday"
+            ),
+            pattern="up" if today_delta > 0 else ("down" if today_delta < 0 else ""),
+            sign="+" if today_delta > 0 else ("-" if today_delta < 0 else ""),
+        ),
+        _kpi_item(
+            "qc_pass_rate",
+            "QC Pass Rate",
+            qc_pass_rate,
+            sub_string=(
+                f"{approved_30} of {reviewed_30} reviewed · "
+                f"last {QC_PASS_RATE_WINDOW_DAYS}d"
+                if reviewed_30
+                else f"No reviews in last {QC_PASS_RATE_WINDOW_DAYS}d"
+            ),
+        ),
+        _kpi_item(
+            "total_tasks_done",
+            "Total Tasks Done",
+            tasks_done,
+            sub_string=f"{_pct(tasks_done, total_tasks)}% of {total_tasks} tasks",
         ),
     ]
     return {"count": str(len(items)), "items": items}
@@ -257,179 +309,39 @@ STAGE_BUCKETS = (
     (
         "s1_draft",
         "S1 Draft",
-        [("task_status", "in", ("NotSubmitted", "draft", "in_progress", "Submitted"))],
+        [("task_status", "=", "NotSubmitted")],
     ),
     (
         "s2_qc_approved",
-        "S2 QC'd \u00b7 Approved",
+        "S2 QC'd · Approved",
         [("qc_status", "=", "passed")],
     ),
     (
         "s3_delivered",
         "S3 Delivered",
-        [("task_status", "=", "completed")],
+        [
+            ("task_status", "=", "Submitted"),
+            ("qc_status", "=", "pending"),
+        ],
     ),
     (
         "rejected_failed",
         "Rejected / Failed",
-        [("qc_status", "=", "failed")],
+        [
+            "|",
+            ("qc_status", "=", "failed"),
+            ("golden_status", "=", "error"),
+        ],
     ),
 )
 
 
-ACTIVITY_LIMIT = 8
-
-
-def _time_ago(dt):
-    if not dt:
-        return ""
-    now = fields.Datetime.now()
-    delta = now - dt
-    seconds = int(delta.total_seconds())
-    if seconds < 60:
-        return f"{seconds}s ago"
-    minutes = seconds // 60
-    if minutes < 60:
-        return f"{minutes}m ago"
-    hours = minutes // 60
-    if hours < 24:
-        return f"{hours}h ago"
-    days = hours // 24
-    if days < 30:
-        return f"{days}d ago"
-    months = days // 30
-    if months < 12:
-        return f"{months}mo ago"
-    return f"{days // 365}y ago"
-
-
-def _activity_action(task):
-    if task.qc_status == "passed":
-        return "approved"
-    if task.qc_status == "failed":
-        return "rejected"
-    if task.task_status == "completed":
-        return "completed"
-    if task.task_status in ("Submitted", "in_progress"):
-        return "in_progress"
-    return "updated"
-
-
-def _compute_recent_activity(env, scope):
+def _compute_task_progress(env, gen_scope):
     Talos = env["talos.talos"].sudo()
-    records = Talos.search(
-        scope, limit=ACTIVITY_LIMIT, order="write_date desc, id desc"
-    )
-    items = []
-    for task in records:
-        actor = task.write_uid or task.create_uid
-        items.append({
-            "actor_id": actor.id or False,
-            "actor_name": actor.name or "",
-            "action": _activity_action(task),
-            "task_code": task.task_id or "",
-            "category": task.task_type or task.persona_id.name or "",
-            "timestamp": task.write_date.isoformat() if task.write_date else "",
-            "time_ago": _time_ago(task.write_date),
-        })
-    return {
-        "label": "Recent Activity",
-        "count": str(len(items)),
-        "items": items,
-    }
-
-
-def _compute_persona_breakdown(env, scope):
-    Talos = env["talos.talos"].sudo()
-    total = Talos.search_count(scope)
-    records = Talos.search(scope)
-    counts = {}
-    for task in records:
-        name = task.persona_id.name or "unassigned"
-        counts[name] = counts.get(name, 0) + 1
-    items = [
-        {
-            "key": name,
-            "label": name,
-            "value": count,
-            "percentage": _pct(count, total),
-        }
-        for name, count in sorted(counts.items(), key=lambda kv: -kv[1])
-    ]
-    return {
-        "label": "Tasks by Persona",
-        "total": total,
-        "count": str(len(items)),
-        "items": items,
-    }
-
-
-def _compute_sandbox_summary(env, scope):
-    Talos = env["talos.talos"].sudo()
-    records = Talos.search(scope)
-    sandboxes = records.mapped("sandbox_ids")
-    running = 0
-    stopped = 0
-    other = 0
-    for sb in sandboxes:
-        status = getattr(sb, "docker_status", "") or ""
-        if status in ("running",):
-            running += 1
-        elif status in ("exited", "stopped", "removed"):
-            stopped += 1
-        else:
-            other += 1
-    return {
-        "label": "Sandboxes",
-        "total": len(sandboxes),
-        "running": running,
-        "stopped": stopped,
-        "other": other,
-    }
-
-
-def _bucket_summary(env, scope, field, label, allowed):
-    Talos = env["talos.talos"].sudo()
-    total = Talos.search_count(scope)
-    items = []
-    for key in allowed:
-        count = Talos.search_count(scope + [(field, "=", key)])
-        items.append({
-            "key": key,
-            "label": key.replace("_", " ").title(),
-            "value": count,
-            "percentage": _pct(count, total),
-        })
-    return {
-        "label": label,
-        "total": total,
-        "count": str(len(items)),
-        "items": items,
-    }
-
-
-def _compute_golden_status_summary(env, scope):
-    return _bucket_summary(
-        env, scope, "golden_status",
-        "Golden Generation Status",
-        ("idle", "generating", "done", "error"),
-    )
-
-
-def _compute_qc_status_summary(env, scope):
-    return _bucket_summary(
-        env, scope, "qc_status",
-        "QC Status",
-        ("pending", "passed", "failed"),
-    )
-
-
-def _compute_task_progress(env, scope):
-    Talos = env["talos.talos"].sudo()
-    total = Talos.search_count(scope)
+    total = Talos.search_count(gen_scope)
     items = []
     for key, label, bucket_domain in STAGE_BUCKETS:
-        count = Talos.search_count(scope + bucket_domain)
+        count = Talos.search_count(gen_scope + bucket_domain)
         items.append({
             "key": key,
             "label": label,
@@ -444,7 +356,7 @@ def _compute_task_progress(env, scope):
     }
 
 
-def _compute_approved_per_week(env, scope, weeks):
+def _compute_approved_per_week(env, gen_scope, weeks):
     Talos = env["talos.talos"].sudo()
     today = fields.Datetime.now().date()
     current_week_start = _week_start(today)
@@ -453,7 +365,7 @@ def _compute_approved_per_week(env, scope, weeks):
     window_start_dt = datetime.combine(window_start, datetime.min.time())
 
     approvals = Talos.search_read(
-        scope
+        gen_scope
         + [
             ("qc_status", "=", "passed"),
             ("write_date", ">=", window_start_dt),
@@ -496,6 +408,249 @@ def _compute_approved_per_week(env, scope, weeks):
     }
 
 
+def _intensity(count, max_count):
+    if not count or not max_count:
+        return 0
+    return min((count * HEATMAP_LEVELS + max_count - 1) // max_count, HEATMAP_LEVELS)
+
+
+def _time_ago(when):
+    if not when:
+        return ""
+    seconds = int((fields.Datetime.now() - when).total_seconds())
+    if seconds < 60:
+        return f"{max(seconds, 0)}s ago"
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes}m ago"
+    hours = minutes // 60
+    if hours < 24:
+        return f"{hours}h ago"
+    return f"{hours // 24}d ago"
+
+
+def _done_per_day(env, gen_scope, start_date, end_date, extra=None):
+    start_dt = datetime.combine(start_date, datetime.min.time())
+    end_dt = datetime.combine(end_date, datetime.min.time()) + timedelta(days=1)
+    records = env["talos.talos"].sudo().search(
+        gen_scope
+        + [
+            ("task_status", "in", list(DONE_STATES)),
+            ("write_date", ">=", start_dt),
+            ("write_date", "<", end_dt),
+        ]
+        + (extra or [])
+    )
+    counts = {}
+    for rec in records:
+        when = rec.write_date
+        if not when:
+            continue
+        day = when.date()
+        counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+def _compute_my_activity(env, gen_scope):
+    today = fields.Datetime.now().date()
+    start = today - timedelta(days=MY_ACTIVITY_WINDOW_DAYS - 1)
+    counts = _done_per_day(env, gen_scope, start, today)
+    max_count = max(counts.values()) if counts else 0
+
+    days = []
+    streak = longest_streak = active_days = 0
+    cursor = start
+    while cursor <= today:
+        count = counts.get(cursor, 0)
+        if count > 0:
+            streak += 1
+            active_days += 1
+            longest_streak = max(longest_streak, streak)
+        else:
+            streak = 0
+        days.append({
+            "date": cursor.isoformat(),
+            "weekday": cursor.weekday(),
+            "weekday_label": WEEKDAY_LABELS[cursor.weekday()],
+            "count": count,
+            "intensity": _intensity(count, max_count),
+        })
+        cursor += timedelta(days=1)
+
+    total = sum(counts.values())
+    prior_start = start - timedelta(days=MY_ACTIVITY_WINDOW_DAYS)
+    prior_total = sum(
+        _done_per_day(
+            env, gen_scope, prior_start, start - timedelta(days=1)
+        ).values()
+    )
+
+    return {
+        "label": "My Activity",
+        "sub_string": (
+            f"Last {MY_ACTIVITY_WINDOW_DAYS} days · Tasks completed per day"
+        ),
+        "window": {"start": start.isoformat(), "end": today.isoformat()},
+        "max_count": max_count,
+        "days": days,
+        "summary": {
+            "total_tasks": total,
+            "total_tasks_delta": total - prior_total,
+            "avg_per_day": round(total / MY_ACTIVITY_WINDOW_DAYS, 1),
+            "longest_streak": longest_streak,
+            "active_days": active_days,
+            "total_days": MY_ACTIVITY_WINDOW_DAYS,
+        },
+    }
+
+
+def _compute_tasks_done_chart(env, gen_scope):
+    today = fields.Datetime.now().date()
+    start = today - timedelta(days=TASKS_DONE_WINDOW_DAYS - 1)
+    done_counts = _done_per_day(env, gen_scope, start, today)
+    approved_counts = _done_per_day(
+        env, gen_scope, start, today, extra=[("qc_status", "=", "passed")]
+    )
+
+    items = []
+    cursor = start
+    while cursor <= today:
+        items.append({
+            "date": cursor.isoformat(),
+            "label": WEEKDAY_LABELS[cursor.weekday()],
+            "value": done_counts.get(cursor, 0),
+            "approved": approved_counts.get(cursor, 0),
+        })
+        cursor += timedelta(days=1)
+
+    total = sum(item["value"] for item in items)
+    return {
+        "label": "Tasks Done",
+        "sub_string": f"Last {TASKS_DONE_WINDOW_DAYS} days",
+        "window": {"start": start.isoformat(), "end": today.isoformat()},
+        "total": total,
+        "average_per_day": round(total / TASKS_DONE_WINDOW_DAYS, 1),
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_burned_amount_chart(env, gen_scope):
+    Talos = env["talos.talos"].sudo()
+    candidates = Talos.search(
+        gen_scope,
+        order="write_date desc, id desc",
+        limit=BURNED_TASKS_LIMIT * 4,
+    )
+    with_tokens = [(r, _total_tokens(r)) for r in candidates]
+    with_tokens = [pair for pair in with_tokens if pair[1] > 0][:BURNED_TASKS_LIMIT]
+    ordered = list(reversed(with_tokens))
+
+    items = []
+    for index, (rec, tokens) in enumerate(ordered, start=1):
+        items.append({
+            "seq": index,
+            "code": rec.task_id or "",
+            "cost": round(float(tokens), 4),
+            "tokens": tokens,
+            "duration_seconds": 0,
+            "model": "",
+            "completed_at": (
+                rec.write_date.isoformat() if rec.write_date else ""
+            ),
+        })
+
+    total = round(sum(item["cost"] for item in items), 4)
+    return {
+        "label": "Burned Amount",
+        "sub_string": f"Last {BURNED_TASKS_LIMIT} tasks (tokens)",
+        "total": total,
+        "average_per_task": round(total / len(items), 4) if items else 0.0,
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_recent_activity(env, gen_scope):
+    Talos = env["talos.talos"].sudo()
+    category_labels = dict(Talos._fields["task_type"].selection)
+    records = Talos.search(
+        gen_scope, order="write_date desc, id desc", limit=RECENT_ACTIVITY_LIMIT
+    )
+
+    items = []
+    for rec in records:
+        if rec.qc_status == "passed":
+            action = "approved"
+        elif rec.qc_status == "failed":
+            action = "rejected"
+        elif rec.task_status == "Submitted":
+            action = "completed"
+        elif rec.golden_status == "error":
+            action = "failed"
+        else:
+            action = "updated"
+        when = rec.write_date
+        items.append({
+            "actor_id": rec.user_id.id,
+            "actor_name": rec.user_id.name or "",
+            "action": action,
+            "task_code": rec.task_id or "",
+            "category": category_labels.get(rec.task_type, "") if rec.task_type else "",
+            "timestamp": when.isoformat() if when else "",
+            "time_ago": _time_ago(when),
+        })
+
+    return {
+        "label": "Recent Activity",
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_coordination_events(env, gen_scope):
+    label = "TPM Activity — Coordination Events"
+    Talos = env["talos.talos"].sudo()
+    records = Talos.search(gen_scope)
+    if not records:
+        return {"label": label, "count": "0", "items": []}
+
+    code_by_id = {rec.id: (rec.task_id or "") for rec in records}
+    user_field = env["ir.model.fields"]._get("talos.talos", "user_id")
+    if not user_field:
+        return {"label": label, "count": "0", "items": []}
+
+    messages = env["mail.message"].sudo().search(
+        [
+            ("model", "=", "talos.talos"),
+            ("res_id", "in", records.ids),
+            ("tracking_value_ids.field_id", "=", user_field.id),
+        ],
+        order="date desc, id desc",
+        limit=COORDINATION_EVENTS_LIMIT,
+    )
+
+    items = []
+    for message in messages:
+        tracking = message.tracking_value_ids.filtered(
+            lambda t: t.field_id.id == user_field.id
+        )[:1]
+        if not tracking:
+            continue
+        items.append({
+            "actor_id": message.author_id.id,
+            "actor_name": message.author_id.name or "",
+            "action": "reassigned",
+            "task_code": code_by_id.get(message.res_id, ""),
+            "from_user": tracking.old_value_char or "",
+            "to_user": tracking.new_value_char or "",
+            "timestamp": message.date.isoformat() if message.date else "",
+            "time_ago": _time_ago(message.date),
+        })
+
+    return {"label": label, "count": str(len(items)), "items": items}
+
+
 class TalosDashboardOverviewController(http.Controller):
 
     @http.route(
@@ -522,29 +677,29 @@ class TalosDashboardOverviewController(http.Controller):
         if error is not None:
             return error
 
-        scope = _scope_domain(env) + date_domain
-        role_tag = _user_role_tag(env) or ""
+        role_tag, gen_domain, _projects = _role_scope(env)
+        gen_scope = gen_domain + date_domain
 
         return return_Response(
             message="OK",
             status=200,
             data={
                 "overview": {
-                    "role": role_tag,
-                    "kpi": _compute_kpi(env, scope),
-                    "task_progress": _compute_task_progress(env, scope),
+                    "role": role_tag or "tasker",
+                    "kpi": _compute_kpi(env, gen_scope),
+                    "task_progress": _compute_task_progress(env, gen_scope),
                     "approved_per_week": _compute_approved_per_week(
-                        env, _scope_domain(env), weeks
+                        env, gen_domain, weeks
                     ),
-                    "recent_activity": _compute_recent_activity(env, scope),
-                    "coordination_events": {},
-                    "tasks_done_chart": {},
-                    "burned_amount_chart": {},
-                    "my_activity": {},
-                    "persona_breakdown": _compute_persona_breakdown(env, scope),
-                    "sandbox_summary": _compute_sandbox_summary(env, scope),
-                    "golden_status_summary": _compute_golden_status_summary(env, scope),
-                    "qc_status_summary": _compute_qc_status_summary(env, scope),
+                    "recent_activity": _compute_recent_activity(env, gen_scope),
+                    "coordination_events": _compute_coordination_events(
+                        env, gen_scope
+                    ),
+                    "my_activity": _compute_my_activity(env, gen_scope),
+                    "tasks_done_chart": _compute_tasks_done_chart(env, gen_scope),
+                    "burned_amount_chart": _compute_burned_amount_chart(
+                        env, gen_scope
+                    ),
                 },
             },
         )
