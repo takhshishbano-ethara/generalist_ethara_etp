@@ -27,7 +27,7 @@
                 <form string="I2I Item">
                     <header>
                         <button name="action_run_llm_qc" type="object" string="Run LLM QC" class="btn-primary" invisible="llm_status == 'processing' or state in ('approved', 'rejected')" groups="i2i.group_i2i_manager"/>
-                        <button name="action_send_to_human_qc" type="object" string="Send to Human QC" class="btn-primary" invisible="state != 'draft'"/>
+                        <button name="action_send_to_human_qc" type="object" string="Submit" class="btn-primary" invisible="state != 'draft'"/>
                         <button name="action_approve" type="object" string="Approve" class="btn-success" invisible="state != 'human_qc'" groups="i2i.group_i2i_manager"/>
                         <button name="action_reject" type="object" string="Reject" class="btn-danger" invisible="state != 'human_qc'" groups="i2i.group_i2i_manager"/>
                         <button name="action_reset_to_draft" type="object" string="Reset to Draft" invisible="state not in ('approved', 'rejected')" groups="i2i.group_i2i_manager"/>
@@ -152,29 +152,103 @@
                                         <field name="llm_cost_usd" readonly="1" digits="[12, 2]"/>
                                     </group>
                                 </group>
-                                <separator string="Tasker vs LLM - Side-by-Side Comparison"/>
-                                <group>
-                                    <group string="Q1: Edit only the instructed change?">
-                                        <field name="edit_only_instructed" string="Tasker" readonly="1"/>
-                                        <field name="llm_edit_only_instructed" string="LLM" readonly="1"/>
-                                        <field name="disagree_edit_only" string="Disagree?" widget="boolean_toggle" readonly="1"/>
-                                    </group>
-                                    <group string="Q2: Are the two images aligned?">
-                                        <field name="images_aligned" string="Tasker" readonly="1"/>
-                                        <field name="llm_images_aligned" string="LLM" readonly="1"/>
-                                        <field name="disagree_aligned" string="Disagree?" widget="boolean_toggle" readonly="1"/>
-                                    </group>
-                                </group>
-                                <group>
-                                    <group string="Q3: Are both images free of AI slop?">
-                                        <field name="free_of_ai_slop" string="Tasker" readonly="1"/>
-                                        <field name="llm_free_of_ai_slop" string="LLM" readonly="1"/>
-                                        <field name="disagree_slop" string="Disagree?" widget="boolean_toggle" readonly="1"/>
-                                    </group>
-                                </group>
-                                <group string="LLM Reasoning">
-                                    <field name="llm_reasoning" nolabel="1" readonly="1"/>
-                                </group>
+                                <div class="i2i-llm-decision-banner" invisible="not llm_decision">
+                                    <div class="i2i-llm-decision-header">
+                                        <span class="i2i-llm-decision-label">LLM Verdict:</span>
+                                        <field name="llm_rubric_verdict" widget="badge" decoration-success="llm_rubric_verdict == 'pass'" decoration-danger="llm_rubric_verdict == 'fail'" readonly="1" nolabel="1"/>
+                                    </div>
+                                    <div class="i2i-llm-decision-text">
+                                        <field name="llm_decision" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <separator string="Tasker vs LLM Scorecard" invisible="llm_status != 'done'"/>
+                                <div class="i2i-llm-scorecard" invisible="llm_status != 'done'">
+                                    <div class="i2i-q-card">
+                                        <div class="i2i-q-card-header">
+                                            <span class="i2i-q-card-title">Q1 - Instruction</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-disagree" invisible="not disagree_edit_only">DISAGREE</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-agree" invisible="disagree_edit_only">AGREE</span>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">Tasker</span>
+                                            <field name="edit_only_instructed" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">LLM</span>
+                                            <field name="llm_edit_only_instructed" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q1_fail_code">
+                                            <span class="i2i-q-card-label">Fail Code</span>
+                                            <span class="i2i-q-card-failcode"><field name="llm_q1_fail_code" readonly="1" nolabel="1"/></span>
+                                        </div>
+                                        <div class="i2i-q-card-evidence" invisible="not llm_q1_evidence">
+                                            <strong>Evidence</strong>
+                                            <field name="llm_q1_evidence" readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                    <div class="i2i-q-card">
+                                        <div class="i2i-q-card-header">
+                                            <span class="i2i-q-card-title">Q2 - Alignment</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-disagree" invisible="not disagree_aligned">DISAGREE</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-agree" invisible="disagree_aligned">AGREE</span>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">Tasker</span>
+                                            <field name="images_aligned" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">LLM</span>
+                                            <field name="llm_images_aligned" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q2_fail_code">
+                                            <span class="i2i-q-card-label">Fail Code</span>
+                                            <span class="i2i-q-card-failcode"><field name="llm_q2_fail_code" readonly="1" nolabel="1"/></span>
+                                        </div>
+                                        <div class="i2i-q-card-evidence" invisible="not llm_q2_evidence">
+                                            <strong>Evidence</strong>
+                                            <field name="llm_q2_evidence" readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                    <div class="i2i-q-card">
+                                        <div class="i2i-q-card-header">
+                                            <span class="i2i-q-card-title">Q3 - AI Slop</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-disagree" invisible="not disagree_slop">DISAGREE</span>
+                                            <span class="i2i-q-card-badge i2i-q-card-badge-agree" invisible="disagree_slop">AGREE</span>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">Tasker</span>
+                                            <field name="free_of_ai_slop" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row">
+                                            <span class="i2i-q-card-label">LLM</span>
+                                            <field name="llm_free_of_ai_slop" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q3_fail_code">
+                                            <span class="i2i-q-card-label">Fail Code</span>
+                                            <span class="i2i-q-card-failcode"><field name="llm_q3_fail_code" readonly="1" nolabel="1"/></span>
+                                        </div>
+                                        <div class="i2i-q-card-row" invisible="not llm_q3_failed_image or llm_q3_failed_image == 'none'">
+                                            <span class="i2i-q-card-label">Failed Image</span>
+                                            <field name="llm_q3_failed_image" readonly="1" nolabel="1"/>
+                                        </div>
+                                        <div class="i2i-q-card-evidence" invisible="not llm_q3_evidence">
+                                            <strong>Evidence</strong>
+                                            <field name="llm_q3_evidence" readonly="1" nolabel="1"/>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="i2i-findings-block" invisible="not llm_findings">
+                                    <div class="i2i-findings-header">
+                                        <i class="fa fa-exclamation-triangle"/> Findings (<field name="llm_findings_count" readonly="1" nolabel="1"/>)
+                                    </div>
+                                    <div class="i2i-findings-body">
+                                        <field name="llm_findings" readonly="1" nolabel="1"/>
+                                    </div>
+                                </div>
+                                <div class="i2i-llm-legacy-reasoning" invisible="llm_decision or llm_status != 'done' or not llm_reasoning">
+                                    <span class="i2i-llm-legacy-reasoning-label">LLM Reasoning (legacy)</span>
+                                    <field name="llm_reasoning" readonly="1" nolabel="1"/>
+                                </div>
                                 <group string="LLM Error" invisible="not llm_error">
                                     <field name="llm_error" nolabel="1" readonly="1"/>
                                 </group>

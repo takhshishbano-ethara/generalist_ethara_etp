@@ -1,6 +1,6 @@
 {
     "name": "I2I - Image-to-Image QC",
-    "version": "19.0.1.11.0",
+    "version": "19.0.1.12.1",
     "category": "Operations/Quality",
     "summary": "Image-to-Image Generalist project with LLM-assisted QC review",
     "author": "Ethara",

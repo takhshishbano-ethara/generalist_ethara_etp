@@ -188,6 +188,56 @@ def _build_reasoning(parsed: dict) -> str:
     return "\n".join(lines).strip()
 
 
+def _build_q1_evidence(q1: dict) -> str:
+    parts = []
+    comp = (q1.get("completeness_evidence") or "").strip()
+    if comp:
+        parts.append(f"Completeness: {comp}")
+    prec = (q1.get("precision_evidence") or "").strip()
+    if prec:
+        parts.append(f"Precision: {prec}")
+    return "\n".join(parts)
+
+
+def _build_q2_evidence(q2: dict) -> str:
+    return (q2.get("alignment_evidence") or "").strip()
+
+
+def _build_q3_evidence(q3: dict) -> str:
+    parts = []
+    orig = _summarise_artifacts(q3.get("original_image_artifacts"), "Original")
+    if orig:
+        parts.append(orig)
+    edited = _summarise_artifacts(q3.get("edited_image_artifacts"), "Edited")
+    if edited:
+        parts.append(edited)
+    return "\n".join(parts)
+
+
+def _build_findings_text(findings) -> str:
+    if not isinstance(findings, list) or not findings:
+        return ""
+    blocks = []
+    for f in findings[:8]:
+        if not isinstance(f, dict):
+            continue
+        code = (f.get("code") or "").strip() or "?"
+        axis = (f.get("axis") or "").strip() or "?"
+        evidence = _trim(f.get("evidence"), 240)
+        fix = _trim(f.get("required_fix"), 240)
+        location = _trim(f.get("location"), 120)
+        header = f"[{axis} / {code}]"
+        if location:
+            header += f" @ {location}"
+        lines = [header]
+        if evidence:
+            lines.append(f"  Evidence: {evidence}")
+        if fix:
+            lines.append(f"  Fix: {fix}")
+        blocks.append("\n".join(lines))
+    return "\n\n".join(blocks)
+
+
 def review_image_pair(
     *,
     api_key,
@@ -228,12 +278,18 @@ def review_image_pair(
         )
 
     gt = parsed.get("ground_truth") or {}
-    q1_verdict = (gt.get("q1") or {}).get("verdict")
-    q2_verdict = (gt.get("q2") or {}).get("verdict")
-    q3_verdict = (gt.get("q3") or {}).get("verdict")
+    q1 = gt.get("q1") or {}
+    q2 = gt.get("q2") or {}
+    q3 = gt.get("q3") or {}
+    q1_verdict = q1.get("verdict")
+    q2_verdict = q2.get("verdict")
+    q3_verdict = q3.get("verdict")
 
     usage = response.get("usage", {}) if isinstance(response, dict) else {}
     tokens = int(usage.get("total_tokens", 0) or 0)
+
+    raw_findings = parsed.get("findings")
+    findings_count = len(raw_findings) if isinstance(raw_findings, list) else 0
 
     return {
         "edit_only_instructed": _map_verdict("edit_only_instructed", q1_verdict),
@@ -242,4 +298,15 @@ def review_image_pair(
         "reasoning": _build_reasoning(parsed),
         "tokens": tokens,
         "raw": parsed,
+        "decision": (parsed.get("decision_one_line") or "").strip(),
+        "rubric_verdict": (parsed.get("rubric_verdict") or "").strip().upper(),
+        "q1_fail_code": (q1.get("auto_fail_code") or "").strip(),
+        "q1_evidence": _build_q1_evidence(q1),
+        "q2_fail_code": (q2.get("auto_fail_code") or "").strip(),
+        "q2_evidence": _build_q2_evidence(q2),
+        "q3_fail_code": (q3.get("auto_fail_code") or "").strip(),
+        "q3_failed_image": (q3.get("which_image_failed") or "").strip().upper(),
+        "q3_evidence": _build_q3_evidence(q3),
+        "findings": _build_findings_text(raw_findings),
+        "findings_count": findings_count,
     }

@@ -173,6 +173,64 @@ class I2IItem(models.Model):
     llm_called_at = fields.Datetime(string="LLM Called At", readonly=True, copy=False)
     llm_error = fields.Text(string="LLM Error", readonly=True, copy=False)
 
+    llm_decision = fields.Char(
+        string="LLM Decision",
+        readonly=True,
+        copy=False,
+    )
+    llm_rubric_verdict = fields.Selection(
+        [("pass", "PASS"), ("fail", "FAIL")],
+        string="LLM Rubric Verdict",
+        readonly=True,
+        copy=False,
+    )
+    llm_q1_fail_code = fields.Char(
+        string="LLM Q1 Fail Code",
+        readonly=True,
+        copy=False,
+    )
+    llm_q1_evidence = fields.Text(
+        string="LLM Q1 Evidence",
+        readonly=True,
+        copy=False,
+    )
+    llm_q2_fail_code = fields.Char(
+        string="LLM Q2 Fail Code",
+        readonly=True,
+        copy=False,
+    )
+    llm_q2_evidence = fields.Text(
+        string="LLM Q2 Evidence",
+        readonly=True,
+        copy=False,
+    )
+    llm_q3_fail_code = fields.Char(
+        string="LLM Q3 Fail Code",
+        readonly=True,
+        copy=False,
+    )
+    llm_q3_failed_image = fields.Selection(
+        [("none", "None"), ("original", "Original"), ("edited", "Edited"), ("both", "Both")],
+        string="LLM Q3 Failed Image",
+        readonly=True,
+        copy=False,
+    )
+    llm_q3_evidence = fields.Text(
+        string="LLM Q3 Evidence",
+        readonly=True,
+        copy=False,
+    )
+    llm_findings = fields.Text(
+        string="LLM Findings",
+        readonly=True,
+        copy=False,
+    )
+    llm_findings_count = fields.Integer(
+        string="LLM Findings Count",
+        readonly=True,
+        copy=False,
+    )
+
     disagree_edit_only = fields.Boolean(
         string="Disagree: Edit Only",
         compute="_compute_disagreements",
@@ -337,6 +395,11 @@ class I2IItem(models.Model):
         tokens = int(result.get("tokens", 0) or 0)
         cost = (tokens / 1_000_000.0) * usd_per_mtoken if tokens else 0.0
 
+        rubric_raw = (result.get("rubric_verdict") or "").strip().lower()
+        rubric_val = rubric_raw if rubric_raw in ("pass", "fail") else False
+        failed_image_raw = (result.get("q3_failed_image") or "").strip().lower()
+        failed_image_val = failed_image_raw if failed_image_raw in ("none", "original", "edited", "both") else False
+
         vals = {
             "llm_status": "done",
             "llm_model_used": model,
@@ -348,6 +411,17 @@ class I2IItem(models.Model):
             "llm_free_of_ai_slop": result.get("free_of_ai_slop"),
             "llm_reasoning": result.get("reasoning") or "",
             "llm_error": False,
+            "llm_decision": (result.get("decision") or "")[:500] or False,
+            "llm_rubric_verdict": rubric_val,
+            "llm_q1_fail_code": (result.get("q1_fail_code") or "")[:100] or False,
+            "llm_q1_evidence": result.get("q1_evidence") or False,
+            "llm_q2_fail_code": (result.get("q2_fail_code") or "")[:100] or False,
+            "llm_q2_evidence": result.get("q2_evidence") or False,
+            "llm_q3_fail_code": (result.get("q3_fail_code") or "")[:100] or False,
+            "llm_q3_failed_image": failed_image_val,
+            "llm_q3_evidence": result.get("q3_evidence") or False,
+            "llm_findings": result.get("findings") or False,
+            "llm_findings_count": int(result.get("findings_count") or 0),
         }
         self.sudo().write(vals)
         self.message_post(body=_(
