@@ -11,6 +11,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .main import (
+    LEVIATHAN_FULL_ACCESS_ROLE_XMLIDS,
+    LEVIATHAN_PL_ROLE_XMLIDS,
+    LEVIATHAN_QR_ROLE_XMLIDS,
+    LEVIATHAN_TASKER_ROLE_XMLIDS,
+    _get_role_ids,
     _job_scope_domain,
     _require_leviathan_user,
 )
@@ -25,11 +30,22 @@ MONTH_LABELS = (
 )
 
 COMPLETED_STATES = ("done", "submitted")
-DEFAULT_TARGET_AHT_MINUTES = 45.0
+FAILED_STATES = ("failed", "discarded")
 HEATMAP_INTENSITY_LEVELS = 4
-DASHBOARD_CACHE_TTL = 60
-DASHBOARD_CACHE_MAX_ENTRIES = 256
-_DASHBOARD_CACHE = {}
+
+RANGE_KEYS = {"7d": 7, "30d": 30, "90d": 90}
+DEFAULT_RANGE = "30d"
+
+STAGE_BUCKETS = (
+    ("created", "Created", ("draft", "not_assigned"), "muted"),
+    ("scraping", "Scraping", ("extracting",), "info"),
+    ("generated", "Generated", ("extracted", "generating", "generated"), "warn"),
+    ("in_review", "In Review", ("scoring", "scored", "qc_running"), "primary"),
+    ("submitted", "Submitted", ("done", "submitted"), "success"),
+    ("flagged", "Flagged", ("failed", "discarded", "cancelled"), "danger"),
+)
+
+COLOR_TOKENS = ("primary", "success", "info", "warn", "danger", "muted")
 
 
 def _pct(part, whole):
@@ -46,6 +62,70 @@ def _diff_pct(current, previous):
 
 def _week_start(d):
     return d - timedelta(days=d.weekday())
+
+
+def _color(idx):
+    return COLOR_TOKENS[idx % len(COLOR_TOKENS)]
+
+
+def _time_ago(when):
+    if not when:
+        return ""
+    now = fields.Datetime.now()
+    seconds = (now - when).total_seconds()
+    if seconds < 60:
+        return f"{int(seconds)}s ago"
+    minutes = seconds / 60
+    if minutes < 60:
+        return f"{int(minutes)}m ago"
+    hours = minutes / 60
+    if hours < 24:
+        return f"{int(hours)}h ago"
+    days = hours / 24
+    return f"{int(days)}d ago"
+
+
+def _format_month_day(d):
+    # strftime("%-d") is Linux-only; build the day manually for cross-platform output.
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
+    return {
+        "key": key,
+        "label": label,
+        "value": str(value),
+        "sub_string": sub_string,
+        "pattern": pattern,
+        "sign": sign,
+    }
+
+
+def _kpi(key, label, value, sub_string="", pattern="", sign=""):
+    return {
+        "key": key,
+        "label": label,
+        "value": value,
+        "sub_string": sub_string,
+        "pattern": pattern,
+        "sign": sign,
+    }
+
+
+def _user_role_tag(env):
+    user_role = env.user.user_role
+    if not user_role:
+        return None
+    rid = user_role.id
+    for tag, xmlids in (
+        ("full", LEVIATHAN_FULL_ACCESS_ROLE_XMLIDS),
+        ("pl", LEVIATHAN_PL_ROLE_XMLIDS),
+        ("qr", LEVIATHAN_QR_ROLE_XMLIDS),
+        ("tasker", LEVIATHAN_TASKER_ROLE_XMLIDS),
+    ):
+        if rid in _get_role_ids(env, xmlids):
+            return tag
+    return None
 
 
 def _date_filter_domain(params):
@@ -81,9 +161,118 @@ def _date_filter_domain(params):
     return domain, None
 
 
+def _resolve_project_id(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    if not raw.isdigit():
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project_id = int(raw)
+    if not env["project.project"].sudo().browse(project_id).exists():
+        return None, return_Response(
+            message=f"Project '{project_id}' not found.",
+            status=404,
+        )
+    return project_id, None
+
+
+def _resolve_trend_period(params):
+    period = (params.get("period") or "weekly").strip().lower()
+    if period not in TREND_PERIODS:
+        return None, return_Response(
+            message=(
+                f"Invalid period '{period}'. Allowed: "
+                f"{', '.join(TREND_PERIODS)}."
+            ),
+            status=400,
+        )
+    return period, None
+
+
+def _resolve_range(params):
+    raw_start = (params.get("start_date") or "").strip()
+    raw_end = (params.get("end_date") or "").strip()
+    today = fields.Datetime.now().date()
+    if raw_start or raw_end:
+        start_date = end_date = None
+        if raw_start:
+            try:
+                start_date = datetime.strptime(raw_start, "%Y-%m-%d").date()
+            except ValueError:
+                return None, return_Response(
+                    message=(
+                        f"Invalid start_date '{raw_start}'. Expected YYYY-MM-DD."
+                    ),
+                    status=400,
+                )
+        if raw_end:
+            try:
+                end_date = datetime.strptime(raw_end, "%Y-%m-%d").date()
+            except ValueError:
+                return None, return_Response(
+                    message=(
+                        f"Invalid end_date '{raw_end}'. Expected YYYY-MM-DD."
+                    ),
+                    status=400,
+                )
+        end_date = end_date or today
+        start_date = start_date or (end_date - timedelta(days=29))
+        if start_date > end_date:
+            return None, return_Response(
+                message=(
+                    "Invalid date range: start_date must be on or before end_date."
+                ),
+                status=400,
+            )
+        return {"key": "custom", "start": start_date, "end": end_date}, None
+
+    raw_range = (params.get("range") or DEFAULT_RANGE).strip().lower()
+    if raw_range not in RANGE_KEYS:
+        return None, return_Response(
+            message=(
+                f"Invalid range '{raw_range}'. Allowed: "
+                f"{', '.join(sorted(RANGE_KEYS))}, or supply start_date/end_date."
+            ),
+            status=400,
+        )
+    days = RANGE_KEYS[raw_range]
+    return {
+        "key": raw_range,
+        "start": today - timedelta(days=days - 1),
+        "end": today,
+    }, None
+
+
+def _range_label(rng):
+    if rng["key"] == "custom":
+        return f"{rng['start'].isoformat()} → {rng['end'].isoformat()}"
+    return f"Last {RANGE_KEYS[rng['key']]} days"
+
+
+def _resolve_weeks(params, default=8, maximum=26):
+    raw = (params.get("weeks") or "").strip()
+    if not raw:
+        return default, None
+    if not raw.isdigit():
+        return None, return_Response(
+            message=f"Invalid weeks '{raw}'. Expected a positive integer.",
+            status=400,
+        )
+    weeks = int(raw)
+    if weeks < 1 or weeks > maximum:
+        return None, return_Response(
+            message=f"weeks must be between 1 and {maximum}.",
+            status=400,
+        )
+    return weeks, None
+
+
 def _submission_events(env, job_domain):
-    """leviathan.job has no submitted_at field; the submission moment is
-    recovered from the mail.tracking.value row for the tracked state field."""
+    # leviathan.job has no submitted_at field; recover the moment from the
+    # mail.tracking.value row written when `state` flipped to 'submitted'.
     Job = env["leviathan.job"].sudo()
     job_ids = Job.search(job_domain).ids
     if not job_ids:
@@ -147,35 +336,46 @@ def _team_overview(env, project_id=None):
     }
 
 
-def _resolve_project_id(env, params):
-    raw = (params.get("project_id") or "").strip()
-    if not raw:
-        return None, None
-    if not raw.isdigit():
-        return None, return_Response(
-            message=f"Invalid project_id '{raw}'. Expected an integer.",
-            status=400,
-        )
-    project_id = int(raw)
-    if not env["project.project"].sudo().browse(project_id).exists():
-        return None, return_Response(
-            message=f"Project '{project_id}' not found.",
-            status=404,
-        )
-    return project_id, None
+def _team_breakdown_sub(role_counts):
+    parts = []
+    for key, label in (
+        ("tpm", "TPM"),
+        ("pl", "PL"),
+        ("qr", "QC"),
+        ("tasker", "Tasker"),
+    ):
+        n = role_counts.get(key, 0)
+        if n:
+            parts.append(f"{n} {label}")
+    return " · ".join(parts) if parts else "No assigned roles"
 
 
-def _resolve_trend_period(params):
-    period = (params.get("period") or "weekly").strip().lower()
-    if period not in TREND_PERIODS:
-        return None, return_Response(
-            message=(
-                f"Invalid period '{period}'. Allowed: "
-                f"{', '.join(TREND_PERIODS)}."
-            ),
-            status=400,
-        )
-    return period, None
+def _completed_day_counts(env, scope, win_start, win_end):
+    start_dt = datetime.combine(win_start, datetime.min.time())
+    end_dt = datetime.combine(win_end, datetime.min.time()) + timedelta(days=1)
+    jobs = env["leviathan.job"].sudo().search(
+        scope
+        + [
+            ("state", "in", list(COMPLETED_STATES)),
+            ("completed_at", ">=", start_dt),
+            ("completed_at", "<", end_dt),
+        ]
+    )
+    counts = {}
+    for job in jobs:
+        when = job.completed_at
+        if not when:
+            continue
+        day = when.date()
+        counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+def _intensity(count, max_count):
+    if not count or not max_count:
+        return 0
+    level = (count * HEATMAP_INTENSITY_LEVELS + max_count - 1) // max_count
+    return min(level, HEATMAP_INTENSITY_LEVELS)
 
 
 def _compute_kpi(env, scope, project_id=None):
@@ -277,397 +477,315 @@ def _compute_submission_trend(env, scope, period):
     }
 
 
-def _parse_date(raw, label):
-    try:
-        return datetime.strptime(raw, "%Y-%m-%d").date(), None
-    except ValueError:
-        return None, return_Response(
-            message=f"Invalid {label} '{raw}'. Expected YYYY-MM-DD.",
-            status=400,
-        )
+def _build_overview_kpi(env, scope, project_id):
+    Job = env["leviathan.job"].sudo()
+    today = fields.Datetime.now().date()
+    this_week_start = datetime.combine(_week_start(today), datetime.min.time())
+
+    total = Job.search_count(scope)
+    submitted_count = Job.search_count(
+        scope + [("state", "in", list(COMPLETED_STATES))]
+    )
+    failed_count = Job.search_count(
+        scope + [("state", "in", list(FAILED_STATES))]
+    )
+    this_week_added = Job.search_count(
+        scope + [("create_date", ">=", this_week_start)]
+    )
+
+    submitted_pct = _pct(submitted_count, total)
+    team = _team_overview(env, project_id)
+    team_sub = _team_breakdown_sub(team["role_counts"])
+
+    items = [
+        _kpi_item(
+            "total_tasks",
+            "Total Tasks",
+            total,
+            sub_string=f"{this_week_added} added this week",
+        ),
+        _kpi_item(
+            "submitted",
+            "Submitted",
+            f"{int(submitted_pct)}%",
+            sub_string=f"{submitted_count} of {total} submitted",
+            pattern="up" if submitted_pct >= 50 else "down",
+            sign="+" if submitted_pct >= 50 else "-",
+        ),
+        _kpi_item(
+            "failed",
+            "Failed",
+            failed_count,
+            sub_string="Scrape + generation failures",
+            pattern="badge",
+        ),
+        _kpi_item(
+            "team_size",
+            "Team Size",
+            team["total_team_size"],
+            sub_string=team_sub,
+        ),
+    ]
+    return {"count": str(len(items)), "items": items}
 
 
-def _create_date_domain(start_date, end_date):
-    domain = []
-    if start_date:
-        domain.append(
-            ("create_date", ">=", datetime.combine(start_date, datetime.min.time()))
-        )
-    if end_date:
-        domain.append(
-            (
-                "create_date",
-                "<",
-                datetime.combine(end_date, datetime.min.time()) + timedelta(days=1),
-            )
-        )
-    return domain
+
+def _build_overview_task_progress(env, scope):
+    Job = env["leviathan.job"].sudo()
+    total = Job.search_count(scope) or 0
+    items = []
+    for key, label, states, color_token in STAGE_BUCKETS:
+        count = Job.search_count(scope + [("state", "in", list(states))])
+        items.append({
+            "key": key,
+            "label": label,
+            "value": count,
+            "percentage": _pct(count, total),
+            "color_token": color_token,
+        })
+    return {
+        "label": "Task Progress",
+        "total": total,
+        "count": str(len(items)),
+        "items": items,
+    }
 
 
-def _resolve_dashboard_filters(params):
-    start = end = month_start = month_end = None
+def _build_overview_submission_trend(env, scope, weeks=8):
+    events = _submission_events(env, scope)
+    today = fields.Datetime.now().date()
+    current_week_start = _week_start(today)
+    earliest_week_start = current_week_start - timedelta(days=(weeks - 1) * 7)
+    window_start_dt = datetime.combine(earliest_week_start, datetime.min.time())
+    window_end_dt = datetime.combine(
+        current_week_start + timedelta(days=7), datetime.min.time()
+    )
 
-    raw_start = (params.get("start_date") or "").strip()
-    if raw_start:
-        start, error = _parse_date(raw_start, "start_date")
-        if error is not None:
-            return None, error
+    buckets = [0] * weeks
+    for when in events.values():
+        if not (window_start_dt <= when < window_end_dt):
+            continue
+        idx = (when.date() - earliest_week_start).days // 7
+        if 0 <= idx < weeks:
+            buckets[idx] += 1
 
-    raw_end = (params.get("end_date") or "").strip()
-    if raw_end:
-        end, error = _parse_date(raw_end, "end_date")
-        if error is not None:
-            return None, error
-
-    if start and end and start > end:
-        return None, return_Response(
-            message="Invalid date range: start_date must be on or before end_date.",
-            status=400,
-        )
-
-    raw_month = (params.get("month") or "").strip()
-    if raw_month:
-        try:
-            parsed = datetime.strptime(raw_month, "%Y-%m").date()
-        except ValueError:
-            return None, return_Response(
-                message=f"Invalid month '{raw_month}'. Expected YYYY-MM.",
-                status=400,
-            )
-        month_start = parsed.replace(day=1)
-        month_end = parsed.replace(
-            day=calendar.monthrange(parsed.year, parsed.month)[1]
-        )
-
-    target_aht = DEFAULT_TARGET_AHT_MINUTES
-    raw_target = (params.get("target_aht_minutes") or "").strip()
-    if raw_target:
-        try:
-            target_aht = float(raw_target)
-        except ValueError:
-            return None, return_Response(
-                message=(
-                    f"Invalid target_aht_minutes '{raw_target}'. "
-                    "Expected a number."
-                ),
-                status=400,
-            )
-        if target_aht <= 0:
-            return None, return_Response(
-                message="target_aht_minutes must be greater than zero.",
-                status=400,
-            )
+    items = []
+    total = 0
+    for i in range(weeks):
+        week_start = earliest_week_start + timedelta(days=i * 7)
+        week_end = week_start + timedelta(days=6)
+        count = buckets[i]
+        total += count
+        items.append({
+            "key": f"w{week_start.isocalendar()[1]}",
+            "label": _format_month_day(week_start),
+            "value": count,
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+        })
 
     return {
-        "start": start,
-        "end": end,
-        "month_start": month_start,
-        "month_end": month_end,
-        "target_aht": target_aht,
-    }, None
+        "title": "Submission Trend",
+        "sub_title": "Tasks submitted per week · project-wide",
+        "type": "bar",
+        "total": total,
+        "count": str(len(items)),
+        "items": items,
+    }
 
 
-def _period_windows(start, end):
-    today = fields.Datetime.now().date()
-    current_end = end or today
-    current_start = start or (current_end - timedelta(days=6))
-    length = (current_end - current_start).days + 1
-    previous_end = current_start - timedelta(days=1)
-    previous_start = previous_end - timedelta(days=length - 1)
-    return current_start, current_end, previous_start, previous_end
+def _classify_job_action(state):
+    if state == "submitted":
+        return "submitted"
+    if state == "done":
+        return "completed"
+    if state == "failed":
+        return "failed"
+    if state == "discarded":
+        return "discarded"
+    if state == "qc_running":
+        return "qc_review"
+    if state in ("scoring", "scored"):
+        return "qc_scoring"
+    if state in ("generating", "generated", "extracted"):
+        return "generation_complete"
+    if state == "extracting":
+        return "scraping"
+    if state in ("draft", "not_assigned"):
+        return "created"
+    return "updated"
 
 
-def _completed_day_counts(env, scope, win_start, win_end):
-    start_dt = datetime.combine(win_start, datetime.min.time())
-    end_dt = datetime.combine(win_end, datetime.min.time()) + timedelta(days=1)
-    jobs = env["leviathan.job"].sudo().search(
-        scope
+def _build_overview_recent_activity(env, scope, limit=8):
+    Job = env["leviathan.job"].sudo()
+    jobs = Job.search(scope, order="write_date desc, id desc", limit=limit)
+    items = []
+    for job in jobs:
+        actor = job.user_id
+        when = job.write_date
+        category = ""
+        if job.category_id:
+            category = job.category_id.name or ""
+        if not category:
+            category = job.site_name or ""
+        items.append({
+            "actor_id": actor.id if actor else 0,
+            "actor_name": actor.name if actor else "",
+            "action": _classify_job_action(job.state),
+            "task_code": job.name or "",
+            "category": category,
+            "timestamp": when.isoformat() if when else "",
+            "time_ago": _time_ago(when),
+        })
+    return {
+        "label": "Recent Activity",
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _build_analytics_kpi(env, scope, rng, project_id):
+    Job = env["leviathan.job"].sudo()
+    range_start_dt = datetime.combine(rng["start"], datetime.min.time())
+    range_end_dt = datetime.combine(rng["end"], datetime.min.time()) + timedelta(days=1)
+    range_domain = [
+        ("create_date", ">=", range_start_dt),
+        ("create_date", "<", range_end_dt),
+    ]
+    in_range = scope + range_domain
+
+    total_tasks = Job.search_count(in_range)
+
+    aht_domain = (
+        in_range
         + [
             ("state", "in", list(COMPLETED_STATES)),
-            ("completed_at", ">=", start_dt),
-            ("completed_at", "<", end_dt),
+            ("duration_seconds", ">", 0),
         ]
     )
-    counts = {}
-    for job in jobs:
-        when = job.completed_at
-        if not when:
-            continue
-        day = when.date()
-        counts[day] = counts.get(day, 0) + 1
-    return counts
-
-
-def _intensity(count, max_count):
-    if not count or not max_count:
-        return 0
-    level = (count * HEATMAP_INTENSITY_LEVELS + max_count - 1) // max_count
-    return min(level, HEATMAP_INTENSITY_LEVELS)
-
-
-def _heatmap_window(filters):
-    if filters["month_start"]:
-        return filters["month_start"], filters["month_end"]
-    today = fields.Datetime.now().date()
-    if filters["start"] or filters["end"]:
-        window_end = filters["end"] or today
-        window_start = filters["start"] or window_end.replace(day=1)
-        return window_start, window_end
-    return today.replace(day=1), today
-
-
-def _timeline_window(filters):
-    if filters["month_start"]:
-        return filters["month_start"], filters["month_end"]
-    today = fields.Datetime.now().date()
-    if filters["start"] or filters["end"]:
-        window_end = filters["end"] or today
-        window_start = filters["start"] or (window_end - timedelta(days=29))
-        return window_start, window_end
-    return today - timedelta(days=29), today
-
-
-def _build_task_overview(env, scope, filters):
-    Job = env["leviathan.job"].sudo()
-    total = Job.search_count(
-        scope + _create_date_domain(filters["start"], filters["end"])
+    aht_rows = Job.read_group(
+        aht_domain, fields=["duration_seconds:avg"], groupby=[]
     )
-    current_start, current_end, previous_start, previous_end = _period_windows(
-        filters["start"], filters["end"]
-    )
-    current = Job.search_count(
-        scope + _create_date_domain(current_start, current_end)
-    )
-    previous = Job.search_count(
-        scope + _create_date_domain(previous_start, previous_end)
-    )
-    return {
-        "total_task_count": total,
-        "current_period_count": current,
-        "previous_period_count": previous,
-        "difference_percentage": _diff_pct(current, previous),
-        "current_period": {
-            "start": current_start.isoformat(),
-            "end": current_end.isoformat(),
-        },
-        "previous_period": {
-            "start": previous_start.isoformat(),
-            "end": previous_end.isoformat(),
-        },
-    }
+    aht_seconds = (aht_rows[0].get("duration_seconds") if aht_rows else 0.0) or 0.0
+    aht_minutes = round(aht_seconds / 60.0, 1) if aht_seconds else 0.0
 
+    urls_added = Job.search_count(in_range + [("url", "!=", False)])
+    rejected = Job.search_count(in_range + [("state", "=", "discarded")])
 
-def _build_aht_overview(env, scope, filters):
-    Job = env["leviathan.job"].sudo()
-    domain = (
+    flagged = Job.search_count(in_range + [("state", "in", list(FAILED_STATES))])
+    failed_only = Job.search_count(in_range + [("state", "=", "failed")])
+    qc_flagged = Job.search_count(
+        in_range + [("qc_verdict", "=", "not_shippable")]
+    )
+
+    team = _team_overview(env, project_id)
+    team_sub = _team_breakdown_sub(team["role_counts"])
+
+    open_blockers = Job.search_count(
         scope
-        + _create_date_domain(filters["start"], filters["end"])
-        + [("duration_seconds", ">", 0)]
+        + [
+            ("watchdog_retry_count", ">", 0),
+            (
+                "state",
+                "in",
+                ["extracting", "generating", "scoring", "qc_running"],
+            ),
+        ]
     )
-    measured = Job.search_count(domain)
-    rows = Job.read_group(domain, fields=["duration_seconds:avg"], groupby=[])
-    avg_seconds = (rows[0].get("duration_seconds") if rows else 0.0) or 0.0
-    avg_minutes = round(avg_seconds / 60.0, 2)
-    target = round(filters["target_aht"], 2)
-    if not measured:
-        indicator = "no_data"
-    elif avg_minutes <= target:
-        indicator = "on_target"
-    else:
-        indicator = "above_target"
-    return {
-        "average_handling_time_minutes": avg_minutes,
-        "target_aht_minutes": target,
-        "difference_minutes": round(avg_minutes - target, 2),
-        "performance_indicator": indicator,
-        "tasks_measured": measured,
-    }
 
+    aht_pattern = ""
+    aht_sign = ""
+    aht_value = "—"
+    if aht_minutes:
+        aht_value = f"{int(round(aht_minutes))}m"
+        if aht_minutes < 45:
+            aht_pattern, aht_sign = "down", "-"
+        else:
+            aht_pattern, aht_sign = "up", "+"
 
-def _build_url_overview(env, scope, filters):
-    Job = env["leviathan.job"].sudo()
-    base = scope + _create_date_domain(filters["start"], filters["end"])
-    return {
-        "tasks_with_url": Job.search_count(base),
-        "rejected_at_validation": Job.search_count(
-            base + [("state", "=", "discarded")]
+    items = [
+        _kpi(
+            "total_tasks",
+            "Total Tasks",
+            total_tasks,
+            sub_string="Scraping tasks created",
         ),
-    }
-
-
-def _build_status_chart(env, scope, filters):
-    Job = env["leviathan.job"].sudo()
-    domain = scope + _create_date_domain(filters["start"], filters["end"])
-    grouped = Job.read_group(
-        domain, fields=["state"], groupby=["state"], lazy=False
-    )
-    counts = {row["state"]: row["__count"] for row in grouped}
-    total = sum(counts.values())
-    chart = [
-        {
-            "status_key": key,
-            "status_name": label,
-            "count": counts.get(key, 0),
-            "percentage": _pct(counts.get(key, 0), total),
-        }
-        for key, label in Job._fields["state"].selection
+        _kpi(
+            "avg_handling_time",
+            "Avg Handling Time",
+            aht_value,
+            sub_string="Target < 45m",
+            pattern=aht_pattern,
+            sign=aht_sign,
+        ),
+        _kpi(
+            "total_urls_added",
+            "Total URLs Added",
+            urls_added,
+            sub_string=f"{rejected} rejected at validation",
+        ),
+        _kpi(
+            "flagged_urls",
+            "Flagged URLs",
+            flagged,
+            sub_string=f"{failed_only} failed · {qc_flagged} QC-flagged",
+            pattern="up" if flagged else "",
+            sign="+" if flagged else "",
+        ),
+        _kpi(
+            "team_members",
+            "Team Members",
+            team["total_team_size"],
+            sub_string=team_sub,
+        ),
+        _kpi(
+            "open_blockers",
+            "Open Blockers",
+            open_blockers,
+            sub_string="Pipeline retries in progress",
+            pattern="up" if open_blockers else "",
+            sign="+" if open_blockers else "",
+        ),
     ]
-    return {"total_task_count": total, "status_chart": chart}
+    return {"count": len(items), "items": items}
 
 
-def _build_heatmap(env, scope, filters):
-    window_start, window_end = _heatmap_window(filters)
-    counts = _completed_day_counts(env, scope, window_start, window_end)
+def _build_analytics_heatmap(env, scope, rng):
+    counts = _completed_day_counts(env, scope, rng["start"], rng["end"])
     max_count = max(counts.values()) if counts else 0
     days = []
-    cursor = window_start
-    while cursor <= window_end:
+    total = 0
+    cursor = rng["start"]
+    while cursor <= rng["end"]:
         count = counts.get(cursor, 0)
+        total += count
         days.append({
             "date": cursor.isoformat(),
             "weekday": cursor.weekday(),
+            "weekday_label": WEEKDAY_LABELS[cursor.weekday()],
             "count": count,
             "intensity": _intensity(count, max_count),
         })
         cursor += timedelta(days=1)
+    total_days = len(days)
+    active_days = sum(1 for d in days if d["count"] > 0)
     return {
+        "label": "Tasks Completed",
+        "sub_string": f"Tasks completed per day · {_range_label(rng)}",
         "window": {
-            "start": window_start.isoformat(),
-            "end": window_end.isoformat(),
+            "start": rng["start"].isoformat(),
+            "end": rng["end"].isoformat(),
         },
         "max_count": max_count,
-        "total_completed": sum(counts.values()),
+        "total_completed": total,
         "days": days,
-    }
-
-
-def _build_timeline(env, scope, filters):
-    window_start, window_end = _timeline_window(filters)
-    counts = _completed_day_counts(env, scope, window_start, window_end)
-    trend = []
-    cursor = window_start
-    while cursor <= window_end:
-        trend.append({
-            "label": cursor.isoformat(),
-            "count": counts.get(cursor, 0),
-        })
-        cursor += timedelta(days=1)
-    return {
-        "window": {
-            "start": window_start.isoformat(),
-            "end": window_end.isoformat(),
+        "summary": {
+            "total_tasks": total,
+            "avg_per_day": round(total / total_days, 2) if total_days else 0.0,
+            "active_days": active_days,
+            "total_days": total_days,
         },
-        "total_completed": sum(counts.values()),
-        "trend": trend,
     }
-
-
-def _build_qc_leaderboard(env, filters):
-    Employee = env["hr.employee"].sudo()
-    Job = env["leviathan.job"].sudo()
-
-    today = fields.Datetime.now().date()
-    window_end = filters["end"] or today
-    window_start = filters["start"] or (window_end - timedelta(days=29))
-    date_domain = _create_date_domain(window_start, window_end)
-
-    taskers_by_qc = {}
-    for employee in Employee.search([("task_forge_active", "=", True)]):
-        qc_id = employee.task_forge_qr_id.id
-        if qc_id:
-            taskers_by_qc.setdefault(qc_id, []).append(employee)
-
-    user_ids = list({
-        employee.user_id.id
-        for taskers in taskers_by_qc.values()
-        for employee in taskers
-        if employee.user_id
-    })
-
-    total_by_user = {}
-    completed_by_user = {}
-    if user_ids:
-        base_domain = [("user_id", "in", user_ids)] + date_domain
-        for row in Job.read_group(
-            base_domain, fields=["user_id"], groupby=["user_id"], lazy=False
-        ):
-            if row["user_id"]:
-                total_by_user[row["user_id"][0]] = row["__count"]
-        for row in Job.read_group(
-            base_domain + [("state", "in", list(COMPLETED_STATES))],
-            fields=["user_id"],
-            groupby=["user_id"],
-            lazy=False,
-        ):
-            if row["user_id"]:
-                completed_by_user[row["user_id"][0]] = row["__count"]
-
-    leaderboard = []
-    for qc in Employee.browse(list(taskers_by_qc.keys())):
-        taskers = taskers_by_qc.get(qc.id, [])
-        tasks_total = 0
-        tasks_completed = 0
-        for employee in taskers:
-            user_id = employee.user_id.id
-            if not user_id:
-                continue
-            tasks_total += total_by_user.get(user_id, 0)
-            tasks_completed += completed_by_user.get(user_id, 0)
-        leaderboard.append({
-            "qc_id": qc.id,
-            "qc_name": qc.name or "",
-            "total_taskers": len(taskers),
-            "tasks_completed": tasks_completed,
-            "tasks_total": tasks_total,
-            "completion_percentage": _pct(tasks_completed, tasks_total),
-        })
-
-    leaderboard.sort(
-        key=lambda row: (
-            -row["tasks_completed"],
-            -row["completion_percentage"],
-            row["qc_name"],
-        )
-    )
-    for rank, row in enumerate(leaderboard, start=1):
-        row["rank"] = rank
-
-    return {
-        "window": {
-            "start": window_start.isoformat(),
-            "end": window_end.isoformat(),
-        },
-        "leaderboard": leaderboard,
-    }
-
-
-def _dashboard_cache_key(env, filters, project_id):
-    return (
-        env.cr.dbname,
-        env.user.id,
-        filters["start"].isoformat() if filters["start"] else "",
-        filters["end"].isoformat() if filters["end"] else "",
-        filters["month_start"].isoformat() if filters["month_start"] else "",
-        round(filters["target_aht"], 2),
-        project_id or 0,
-    )
-
-
-def _dashboard_cache_get(key):
-    entry = _DASHBOARD_CACHE.get(key)
-    if not entry:
-        return None
-    cached_at, payload = entry
-    if (datetime.now() - cached_at).total_seconds() > DASHBOARD_CACHE_TTL:
-        _DASHBOARD_CACHE.pop(key, None)
-        return None
-    return payload
-
-
-def _dashboard_cache_set(key, payload):
-    if len(_DASHBOARD_CACHE) >= DASHBOARD_CACHE_MAX_ENTRIES:
-        _DASHBOARD_CACHE.clear()
-    _DASHBOARD_CACHE[key] = (datetime.now(), payload)
 
 
 class LeviathanAnalyticsController(http.Controller):
@@ -776,44 +894,28 @@ class LeviathanAnalyticsController(http.Controller):
 
         env = request.env
         params = request.params or {}
-        filters, error = _resolve_dashboard_filters(params)
-        if error is not None:
-            return error
 
         project_id, error = _resolve_project_id(env, params)
         if error is not None:
             return error
 
-        cache_key = _dashboard_cache_key(env, filters, project_id)
-        cached = _dashboard_cache_get(cache_key)
-        if cached is not None:
-            return return_Response(message="OK", status=200, data=cached)
+        rng, error = _resolve_range(params)
+        if error is not None:
+            return error
 
         scope = _job_scope_domain()
-        data = {
-            "dashboard": {
-                # "filters": {
-                #     "start_date": (
-                #         filters["start"].isoformat() if filters["start"] else None
-                #     ),
-                #     "end_date": (
-                #         filters["end"].isoformat() if filters["end"] else None
-                #     ),
-                #     "month": params.get("month") or None,
-                #     "target_aht_minutes": round(filters["target_aht"], 2),
-                # },
-                "task_overview": _build_task_overview(env, scope, filters),
-                "aht_overview": _build_aht_overview(env, scope, filters),
-                "url_overview": _build_url_overview(env, scope, filters),
-                "team_overview": _team_overview(env, project_id),
-                "status_chart": _build_status_chart(env, scope, filters),
-                "completion_heatmap": _build_heatmap(env, scope, filters),
-                "qc_leaderboard": _build_qc_leaderboard(env, filters),
-                "completion_timeline": _build_timeline(env, scope, filters)
-            },
+        analytics = {
+            "role": _user_role_tag(env) or "tasker",
+            "kpi": _build_analytics_kpi(env, scope, rng, project_id),
+            "spend_by_category": {},
+            "qc_pass_rate_by_ql": {},
+            "daily_burn_rate": {},
+            "tasks_submitted_per_day": {},
+            "qc_verdict_mix": {},
+            "qc_verdicts_per_day": {},
+            "tasks_completed_heatmap": _build_analytics_heatmap(env, scope, rng),
         }
-        _dashboard_cache_set(cache_key, data)
-        return return_Response(message="OK", status=200, data=data)
+        return return_Response(message="OK", status=200, data=analytics)
 
     @http.route(
         "/api/v1/leviathan_ext/analytics/overview_dashboard",
@@ -831,29 +933,33 @@ class LeviathanAnalyticsController(http.Controller):
 
         env = request.env
         params = request.params or {}
-        period, error = _resolve_trend_period(params)
-        if error is not None:
-            return error
-
-        date_domain, error = _date_filter_domain(params)
-        if error is not None:
-            return error
 
         project_id, error = _resolve_project_id(env, params)
         if error is not None:
             return error
-        scope = _job_scope_domain() + date_domain
 
+        weeks, error = _resolve_weeks(params, default=8)
+        if error is not None:
+            return error
+
+        scope = _job_scope_domain()
+        overview = {
+            "role": _user_role_tag(env) or "tasker",
+            "kpi": _build_overview_kpi(env, scope, project_id),
+            "budget": {},
+            "burn_rate": {},
+            "accepted_per_day": {},
+            "task_progress": _build_overview_task_progress(env, scope),
+            "approved_per_week": {},
+            "recent_activity": _build_overview_recent_activity(env, scope),
+            "coordination_events": {},
+            "tasks_done_chart": {},
+            "burned_amount_chart": {},
+            "my_activity": {},
+            "submission_trend": _build_overview_submission_trend(
+                env, scope, weeks=weeks
+            ),
+        }
         return return_Response(
-            message="OK",
-            status=200,
-            data={
-                "overview_dashboard": {
-                    "kpi": _compute_kpi(env, scope, project_id),
-                    "status_chart": _compute_status_chart(env, scope),
-                    "submission_trend": _compute_submission_trend(
-                        env, scope, period
-                    ),
-                },
-            },
+            message="OK", status=200, data={"overview": overview}
         )
