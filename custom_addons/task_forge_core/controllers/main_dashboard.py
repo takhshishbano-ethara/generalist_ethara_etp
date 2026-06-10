@@ -90,6 +90,25 @@ STATUS_LABEL_MAP = {
 
 CATEGORY_VALUES = ('stem', 'non_stem', 'technical')
 
+# "Active / currently working" maps to the
+# pipeline-running states below; terminal "completed" maps to DONE_STATES.
+# Mirrors the constants in task_forge_bridge.controllers.dashboard_controllers.
+ACTIVE_STATES = ('extracting', 'extracted', 'generating', 'generated', 'scoring', 'scored', 'qc_running')
+DONE_STATES = ('done', 'submitted')
+
+# Backends don't agree on a single quality-rating field name. Resolved in
+# priority order: `quality_score` (the convention task_forge_bridge expects),
+# then `score` (used by leviathan.job and similar PRD-graded backends).
+_QUALITY_FIELD_CANDIDATES = ('quality_score', 'score')
+
+
+def _backend_quality_field(backend):
+    """Return the first quality-score field name present on `backend`, or None."""
+    for name in _QUALITY_FIELD_CANDIDATES:
+        if name in backend._fields:
+            return name
+    return None
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -646,6 +665,19 @@ class MainDashboardController(http.Controller):
     )
     @validate_token
     def project_health(self, **kw):
+        # Per-project metrics now come from each project's `connected_table`
+        # backend. Response schema is unchanged.
+        # Field translation:
+        #     task.forge.log.date            -> backend.create_date  (datetime)
+        #     state == 'completed'           -> state in DONE_STATES
+        #     state in (in_progress, ack,    -> state in ACTIVE_STATES
+        #              escalated, returned,
+        #              blocker)
+        #     state == 'overdue'             -> state in ACTIVE_STATES AND
+        #                                       create_date <= now - BLOCKER_OVERDUE_DAYS
+        #                                       (backends have no 'overdue' state)
+        #     time_taken_mins                -> duration_seconds / 60 (gated)
+        #     quality_score                  -> backend.quality_score (gated)
         try:
             user = request.env.user
             err = _require_cto(user)
@@ -653,9 +685,12 @@ class MainDashboardController(http.Controller):
                 return err
 
             Project = request.env['project.project'].sudo()
-            TaskLog = request.env['task.forge.log'].sudo()
 
             date_from, date_to = _parse_range(kw)
+            # `create_date` is a Datetime; widen the date window to full days.
+            dt_from = datetime.combine(date_from, time.min)
+            dt_to = datetime.combine(date_to, time.max)
+            overdue_threshold = datetime.now() - timedelta(days=BLOCKER_OVERDUE_DAYS)
 
             try:
                 limit = max(1, min(200, int(kw.get('limit') or 50)))
@@ -669,7 +704,9 @@ class MainDashboardController(http.Controller):
 
             health_filter = kw.get('health')  # healthy | warning | at_risk | None
 
-            proj_domain = _live_project_domain()
+            # Only consider projects with a wired backend, since per-project
+            # metrics now come from `connected_table`.
+            proj_domain = _live_project_domain() + [('connected_table', '!=', False)]
             proj_domain += _category_domain(kw)
 
             try:
@@ -699,63 +736,75 @@ class MainDashboardController(http.Controller):
                 limit=limit,
             )
 
-            # Pre-compute counters in bulk per-project for the date range.
-            proj_ids = projects.ids
-            if proj_ids:
-                completed_rows = TaskLog.read_group(
-                    domain=[
-                        ('project_id', 'in', proj_ids),
-                        ('state', '=', 'completed'),
-                        ('date', '>=', date_from),
-                        ('date', '<=', date_to),
-                    ],
-                    fields=['project_id', 'time_taken_mins:sum', 'quality_score:avg'],
-                    groupby=['project_id'],
-                    lazy=False,
-                )
-                pending_rows = TaskLog.read_group(
-                    domain=[
-                        ('project_id', 'in', proj_ids),
-                        ('state', 'in', ['in_progress', 'ack', 'escalated', 'returned', 'blocker']),
-                    ],
-                    fields=['project_id'],
-                    groupby=['project_id'],
-                    lazy=False,
-                )
-                overdue_rows = TaskLog.read_group(
-                    domain=[
-                        ('project_id', 'in', proj_ids),
-                        ('state', '=', 'overdue'),
-                    ],
-                    fields=['project_id'],
-                    groupby=['project_id'],
-                    lazy=False,
-                )
-            else:
-                completed_rows = pending_rows = overdue_rows = []
+            # Per-project metrics — one set of backend queries per project
+            # (we can't bulk across projects because each may point at a
+            # different backend model).
+            metrics_by_proj = {}
+            for proj in projects:
+                backend_name = proj.connected_table
+                if backend_name not in request.env:
+                    metrics_by_proj[proj.id] = (0, 0, 0, 0.0, 0.0)
+                    continue
+                backend = request.env[backend_name].sudo()
+                has_state = 'state' in backend._fields
+                has_duration = 'duration_seconds' in backend._fields
+                quality_field = _backend_quality_field(backend)
 
-            def _by_proj(rows, field='__count'):
-                out = {}
-                for r in rows:
-                    pid = r.get('project_id')
-                    if isinstance(pid, tuple):
-                        pid = pid[0]
-                    out[pid] = r.get(field, 0)
-                return out
+                # Completed rows in window: count + sum(seconds) + avg(quality).
+                comp_fields = []
+                if has_duration:
+                    comp_fields.append('duration_seconds:sum')
+                if quality_field:
+                    comp_fields.append(f'{quality_field}:avg')
+                comp_domain = [
+                    ('create_date', '>=', dt_from),
+                    ('create_date', '<=', dt_to),
+                ]
+                if has_state:
+                    comp_domain.append(('state', 'in', list(DONE_STATES)))
 
-            completed_by = _by_proj(completed_rows, '__count')
-            mins_by = _by_proj(completed_rows, 'time_taken_mins')
-            quality_by = _by_proj(completed_rows, 'quality_score')
-            pending_by = _by_proj(pending_rows, '__count')
-            overdue_by = _by_proj(overdue_rows, '__count')
+                if comp_fields:
+                    comp_rows = backend.read_group(
+                        domain=comp_domain,
+                        fields=comp_fields,
+                        groupby=[],
+                        lazy=False,
+                    )
+                    summary = comp_rows[0] if comp_rows else {}
+                    completed_cnt = summary.get('__count') or 0
+                    total_secs = summary.get('duration_seconds') if has_duration else 0
+                    avg_quality_val = summary.get(quality_field) if quality_field else 0
+                else:
+                    completed_cnt = backend.search_count(comp_domain)
+                    total_secs = 0
+                    avg_quality_val = 0
+
+                # Pending = active states (no date filter — current backlog).
+                if has_state:
+                    pending_cnt = backend.search_count([
+                        ('state', 'in', list(ACTIVE_STATES)),
+                    ])
+                    overdue_cnt = backend.search_count([
+                        ('state', 'in', list(ACTIVE_STATES)),
+                        ('create_date', '<=', overdue_threshold),
+                    ])
+                else:
+                    pending_cnt = 0
+                    overdue_cnt = 0
+
+                metrics_by_proj[proj.id] = (
+                    completed_cnt,
+                    pending_cnt,
+                    overdue_cnt,
+                    (total_secs or 0) / 60.0,    # minutes
+                    avg_quality_val or 0,
+                )
 
             items = []
             for proj in projects:
-                completed = completed_by.get(proj.id, 0) or 0
-                pending = pending_by.get(proj.id, 0) or 0
-                overdue = overdue_by.get(proj.id, 0) or 0
-                total_mins = mins_by.get(proj.id, 0) or 0
-                avg_quality = quality_by.get(proj.id, 0) or 0
+                completed, pending, overdue, total_mins, avg_quality = metrics_by_proj.get(
+                    proj.id, (0, 0, 0, 0.0, 0.0)
+                )
 
                 blockers_open = _count_open_blockers([('project_id', '=', proj.id)])
 
@@ -861,17 +910,28 @@ class MainDashboardController(http.Controller):
     )
     @validate_token
     def performance_ranking(self, **kw):
+        # Pulls data from each project's `connected_table` backend (the
+        # per-project job models) instead of the legacy `task.forge.log`.
+        # Response schema is unchanged.
+        # Field translation:
+        #     task.forge.log.date          -> backend.create_date  (datetime)
+        #     task.forge.log.employee_id   -> backend.user_id      (res.users)
+        #     state == 'completed'         -> state in DONE_STATES
+        #     time_taken_mins (minutes)    -> duration_seconds / 60
+        #     quality_score                -> backend.quality_score (gated)
         try:
             user = request.env.user
             err = _require_cto(user)
             if err:
                 return err
 
-            TaskLog = request.env['task.forge.log'].sudo()
             Employee = request.env['hr.employee'].sudo()
+            Project = request.env['project.project'].sudo()
 
             date_from, date_to = _parse_range(kw)
-            project_ids = _project_ids_in_category(kw)
+            # `create_date` is a Datetime; widen the date window to full days.
+            dt_from = datetime.combine(date_from, time.min)
+            dt_to = datetime.combine(date_to, time.max)
 
             try:
                 top_n = max(1, min(50, int(kw.get('top_n') or 10)))
@@ -882,79 +942,117 @@ class MainDashboardController(http.Controller):
             except (TypeError, ValueError):
                 low_threshold = 50.0
 
-            base_domain = [('date', '>=', date_from), ('date', '<=', date_to)]
-            if project_ids is not None:
-                base_domain.append(('project_id', 'in', project_ids))
-
             try:
                 single_project_id = int(kw.get('project_id')) if kw.get('project_id') else None
             except (TypeError, ValueError):
                 single_project_id = None
-            if single_project_id:
-                base_domain.append(('project_id', '=', single_project_id))
-
             try:
                 single_employee_id = int(kw.get('employee_id')) if kw.get('employee_id') else None
             except (TypeError, ValueError):
                 single_employee_id = None
-            if single_employee_id:
-                base_domain.append(('employee_id', '=', single_employee_id))
 
+            # ---- Project scope -----------------------------------------
+            # Live projects with a wired backend; intersected with the
+            # category filter and (optionally) a single project filter.
+            proj_domain = _live_project_domain() + [('connected_table', '!=', False)]
+            project_ids_in_cat = _project_ids_in_category(kw)
+            if project_ids_in_cat is not None:
+                proj_domain.append(('id', 'in', project_ids_in_cat))
+            if single_project_id:
+                proj_domain.append(('id', '=', single_project_id))
+            projects = Project.search(proj_domain)
+
+            # ---- Translate employee filters -> user_id filters ---------
+            # Backend rows key off `user_id`, not `employee_id`. Resolve once.
+            target_user_ids = None  # None == no filter
             search = (kw.get('search') or '').strip()
             if search:
-                matching_emp_ids = Employee.search([('name', 'ilike', search)]).ids
-                if matching_emp_ids:
-                    base_domain.append(('employee_id', 'in', matching_emp_ids))
+                matching_emps = Employee.search([('name', 'ilike', search)])
+                target_user_ids = matching_emps.mapped('user_id').ids or [0]
+            if single_employee_id:
+                emp = Employee.browse(single_employee_id)
+                emp_uid = emp.user_id.id if emp.user_id else 0
+                if target_user_ids is None:
+                    target_user_ids = [emp_uid]
                 else:
-                    base_domain.append(('employee_id', '=', 0))
+                    target_user_ids = [u for u in target_user_ids if u == emp_uid] or [0]
 
-            total_rows = TaskLog.read_group(
-                domain=base_domain,
-                fields=['employee_id'],
-                groupby=['employee_id'],
-                lazy=False,
-            )
-            completed_rows = TaskLog.read_group(
-                domain=base_domain + [('state', '=', 'completed')],
-                fields=['employee_id', 'time_taken_mins:sum'],
-                groupby=['employee_id'],
-                lazy=False,
-            )
+            # ---- Per-user aggregation across every project's backend ----
+            totals_by_user = {}
+            completed_by_user = {}
+            seconds_by_user = {}
 
-            def _to_map(rows, field='__count'):
-                out = {}
-                for r in rows:
-                    emp = r.get('employee_id')
-                    if isinstance(emp, tuple):
-                        emp = emp[0]
-                    if not emp:
+            for proj in projects:
+                backend_name = proj.connected_table
+                if backend_name not in request.env:
+                    continue
+                backend = request.env[backend_name].sudo()
+                if 'user_id' not in backend._fields:
+                    continue
+
+                bd = [
+                    ('create_date', '>=', dt_from),
+                    ('create_date', '<=', dt_to),
+                ]
+                if target_user_ids is not None:
+                    bd.append(('user_id', 'in', target_user_ids))
+
+                total_rows = backend.read_group(
+                    domain=bd,
+                    fields=['user_id'],
+                    groupby=['user_id'],
+                    lazy=False,
+                )
+                has_duration = 'duration_seconds' in backend._fields
+                comp_fields = ['user_id']
+                if has_duration:
+                    comp_fields.append('duration_seconds:sum')
+                completed_rows = backend.read_group(
+                    domain=bd + [('state', 'in', list(DONE_STATES))],
+                    fields=comp_fields,
+                    groupby=['user_id'],
+                    lazy=False,
+                )
+
+                for r in total_rows:
+                    uid = r.get('user_id')
+                    if isinstance(uid, tuple):
+                        uid = uid[0]
+                    if not uid:
                         continue
-                    out[emp] = r.get(field, 0)
-                return out
+                    totals_by_user[uid] = totals_by_user.get(uid, 0) + (r.get('__count') or 0)
+                for r in completed_rows:
+                    uid = r.get('user_id')
+                    if isinstance(uid, tuple):
+                        uid = uid[0]
+                    if not uid:
+                        continue
+                    completed_by_user[uid] = completed_by_user.get(uid, 0) + (r.get('__count') or 0)
+                    if has_duration:
+                        secs = r.get('duration_seconds') or 0
+                        seconds_by_user[uid] = seconds_by_user.get(uid, 0) + secs
 
-            totals = _to_map(total_rows, '__count')
-            completed = _to_map(completed_rows, '__count')
-            mins = _to_map(completed_rows, 'time_taken_mins')
-
-            emp_ids = list(totals.keys())
-            emp_map = {e.id: e for e in Employee.browse(emp_ids)}
+            # ---- Resolve user_id -> hr.employee for response payload ----
+            user_ids = list(totals_by_user.keys())
+            user_to_emp = {}
+            if user_ids:
+                for e in Employee.search([('user_id', 'in', user_ids)]):
+                    if e.user_id:
+                        user_to_emp[e.user_id.id] = e
 
             rankings = []
-            for eid in emp_ids:
-                t = totals.get(eid, 0) or 0
-                c = completed.get(eid, 0) or 0
+            for uid, t in totals_by_user.items():
                 if t <= 0:
-                    # Fix legacy bug: exclude zero-task employees from
-                    # "low_performers" - they simply haven't started.
                     continue
+                c = completed_by_user.get(uid, 0) or 0
                 productivity = round((c / t * 100), 1)
-                emp = emp_map.get(eid)
+                emp = user_to_emp.get(uid)
                 rankings.append({
-                    'employee_id': eid,
+                    'employee_id': emp.id if emp else 0,
                     'employee_name': emp.name if emp else '(unknown)',
                     'total_tasks': t,
                     'completed': c,
-                    'total_minutes': mins.get(eid, 0) or 0,
+                    'total_minutes': int(round((seconds_by_user.get(uid, 0) or 0) / 60.0)),
                     'productivity': productivity,
                 })
 
@@ -969,38 +1067,37 @@ class MainDashboardController(http.Controller):
                 'minutes_asc':       ('total_minutes', False),
             }
             sort_key = RANKING_SORT_KEYS.get(kw.get('sort'), ('productivity', True))
-            field, reverse = sort_key
-            rankings.sort(key=lambda r: r.get(field) or 0, reverse=reverse)
+            sort_field, reverse = sort_key
+            rankings.sort(key=lambda r: r.get(sort_field) or 0, reverse=reverse)
 
-            Project = request.env['project.project'].sudo()
-            pl_log_domain = [('date', '>=', date_from), ('date', '<=', date_to)]
-            if project_ids is not None:
-                pl_log_domain.append(('project_id', 'in', project_ids))
-
-            pl_project_domain = _live_project_domain()
-            if project_ids is not None:
-                pl_project_domain.append(('id', 'in', project_ids))
-            live_projects = Project.search(pl_project_domain)
-
+            # ---- Top Project Leads -------------------------------------
+            # For each PL of any in-scope project, sum total + completed
+            # backend rows across all of that PL's projects in the window.
             pl_project_map = {}
-            for proj in live_projects:
+            for proj in projects:
                 for pl in proj.project_lead:
                     pl_project_map.setdefault(pl.id, {
                         'user_id': pl.id,
                         'name': pl.name,
-                        'project_ids': [],
+                        'projects': [],
                     })
-                    pl_project_map[pl.id]['project_ids'].append(proj.id)
+                    pl_project_map[pl.id]['projects'].append(proj)
 
             pl_rows = []
             for info in pl_project_map.values():
-                pids = info['project_ids']
-                if not pids:
-                    continue
-                total = TaskLog.search_count(pl_log_domain + [('project_id', 'in', pids)])
-                comp = TaskLog.search_count(
-                    pl_log_domain + [('project_id', 'in', pids), ('state', '=', 'completed')]
-                )
+                total = 0
+                comp = 0
+                for proj in info['projects']:
+                    backend_name = proj.connected_table
+                    if backend_name not in request.env:
+                        continue
+                    backend = request.env[backend_name].sudo()
+                    bd = [
+                        ('create_date', '>=', dt_from),
+                        ('create_date', '<=', dt_to),
+                    ]
+                    total += backend.search_count(bd)
+                    comp += backend.search_count(bd + [('state', 'in', list(DONE_STATES))])
                 pct = round((comp / total * 100) if total else 0.0, 1)
                 pl_rows.append({
                     'user_id': info['user_id'],
@@ -1012,6 +1109,10 @@ class MainDashboardController(http.Controller):
             pl_rows.sort(key=lambda x: (-x['percentage_completion'], -x['total']))
             top_project_leads = [dict(rank=i + 1, **row) for i, row in enumerate(pl_rows[:top_n])]
 
+            # ---- Top Quality Reviewers ---------------------------------
+            # For each QR, weighted-average their team's quality_score across
+            # every in-scope backend that exposes the field. Backends without
+            # quality_score contribute 0 weight.
             qr_rows = []
             all_active = Employee.search([('task_forge_active', '=', True)])
             for emp in all_active:
@@ -1022,18 +1123,37 @@ class MainDashboardController(http.Controller):
                     ('task_forge_active', '=', True),
                 ])
                 tasker_count = len(team)
-                team_ids = team.ids
-                if not team_ids:
+                team_user_ids = team.mapped('user_id').ids
+                if not team_user_ids:
                     continue
-                team_avg_q = TaskLog.read_group(
-                    domain=pl_log_domain + [
-                        ('employee_id', 'in', team_ids),
-                        ('quality_score', '>', 0),
-                    ],
-                    fields=['quality_score:avg'],
-                    groupby=[],
-                )
-                avg_q = round((team_avg_q and team_avg_q[0].get('quality_score') or 0.0), 1)
+
+                weighted_sum = 0.0
+                weight = 0
+                for proj in projects:
+                    backend_name = proj.connected_table
+                    if backend_name not in request.env:
+                        continue
+                    backend = request.env[backend_name].sudo()
+                    quality_field = _backend_quality_field(backend)
+                    if not quality_field or 'user_id' not in backend._fields:
+                        continue
+                    rows = backend.read_group(
+                        domain=[
+                            ('create_date', '>=', dt_from),
+                            ('create_date', '<=', dt_to),
+                            ('user_id', 'in', team_user_ids),
+                            (quality_field, '>', 0),
+                        ],
+                        fields=[f'{quality_field}:avg'],
+                        groupby=[],
+                    )
+                    if rows and rows[0].get('__count'):
+                        n = rows[0]['__count']
+                        avg = rows[0].get(quality_field) or 0.0
+                        weighted_sum += avg * n
+                        weight += n
+
+                avg_q = round((weighted_sum / weight) if weight else 0.0, 1)
                 if avg_q <= 0 and tasker_count == 0:
                     continue
                 qr_rows.append({

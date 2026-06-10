@@ -166,6 +166,145 @@ class LeviathanJob(models.Model):
         return out
 
     @api.model
+    def get_completed_daily_counts(self, user_ids=None, dt_from=None, dt_to=None):
+        """Per-day completed-task counts (used by CTO/PL/QC daily graphs).
+
+        Returns a list of ``(day_label, count)`` tuples where ``day_label``
+        is the Odoo ``write_date:day`` group label. Caller treats it as the
+        dict key downstream — format kept identical to the legacy
+        ``read_group`` output so the response shape doesn't change.
+        """
+        domain = [('state', 'in', list(DONE_STATES))]
+        if user_ids is not None:
+            domain.append(('user_id', 'in', list(user_ids)))
+        if dt_from:
+            domain.append(('write_date', '>=', dt_from))
+        if dt_to:
+            domain.append(('write_date', '<=', dt_to))
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=['write_date'],
+            groupby=['write_date:day'],
+            lazy=False,
+        )
+        out = []
+        for r in rows:
+            day = r.get('write_date:day') or ''
+            if not day:
+                continue
+            out.append((day, int(r.get('__count') or 0)))
+        return out
+
+    @api.model
+    def count_user_tasks(self, user_ids):
+        """Total task count for the given users (no state/date filter).
+
+        Used by CTO dashboard TPM-scope totals.
+        """
+        if not user_ids:
+            return 0
+        return self.sudo().search_count([('user_id', 'in', list(user_ids))])
+
+    @api.model
+    def get_active_users(self, user_ids=None):
+        """Return list of user_ids currently in an in-progress state.
+
+        If ``user_ids`` is given, restricts to that set. Backends hide which
+        of their own states count as "in progress".
+        """
+        domain = [('state', 'in', list(IN_PROGRESS_STATES))]
+        if user_ids is not None:
+            domain.append(('user_id', 'in', list(user_ids)))
+        rows = self.sudo().search(domain)
+        return list({uid for uid in rows.mapped('user_id').ids if uid})
+
+    @api.model
+    def get_user_today_summary(self, user_id, today_start, today_end):
+        """Return ``{'completed': int, 'seconds': int}`` for one user today.
+
+        Used by the tasker dashboard. Backends decide which date field
+        defines "today" and which field tracks duration.
+        """
+        Job = self.sudo()
+        completed = Job.search_count([
+            ('user_id', '=', user_id),
+            ('state', 'in', list(DONE_STATES)),
+            ('write_date', '>=', today_start),
+            ('write_date', '<=', today_end),
+        ])
+        today_rows = Job.search([
+            ('user_id', '=', user_id),
+            ('write_date', '>=', today_start),
+            ('write_date', '<=', today_end),
+        ])
+        seconds = int(sum(today_rows.mapped('duration_seconds')) or 0)
+        return {'completed': completed, 'seconds': seconds}
+
+    @api.model
+    def get_user_task_breakdown(self, user_id, today_start, today_end):
+        """Return ``{total, done, today, seconds}`` for a user, all-time
+        plus today-bucket. Used by QC tasker performance breakdown.
+        """
+        Job = self.sudo()
+        rows = Job.search([('user_id', '=', user_id)])
+        return {
+            'total': len(rows),
+            'done': len(rows.filtered(lambda r: r.state in DONE_STATES)),
+            'today': len(rows.filtered(
+                lambda r: r.create_date
+                and today_start <= r.create_date <= today_end
+            )),
+            'seconds': int(sum(rows.mapped('duration_seconds')) or 0),
+        }
+
+    @api.model
+    def get_project_totals(self):
+        """Return ``{total, done, aht_minutes}`` across all rows of this
+        backend. Used by tasker_project_list / employee_project_list.
+        """
+        Job = self.sudo()
+        rows = Job.search([])
+        total = len(rows)
+        done = len(rows.filtered(lambda r: r.state in DONE_STATES))
+        aht_minutes = int(sum(rows.mapped('duration_seconds')) // 60) if total else 0
+        return {'total': total, 'done': done, 'aht_minutes': aht_minutes}
+
+    @api.model
+    def get_quality_trend(self, user_id, dt_from=None, dt_to=None):
+        """Per-day sum of quality scores for one user (tasker dashboard).
+
+        Each backend hides its own quality column behind this method.
+        Leviathan reads ``score``; other backends may read ``quality_score``
+        or compute it. The controller never sees the field name.
+
+        Returns a list of ``(day_label, score_sum)`` tuples where
+        ``day_label`` is the Odoo ``write_date:day`` group label (e.g.
+        ``"08 Jun 2026"``) — kept as-is so the caller's dict keys stay
+        compatible with what the legacy read_group returned.
+        """
+        domain = [
+            ("user_id", "=", user_id),
+            ("state", "in", list(DONE_STATES)),
+        ]
+        if dt_from:
+            domain.append(("write_date", ">=", dt_from))
+        if dt_to:
+            domain.append(("write_date", "<=", dt_to))
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=["score"],
+            groupby=["write_date:day"],
+            lazy=False,
+        )
+        out = []
+        for r in rows:
+            day = r.get("write_date:day") or ""
+            if not day:
+                continue
+            out.append((day, float(r.get("score") or 0)))
+        return out
+
+    @api.model
     def get_main_dashboard_metrics(self, today_from, today_to, yesterday_from, yesterday_to):
         """Return raw founder-summary metrics from this task table.
 
