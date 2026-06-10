@@ -221,7 +221,8 @@
 
                     <separator string="Attachments" name="sep_attachments"/>
                     <widget name="fenrir_attachment_uploader"/>
-                    <field name="attachment_ids" nolabel="1" mode="kanban,list">
+                    <field name="attachment_ids" nolabel="1" mode="kanban,list"
+                           domain="[('folder', '!=', 'data')]">
                         <kanban class="o_kanban_dashboard">
                             <field name="file_name"/>
                             <field name="attachment"/>
@@ -312,6 +313,62 @@
                                        placeholder="Notes about this asset (used in license.json)..."/>
                             </sheet>
                         </form>
+                    </field>
+
+                    <separator string="Data" name="sep_data"/>
+                    <widget name="fenrir_attachment_uploader" default_folder="data"/>
+                    <field name="data_attachment_ids" nolabel="1" mode="kanban,list"
+                           context="{'default_folder': 'data'}">
+                        <kanban class="o_kanban_dashboard">
+                            <field name="file_name"/>
+                            <field name="attachment"/>
+                            <field name="s3_key"/>
+                            <field name="description"/>
+                            <field name="sequence"/>
+                            <templates>
+                                <t t-name="card">
+                                    <div class="oe_kanban_card oe_kanban_global_click p-2">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="fa fa-database fa-lg text-primary"
+                                               title="Data" aria-label="Data" role="img"/>
+                                            <strong class="text-truncate flex-grow-1">
+                                                <field name="file_name" placeholder="File name"/>
+                                            </strong>
+                                        </div>
+                                        <div class="text-muted small mt-1 text-truncate" t-if="record.description.raw_value">
+                                            <field name="description"/>
+                                        </div>
+                                        <div class="mt-2" t-if="!record.s3_key.raw_value">
+                                            <field name="attachment" filename="file_name" widget="binary"/>
+                                        </div>
+                                        <div class="mt-2 small text-success" t-if="record.s3_key.raw_value">
+                                            <i class="fa fa-cloud" aria-hidden="true"/> Stored in S3
+                                        </div>
+                                    </div>
+                                </t>
+                            </templates>
+                        </kanban>
+                        <list editable="bottom" string="Data"
+                              decoration-success="s3_key">
+                            <field name="sequence" widget="handle"/>
+                            <field name="file_name" placeholder="dataset.csv"/>
+                            <field name="folder" column_invisible="1"/>
+                            <field name="license"/>
+                            <field name="source_url" optional="hide"
+                                   placeholder="https://..."/>
+                            <field name="attachment" filename="file_name" string="File"
+                                   invisible="s3_key"/>
+                            <field name="s3_key" optional="show" readonly="1"/>
+                            <field name="s3_uploaded_at" optional="hide" readonly="1"/>
+                            <field name="file_size" optional="hide" readonly="1"/>
+                            <button name="action_open_s3_download" type="object"
+                                    icon="fa-cloud-download" title="Download from S3"
+                                    invisible="not s3_key"/>
+                            <field name="description" optional="hide"
+                                   placeholder="Optional caption..."/>
+                            <field name="notes"
+                                   placeholder="Notes for license.json..."/>
+                        </list>
                     </field>
 
                     <separator string="Seller Offers" name="sep_sellers"/>

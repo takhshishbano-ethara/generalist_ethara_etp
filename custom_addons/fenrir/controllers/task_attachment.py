@@ -16,7 +16,7 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-_ALLOWED_FOLDERS = {"root", "resources", "tests", "environment"}
+_ALLOWED_FOLDERS = {"root", "resources", "tests", "environment", "data"}
 
 
 class FenrirTaskAttachmentController(http.Controller):

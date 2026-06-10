@@ -10,6 +10,7 @@ const FOLDERS = [
     { value: "root", label: "Root" },
     { value: "tests", label: "Tests" },
     { value: "environment", label: "Environment" },
+    { value: "data", label: "Data" },
 ];
 
 export class FenrirAttachmentUploader extends Component {
@@ -23,8 +24,12 @@ export class FenrirAttachmentUploader extends Component {
     setup() {
         this.notification = useService("notification");
         this.fileInput = useRef("fileInput");
+        const initialFolder = (this.props.defaultFolder
+            && FOLDERS.some((f) => f.value === this.props.defaultFolder))
+            ? this.props.defaultFolder
+            : "resources";
         this.state = useState({
-            folder: "resources",
+            folder: initialFolder,
             pendingFiles: [],   // [{id, name, size, file, folder}]
             uploading: false,
             progress: 0,
@@ -202,6 +207,9 @@ export class FenrirAttachmentUploader extends Component {
 
 export const fenrirAttachmentUploader = {
     component: FenrirAttachmentUploader,
+    extractProps: ({ attrs }) => ({
+        defaultFolder: attrs && attrs.default_folder,
+    }),
 };
 
 registry.category("view_widgets").add(
