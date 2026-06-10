@@ -169,79 +169,41 @@ class VideoEditorProject(models.Model):
         return out
 
     @api.model
-    def get_completed_daily_counts(self, user_ids=None, dt_from=None, dt_to=None):
-        """Per-day completed counts. video.editor.project uses
-        ``assigned_to`` for the worker and ``review_decided_at`` for
-        completion timestamp.
-
-        Returns list of ``(day_label, count)`` tuples. The label format
-        matches what Odoo emits from ``groupby=['<field>:day']`` so the
-        controller can merge buckets across backends.
-        """
-        domain = [("state", "in", list(DONE_STATES))]
-        if user_ids is not None:
-            domain.append(("assigned_to", "in", list(user_ids)))
-        if dt_from:
-            domain.append(("review_decided_at", ">=", dt_from))
-        if dt_to:
-            domain.append(("review_decided_at", "<=", dt_to))
+    def get_daily_burn_timeseries(self, dt_from, dt_to):
+        domain = [
+            ("llm_qc_cost_usd", ">", 0),
+            ("llm_evaluated_at", ">=", dt_from),
+            ("llm_evaluated_at", "<=", dt_to),
+        ]
         rows = self.sudo().read_group(
             domain=domain,
-            fields=["review_decided_at"],
-            groupby=["review_decided_at:day"],
+            fields=["llm_evaluated_at", "llm_qc_cost_usd:sum"],
+            groupby=["llm_evaluated_at:day"],
             lazy=False,
         )
         out = []
-        for r in rows:
-            day = r.get("review_decided_at:day") or ""
-            if not day:
+        for row in rows:
+            raw = row.get("llm_evaluated_at:day") or row.get("llm_evaluated_at")
+            cost = float(row.get("llm_qc_cost_usd") or 0.0)
+            if not raw or cost <= 0:
                 continue
-            out.append((day, int(r.get("__count") or 0)))
+            if isinstance(raw, datetime):
+                iso = raw.date().isoformat()
+            elif isinstance(raw, date):
+                iso = raw.isoformat()
+            else:
+                parsed = None
+                for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+                    try:
+                        parsed = datetime.strptime(str(raw), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not parsed:
+                    continue
+                iso = parsed.isoformat()
+            out.append((iso, cost))
         return out
-
-    @api.model
-    def count_user_tasks(self, user_ids):
-        """Total task count for these users (any state). Used by CTO TPM totals."""
-        if not user_ids:
-            return 0
-        return self.sudo().search_count([("assigned_to", "in", list(user_ids))])
-
-    @api.model
-    def get_active_users(self, user_ids=None):
-        """User IDs currently in an in-progress video state.
-
-        Optionally restricted to ``user_ids``.
-        """
-        domain = [("state", "in", list(IN_PROGRESS_STATES))]
-        if user_ids is not None:
-            domain.append(("assigned_to", "in", list(user_ids)))
-        rows = self.sudo().search(domain)
-        return list({uid for uid in rows.mapped("assigned_to").ids if uid})
-
-    @api.model
-    def get_user_today_summary(self, user_id, today_start, today_end):
-        """Return ``{completed, seconds}`` for one user today.
-
-        Completion is detected via ``review_decided_at`` so the bucket
-        matches what ``get_main_dashboard_metrics`` already uses.
-        ``seconds`` here is the sum of ``duration_seconds`` of rows the
-        user worked on today — note this is video clip length, not work
-        time. Callers that want true work time should override.
-        """
-        Proj = self.sudo()
-        completed = Proj.search_count([
-            ("assigned_to", "=", user_id),
-            ("state", "in", list(DONE_STATES)),
-            ("review_decided_at", ">=", today_start),
-            ("review_decided_at", "<=", today_end),
-        ])
-        today_rows = Proj.search([
-            ("assigned_to", "=", user_id),
-            ("review_decided_at", ">=", today_start),
-            ("review_decided_at", "<=", today_end),
-        ])
-        seconds = int(sum(today_rows.mapped("duration_seconds")) or 0)
-        return {"completed": completed, "seconds": seconds}
 
     @api.model
     def get_main_dashboard_metrics(self, today_from, today_to, yesterday_from, yesterday_to):
