@@ -9,6 +9,18 @@ Follows the same conventions as `aurora_extension` / `employee_extension`:
 routes under `/api/v1/etp_assessment_ext/...`, `auth="none"` +
 `@validate_token`, and the `api_auth_gateway` `return_Response` envelope.
 
+## Companion docs
+
+- [`docs/new_extension.md`](./docs/new_extension.md) — the 5 endpoints added in the
+  previous change (violations + deep-detail views).
+- [`docs/pending_apis.md`](./docs/pending_apis.md) — the 11 endpoints added in the
+  latest change (binary question images, admin candidate token /
+  invitation operations, bulk question import, CSV template download,
+  employee picker). Includes a full 55-route inventory table.
+- [`postman/pending_apis.postman_collection.json`](./postman/pending_apis.postman_collection.json) — ready-to-run Postman collection for the 11 pending endpoints.
+- [`postman/`](./postman/) — all Postman v2.1.0 collections (canonical + dated `exports/`) and the `tools/gen_postman.py` generator.
+- [`docs/`](./docs/) — additional API documentation and change-log markdown.
+
 ## Auth & envelope
 
 - Header: `access_token: <token>` (validated by `@validate_token`).
