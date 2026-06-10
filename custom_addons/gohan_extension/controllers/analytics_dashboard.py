@@ -1,4 +1,5 @@
 import calendar
+import statistics
 from datetime import datetime, timedelta
 
 from odoo import fields, http
@@ -121,6 +122,31 @@ def _parse_date(raw, label):
             message=f"Invalid {label} '{raw}'. Expected YYYY-MM-DD.",
             status=400,
         )
+
+
+def _resolve_project(env, params):
+    """Resolve the optional ``project_id`` query param.
+
+    Returns (project, error). When ``project_id`` is absent, returns
+    (None, None) so callers keep their default role-scoped behaviour.
+    """
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    try:
+        project_id = int(raw)
+    except (TypeError, ValueError):
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project = env["project.project"].sudo().browse(project_id)
+    if not project.exists():
+        return None, return_Response(
+            message=f"Project {project_id} was not found.",
+            status=404,
+        )
+    return project, None
 
 
 def _create_date_domain(start_date, end_date):
@@ -513,13 +539,14 @@ def _build_timeline(env, scope, filters):
     }
 
 
-def _cache_key(env, filters):
+def _cache_key(env, filters, project):
     return (
         env.cr.dbname,
         env.user.id,
         filters["start"].isoformat() if filters["start"] else "",
         filters["end"].isoformat() if filters["end"] else "",
         filters["month_start"].isoformat() if filters["month_start"] else "",
+        project.id if project else 0,
     )
 
 
@@ -540,29 +567,63 @@ def _cache_set(key, payload):
     _CACHE[key] = (datetime.now(), payload)
 
 
+TARGET_TURNAROUND_PARAM = "gohan.target_turnaround_minutes"
+
+
+def _target_turnaround_minutes(env):
+    """Resolve the turnaround SLA target (minutes) from System Parameters.
+
+    Set ``gohan.target_turnaround_minutes`` in Settings → Technical →
+    Parameters to drive the on/above-target indicator. Unset (or 0) means
+    no target configured, and the indicator reports ``no_target``.
+    """
+    raw = env["ir.config_parameter"].sudo().get_param(TARGET_TURNAROUND_PARAM)
+    try:
+        return round(float(raw), 2) if raw else 0.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _build_aht_overview_aligned(env, scope, filters):
+    """Turnaround time over completed jobs (start -> completion).
+
+    ``duration_seconds`` is the end-to-end turnaround captured once when a
+    job finishes (``completed_at - started_at``); only completed jobs carry
+    it, so the population is implicitly done/submitted. The reported value
+    is the MEDIAN, because a single stuck / watchdog-recovered job skews the
+    arithmetic mean badly on small samples — the median is the real value a
+    typical task actually experienced. The response shape is unchanged.
+    """
     Job = env["gohan.job"].sudo()
     domain = (
         scope
         + _create_date_domain(filters["start"], filters["end"])
-        + [("duration_seconds", ">", 0)]
+        + [
+            ("state", "in", list(COMPLETED_STATES)),
+            ("duration_seconds", ">", 0),
+        ]
     )
-    groups = Job._read_group(domain, [], ["__count", "duration_seconds:avg"])
-    measured, avg_seconds = groups[0] if groups else (0, 0.0)
-    measured = measured or 0
-    avg_seconds = avg_seconds or 0.0
-    avg_minutes = round(avg_seconds / 60.0, 2)
-    target = round(filters.get("target_aht", 0) or 0, 2)
+    rows = Job.search_read(domain, ["duration_seconds"])
+    durations = [r["duration_seconds"] for r in rows if r.get("duration_seconds")]
+    measured = len(durations)
+    median_minutes = (
+        round(statistics.median(durations) / 60.0, 2) if measured else 0.0
+    )
+
+    target = _target_turnaround_minutes(env)
     if not measured:
         indicator = "no_data"
-    elif avg_minutes <= target:
+    elif not target:
+        indicator = "no_target"
+    elif median_minutes <= target:
         indicator = "on_target"
     else:
         indicator = "above_target"
+
     return {
-        "average_handling_time_minutes": avg_minutes,
+        "average_handling_time_minutes": median_minutes,
         "target_aht_minutes": target,
-        "difference_minutes": round(avg_minutes - target, 2),
+        "difference_minutes": round(median_minutes - target, 2),
         "performance_indicator": indicator,
         "tasks_measured": measured,
     }
@@ -650,13 +711,19 @@ class GohanAnalyticsDashboardController(http.Controller):
         filters, error = _resolve_dashboard_filters(params)
         if error is not None:
             return error
+        project, error = _resolve_project(env, params)
+        if error is not None:
+            return error
 
-        cache_key = _cache_key(env, filters)
+        cache_key = _cache_key(env, filters, project)
         cached = _cache_get(cache_key)
         if cached is not None:
             return return_Response(message="OK", status=200, data=cached)
 
         tag, scope, projects = _scope(env)
+        # When project_id is supplied, the team sections describe that one
+        # project; everything else stays role-scoped (unchanged behaviour).
+        team_projects = project or projects
         total_task = _build_total_task(env, scope, filters)
         qc_leaderboard = _build_qc_leaderboard(env, projects, filters)
         data = {
@@ -664,7 +731,7 @@ class GohanAnalyticsDashboardController(http.Controller):
                 "task_overview": total_task,
                 "aht_overview": _build_aht_overview_aligned(env, scope, filters),
                 "url_overview": _build_url_overview_aligned(env, scope, filters),
-                "team_overview": _build_team_overview_aligned(env, projects),
+                "team_overview": _build_team_overview_aligned(env, team_projects),
                 "status_chart": _build_status_chart_aligned(env, scope, filters),
                 "completion_heatmap": _build_heatmap(env, scope, filters),
                 "qc_leaderboard": qc_leaderboard,
@@ -675,7 +742,7 @@ class GohanAnalyticsDashboardController(http.Controller):
                     env, scope, filters
                 ),
                 "failed_task_analytics": _build_failed_task(env, scope, filters),
-                "team_member_analytics": _build_team_members(env, projects),
+                "team_member_analytics": _build_team_members(env, team_projects),
                 "qc_verdict_distribution": _build_qc_verdict(env, scope, filters),
                 "qc_team_leaderboard": qc_leaderboard,
             },
