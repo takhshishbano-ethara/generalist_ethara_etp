@@ -1,10 +1,12 @@
 """Paginated, filterable list of Aurora benchmark instances.
 
-Response shape matches talos_extension's task_view_dashboard: a dynamic table
+A dynamic table
 contract with `role`, `columns` ([{key, label, type}]), `rows`, and
 `pagination` ({total_records, page, limit, total_pages}). Selection fields are
 emitted as raw value + `_label` pairs.
 """
+
+import logging
 
 from odoo import http
 from odoo.http import request
@@ -15,6 +17,8 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .common import coerce_int, user_role_tag
+
+_logger = logging.getLogger(__name__)
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 200
@@ -175,31 +179,30 @@ class AuroraInstancesController(http.Controller):
         limit = min(max(1, coerce_int(params.get("limit"), DEFAULT_LIMIT)), MAX_LIMIT)
         offset = (page - 1) * limit
 
-        Instance = env["aurora.evaluation.instance"].sudo()
-        total = Instance.search_count(domain)
-        records = Instance.search(domain, limit=limit, offset=offset, order=order)
-        status_labels = dict(Instance._fields["status"].selection)
-        rows = [_serialize(r, status_labels) for r in records]
-        total_pages = (total + limit - 1) // limit if total else 0
+        try:
+            Instance = env["aurora.evaluation.instance"].sudo()
+            total = Instance.search_count(domain)
+            records = Instance.search(domain, limit=limit, offset=offset, order=order)
+            status_labels = dict(Instance._fields["status"].selection)
+            rows = [_serialize(r, status_labels) for r in records]
+        except Exception:
+            _logger.exception("aurora_ext_instances failed")
+            return return_Response(
+                message="Failed to fetch Aurora instances.",
+                status=400,
+            )
 
         return return_Response(
-            message="OK",
+            message="Task view fetched successfully.",
             status=200,
             data={
+                # Flat role/columns/rows/total_records/page/limit — matches
+                # crowley_sourcing_ext's task_view_dashboard contract exactly.
                 "role": role_tag,
-                "blocks": [
-                    {
-                        "type": "table",
-                        "title": "Benchmark instances",
-                        "columns": COLUMNS,
-                        "rows": rows,
-                        "pagination": {
-                            "total_records": total,
-                            "page": page,
-                            "limit": limit,
-                            "total_pages": total_pages,
-                        },
-                    },
-                ],
+                "columns": COLUMNS,
+                "rows": rows,
+                "total_records": total,
+                "page": page,
+                "limit": limit,
             },
         )

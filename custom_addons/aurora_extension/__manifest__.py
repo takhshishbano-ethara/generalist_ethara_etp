@@ -5,22 +5,16 @@
     "summary": "REST API for the Aurora / Milo-Bench showcase dashboard.",
     "description": """
         Read-only REST API that powers the Flutter Aurora (Milo-Bench)
-        showcase dashboard.
+        project dashboard, computed live from aurora.evaluation.instance:
+          - Overview: KPIs, stage funnel, recent activity
+          - Analytics: resolve-rate KPIs, resolution mix, instances/day
+          - Instances: paginated, filterable benchmark instances table
 
-        Real data (computed from aurora.evaluation.instance):
-          - KPIs (instances, resolved, resolve rate, repos covered)
-          - Quality tiers (status distribution)
-          - Paginated benchmark instances table
-
-        Seeded / admin-editable content (aurora.showcase.* models):
-          - Methodology principles
-          - Pipeline steps
-          - External resources (GitHub / HuggingFace / Paper)
-          - Per-model summary stats (Kimi / GLM-5)
-
-        All responses follow the api_auth_gateway return_Response envelope
-        and are guarded by @validate_token, matching talos_extension /
-        crowley_extension.
+        Mirrors the crowley_sourcing_extension dashboard contract so the same
+        Flutter project-detail machinery renders Aurora via an auto-created
+        internal project (data/aurora_project_data.xml). All responses follow
+        the api_auth_gateway return_Response envelope and are guarded by
+        @validate_token.
     """,
     "author": "Ethara",
     "license": "LGPL-3",
@@ -29,10 +23,12 @@
         "web",
         "aurora",
         "api_auth_gateway",
+        # Provides project.project's project_classification / connected_table /
+        # api_map_ids fields used by the auto-created Aurora external project.
+        "etp_projects",
     ],
     "data": [
-        "security/ir.model.access.csv",
-        "data/aurora_showcase_data.xml",
+        "data/aurora_project_data.xml",
     ],
     "installable": True,
     "application": False,
