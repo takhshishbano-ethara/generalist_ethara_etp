@@ -810,6 +810,12 @@ class T2AVGeneration(models.Model):
             ))
         self._validate_can_submit()
         attempt = self._spawn_attempt()
+        self.write({
+            "pipeline_status": "running",
+            "pipeline_started_at": fields.Datetime.now(),
+            "pipeline_finished_at": False,
+            "pipeline_error_text": False,
+        })
         self.message_post(body=_("Generation queued (attempt 1)."))
         attempt._defer("_run_submit")
         return self._display_queued_notification()
@@ -833,7 +839,21 @@ class T2AVGeneration(models.Model):
                             "Golden Prompt and Enriched Prompt invalidated because "
                             "source metadata changed. Re-run Enrich to refresh."
                         ))
-        return super().write(vals)
+
+        promote_to_queued = []
+        if vals.get("golden_prompt"):
+            for rec in self:
+                if rec.pipeline_status in ("not_published", "failed", False, None):
+                    promote_to_queued.append(rec.id)
+
+        result = super().write(vals)
+
+        if promote_to_queued:
+            self.browse(promote_to_queued).write({
+                "pipeline_status": "queued",
+            })
+
+        return result
 
     def action_batch_enrich(self):
         _logger.info(
@@ -1659,6 +1679,12 @@ class T2AVGeneration(models.Model):
         self._validate_can_submit()
         self.write({"ui_retry_pending": False})
         attempt = self._spawn_attempt()
+        self.write({
+            "pipeline_status": "running",
+            "pipeline_started_at": fields.Datetime.now(),
+            "pipeline_finished_at": False,
+            "pipeline_error_text": False,
+        })
         self.message_post(body=_(
             "Retry queued (attempt %(n)d). Changes: %(diff)s"
         ) % {
@@ -1742,6 +1768,11 @@ class T2AVGeneration(models.Model):
                     "T2AV: cancel_job best-effort failed for attempt %s",
                     a.id,
                 )
+        self.write({
+            "pipeline_status": "failed",
+            "pipeline_finished_at": fields.Datetime.now(),
+            "pipeline_error_text": "Cancelled by user",
+        })
         self.message_post(body=_("Attempt %d cancelled.") % a.attempt_number)
         return True
 
@@ -1955,7 +1986,6 @@ class T2AVGeneration(models.Model):
                     "enrichment did not produce a golden_prompt"
                 )
             attempt = record._spawn_attempt()
-            attempt = attempt.with_context(t2av_inline_pipeline=True)
             attempt._run_submit()
             if attempt.state == _STATE_FAILED:
                 raise _PermanentPipelineError(
@@ -1963,25 +1993,6 @@ class T2AVGeneration(models.Model):
                         attempt.error_message or attempt.error_code or ""
                     )
                 )
-            self._pipeline_poll_until_terminal(attempt)
-            attempt.invalidate_recordset()
-            if attempt.state == _STATE_FAILED:
-                raise _PermanentPipelineError(
-                    "attempt failed: %s" % (
-                        attempt.error_message or attempt.error_code or ""
-                    )
-                )
-            if attempt.state == _STATE_CANCELLED:
-                raise _PermanentPipelineError("attempt cancelled")
-            if attempt.state != _STATE_DONE:
-                raise Exception(
-                    "attempt ended in unexpected state %s" % attempt.state
-                )
-            record.write({
-                "pipeline_status": "done",
-                "pipeline_finished_at": fields.Datetime.now(),
-            })
-            record.message_post(body=_("Pipeline complete; video ready."))
             return True
         except _PermanentPipelineError as exc:
             record.write({
@@ -2043,47 +2054,44 @@ class T2AVGeneration(models.Model):
                 "enrichment exhausted after %d attempts" % max_attempts
             )
 
-    def _pipeline_poll_until_terminal(self, attempt):
-        icp = self.env["ir.config_parameter"].sudo()
-        try:
-            wall_clock_cap = int(
-                icp.get_param("t2av.pipeline.max_wall_clock_seconds", "1800")
-            )
-        except (TypeError, ValueError):
-            wall_clock_cap = 1800
-        try:
-            poll_initial = int(
-                icp.get_param("t2av.pipeline.poll_initial_seconds", "15")
-            )
-        except (TypeError, ValueError):
-            poll_initial = 15
-        try:
-            poll_max = int(
-                icp.get_param("t2av.pipeline.poll_max_seconds", "60")
-            )
-        except (TypeError, ValueError):
-            poll_max = 60
-        # Wait for the cron _cron_poll_openrouter (every 60s) to transition
-        # the attempt to a fully terminal state. Consumer thread does NOT
-        # poll OpenRouter itself - having two pollers causes the cron's
-        # postcommit _run_download to fire in a separate cursor while the
-        # consumer races ahead, leaving pipeline_status stuck at 'running'.
-        # Single source of truth = cron.
-        deadline = time.monotonic() + wall_clock_cap
-        delay = poll_initial
-        while True:
-            attempt.invalidate_recordset()
-            if attempt.state in (
-                _STATE_DONE, _STATE_FAILED, _STATE_CANCELLED,
-            ):
-                return
-            if time.monotonic() >= deadline:
-                raise _PermanentPipelineError(
-                    "polling exceeded wall-clock cap of %ds" % wall_clock_cap
-                )
-            time.sleep(delay)
-            self._pipeline_heartbeat(attempt.job_id)
-            delay = min(delay * 2, poll_max)
+    # Disabled 2026-06-10: polling now async via rabbitmq_service.schedule_poll
+    # (see t2av_attempt._handle_poll_message). Method kept commented for rollback.
+    #
+    # def _pipeline_poll_until_terminal(self, attempt):
+    #     icp = self.env["ir.config_parameter"].sudo()
+    #     try:
+    #         wall_clock_cap = int(
+    #             icp.get_param("t2av.pipeline.max_wall_clock_seconds", "1800")
+    #         )
+    #     except (TypeError, ValueError):
+    #         wall_clock_cap = 1800
+    #     try:
+    #         poll_initial = int(
+    #             icp.get_param("t2av.pipeline.poll_initial_seconds", "15")
+    #         )
+    #     except (TypeError, ValueError):
+    #         poll_initial = 15
+    #     try:
+    #         poll_max = int(
+    #             icp.get_param("t2av.pipeline.poll_max_seconds", "60")
+    #         )
+    #     except (TypeError, ValueError):
+    #         poll_max = 60
+    #     deadline = time.monotonic() + wall_clock_cap
+    #     delay = poll_initial
+    #     while True:
+    #         attempt.invalidate_recordset()
+    #         if attempt.state in (
+    #             _STATE_DONE, _STATE_FAILED, _STATE_CANCELLED,
+    #         ):
+    #             return
+    #         if time.monotonic() >= deadline:
+    #             raise _PermanentPipelineError(
+    #                 "polling exceeded wall-clock cap of %ds" % wall_clock_cap
+    #             )
+    #         time.sleep(delay)
+    #         self._pipeline_heartbeat(attempt.job_id)
+    #         delay = min(delay * 2, poll_max)
 
     @api.model
     def _cron_watchdog_pipeline(self):
