@@ -388,6 +388,43 @@ class Project(models.Model):
                     'start_date': fields.Date.today(),
                 })
 
+    def _get_log_recipients(self, actor_user_id=None):
+        # Logs tab queries kubera.notification by (user_id, project_id), so one
+        # row per team member is required - the original single-row-per-actor
+        # design left every other team member with an empty Logs view.
+        self.ensure_one()
+        user_ids = set()
+        if self.user_id:
+            user_ids.add(self.user_id.id)
+        if self.assigned_team_ids:
+            user_ids.update(self.assigned_team_ids.ids)
+        for field_name in ROLE_FIELD_MAP:
+            for emp in self[field_name]:
+                if emp.user_id:
+                    user_ids.add(emp.user_id.id)
+        if actor_user_id:
+            user_ids.add(actor_user_id)
+        return list(user_ids)
+
+    def _log_project_activity(self, title, message, priority='1', actor_user_id=None):
+        self.ensure_one()
+        try:
+            recipients = self._get_log_recipients(actor_user_id=actor_user_id)
+            if not recipients:
+                return
+            vals_list = [{
+                'title': title,
+                'message': message,
+                'user_id': uid,
+                'priority': priority,
+                'res_model': 'project.project',
+                'res_id': self.id,
+                'project_id': self.id,
+            } for uid in recipients]
+            self.env['kubera.notification'].sudo().create(vals_list)
+        except Exception:
+            _logger.exception('Failed to create project log notifications for project %s', self.id)
+
 class TaskTemplateType(models.Model):
     _name = 'task.template.type'
     _description = 'Task Template Type'
