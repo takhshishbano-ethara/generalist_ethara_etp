@@ -291,31 +291,32 @@ def _build_daily_burn_graph(env, budgets, filters):
             "series": series,
         }
 
-    Line = env["etp.project.aws.cost.line"].sudo()
-    window_start_month = start.replace(day=1)
-    window_end_month = end.replace(day=1)
-    lines = Line.search([
-        ("budget_id", "in", budgets.ids),
-        ("period", ">=", window_start_month),
-        ("period", "<=", window_end_month),
-    ])
-
-    monthly_totals = {}
-    for line in lines:
-        amount = line.amount_inr or 0.0
-        if not amount or not line.period:
-            continue
-        month_key = line.period.replace(day=1)
-        monthly_totals[month_key] = monthly_totals.get(month_key, 0.0) + amount
-
+    window_start_dt = datetime.combine(start, datetime.min.time())
+    window_end_dt = datetime.combine(end, datetime.max.time())
     daily_by_date = {}
-    for month_start, month_total in monthly_totals.items():
-        days_in_month = calendar.monthrange(month_start.year, month_start.month)[1]
-        per_day = month_total / days_in_month if days_in_month else 0.0
-        for offset in range(days_in_month):
-            day = month_start + timedelta(days=offset)
-            if start <= day <= end:
-                daily_by_date[day] = daily_by_date.get(day, 0.0) + per_day
+    seen_tables = set()
+    for project in budgets.mapped("project_id"):
+        table = (getattr(project, "connected_table", None) or "").strip()
+        if not table or table in seen_tables:
+            continue
+        seen_tables.add(table)
+        if table not in env:
+            continue
+        Model = env[table].sudo()
+        if not hasattr(Model, "get_daily_burn_timeseries"):
+            continue
+        rows = Model.get_daily_burn_timeseries(window_start_dt, window_end_dt) or []
+        for iso_date, cost in rows:
+            try:
+                day = date.fromisoformat(iso_date)
+            except (TypeError, ValueError):
+                continue
+            if not (start <= day <= end):
+                continue
+            amount = float(cost or 0.0)
+            if amount <= 0:
+                continue
+            daily_by_date[day] = daily_by_date.get(day, 0.0) + amount
 
     cursor = start
     while cursor <= end:

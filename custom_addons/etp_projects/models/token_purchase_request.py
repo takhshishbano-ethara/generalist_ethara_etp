@@ -165,8 +165,8 @@ class EtpProjectTokenPurchaseRequest(models.Model):
         for rec in self:
             if rec.state != "draft":
                 raise UserError(_("Only draft requests can be submitted."))
-            if not rec.model_name:
-                raise ValidationError(_("Model Name is required to submit the request."))
+            # if not rec.model_name:
+            #     raise ValidationError(_("Model Name is required to submit the request."))
             if not rec.requested_amount or rec.requested_amount <= 0:
                 raise ValidationError(_("Requested Amount must be greater than zero."))
             if not rec.description:
@@ -298,8 +298,8 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             raise ValidationError(_("Approved Amount must be a valid number."))
         if amount_val <= 0:
             raise ValidationError(_("Approved Amount must be greater than zero."))
-        if not cost_center or not str(cost_center).strip():
-            raise ValidationError(_("Module / Cost Center is required to complete the request."))
+        # if not cost_center or not str(cost_center).strip():
+        #     raise ValidationError(_("Module / Cost Center is required to complete the request."))
         attachment_id_list = [int(a) for a in (attachment_ids or []) if a]
         if not attachment_id_list:
             raise ValidationError(_("Please attach at least one Supporting Document."))

@@ -169,6 +169,43 @@ class VideoEditorProject(models.Model):
         return out
 
     @api.model
+    def get_daily_burn_timeseries(self, dt_from, dt_to):
+        domain = [
+            ("llm_qc_cost_usd", ">", 0),
+            ("llm_evaluated_at", ">=", dt_from),
+            ("llm_evaluated_at", "<=", dt_to),
+        ]
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=["llm_evaluated_at", "llm_qc_cost_usd:sum"],
+            groupby=["llm_evaluated_at:day"],
+            lazy=False,
+        )
+        out = []
+        for row in rows:
+            raw = row.get("llm_evaluated_at:day") or row.get("llm_evaluated_at")
+            cost = float(row.get("llm_qc_cost_usd") or 0.0)
+            if not raw or cost <= 0:
+                continue
+            if isinstance(raw, datetime):
+                iso = raw.date().isoformat()
+            elif isinstance(raw, date):
+                iso = raw.isoformat()
+            else:
+                parsed = None
+                for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+                    try:
+                        parsed = datetime.strptime(str(raw), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not parsed:
+                    continue
+                iso = parsed.isoformat()
+            out.append((iso, cost))
+        return out
+
+    @api.model
     def get_main_dashboard_metrics(self, today_from, today_to, yesterday_from, yesterday_to):
         """Return raw founder-summary metrics from this task table.
 
