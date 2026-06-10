@@ -12,9 +12,14 @@
         "api_auth_gateway",
         "task_forge_bridge",
         "project_extension",
+        # Defines project.project.project_classification / connected_table /
+        # api_map_ids and the etp.external.project.api.map model that
+        # data/gohan_project_data.xml writes to.
+        "etp_projects",
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/gohan_project_data.xml",
         "data/batch_delivery_data.xml",
         "views/batch_delivery_views.xml",
     ],

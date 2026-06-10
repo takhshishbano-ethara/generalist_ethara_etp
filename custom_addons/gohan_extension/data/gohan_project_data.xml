@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- The Vegeta project record itself is noupdate="1": it is auto-created on
+    <!-- The Gohan project record itself is noupdate="1": it is auto-created on
          install, then owned by the team — re-running an upgrade must not reset
          the name or wipe the tasker / QC reviewer / lead assignments configured
          in the UI. -->
     <data noupdate="1">
 
-        <!-- Auto-created Vegeta project. Classified `internal` so the Flutter
+        <!-- Auto-created Gohan project. Classified `internal` so the Flutter
              project detail renders the InternalOverviewTab / InternalAnalyticsTab,
-             which parse the crowley-style response shape the vegeta_ext
+             which parse the crowley-style response shape the gohan_ext
              endpoints return. (External projects render OverviewTab/AnalyticsTab,
              which expect the gohan-style `overview_dashboard`/`dashboard` shape
              and would show blank against this payload.) Internal projects are
              managed from the base Project app; assign team members (PL / QC
              reviewer / taskers) there after install so the project shows for
              non-admin users and so the role-scoped dashboards return data. -->
-        <record id="project_vegeta_internal" model="project.project">
-            <field name="name">Vegeta</field>
+        <record id="project_gohan_internal" model="project.project">
+            <field name="name">Gohan</field>
             <field name="project_classification">internal</field>
-            <field name="connected_table">vegeta.job</field>
-            <field name="category_url">/v1/vegeta_ext/categories</field>
-            <field name="tasker_url">/v1/vegeta_ext/taskers</field>
+            <field name="connected_table">gohan.job</field>
+            <field name="category_url">/v1/gohan_ext/categories</field>
+            <field name="tasker_url">/v1/gohan_ext/taskers</field>
             <!-- The project list domain (_task_forge_live_domain) only returns
                  projects that are BOTH task_forge_status='live' AND
                  non_stemp_project_status='production'; without these the project
@@ -49,12 +49,12 @@
               `?`, the params fuse into the path and the request 404s. -->
     <data>
 
-        <record id="api_map_vegeta_overview" model="etp.external.project.api.map">
-            <field name="project_id" ref="project_vegeta_internal"/>
+        <record id="api_map_gohan_overview" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_gohan_internal"/>
             <field name="sequence">10</field>
             <field name="table_name">Overview</field>
             <field name="field_name">overview</field>
-            <field name="api_prefix">/v1/vegeta_ext/dashboard_overview?project_id=</field>
+            <field name="api_prefix">/v1/gohan_ext/dashboard_overview?project_id=</field>
         </record>
 
         <!-- Team tab. "Team" normalizes to the app's built-in TeamTab, which
@@ -65,39 +65,39 @@
              before dispatching the team-members fetch, and it also issues a
              generic GET against this prefix. /v1/get_notification_grouped is the
              harmless known-good endpoint used here (same pattern as Logs). -->
-        <record id="api_map_vegeta_team" model="etp.external.project.api.map">
-            <field name="project_id" ref="project_vegeta_internal"/>
+        <record id="api_map_gohan_team" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_gohan_internal"/>
             <field name="sequence">20</field>
             <field name="table_name">Team</field>
             <field name="field_name">team</field>
             <field name="api_prefix">/v1/get_notification_grouped?project_id=</field>
         </record>
 
-        <record id="api_map_vegeta_tasks" model="etp.external.project.api.map">
-            <field name="project_id" ref="project_vegeta_internal"/>
+        <record id="api_map_gohan_tasks" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_gohan_internal"/>
             <field name="sequence">30</field>
             <field name="table_name">Tasks</field>
             <field name="field_name">tasks</field>
-            <field name="api_prefix">/v1/vegeta_ext/task_view_dashboard?project_id=</field>
+            <field name="api_prefix">/v1/gohan_ext/task_view_dashboard?project_id=</field>
         </record>
 
-        <!-- URLs Added tab. URL-centric view of vegeta.job (Website URL /
+        <!-- URLs Added tab. URL-centric view of gohan.job (Website URL /
              Category / Added by / Assigned Tasker / Source / Date added), served
-             by the dedicated /v1/vegeta_ext/urls_added endpoint. -->
-        <record id="api_map_vegeta_urls" model="etp.external.project.api.map">
-            <field name="project_id" ref="project_vegeta_internal"/>
+             by the dedicated /v1/gohan_ext/urls_added endpoint. -->
+        <record id="api_map_gohan_urls" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_gohan_internal"/>
             <field name="sequence">40</field>
             <field name="table_name">URLs Added</field>
             <field name="field_name">urls</field>
-            <field name="api_prefix">/v1/vegeta_ext/urls_added?project_id=</field>
+            <field name="api_prefix">/v1/gohan_ext/urls_added?project_id=</field>
         </record>
 
-        <record id="api_map_vegeta_analytics" model="etp.external.project.api.map">
-            <field name="project_id" ref="project_vegeta_internal"/>
+        <record id="api_map_gohan_analytics" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_gohan_internal"/>
             <field name="sequence">50</field>
             <field name="table_name">Analytics</field>
             <field name="field_name">analytics</field>
-            <field name="api_prefix">/v1/vegeta_ext/analytics_dashboard?project_id=</field>
+            <field name="api_prefix">/v1/gohan_ext/analytics_dashboard?project_id=</field>
         </record>
 
         <!-- Logs tab. "Logs" normalizes to the app's built-in LogsTab, which
@@ -105,8 +105,8 @@
              shared /v1/get_notification_grouped endpoint by project id (it does
              NOT use this api_prefix). The prefix is set to that endpoint anyway
              for consistency. -->
-        <record id="api_map_vegeta_logs" model="etp.external.project.api.map">
-            <field name="project_id" ref="project_vegeta_internal"/>
+        <record id="api_map_gohan_logs" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_gohan_internal"/>
             <field name="sequence">60</field>
             <field name="table_name">Logs</field>
             <field name="field_name">logs</field>

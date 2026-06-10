@@ -9,8 +9,6 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .analytics_dashboard import (
-    COMPLETED_STATES,
-    _build_team_overview_aligned,
     _create_date_domain,
     _pct,
     _resolve_dashboard_filters,
@@ -18,19 +16,94 @@ from .analytics_dashboard import (
     _user_role_tag,
 )
 
-SUBMISSION_WINDOW_DAYS = 30
-TEAM_ROLE_KEYS = ("team_lead", "qc_reviewer", "tasker", "aire", "swe")
-TEAM_ROLE_FIELDS = (
-    ("team_lead", "project_lead"),
-    ("qc_reviewer", "project_qc_reviewer"),
-    ("tasker", "project_tasker"),
-    ("aire", "project_aire"),
-    ("swe", "project_swe"),
+# gohan.job lifecycle buckets (see gohan/models/gohan_job.py state field).
+DRAFT_STATES = ("not_assigned", "draft")
+IN_FLIGHT_STATES = ("extracting", "generating", "scoring")
+DONE_STATES = ("done", "submitted")
+FAILED_STATES = ("failed", "discarded", "cancelled")
+
+# QC verdict groupings: a job "passes" QC when the reviewer marks it shippable
+# or shippable-with-fixes; "reviewed" is any decided verdict.
+APPROVED_VERDICTS = ("shippable", "fixes")
+DECIDED_VERDICTS = ("shippable", "fixes", "not_shippable")
+
+QC_PASS_RATE_WINDOW_DAYS = 30
+DEFAULT_TREND_WEEKS = 6
+MAX_TREND_WEEKS = 26
+
+# Which KPI cards each view shows, in order. CTO/TPM and PL get the team-level
+# "manager" cards; QC/tasker get the individual "individual" cards. Mirrors the
+# crowley_extension dashboard_overview KPI_KEYS_BY_VIEW split so one frontend
+# model fits both projects.
+#
+# Crowley's `total_burned` card is KEPT (never omitted) for schema parity, but
+# gohan has no cost data (`llm_qc_cost_usd` is declared on gohan.job yet never
+# populated by the pipeline), so it is emitted with an empty value — the Flutter
+# KPI strip renders an empty value as "—". It self-heals to a real figure if the
+# QC pipeline ever writes cost. `avg_score` is a gohan-specific addition (same
+# KPI item shape). Every other card maps to a populated gohan.job field
+# (state, qc_verdict, score, completed_at, owners).
+KPI_KEYS_BY_VIEW = {
+    "manager": (
+        "total_burned",
+        "active_tasks",
+        "approval_rate",
+        "team_members",
+        "avg_score",
+    ),
+    "individual": (
+        "total_tasks_done",
+        "qc_pass_rate",
+        "approved_today",
+        "total_burned",
+        "avg_score",
+    ),
+}
+
+# Funnel buckets for the Task Progress card.
+STAGE_BUCKETS = (
+    ("draft", "Draft / Queued", [("state", "in", list(DRAFT_STATES))]),
+    ("in_progress", "In Progress", [("state", "in", list(IN_FLIGHT_STATES))]),
+    ("done", "Done / Submitted", [("state", "in", list(DONE_STATES))]),
+    ("failed", "Failed / Discarded", [("state", "in", list(FAILED_STATES))]),
 )
 
-OVERVIEW_CACHE_TTL = 60
-OVERVIEW_CACHE_MAX_ENTRIES = 256
-_OVERVIEW_CACHE = {}
+
+def _overview_view(role_tag):
+    return "manager" if role_tag in ("full", "pl") else "individual"
+
+
+def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
+    return {
+        "key": key,
+        "label": label,
+        "value": str(value),
+        "sub_string": sub_string,
+        "pattern": pattern,
+        "sign": sign,
+    }
+
+
+def _week_start(d):
+    return d - timedelta(days=d.weekday())
+
+
+def _today_bounds(env):
+    today = fields.Datetime.now().date()
+    start = datetime.combine(today, datetime.min.time())
+    return start, start + timedelta(days=1)
+
+
+def _resolve_trend_weeks(params):
+    raw = (params.get("weeks") or "").strip()
+    if not raw:
+        return DEFAULT_TREND_WEEKS, None
+    if not raw.isdigit() or not (1 <= int(raw) <= MAX_TREND_WEEKS):
+        return None, return_Response(
+            message=f"Invalid weeks '{raw}'. Expected 1..{MAX_TREND_WEEKS}.",
+            status=400,
+        )
+    return int(raw), None
 
 
 def _resolve_project(env, params):
@@ -53,211 +126,214 @@ def _resolve_project(env, params):
     return project, None
 
 
-def _parse_status(env, params):
-    raw = (params.get("status") or "").strip()
-    if not raw:
-        return [], None
-    valid = dict(env["gohan.job"]._fields["state"].selection)
-    requested = [value.strip() for value in raw.split(",") if value.strip()]
-    invalid = [value for value in requested if value not in valid]
-    if invalid:
-        return None, return_Response(
-            message=f"Invalid status value(s): {', '.join(invalid)}.",
-            status=400,
-        )
-    return requested, None
+def _compute_kpi(env, scope):
+    """Role-scoped KPI cards over gohan.job, keyed for KPI_KEYS_BY_VIEW.
 
+    Every key is always computed; the controller filters the items down to the
+    set this view shows (manager vs individual).
+    """
+    Job = env["gohan.job"].sudo()
 
-def _parse_role(params):
-    raw = (params.get("role") or "").strip()
-    if not raw:
-        return [], None
-    requested = [value.strip() for value in raw.split(",") if value.strip()]
-    invalid = [value for value in requested if value not in TEAM_ROLE_KEYS]
-    if invalid:
-        return None, return_Response(
-            message=(
-                f"Invalid role value(s): {', '.join(invalid)}. "
-                f"Allowed: {', '.join(TEAM_ROLE_KEYS)}."
-            ),
-            status=400,
-        )
-    return requested, None
+    total_tasks = Job.search_count(scope)
+    draft = Job.search_count(scope + [("state", "in", list(DRAFT_STATES))])
+    in_flight = Job.search_count(scope + [("state", "in", list(IN_FLIGHT_STATES))])
+    active = draft + in_flight
+    tasks_done = Job.search_count(scope + [("state", "in", list(DONE_STATES))])
 
+    score_rows = Job.formatted_read_group(
+        scope + [("score", ">", 0)], [], ["__count", "score:avg"]
+    )
+    scored = (score_rows[0]["__count"] if score_rows else 0) or 0
+    avg_score = (score_rows[0]["score:avg"] if score_rows else 0.0) or 0.0
 
-def _submission_window(filters):
-    if filters["month_start"]:
-        return filters["month_start"], filters["month_end"]
-    today = fields.Datetime.now().date()
-    if filters["start"] or filters["end"]:
-        window_end = filters["end"] or today
-        window_start = filters["start"] or (
-            window_end - timedelta(days=SUBMISSION_WINDOW_DAYS - 1)
-        )
-        return window_start, window_end
-    return today - timedelta(days=SUBMISSION_WINDOW_DAYS - 1), today
+    approved = Job.search_count(
+        scope + [("qc_verdict", "in", list(APPROVED_VERDICTS))]
+    )
+    reviewed = Job.search_count(
+        scope + [("qc_verdict", "in", list(DECIDED_VERDICTS))]
+    )
+    approval_rate = _pct(approved, reviewed)
 
+    owner_rows = Job.formatted_read_group(scope, ["user_id"], ["__count"])
+    owner_ids = {row["user_id"][0] for row in owner_rows if row.get("user_id")}
+    members = len(owner_ids)
 
-def _submission_day_counts(env, scope, win_start, win_end):
-    start_dt = datetime.combine(win_start, datetime.min.time())
-    end_dt = datetime.combine(win_end, datetime.min.time()) + timedelta(days=1)
-    rows = env["gohan.job"].sudo().search_read(
+    today_start, today_end = _today_bounds(env)
+    yesterday_start = today_start - timedelta(days=1)
+    window_start = today_start - timedelta(days=QC_PASS_RATE_WINDOW_DAYS - 1)
+
+    done_today = Job.search_count(
         scope
         + [
-            ("state", "=", "submitted"),
-            ("completed_at", ">=", start_dt),
-            ("completed_at", "<", end_dt),
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", today_start),
+            ("completed_at", "<", today_end),
+        ]
+    )
+    done_yesterday = Job.search_count(
+        scope
+        + [
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", yesterday_start),
+            ("completed_at", "<", today_start),
+        ]
+    )
+    today_delta = done_today - done_yesterday
+
+    approved_30 = Job.search_count(
+        scope
+        + [
+            ("qc_verdict", "in", list(APPROVED_VERDICTS)),
+            ("completed_at", ">=", window_start),
+        ]
+    )
+    reviewed_30 = Job.search_count(
+        scope
+        + [
+            ("qc_verdict", "in", list(DECIDED_VERDICTS)),
+            ("completed_at", ">=", window_start),
+        ]
+    )
+    qc_pass_rate = _pct(approved_30, reviewed_30)
+
+    items = [
+        # Cost is not tracked on gohan.job — keep crowley's key, empty value
+        # (the KPI strip shows "—"); self-heals if llm_qc_cost_usd is populated.
+        _kpi_item(
+            "total_burned",
+            "Total Burned",
+            "",
+            sub_string="",
+        ),
+        _kpi_item(
+            "avg_score",
+            "Avg Quality Score",
+            round(avg_score, 1),
+            sub_string=(
+                f"across {scored} scored jobs" if scored else "No scored jobs yet"
+            ),
+        ),
+        _kpi_item(
+            "active_tasks",
+            "Active Tasks",
+            f"{active}/{total_tasks}",
+            sub_string=f"{draft} unstarted · {in_flight} in progress",
+        ),
+        _kpi_item(
+            "approval_rate",
+            "Approval Rate",
+            approval_rate,
+            sub_string=f"{approved} approved of {reviewed} reviewed",
+        ),
+        _kpi_item(
+            "team_members",
+            "Team Members",
+            members,
+            sub_string=f"{members} contributing",
+        ),
+        _kpi_item(
+            "total_tasks_done",
+            "Total Tasks Done",
+            tasks_done,
+            sub_string=f"{_pct(tasks_done, total_tasks)}% of {total_tasks} tasks",
+        ),
+        _kpi_item(
+            "qc_pass_rate",
+            "QC Pass Rate",
+            qc_pass_rate,
+            sub_string=(
+                f"{approved_30} of {reviewed_30} reviewed · "
+                f"last {QC_PASS_RATE_WINDOW_DAYS}d"
+                if reviewed_30
+                else f"No reviews in last {QC_PASS_RATE_WINDOW_DAYS}d"
+            ),
+        ),
+        _kpi_item(
+            "approved_today",
+            "Completed Today",
+            done_today,
+            sub_string=(
+                f"{'+' if today_delta > 0 else ''}{today_delta} vs yesterday"
+            ),
+            pattern="up" if today_delta > 0 else ("down" if today_delta < 0 else ""),
+            sign="+" if today_delta > 0 else ("-" if today_delta < 0 else ""),
+        ),
+    ]
+    return {"count": str(len(items)), "items": items}
+
+
+def _compute_task_progress(env, scope):
+    Job = env["gohan.job"].sudo()
+    total = Job.search_count(scope)
+    items = []
+    for key, label, bucket in STAGE_BUCKETS:
+        count = Job.search_count(scope + bucket)
+        items.append({
+            "key": key,
+            "label": label,
+            "value": count,
+            "percentage": _pct(count, total),
+        })
+    return {
+        "label": "Task Progress (by Stage)",
+        "total": total,
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _compute_approved_per_week(env, role_scope, weeks):
+    """Weekly count of jobs that reached a done/submitted state, by
+    completed_at. Uses the role scope (NOT the request date filter) so the
+    trailing-N-weeks window is the only date constraint."""
+    Job = env["gohan.job"].sudo()
+    today = fields.Datetime.now().date()
+    current_week_start = _week_start(today)
+    window_start = current_week_start - timedelta(weeks=weeks)
+    window_start_dt = datetime.combine(window_start, datetime.min.time())
+
+    rows = Job.search_read(
+        role_scope
+        + [
+            ("state", "in", list(DONE_STATES)),
+            ("completed_at", ">=", window_start_dt),
         ],
         ["completed_at"],
     )
     counts = {}
     for row in rows:
         when = row.get("completed_at")
-        if when:
-            day = when.date()
-            counts[day] = counts.get(day, 0) + 1
-    return counts
-
-
-def _build_total_task(env, task_domain, filters):
-    Job = env["gohan.job"].sudo()
-    date_domain = _create_date_domain(filters["start"], filters["end"])
-    completed = Job.search_count(
-        task_domain + date_domain + [("state", "in", list(COMPLETED_STATES))]
-    )
-    today = fields.Datetime.now().date()
-    week_start = today - timedelta(days=today.weekday())
-    week_start_dt = datetime.combine(week_start, datetime.min.time())
-    this_week = Job.search_count(
-        task_domain + [("create_date", ">=", week_start_dt)]
-    )
-    return {
-        "total_completed_task_count": completed,
-        "this_week_added_task_count": this_week,
-        "week_start": week_start.isoformat(),
-    }
-
-
-def _build_url_analytics(env, task_domain, filters):
-    Job = env["gohan.job"].sudo()
-    base = task_domain + _create_date_domain(filters["start"], filters["end"])
-    total = Job.search_count(base)
-    urls_added = Job.search_count(base + [("url", "!=", False)])
-    return {
-        "total_urls_added_count": urls_added,
-        "total_task_count": total,
-        "url_added_percentage": _pct(urls_added, total),
-    }
-
-
-def _build_quality_analytics(env, task_domain, filters):
-    Job = env["gohan.job"].sudo()
-    domain = (
-        task_domain
-        + _create_date_domain(filters["start"], filters["end"])
-        + [("score", ">", 0)]
-    )
-    groups = Job._read_group(domain, [], ["__count", "score:sum", "score_max:avg"])
-    scored, total_score, avg_max = groups[0] if groups else (0, 0.0, 100.0)
-    scored = scored or 0
-    total_score = total_score or 0.0
-    avg_max = avg_max or 100.0
-    average_score = (total_score / scored) if scored else 0.0
-    return {
-        "tasks_scored": scored,
-        "average_quality_score": round(average_score, 2),
-        "average_quality_score_percentage": _pct(average_score, avg_max or 100.0),
-    }
-
-
-def _build_team_analytics(env, projects, role_filter):
-    breakdown = []
-    member_ids = set()
-    for role_key, field_name in TEAM_ROLE_FIELDS:
-        if role_filter and role_key not in role_filter:
+        if not when:
             continue
-        employees = projects.mapped(field_name)
-        breakdown.append({"role": role_key, "count": len(employees)})
-        member_ids.update(employees.ids)
-    return {
-        "total_team_size": len(member_ids),
-        "role_breakdown": breakdown,
-    }
+        day = _week_start(when.date())
+        counts[day] = counts.get(day, 0) + 1
 
-
-def _build_task_progress(env, task_domain, filters):
-    Job = env["gohan.job"].sudo()
-    domain = task_domain + _create_date_domain(filters["start"], filters["end"])
-    groups = Job._read_group(domain, ["state"], ["__count"])
-    counts = {}
-    for key, count in groups:
-        if key:
-            counts[key] = count or 0
-    total = sum(counts.values())
-    status_chart = [
-        {
-            "status_key": key,
-            "status_name": label,
-            "count": counts.get(key, 0),
-            "percentage": _pct(counts.get(key, 0), total),
-        }
-        for key, label in Job._fields["state"].selection
-    ]
-    return {
-        "total_task_count": total,
-        "status_chart": status_chart,
-    }
-
-
-def _build_submission_trend(env, base_domain, filters):
-    window_start, window_end = _submission_window(filters)
-    counts = _submission_day_counts(env, base_domain, window_start, window_end)
-    trend = []
-    cursor = window_start
-    while cursor <= window_end:
-        trend.append({
-            "label": cursor.isoformat(),
-            "count": counts.get(cursor, 0),
+    items = []
+    prev_count = counts.get(window_start, 0)
+    for offset in range(weeks - 1, -1, -1):
+        start = current_week_start - timedelta(weeks=offset)
+        end = start + timedelta(days=6)
+        count = counts.get(start, 0)
+        delta = count - prev_count
+        items.append({
+            "key": f"w{start.isocalendar()[1]}",
+            "label": f"W{start.isocalendar()[1]}",
+            "value": count,
+            "week_start": start.isoformat(),
+            "week_end": end.isoformat(),
+            "delta_vs_prev_week": delta,
+            "pattern": "up" if delta > 0 else ("down" if delta < 0 else ""),
+            "sign": "+" if delta > 0 else ("-" if delta < 0 else ""),
         })
-        cursor += timedelta(days=1)
+        prev_count = count
+
     return {
-        "window": {
-            "start": window_start.isoformat(),
-            "end": window_end.isoformat(),
-        },
-        "total_submitted": sum(counts.values()),
-        "trend": trend,
+        "label": "Tasks Completed per Week",
+        "sub_string": f"Trailing {weeks} weeks",
+        "total": sum(item["value"] for item in items),
+        "count": str(len(items)),
+        "items": items,
     }
-
-
-def _overview_cache_key(env, filters, project, statuses, role_filter):
-    return (
-        env.cr.dbname,
-        env.user.id,
-        filters["start"].isoformat() if filters["start"] else "",
-        filters["end"].isoformat() if filters["end"] else "",
-        filters["month_start"].isoformat() if filters["month_start"] else "",
-        project.id if project else 0,
-        tuple(sorted(statuses)),
-        tuple(sorted(role_filter)),
-    )
-
-
-def _overview_cache_get(key):
-    entry = _OVERVIEW_CACHE.get(key)
-    if not entry:
-        return None
-    cached_at, payload = entry
-    if (datetime.now() - cached_at).total_seconds() > OVERVIEW_CACHE_TTL:
-        _OVERVIEW_CACHE.pop(key, None)
-        return None
-    return payload
-
-
-def _overview_cache_set(key, payload):
-    if len(_OVERVIEW_CACHE) >= OVERVIEW_CACHE_MAX_ENTRIES:
-        _OVERVIEW_CACHE.clear()
-    _OVERVIEW_CACHE[key] = (datetime.now(), payload)
 
 
 class GohanDashboardOverviewController(http.Controller):
@@ -272,15 +348,18 @@ class GohanDashboardOverviewController(http.Controller):
     )
     @validate_token
     def gohan_ext_dashboard_overview(self, **kwargs):
-        """Single dashboard overview endpoint for gohan.job.
+        """Role-scoped Overview tab for gohan.job.
 
-        project_id is optional: when given, Team Analytics describes that
-        project and the task metrics are narrowed to its taskers. Task,
-        URL, quality, progress and submission metrics always stay
-        role-scoped (CTO/TPM all, PL/QC their taskers, tasker own).
+        Returns the crowley_extension-style ``{"overview": {...}}`` envelope so
+        the Flutter ``InternalOverviewTab`` renders it: a role-filtered KPI
+        strip, a task-progress funnel and a tasks-completed-per-week trend.
+        ``project_id`` is optional (the Overview tab is fetched with an empty
+        ``project_id`` query param); when supplied the metrics narrow to that
+        project's taskers, otherwise they stay role-scoped.
         """
         env = request.env
-        if _user_role_tag(env) is None:
+        role_tag = _user_role_tag(env)
+        if role_tag is None:
             return return_Response(
                 message="You are not allowed to access Gohan analytics.",
                 status=403,
@@ -290,69 +369,55 @@ class GohanDashboardOverviewController(http.Controller):
         filters, error = _resolve_dashboard_filters(params)
         if error is not None:
             return error
+        weeks, error = _resolve_trend_weeks(params)
+        if error is not None:
+            return error
         project, error = _resolve_project(env, params)
         if error is not None:
             return error
-        statuses, error = _parse_status(env, params)
-        if error is not None:
-            return error
-        role_filter, error = _parse_role(params)
-        if error is not None:
-            return error
 
-        cache_key = _overview_cache_key(
-            env, filters, project, statuses, role_filter
-        )
-        cached = _overview_cache_get(cache_key)
-        if cached is not None:
-            return return_Response(message="OK", status=200, data=cached)
-
-        tag, role_domain, role_projects = _scope(env)
+        _tag, role_domain, _projects = _scope(env)
         if project:
-            projects = project
             tasker_user_ids = project.project_tasker.mapped("user_id").ids
-            base_domain = role_domain + [("user_id", "in", tasker_user_ids)]
+            role_scope = role_domain + [("user_id", "in", tasker_user_ids)]
         else:
-            projects = role_projects
-            base_domain = role_domain
-        task_domain = base_domain + (
-            [("state", "in", statuses)] if statuses else []
-        )
+            role_scope = role_domain
+        date_domain = _create_date_domain(filters["start"], filters["end"])
+        scope = role_scope + date_domain
 
-        total_task = _build_total_task(env, task_domain, filters)
-        url_analytics = _build_url_analytics(env, task_domain, filters)
-        quality_analytics = _build_quality_analytics(env, task_domain, filters)
-        team_analytics = _build_team_analytics(env, projects, role_filter)
-        task_progress = _build_task_progress(env, task_domain, filters)
-        submission_trend = _build_submission_trend(env, base_domain, filters)
-        kpi = {
-            "total_task_count": url_analytics.get("total_task_count", 0),
-            "total_task_done": total_task.get("total_completed_task_count", 0),
-            "this_week_added": total_task.get("this_week_added_task_count", 0),
-            "total_url_tasks": url_analytics.get("total_urls_added_count", 0),
-            "avg_quality_score_percentage": quality_analytics.get(
-                "average_quality_score_percentage", 0
+        view = _overview_view(role_tag)
+        kpi_by_key = {
+            item["key"]: item for item in _compute_kpi(env, scope)["items"]
+        }
+        kpi_items = [
+            kpi_by_key[key]
+            for key in KPI_KEYS_BY_VIEW[view]
+            if key in kpi_by_key
+        ]
+
+        # Single `overview` wrapper holding the crowley 12-key schema. Only the
+        # three sections the InternalOverviewTab consumes (kpi, task_progress,
+        # approved_per_week) are populated; the rest are returned blank ({}) for
+        # schema parity with crowley_extension / crowley_sourcing_extension.
+        overview = {
+            "role": role_tag or "tasker",
+            "kpi": {"count": str(len(kpi_items)), "items": kpi_items},
+            "budget": {},
+            "burn_rate": {},
+            "accepted_per_day": {},
+            "task_progress": _compute_task_progress(env, scope),
+            "approved_per_week": _compute_approved_per_week(
+                env, role_scope, weeks
             ),
-            "team_overview": _build_team_overview_aligned(env, projects),
+            "recent_activity": {},
+            "coordination_events": {},
+            "tasks_done_chart": {},
+            "burned_amount_chart": {},
+            "my_activity": {},
         }
-        submission_trend_aligned = {
-            "period": "daily",
-            "total_in_period": submission_trend.get("total_submitted", 0),
-            "trend": submission_trend.get("trend", []),
-            "window": submission_trend.get("window", {}),
-        }
-        data = {
-            "overview_dashboard": {
-                "kpi": kpi,
-                "status_chart": task_progress,
-                "submission_trend": submission_trend_aligned,
-                "total_task_analytics": total_task,
-                "url_analytics": url_analytics,
-                "quality_analytics": quality_analytics,
-                "team_analytics": team_analytics,
-                "task_progress_graph": task_progress,
-                "submission_trend_analytics": submission_trend,
-            },
-        }
-        _overview_cache_set(cache_key, data)
-        return return_Response(message="OK", status=200, data=data)
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={"overview": overview},
+        )

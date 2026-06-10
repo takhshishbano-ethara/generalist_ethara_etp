@@ -578,15 +578,52 @@ class TaskForgeProjectController(http.Controller):
 
             # 4. Apply domain (IMPORTANT FIX)
             employees = request.env['hr.employee'].sudo().search(domain)
+
+            # Per-member "tasks done" + avg duration. For internal projects the
+            # truth lives in the project's connected backend model (e.g.
+            # vegeta.job), NOT task.forge.log — which is empty for those
+            # projects. When that backend exposes get_member_task_stats(user_id)
+            # we use it per member; projects without a connected backend keep the
+            # legacy task.forge.log count.
+            backend = None
+            backend_name = project.connected_table
+            if backend_name and backend_name in request.env:
+                candidate = request.env[backend_name].sudo()
+                if hasattr(candidate, 'get_member_task_stats'):
+                    backend = candidate
+
+            # Legacy fallback (projects with no connected backend): per-member
+            # "done" count + average handling time from task.forge.log. Computed
+            # once via read_group — not re-queried per employee — and keyed by
+            # employee_id so each member gets their own number (the old code
+            # counted the whole project for everyone). Uses the real duration
+            # (time_taken_mins), NOT the free-text pause_time, and returns
+            # seconds to match the backend hook's unit.
+            legacy_stats = {}
+            if backend is None:
+                grouped = request.env['task.forge.log'].sudo().read_group(
+                    domain=[('project_id', '=', project.id), ('state', '=', 'completed')],
+                    fields=['employee_id', 'time_taken_mins:avg'],
+                    groupby=['employee_id'],
+                )
+                for g in grouped:
+                    emp_ref = g.get('employee_id')
+                    if not emp_ref:
+                        continue
+                    legacy_stats[emp_ref[0]] = {
+                        'done': g.get('employee_id_count', 0),
+                        'avg_seconds': int((g.get('time_taken_mins') or 0) * 60),
+                    }
+
             # 6. Build response
             data = []
             for emp in employees:
-                task_record = request.env['task.forge.log'].sudo().search([('project_id', '=', project.id), ('state', '=', 'completed')])
-                avg_time = 0
-                for t in task_record:
-                    avg_time += int(t.pause_time) if t.pause_time else 0
-                total_done = len(task_record)
-                avg_time = (avg_time // total_done) if total_done > 0 else 0
+                if backend is not None and emp.user_id:
+                    stats = backend.get_member_task_stats(emp.user_id.id) or {}
+                else:
+                    stats = legacy_stats.get(emp.id, {})
+                total_done = stats.get('done', 0)
+                avg_time = stats.get('avg_seconds', 0)
 
                 data.append({
                     'id': emp.id,

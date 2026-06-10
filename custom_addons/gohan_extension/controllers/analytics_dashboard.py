@@ -286,18 +286,16 @@ def _build_avg_score(env, scope, filters):
         + _create_date_domain(filters["start"], filters["end"])
         + [("score", ">", 0)]
     )
-    groups = Job._read_group(
-        domain, [], ["__count", "score:sum", "score_max:avg"]
-    )
-    scored, total_score, avg_max = groups[0] if groups else (0, 0.0, 100.0)
+    groups = Job._read_group(domain, [], ["__count", "score:sum"])
+    scored, total_score = groups[0] if groups else (0, 0.0)
     scored = scored or 0
     total_score = total_score or 0.0
-    avg_max = avg_max or 100.0
+    avg_max = 100.0
     average_score = (total_score / scored) if scored else 0.0
     return {
         "tasks_scored": scored,
         "average_score": round(average_score, 2),
-        "average_score_percentage": _pct(average_score, avg_max or 100.0),
+        "average_score_percentage": _pct(average_score, avg_max),
         "total_score": round(total_score, 2),
     }
 
@@ -626,6 +624,464 @@ def _build_status_chart_aligned(env, scope, filters):
     return {"total_task_count": total, "status_chart": chart}
 
 
+# ─────────────────────────────────────────────────────────────────────────
+# Crowley-style analytics payload.
+#
+# The Flutter InternalAnalyticsTab probes the response root for
+# `spend_by_category` / `qc_pass_rate_by_ql` / `daily_burn_rate`, so this
+# endpoint must return those keys at the top level (no wrapper). The shape
+# mirrors crowley_extension's analytics_dashboard `_build_analytics`, adapted
+# to the gohan.job domain: cost is `llm_qc_cost_usd` (not crowley.attempt
+# cost_usd), category is the `category_id` Many2one (not a selection), and
+# "pass" means a `qc_verdict` of shippable/fixes (not review_state approved).
+# The "QL" grouping reuses each tasker's task_forge_qr_id (their QC reviewer).
+# ─────────────────────────────────────────────────────────────────────────
+
+APPROVED_VERDICTS = ("shippable", "fixes")
+DECIDED_VERDICTS = ("shippable", "fixes", "not_shippable")
+
+RANGE_DAYS = {"7d": 7, "30d": 30, "90d": 90}
+DEFAULT_RANGE = "30d"
+COLOR_TOKENS = ("primary", "success", "info", "warn", "danger", "muted")
+PASS_RATE_GOOD = 90.0
+UNASSIGNED_QL = 0
+UNASSIGNED_QL_LABEL = "Unassigned"
+
+
+def _money(value):
+    return f"${value or 0.0:,.2f}"
+
+
+def _pct1(part, whole):
+    if not whole:
+        return 0.0
+    return round((part / whole) * 100.0, 1)
+
+
+def _initials(name):
+    parts = [p for p in (name or "").split() if p]
+    if not parts:
+        return "?"
+    if len(parts) == 1:
+        return parts[0][:2].upper()
+    return (parts[0][0] + parts[-1][0]).upper()
+
+
+def _color(index):
+    return COLOR_TOKENS[index % len(COLOR_TOKENS)]
+
+
+def _resolve_range(params):
+    today = fields.Datetime.now().date()
+
+    raw_start = (params.get("start_date") or "").strip()
+    raw_end = (params.get("end_date") or "").strip()
+    if raw_start or raw_end:
+        try:
+            start = (
+                datetime.strptime(raw_start, "%Y-%m-%d").date()
+                if raw_start
+                else today - timedelta(days=29)
+            )
+            end = (
+                datetime.strptime(raw_end, "%Y-%m-%d").date() if raw_end else today
+            )
+        except ValueError:
+            return None, return_Response(
+                message="Invalid start_date/end_date. Expected YYYY-MM-DD.",
+                status=400,
+            )
+        if start > end:
+            return None, return_Response(
+                message="start_date must be on or before end_date.",
+                status=400,
+            )
+        return {"key": "custom", "start": start, "end": end}, None
+
+    range_key = (params.get("range") or DEFAULT_RANGE).strip().lower()
+    if range_key not in RANGE_DAYS:
+        return None, return_Response(
+            message=f"Invalid range '{range_key}'. Allowed: {', '.join(RANGE_DAYS)}.",
+            status=400,
+        )
+    days = RANGE_DAYS[range_key]
+    return {
+        "key": range_key,
+        "start": today - timedelta(days=days - 1),
+        "end": today,
+    }, None
+
+
+def _range_domain(rng):
+    start_dt = datetime.combine(rng["start"], datetime.min.time())
+    end_dt = datetime.combine(rng["end"], datetime.min.time()) + timedelta(days=1)
+    return [("create_date", ">=", start_dt), ("create_date", "<", end_dt)]
+
+
+def _range_label(rng):
+    if rng["key"] == "custom":
+        return f"{rng['start'].isoformat()} → {rng['end'].isoformat()}"
+    return {"7d": "Last 7 days", "30d": "Last 30 days", "90d": "Last 90 days"}[
+        rng["key"]
+    ]
+
+
+def _visible_taskers(env, project):
+    Employee = env["hr.employee"].sudo()
+    taskers = project.project_tasker.filtered(lambda e: e.task_forge_active)
+
+    if env.user.has_group("base.group_system"):
+        return taskers, "admin"
+
+    caller = Employee.search([("user_id", "=", env.user.id)], limit=1)
+    if not caller:
+        return Employee.browse(), None
+
+    role = caller._get_task_forge_role()
+    if role in ("admin", "tpm"):
+        return taskers, role
+    visible_ids = set(caller._get_team_employee_ids())
+    return taskers.filtered(lambda e: e.id in visible_ids), role
+
+
+def _build_ql_maps(taskers):
+    user_ids = []
+    ql_of_user = {}
+    ql_name = {UNASSIGNED_QL: UNASSIGNED_QL_LABEL}
+    ql_taskers = {}
+    for emp in taskers:
+        uid = emp.user_id.id
+        if not uid:
+            continue
+        ql = emp.task_forge_qr_id
+        ql_id = ql.id or UNASSIGNED_QL
+        ql_name[ql_id] = ql.name or UNASSIGNED_QL_LABEL
+        ql_of_user[uid] = ql_id
+        ql_taskers.setdefault(ql_id, set()).add(uid)
+        user_ids.append(uid)
+    return {
+        "user_ids": list(dict.fromkeys(user_ids)),
+        "ql_of_user": ql_of_user,
+        "ql_name": ql_name,
+        "ql_taskers": ql_taskers,
+    }
+
+
+def _resolve_context(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw or not raw.isdigit():
+        return None, return_Response(
+            message="project_id is required and must be an integer.",
+            status=400,
+        )
+    project = env["project.project"].sudo().browse(int(raw)).exists()
+    if not project:
+        return None, return_Response(
+            message=f"Project {raw} not found.", status=404
+        )
+
+    taskers, role = _visible_taskers(env, project)
+    if role is None:
+        return None, return_Response(
+            message="You are not allowed to access this project's analytics.",
+            status=403,
+        )
+
+    rng, error = _resolve_range(params)
+    if error is not None:
+        return None, error
+
+    ctx = {"project": project, "role": role, "rng": rng, "taskers": taskers}
+    ctx.update(_build_ql_maps(taskers))
+    ctx["scope"] = [("user_id", "in", ctx["user_ids"])] + _range_domain(rng)
+    return ctx, None
+
+
+def _counts_by_user(Job, scope, extra=None):
+    rows = Job.formatted_read_group(scope + (extra or []), ["user_id"], ["__count"])
+    out = {}
+    for r in rows:
+        user = r["user_id"]
+        if user:
+            out[user[0]] = r["__count"]
+    return out
+
+
+def _kpi(key, label, value, sub_string="", pattern="", sign=""):
+    return {
+        "key": key,
+        "label": label,
+        "value": value,
+        "sub_string": sub_string,
+        "pattern": pattern,
+        "sign": sign,
+    }
+
+
+def _build_kpi_v2(env, ctx):
+    Job = env["gohan.job"].sudo()
+    scope = ctx["scope"]
+
+    jobs_count = Job.search_count(scope)
+
+    spend_rows = Job.formatted_read_group(scope, [], ["llm_qc_cost_usd:sum"])
+    total_spend = (
+        spend_rows[0]["llm_qc_cost_usd:sum"] if spend_rows else 0.0
+    ) or 0.0
+    avg_per_task = (total_spend / jobs_count) if jobs_count else 0.0
+
+    approved = Job.search_count(
+        scope + [("qc_verdict", "in", list(APPROVED_VERDICTS))]
+    )
+    reviewed = Job.search_count(
+        scope + [("qc_verdict", "in", list(DECIDED_VERDICTS))]
+    )
+    pass_rate = _pct1(approved, reviewed)
+
+    score_rows = Job.formatted_read_group(
+        scope + [("score", ">", 0)], [], ["__count", "score:avg"]
+    )
+    scored = (score_rows[0]["__count"] if score_rows else 0) or 0
+    avg_score = (score_rows[0]["score:avg"] if score_rows else 0.0) or 0.0
+
+    dur_rows = Job.formatted_read_group(
+        scope + [("duration_seconds", ">", 0)], [], ["duration_seconds:avg"]
+    )
+    avg_wall = (dur_rows[0]["duration_seconds:avg"] if dur_rows else 0.0) or 0.0
+
+    spend_has_data = total_spend > 0
+    items = [
+        # Crowley keys kept for parity. Cost and per-task tokens are not tracked
+        # on gohan.job, so total_spend (empty until llm_qc_cost_usd is
+        # populated) and avg_tokens_per_task (no token accounting) carry empty
+        # values — the Flutter KPI strip renders an empty value as "—".
+        # total_spend self-heals to a real figure once cost is written.
+        _kpi(
+            "total_spend",
+            "Total Spend",
+            _money(total_spend) if spend_has_data else "",
+            sub_string=(
+                f"Avg {_money(avg_per_task)}/job · {jobs_count} jobs"
+                if spend_has_data
+                else ""
+            ),
+        ),
+        _kpi(
+            "qc_pass_rate",
+            "QC Pass Rate",
+            f"{pass_rate}%",
+            sub_string=(
+                f"{approved} of {reviewed} reviewed" if reviewed else "No reviews yet"
+            ),
+            pattern="badge" if reviewed else "",
+            sign="+" if pass_rate >= PASS_RATE_GOOD else "-" if reviewed else "",
+        ),
+        _kpi("avg_tokens_per_task", "Avg Tokens / Task", "", sub_string=""),
+        _kpi(
+            "avg_wall_time",
+            "Avg Wall Time",
+            f"{round(avg_wall)}s",
+            sub_string=f"{round(avg_wall / 60.0, 1)} min per job",
+        ),
+        # gohan-specific additions (same KPI item shape).
+        _kpi(
+            "total_tasks",
+            "Total Tasks",
+            jobs_count,
+            sub_string="in selected range",
+        ),
+        _kpi(
+            "avg_quality_score",
+            "Avg Quality Score",
+            f"{round(avg_score, 1)}",
+            sub_string=(
+                f"across {scored} scored jobs" if scored else "No scored jobs yet"
+            ),
+        ),
+    ]
+    return {"count": len(items), "items": items}
+
+
+def _build_spend_by_category(env, ctx):
+    Job = env["gohan.job"].sudo()
+    rows = Job.formatted_read_group(
+        ctx["scope"] + [("category_id", "!=", False)],
+        ["category_id"],
+        ["llm_qc_cost_usd:sum"],
+    )
+    amount_by_cat = {}
+    label_by_cat = {}
+    for r in rows:
+        cat = r["category_id"]
+        if not cat:
+            continue
+        amount_by_cat[cat[0]] = round(r["llm_qc_cost_usd:sum"] or 0.0, 4)
+        label_by_cat[cat[0]] = cat[1]
+    total = round(sum(amount_by_cat.values()), 4)
+
+    # Only categories with real spend. gohan does not populate llm_qc_cost_usd
+    # yet, so today this yields no items and the card hides (the Flutter
+    # InternalAnalyticsEntity.hasSpendByCategory checks items.isNotEmpty). It
+    # self-heals: categories appear once the QC pipeline writes cost.
+    ordered = sorted(
+        (cid for cid in amount_by_cat if amount_by_cat[cid] > 0),
+        key=lambda cid: (-amount_by_cat[cid], label_by_cat.get(cid, "")),
+    )
+
+    items = []
+    for idx, cid in enumerate(ordered):
+        amount = amount_by_cat[cid]
+        percentage = _pct1(amount, total)
+        items.append({
+            "key": cid,
+            "label": label_by_cat.get(cid, ""),
+            "value": f"{_money(amount)} ({percentage:.0f}%)",
+            "amount": amount,
+            "percentage": percentage,
+            "color_token": _color(idx),
+        })
+
+    return {
+        "title": "Spend by Category",
+        "sub_title": _range_label(ctx["rng"]),
+        "type": "horizontal_bar",
+        "total": total,
+        "items": items,
+    }
+
+
+def _build_pass_rate_by_ql(env, ctx):
+    Job = env["gohan.job"].sudo()
+    scope = ctx["scope"]
+    ql_taskers = ctx["ql_taskers"]
+    ql_name = ctx["ql_name"]
+
+    totals = _counts_by_user(Job, scope)
+    approved = _counts_by_user(
+        Job, scope, [("qc_verdict", "in", list(APPROVED_VERDICTS))]
+    )
+    reviewed = _counts_by_user(
+        Job, scope, [("qc_verdict", "in", list(DECIDED_VERDICTS))]
+    )
+
+    items = []
+    for ql_id, uids in ql_taskers.items():
+        tasks = sum(totals.get(u, 0) for u in uids)
+        appr = sum(approved.get(u, 0) for u in uids)
+        rev = sum(reviewed.get(u, 0) for u in uids)
+        rate = _pct1(appr, rev)
+        name = ql_name.get(ql_id, UNASSIGNED_QL_LABEL)
+        items.append({
+            "key": ql_id,
+            "label": name,
+            "initials": _initials(name),
+            "value": f"{rate}% · {tasks} tasks",
+            "pass_rate": rate,
+            "tasks": tasks,
+            "reviewed": rev,
+            "taskers": len(uids),
+            "color_token": "success" if rate >= PASS_RATE_GOOD else "warn",
+        })
+
+    items.sort(key=lambda i: (-i["pass_rate"], -i["tasks"], i["label"]))
+    return {
+        "title": "QC Pass Rate by QL",
+        "sub_title": "",
+        "type": "horizontal_bar",
+        "items": items,
+    }
+
+
+def _build_daily_burn_rate(env, ctx):
+    Job = env["gohan.job"].sudo()
+    rng = ctx["rng"]
+    ql_of_user = ctx["ql_of_user"]
+    ql_name = ctx["ql_name"]
+
+    jobs = Job.search(ctx["scope"])
+
+    per_day = {}
+    per_ql_total = {}
+    ql_ids = set()
+    for job in jobs:
+        day = job.create_date.date() if job.create_date else None
+        if not day:
+            continue
+        ql_id = ql_of_user.get(job.user_id.id, UNASSIGNED_QL)
+        ql_ids.add(ql_id)
+        cost = job.llm_qc_cost_usd or 0.0
+        per_day.setdefault(day, {})
+        per_day[day][ql_id] = per_day[day].get(ql_id, 0.0) + cost
+        per_ql_total[ql_id] = per_ql_total.get(ql_id, 0.0) + cost
+
+    color_by_ql = {ql_id: _color(idx) for idx, ql_id in enumerate(sorted(ql_ids))}
+
+    data = []
+    cursor = rng["start"]
+    grand_total = 0.0
+    while cursor <= rng["end"]:
+        day_map = per_day.get(cursor, {})
+        day_total = round(sum(day_map.values()), 4)
+        grand_total += day_total
+        data.append({
+            "date": cursor.isoformat(),
+            "total": day_total,
+            "segments": [
+                {"key": ql_id, "value": round(day_map.get(ql_id, 0.0), 4)}
+                for ql_id in sorted(ql_ids)
+                if day_map.get(ql_id)
+            ],
+        })
+        cursor += timedelta(days=1)
+
+    legend = [
+        {
+            "key": ql_id,
+            "label": ql_name.get(ql_id, UNASSIGNED_QL_LABEL),
+            "value": _money(per_ql_total.get(ql_id, 0.0)),
+            "amount": round(per_ql_total.get(ql_id, 0.0), 4),
+            "color_token": color_by_ql[ql_id],
+        }
+        for ql_id in sorted(ql_ids, key=lambda q: -per_ql_total.get(q, 0.0))
+    ]
+
+    # No spend in range (llm_qc_cost_usd is not populated by the gohan pipeline
+    # yet) — blank the series so the card hides instead of drawing a flat-zero
+    # chart (Flutter InternalAnalyticsEntity.hasDailyBurnRate checks
+    # data.isNotEmpty). Self-heals once cost is written. The section key stays
+    # present for schema parity.
+    if grand_total <= 0:
+        legend = []
+        data = []
+
+    return {
+        "title": "Daily Burn Rate",
+        "sub_title": "",
+        "type": "stacked_bar",
+        "headline": _money(grand_total),
+        "headline_caption": _range_label(rng),
+        "legend": legend,
+        "data": data,
+    }
+
+
+def _build_analytics(env, ctx):
+    # Schema parity with crowley_extension / crowley_sourcing_extension: the
+    # same top-level keys so one frontend model fits all. `tasks_submitted_per_day`,
+    # `qc_verdict_mix` and `qc_verdicts_per_day` are sourcing-only sections,
+    # emitted here as always-blank ({}) keys.
+    return {
+        "role": _user_role_tag(env) or "tasker",
+        "kpi": _build_kpi_v2(env, ctx),
+        "spend_by_category": _build_spend_by_category(env, ctx),
+        "qc_pass_rate_by_ql": _build_pass_rate_by_ql(env, ctx),
+        "daily_burn_rate": _build_daily_burn_rate(env, ctx),
+        "tasks_submitted_per_day": {},
+        "qc_verdict_mix": {},
+        "qc_verdicts_per_day": {},
+    }
+
+
 class GohanAnalyticsDashboardController(http.Controller):
 
     @http.route(
@@ -638,47 +1094,17 @@ class GohanAnalyticsDashboardController(http.Controller):
     )
     @validate_token
     def gohan_ext_analytics_dashboard(self, **kwargs):
-        """Single role-scoped analytics dashboard endpoint for gohan.job."""
-        env = request.env
-        if _user_role_tag(env) is None:
-            return return_Response(
-                message="You are not allowed to access Gohan analytics.",
-                status=403,
-            )
+        """Project-scoped analytics for gohan.job, in the crowley contract.
 
-        params = request.params or {}
-        filters, error = _resolve_dashboard_filters(params)
+        Returns the top-level ``{kpi, spend_by_category, qc_pass_rate_by_ql,
+        daily_burn_rate, ...}`` shape the Flutter ``InternalAnalyticsTab``
+        detects. ``project_id`` is required (the Analytics tab appends it plus
+        ``start_date`` / ``end_date`` to the endpoint).
+        """
+        env = request.env
+        ctx, error = _resolve_context(env, request.params or {})
         if error is not None:
             return error
-
-        cache_key = _cache_key(env, filters)
-        cached = _cache_get(cache_key)
-        if cached is not None:
-            return return_Response(message="OK", status=200, data=cached)
-
-        tag, scope, projects = _scope(env)
-        total_task = _build_total_task(env, scope, filters)
-        qc_leaderboard = _build_qc_leaderboard(env, projects, filters)
-        data = {
-            "dashboard": {
-                "task_overview": total_task,
-                "aht_overview": _build_aht_overview_aligned(env, scope, filters),
-                "url_overview": _build_url_overview_aligned(env, scope, filters),
-                "team_overview": _build_team_overview_aligned(env, projects),
-                "status_chart": _build_status_chart_aligned(env, scope, filters),
-                "completion_heatmap": _build_heatmap(env, scope, filters),
-                "qc_leaderboard": qc_leaderboard,
-                "completion_timeline": _build_timeline(env, scope, filters),
-                "total_task_analytics": total_task,
-                "average_score_analytics": _build_avg_score(env, scope, filters),
-                "average_duration_analytics": _build_avg_duration(
-                    env, scope, filters
-                ),
-                "failed_task_analytics": _build_failed_task(env, scope, filters),
-                "team_member_analytics": _build_team_members(env, projects),
-                "qc_verdict_distribution": _build_qc_verdict(env, scope, filters),
-                "qc_team_leaderboard": qc_leaderboard,
-            },
-        }
-        _cache_set(cache_key, data)
-        return return_Response(message="OK", status=200, data=data)
+        return return_Response(
+            message="OK", status=200, data=_build_analytics(env, ctx)
+        )

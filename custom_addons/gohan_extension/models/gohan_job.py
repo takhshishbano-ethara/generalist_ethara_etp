@@ -65,6 +65,33 @@ class GohanJob(models.Model):
     )
 
     @api.model
+    def get_member_task_stats(self, user_id):
+        """Per-member "tasks done" + average duration for the shared project
+        Team tab (``/api/v2/project_team_member_list``).
+
+        gohan.job is the Gohan project's ``connected_table``, so a member's
+        "tasks done" is the count of their jobs in a terminal/shipped state.
+        The shared Team endpoint calls this hook when the project's connected
+        backend exposes it; backends without it keep the legacy task.forge.log
+        count.
+        """
+        if not user_id:
+            return {"done": 0, "avg_seconds": 0}
+        Job = self.sudo()
+        done_domain = [
+            ("user_id", "=", user_id),
+            ("state", "in", list(DONE_STATES)),
+        ]
+        done = Job.search_count(done_domain)
+        groups = Job._read_group(
+            done_domain + [("duration_seconds", ">", 0)],
+            [],
+            ["duration_seconds:avg"],
+        )
+        avg_seconds = (groups[0][0] if groups else 0.0) or 0.0
+        return {"done": done, "avg_seconds": int(avg_seconds)}
+
+    @api.model
     def _performance_scope_domain(self):
         """Role-scoped search domain on ``gohan.job``.
 

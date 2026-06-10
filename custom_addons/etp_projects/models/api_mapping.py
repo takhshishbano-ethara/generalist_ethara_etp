@@ -5,7 +5,18 @@ class EtpExternalProjectApiMap(models.Model):
     _name = 'etp.external.project.api.map'
     _description = 'External Project API Mapping'
     _rec_name = 'table_name'
+    # Tab order in the Flutter project detail is the order of project.api_map_ids,
+    # which follows this _order. Ordering by `sequence` (then id) lets the tab
+    # order be controlled explicitly from the seed data instead of being frozen
+    # to row-creation order — so a project can be given new tabs in any position.
+    _order = 'sequence, id'
 
+    sequence = fields.Integer(
+        string='Sequence',
+        default=10,
+        help="Order of this tab in the project detail tab strip "
+             "(lower numbers first).",
+    )
     project_id = fields.Many2one(
         comodel_name='project.project',
         string='External Project',
