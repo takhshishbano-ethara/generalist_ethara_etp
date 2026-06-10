@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="view_i2i_import_wizard_form" model="ir.ui.view">
+            <field name="name">i2i.import.wizard.form</field>
+            <field name="model">i2i.import.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Import I2I Items">
+                    <sheet>
+                        <group>
+                            <field name="file" filename="filename"/>
+                            <field name="filename" invisible="1"/>
+                            <field name="skip_header"/>
+                        </group>
+                        <group string="Result" invisible="not created_count and not error_log">
+                            <field name="created_count" readonly="1"/>
+                            <field name="error_log" readonly="1" nolabel="1"/>
+                        </group>
+                        <div class="alert alert-info" role="alert">
+                            <strong>Expected columns (header row):</strong><br/>
+                            project_type, instruction, original_image_url, edited_image_url,
+                            edit_only_instructed (optional), images_aligned (optional),
+                            free_of_ai_slop (optional), assigned_user_login (optional)
+                        </div>
+                    </sheet>
+                    <footer>
+                        <button name="action_import" type="object" string="Import" class="btn-primary"/>
+                        <button string="Close" class="btn-secondary" special="cancel"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_i2i_import_wizard" model="ir.actions.act_window">
+            <field name="name">Import I2I Items</field>
+            <field name="res_model">i2i.import.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="target">new</field>
+        </record>
+    </data>
+</odoo>

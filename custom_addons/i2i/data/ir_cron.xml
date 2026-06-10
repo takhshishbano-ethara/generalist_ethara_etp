@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="cron_i2i_run_pending_llm_qc" model="ir.cron">
+            <field name="name">I2I: Run pending LLM QC reviews</field>
+            <field name="model_id" ref="model_i2i_item"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_run_pending_llm_qc(batch_size=20)</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">2</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+</odoo>

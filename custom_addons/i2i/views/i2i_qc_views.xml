@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="action_i2i_item_qc" model="ir.actions.act_window">
+            <field name="name">QC Queue</field>
+            <field name="res_model">i2i.item</field>
+            <field name="view_mode">list,kanban,form</field>
+            <field name="domain">[('state', 'in', ['llm_qc', 'human_qc'])]</field>
+            <field name="context">{'search_default_state_human': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No items waiting for QC.</p>
+                <p>Items move here automatically after the LLM QC pass completes (or when an operator marks them ready).</p>
+            </field>
+        </record>
+    </data>
+</odoo>
