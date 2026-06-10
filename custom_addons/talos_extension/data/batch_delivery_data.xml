@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_talos_batch_delivery" model="ir.sequence">
+            <field name="name">Talos Batch Delivery</field>
+            <field name="code">talos.batch.delivery</field>
+            <field name="prefix">TLS/BATCH/</field>
+            <field name="padding">5</field>
+            <field name="number_increment">1</field>
+            <field name="number_next">1</field>
+        </record>
+
+        <record id="action_add_talos_tasks_to_batch" model="ir.actions.server">
+            <field name="name">Add to Batch Delivery</field>
+            <field name="model_id" ref="talos.model_talos_talos"/>
+            <field name="binding_model_id" ref="talos.model_talos_talos"/>
+            <field name="binding_view_types">list</field>
+            <field name="state">code</field>
+            <field name="code">action = {
+    'type': 'ir.actions.act_window',
+    'name': 'Add to Batch Delivery',
+    'res_model': 'talos.batch.delivery.add.wizard',
+    'view_mode': 'form',
+    'target': 'new',
+    'context': {'active_ids': records.ids, 'active_model': 'talos.talos'},
+}
+            </field>
+        </record>
+    </data>
+</odoo>

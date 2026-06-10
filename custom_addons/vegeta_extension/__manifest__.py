@@ -12,14 +12,11 @@
         "api_auth_gateway",
         "task_forge_bridge",
         "project_extension",
-        # Provides project.project's project_classification / connected_table /
-        # api_map_ids / category_url / tasker_url fields used by the
-        # auto-created internal Vegeta project (data/vegeta_project_data.xml).
-        "etp_projects",
     ],
     "data": [
         "security/ir.model.access.csv",
-        "data/vegeta_project_data.xml",
+        "data/batch_delivery_data.xml",
+        "views/batch_delivery_views.xml",
     ],
     "installable": True,
     "application": False,

@@ -1,1 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_crowley_batch_delivery_user,crowley.batch.delivery user,model_crowley_batch_delivery,crowley.group_crowley_user,1,1,1,0
+access_crowley_batch_delivery_manager,crowley.batch.delivery manager,model_crowley_batch_delivery,crowley.group_crowley_manager,1,1,1,1
+access_crowley_batch_delivery_add_wizard_user,crowley.batch.delivery.add.wizard user,model_crowley_batch_delivery_add_wizard,crowley.group_crowley_user,1,1,1,0

@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_vegeta_batch_delivery_list" model="ir.ui.view">
+        <field name="name">vegeta.batch.delivery.list</field>
+        <field name="model">vegeta.batch.delivery</field>
+        <field name="arch" type="xml">
+            <list string="Batch Deliveries">
+                <field name="name"/>
+                <field name="date_from"/>
+                <field name="date_to"/>
+                <field name="job_count"/>
+                <field name="user_id"/>
+                <field name="delivered_at"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'draft'"
+                       decoration-warning="state == 'confirmed'"
+                       decoration-success="state == 'delivered'"
+                       decoration-muted="state == 'cancelled'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_vegeta_batch_delivery_form" model="ir.ui.view">
+        <field name="name">vegeta.batch.delivery.form</field>
+        <field name="model">vegeta.batch.delivery</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_confirm" type="object" string="Confirm"
+                            class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_mark_delivered" type="object" string="Mark Delivered"
+                            class="oe_highlight" invisible="state not in ('draft','confirmed')"/>
+                    <button name="action_generate_csv" type="object" string="Export CSV"
+                            class="btn-secondary" invisible="state == 'cancelled'"/>
+                    <button name="action_set_to_draft" type="object" string="Reset to Draft"
+                            invisible="state not in ('confirmed','cancelled')"/>
+                    <button name="action_cancel" type="object" string="Cancel"
+                            invisible="state in ('delivered','cancelled')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,confirmed,delivered"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_jobs" type="object"
+                                class="oe_stat_button" icon="fa-tasks">
+                            <field name="job_count" widget="statinfo" string="Jobs"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="user_id" readonly="1"/>
+                            <field name="date_from" readonly="state != 'draft'"/>
+                            <field name="date_to" readonly="state != 'draft'"/>
+                            <field name="delivered_at"/>
+                        </group>
+                        <group>
+                            <field name="csv_filename"/>
+                            <field name="csv_file" filename="csv_filename"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Jobs" name="jobs">
+                            <field name="job_ids"
+                                   readonly="state != 'draft'"
+                                   options="{'no_create': True}">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="url"/>
+                                    <field name="site_name"/>
+                                    <field name="state"/>
+                                    <field name="score"/>
+                                    <field name="qc_verdict"/>
+                                    <field name="completed_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="CSV Columns" name="columns">
+                            <field name="column_ids"
+                                   readonly="state == 'delivered'"
+                                   options="{'no_create': True}">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="field_description"/>
+                                    <field name="ttype"/>
+                                </list>
+                            </field>
+                            <div class="text-muted">
+                                If left empty, a default set of columns will be exported.
+                            </div>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes" readonly="state == 'delivered'"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_vegeta_batch_delivery_search" model="ir.ui.view">
+        <field name="name">vegeta.batch.delivery.search</field>
+        <field name="model">vegeta.batch.delivery</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="user_id"/>
+                <filter name="filter_draft" string="Draft"
+                        domain="[('state', '=', 'draft')]"/>
+                <filter name="filter_confirmed" string="Confirmed"
+                        domain="[('state', '=', 'confirmed')]"/>
+                <filter name="filter_delivered" string="Delivered"
+                        domain="[('state', '=', 'delivered')]"/>
+                <group>
+                    <filter name="group_state" string="State"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_user" string="Created By"
+                            context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_vegeta_batch_delivery" model="ir.actions.act_window">
+        <field name="name">Batch Deliveries</field>
+        <field name="res_model">vegeta.batch.delivery</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_vegeta_batch_delivery_search"/>
+    </record>
+
+    <menuitem id="menu_vegeta_batch_delivery"
+              name="Batch Deliveries"
+              parent="vegeta.menu_vegeta_root"
+              action="action_vegeta_batch_delivery"
+              sequence="20"
+              groups="vegeta.group_vegeta_user"/>
+
+    <record id="view_vegeta_batch_delivery_add_wizard_form" model="ir.ui.view">
+        <field name="name">vegeta.batch.delivery.add.wizard.form</field>
+        <field name="model">vegeta.batch.delivery.add.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Add Jobs to Batch Delivery">
+                <sheet>
+                    <group>
+                        <field name="mode" widget="radio"/>
+                        <field name="batch_id"
+                               invisible="mode != 'existing'"
+                               required="mode == 'existing'"/>
+                        <field name="date_from" invisible="mode != 'new'"/>
+                        <field name="date_to" invisible="mode != 'new'"/>
+                        <field name="notes" invisible="mode != 'new'"/>
+                    </group>
+                    <group string="Selected Jobs">
+                        <field name="job_ids" nolabel="1" readonly="1">
+                            <list>
+                                <field name="name"/>
+                                <field name="url"/>
+                                <field name="state"/>
+                                <field name="completed_at"/>
+                            </list>
+                        </field>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" type="object" string="Confirm"
+                            class="oe_highlight"/>
+                    <button string="Cancel" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>
