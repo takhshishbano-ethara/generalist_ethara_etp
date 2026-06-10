@@ -35,19 +35,19 @@ TRAJECTORY_VARIANTS = (
     {
         "key": "golden",
         "label": "Golden Trajectory",
-        "field": "content",
+        "field": "golden_trajectory",
         "call_types": ("generate", "improve"),
     },
     {
         "key": "qc_review",
         "label": "QC Review",
-        "field": "qc_result",
+        "field": "golden_qc_result",
         "call_types": ("qc",),
     },
     {
         "key": "qc_structural",
         "label": "QC Structural",
-        "field": "qc_structural_result",
+        "field": "golden_structural_result",
         "call_types": (),
     },
 )
@@ -134,8 +134,8 @@ def _ql_filter(raw):
     if not raw:
         return []
     if raw.isdigit():
-        return [("employee_ids.user_id", "=", int(raw))]
-    return [("employee_ids.user_id.name", "ilike", raw)]
+        return [("employee_id.user_id", "=", int(raw))]
+    return [("employee_id.user_id.name", "ilike", raw)]
 
 
 def _build_trajectory_domain(env, params):
@@ -242,11 +242,7 @@ def _serialize_trajectory(task, variant, gen_sums, gen_latest):
     status = _derive_variant_status(has_text, latest_status)
     raw_prompt, golden_prompt = _prompts(task)
 
-    assigned_user = None
-    for emp in task.employee_ids:
-        if emp.user_id:
-            assigned_user = emp.user_id
-            break
+    assigned_user = task.employee_id.user_id if task.employee_id and task.employee_id.user_id else None
 
     if task.life_domain_ids:
         cat_id = task.life_domain_ids[0].id

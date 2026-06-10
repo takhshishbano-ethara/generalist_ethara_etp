@@ -263,6 +263,15 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
     kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
     service_costs = _build_service_costs(env, budgets, filters)
 
+    TPR = env["etp.project.token.purchase.request"].sudo()
+    budget_timeline = TPR._get_budget_timeline_for_project(
+        project_id,
+        start=filters["start"],
+        end=filters["end"],
+        graph_days=filters["graph_days"],
+    )
+    allocation_ledger = TPR._get_allocation_ledger_for_project(project_id)
+
     return {
         "filters": {
             "project_id": project_id,
@@ -278,12 +287,12 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
         "service_costs": service_costs,
         "aht_overview": _empty_aht_overview(filters["target_aht"]),
         "daily_burn_graph": _empty_daily_burn_graph(filters),
-        "budget_timeline": {},
+        "budget_timeline": budget_timeline,
         "burn_per_batch": {
             "title": "Burn per batch",
             "batches": [],
         },
-        "allocation_ledger": {},
+        "allocation_ledger": allocation_ledger,
     }
 
 

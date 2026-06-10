@@ -49,7 +49,6 @@
                                 <list>
                                     <field name="task_id"/>
                                     <field name="persona_id"/>
-                                    <field name="mode"/>
                                     <field name="qc_status"/>
                                 </list>
                             </field>
@@ -97,7 +96,7 @@
 
     <menuitem id="menu_skoll_batch_delivery"
               name="Batch Deliveries"
-              parent="skoll.menu_root"
+              parent="skoll_project.menu_skoll_root"
               action="action_skoll_batch_delivery"
               sequence="50"/>
 
@@ -117,7 +116,6 @@
                         <list>
                             <field name="task_id"/>
                             <field name="persona_id"/>
-                            <field name="mode"/>
                         </list>
                     </field>
                 </group>

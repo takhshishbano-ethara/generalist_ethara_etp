@@ -78,11 +78,7 @@ def _backend_url(env, task):
 
 def _serialize_task_meta(task):
     raw_prompt, golden_prompt = _prompts(task)
-    assigned_user = None
-    for emp in task.employee_ids:
-        if emp.user_id:
-            assigned_user = emp.user_id
-            break
+    assigned_user = task.employee_id.user_id if task.employee_id and task.employee_id.user_id else None
     if task.life_domain_ids:
         category_id = task.life_domain_ids[0].id
         category_name = task.life_domain_ids[0].name or ""
@@ -99,7 +95,7 @@ def _serialize_task_meta(task):
         "golden_prompt": golden_prompt,
         "persona_id": task.persona_id.id if task.persona_id else 0,
         "persona_name": task.persona_id.name if task.persona_id else "",
-        "mode": task.mode or "",
+        "mode": "",
         "assigned_ql_id": assigned_user.id if assigned_user else 0,
         "assigned_ql_name": assigned_user.name if assigned_user else "",
         "category_slug": str(category_id) if category_id else "",
@@ -150,7 +146,7 @@ class SkollTaskTrajectoryController(http.Controller):
                         errors=["Task not in scope for this user"],
                     )
 
-            content = task.content or ""
+            content = task.golden_trajectory or ""
             parsed, is_valid = _parse_content(content)
             link = _extract_trajectory_link(parsed)
 
@@ -159,14 +155,14 @@ class SkollTaskTrajectoryController(http.Controller):
                 "content_parsed": parsed if isinstance(parsed, (dict, list)) else None,
                 "is_valid_json": is_valid,
                 "size_bytes": len(content.encode("utf-8")) if content else 0,
-                "spawn_tree": task.spawn_tree or "",
+                "spawn_tree": task.golden_spawn_tree or "",
                 "trajectory_url": link,
                 "backend_url": _backend_url(env, task),
             }
             qc = {
                 "status": task.qc_status or "",
-                "review": task.qc_result or "",
-                "structural_result": task.qc_structural_result or "",
+                "review": task.golden_qc_result or "",
+                "structural_result": task.golden_structural_result or "",
             }
         except Exception as exc:
             _logger.exception("Skoll task_trajectory failed")

@@ -10,7 +10,6 @@ from odoo.exceptions import UserError
 DEFAULT_CSV_FIELDS = [
     "task_id",
     "persona_id",
-    "mode",
     "qc_status",
 ]
 

@@ -27,9 +27,9 @@ STAGE_SELECTION = (
 )
 STAGE_TO_QC_STATUS = {
     "s1_draft": ("pending",),
-    "s2_running": ("running",),
-    "s2_qc": ("pass", "needs_revision"),
-    "failed": ("fail", "error"),
+    "s2_running": ("pending",),
+    "s2_qc": ("passed",),
+    "failed": ("failed",),
 }
 STAGE_LABELS = dict(STAGE_SELECTION)
 
@@ -42,10 +42,10 @@ STATUS_SELECTION = (
 )
 STATUS_TO_QC_STATUS = {
     "unstarted": ("pending",),
-    "generating": ("running",),
-    "pending_review": ("needs_revision",),
-    "approved": ("pass",),
-    "failed_qc": ("fail", "error"),
+    "generating": ("pending",),
+    "pending_review": ("pending",),
+    "approved": ("passed",),
+    "failed_qc": ("failed",),
 }
 
 COLUMNS = [
@@ -65,7 +65,7 @@ def _user_scope_domain(env, tag):
     if tag in ("full", "ql"):
         return []
     if tag == "tasker":
-        return [("employee_ids.user_id", "=", env.user.id)]
+        return [("employee_id.user_id", "=", env.user.id)]
     return [("id", "=", 0)]
 
 
@@ -119,8 +119,8 @@ def _ql_domain(raw):
         return []
     raw = str(raw).strip()
     if raw.isdigit():
-        return [("employee_ids.user_id", "=", int(raw))]
-    return [("employee_ids.user_id.name", "ilike", raw)]
+        return [("employee_id.user_id", "=", int(raw))]
+    return [("employee_id.user_id.name", "ilike", raw)]
 
 
 def _search_domain(raw):
@@ -134,9 +134,9 @@ def _search_domain(raw):
         "|",
         "|",
         ("task_id", "ilike", needle),
-        ("prompt", "ilike", needle),
+        ("initial_prompt", "ilike", needle),
         ("seed_prompt", "ilike", needle),
-        ("employee_ids.user_id.name", "ilike", needle),
+        ("employee_id.user_id.name", "ilike", needle),
     ]
 
 
@@ -184,22 +184,16 @@ def _spec_string(task):
     parts = []
     if task.persona_id:
         parts.append(task.persona_id.name or "")
-    if task.mode:
-        parts.append(task.mode)
     return " · ".join([p for p in parts if p])
 
 
 def _prompts(task):
-    return task.seed_prompt or "", task.prompt or ""
+    return task.seed_prompt or "", task.initial_prompt or ""
 
 
 def _serialize_task(task, cost_by_task):
     raw_prompt, golden_prompt = _prompts(task)
-    assigned_user = None
-    for emp in task.employee_ids:
-        if emp.user_id:
-            assigned_user = emp.user_id
-            break
+    assigned_user = task.employee_id.user_id if task.employee_id and task.employee_id.user_id else None
     if task.life_domain_ids:
         category_id = task.life_domain_ids[0].id
         category_name = task.life_domain_ids[0].name or ""
@@ -214,7 +208,7 @@ def _serialize_task(task, cost_by_task):
         "spec": _spec_string(task),
         "raw_prompt": raw_prompt,
         "golden_prompt": golden_prompt,
-        "is_enriched": bool(task.prompt),
+        "is_enriched": bool(task.initial_prompt),
         "assigned_ql_id": assigned_user.id if assigned_user else 0,
         "assigned_ql_name": assigned_user.name if assigned_user else "",
         "category_slug": str(category_id) if category_id else "",

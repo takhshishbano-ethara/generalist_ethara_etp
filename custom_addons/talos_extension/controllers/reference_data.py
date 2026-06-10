@@ -6,7 +6,12 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .analytics_dashboard import _scope, _user_role_tag
+from .analytics_dashboard import (
+    TASKER_ROLE_XMLIDS,
+    _get_role_ids,
+    _scope,
+    _user_role_tag,
+)
 
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
@@ -114,10 +119,13 @@ class TalosReferenceDataController(http.Controller):
         if tag == "tasker":
             tasker_user_ids = [env.user.id]
         else:
-            tasker_group = env.ref(
-                "etp_user_roles.group_tasker", raise_if_not_found=False
+            Users_pre = env["res.users"].sudo()
+            tasker_role_ids = _get_role_ids(env, TASKER_ROLE_XMLIDS)
+            tasker_user_ids = (
+                Users_pre.search([("user_role", "in", tasker_role_ids)]).ids
+                if tasker_role_ids
+                else []
             )
-            tasker_user_ids = tasker_group.users.ids if tasker_group else []
 
         domain = [("id", "in", tasker_user_ids)]
         if search:

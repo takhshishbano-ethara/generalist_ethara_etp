@@ -114,9 +114,8 @@ class SkollReferenceDataController(http.Controller):
             tasks = env["skoll.skoll"].sudo().search(task_domain)
             user_ids = set()
             for task in tasks:
-                for emp in task.employee_ids:
-                    if emp.user_id:
-                        user_ids.add(emp.user_id.id)
+                if task.employee_id and task.employee_id.user_id:
+                    user_ids.add(task.employee_id.user_id.id)
 
             Users = env["res.users"].sudo()
             user_dom = [("id", "in", list(user_ids))]

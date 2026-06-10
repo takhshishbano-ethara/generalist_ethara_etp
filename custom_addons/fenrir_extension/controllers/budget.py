@@ -82,7 +82,7 @@ def _parse_positive_float(raw, label):
     return value, None
 
 
-def _resolve_task_id(env, params):
+def _resolve_project_id(env, params):
     raw = (params.get("project_id") or "").strip()
     if not raw:
         return None, None
@@ -91,13 +91,13 @@ def _resolve_task_id(env, params):
             message=f"Invalid project_id '{raw}'. Expected an integer.",
             status=400,
         )
-    task_id = int(raw)
-    if not env["fenrir.task"].sudo().browse(task_id).exists():
+    project_id = int(raw)
+    if not env["project.project"].sudo().browse(project_id).exists():
         return None, return_Response(
-            message=f"Task '{task_id}' not found.",
+            message=f"Project '{project_id}' not found.",
             status=404,
         )
-    return task_id, None
+    return project_id, None
 
 
 def _resolve_filters(params):
@@ -142,18 +142,16 @@ def _resolve_filters(params):
     }, None
 
 
-def _scope_tasks(env, task_id):
-    """Resolve the set of fenrir.task records driving the budget view."""
+def _scope_tasks(env, project_id):
+    # project_id is accepted for parity with crowley_extension's /budget/info
+    # contract but unused: fenrir.task has no project link.
     _tag, role_domain, _all_tasks = _scope(env)
-    domain = list(role_domain)
-    if task_id:
-        domain.append(("id", "=", task_id))
-    return env["fenrir.task"].sudo().search(domain)
+    return env["fenrir.task"].sudo().search(role_domain)
 
 
-def _build_budget_kpi(env, task_id):
+def _build_budget_kpi(env, project_id):
     """Synthesize a single 'budget' from the system cap vs accepted-offer spend."""
-    tasks = _scope_tasks(env, task_id)
+    tasks = _scope_tasks(env, project_id)
 
     cap = _budget_usd(env)
     total_consumed = sum(_task_cost(t) for t in tasks)
@@ -339,7 +337,7 @@ class FenrirBudgetController(http.Controller):
 
         params = request.params or {}
 
-        task_id, error = _resolve_task_id(env, params)
+        project_id, error = _resolve_project_id(env, params)
         if error is not None:
             return error
 
@@ -352,7 +350,7 @@ class FenrirBudgetController(http.Controller):
         )
 
         try:
-            kpi, tasks = _build_budget_kpi(env, task_id)
+            kpi, tasks = _build_budget_kpi(env, project_id)
             service_costs, _service_total = _build_service_costs(env, tasks, filters)
             aht_overview = _build_aht_overview(env, filters)
             burn_graph = _build_daily_burn_graph(env, tasks, filters)
@@ -369,7 +367,7 @@ class FenrirBudgetController(http.Controller):
             status=200,
             data={
                 "filters": {
-                    "project_id": task_id,
+                    "project_id": project_id,
                     "include_inactive": include_inactive,
                     "start_date": filters["start"].isoformat() if filters["start"] else None,
                     "end_date": filters["end"].isoformat() if filters["end"] else None,

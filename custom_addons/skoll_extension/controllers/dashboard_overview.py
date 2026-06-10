@@ -25,11 +25,11 @@ from .analytics_dashboard import (
 
 _logger = logging.getLogger(__name__)
 
-IN_FLIGHT_STATES = ("running",)
-FAILED_STATES = ("fail", "error")
-DONE_STATES = ("pass",)
-APPROVED_STATES = ("pass",)
-REWORK_STATES = ("fail",)
+IN_FLIGHT_STATES = ()
+FAILED_STATES = ("failed",)
+DONE_STATES = ("passed",)
+APPROVED_STATES = ("passed",)
+REWORK_STATES = ("failed",)
 DRAFT_STATES = ("pending",)
 DEFAULT_TREND_WEEKS = 6
 MAX_TREND_WEEKS = 26
@@ -214,10 +214,9 @@ def _compute_kpi(env, task_scope, gen_scope):
     user_ids = set()
     tasks_for_team = Task.search(task_scope, limit=2000)
     for t in tasks_for_team:
-        for emp in t.employee_ids:
-            if emp.user_id:
-                user_ids.add(emp.user_id.id)
-    if env.user.has_group("skoll.group_skoll_pl"):
+        if t.employee_id and t.employee_id.user_id:
+            user_ids.add(t.employee_id.user_id.id)
+    if env.user.has_group("etp_user_roles.group_project_lead"):
         user_ids.add(env.user.id)
 
     today_from, today_to, today_date = _today_bounds(env)

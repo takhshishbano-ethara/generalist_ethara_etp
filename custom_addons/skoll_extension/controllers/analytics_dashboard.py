@@ -21,24 +21,24 @@ UNASSIGNED_QL = 0
 UNASSIGNED_QL_LABEL = "Unassigned"
 UNCATEGORIZED_KEY = "uncategorized"
 UNCATEGORIZED_LABEL = "Uncategorized"
-DONE_STATE = "pass"
+DONE_STATE = "passed"
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 RANGE_DAYS = {"7d": 7, "30d": 30, "90d": 90}
 
-APPROVED_STATES = ("pass",)
-REWORK_STATES = ("fail",)
+APPROVED_STATES = ("passed",)
+REWORK_STATES = ("failed",)
 DECIDED_STATES = APPROVED_STATES + REWORK_STATES
-IN_PROGRESS_STATES = ("running",)
-ERROR_STATES = ("error",)
+IN_PROGRESS_STATES = ()
+ERROR_STATES = ("failed",)
 
 
 def _user_role_tag(env):
     user = env.user
-    if user.has_group("skoll.group_skoll_pl"):
+    if user.has_group("etp_user_roles.group_project_lead"):
         return "full"
-    if user.has_group("skoll.group_skoll_ql"):
+    if user.has_group("etp_user_roles.group_quality_lead"):
         return "ql"
-    if user.has_group("skoll.group_skoll_tasker"):
+    if user.has_group("etp_user_roles.group_tasker"):
         return "tasker"
     return None
 
@@ -50,7 +50,7 @@ def _scope(env):
         return tag, [], Persona.search([])
     if tag == "tasker":
         uid = env.user.id
-        domain = [("employee_ids.user_id", "=", uid)]
+        domain = [("employee_id.user_id", "=", uid)]
         tasks = env["skoll.skoll"].sudo().search(domain)
         personas = tasks.persona_id
         return tag, domain, personas
@@ -367,9 +367,8 @@ def _build_pass_rate_by_ql(env, ctx):
         elif task.qc_status in REWORK_STATES:
             bucket["rework_count"] += 1
             bucket["reviewed_count"] += 1
-        for emp in task.employee_ids:
-            if emp.user_id:
-                bucket["taskers"].add(emp.user_id.id)
+        if task.employee_id and task.employee_id.user_id:
+            bucket["taskers"].add(task.employee_id.user_id.id)
 
     items = []
     for idx, (key, payload) in enumerate(
