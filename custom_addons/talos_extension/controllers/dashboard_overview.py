@@ -8,7 +8,15 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .analytics_dashboard import _scope as _role_scope, _total_tokens, _user_role_tag
+from .analytics_dashboard import (
+    PL_ROLE_XMLIDS,
+    TALOS_USER_ROLE_XMLIDS,
+    _get_role_ids,
+    _scope as _role_scope,
+    _total_tokens,
+    _user_has_role,
+    _user_role_tag,
+)
 
 BUDGET_PARAM = "talos.budget_tokens"
 DEFAULT_TREND_WEEKS = 6
@@ -30,16 +38,7 @@ HEATMAP_LEVELS = 4
 
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 
-ROLE_GUARD_GROUPS = (
-    "etp_user_roles.group_tasker",
-    "etp_user_roles.group_quality_reviewer",
-    "etp_user_roles.group_quality_lead",
-    "etp_user_roles.group_project_lead",
-    "etp_user_roles.group_delivery_manager",
-    "etp_user_roles.group_tpm",
-    "etp_user_roles.group_cto",
-    "etp_user_roles.group_founder",
-)
+
 
 
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
@@ -64,13 +63,8 @@ def _week_start(d):
 
 
 def _require_talos_user():
-    env = request.env
-    for xmlid in ROLE_GUARD_GROUPS:
-        try:
-            if env.user.has_group(xmlid):
-                return None
-        except Exception:
-            continue
+    if _user_has_role(request.env, TALOS_USER_ROLE_XMLIDS):
+        return None
     return return_Response(
         message="You are not allowed to access Talos data.",
         status=403,
@@ -188,13 +182,12 @@ def _compute_kpi(env, gen_scope):
     )
     owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
     members = env["res.users"].sudo().browse(owner_ids)
-    manager_group = env.ref(
-        "etp_user_roles.group_project_lead", raise_if_not_found=False
-    )
+    pl_role_ids = _get_role_ids(env, PL_ROLE_XMLIDS)
     manager_count = 0
-    if manager_group:
-        manager_ids = set(manager_group.users.ids)
-        manager_count = len([u for u in members if u.id in manager_ids])
+    if pl_role_ids:
+        manager_count = len(
+            [u for u in members if u.user_role and u.user_role.id in pl_role_ids]
+        )
 
     today_start, today_end = _today_bounds(env)
     yesterday_start = today_start - timedelta(days=1)

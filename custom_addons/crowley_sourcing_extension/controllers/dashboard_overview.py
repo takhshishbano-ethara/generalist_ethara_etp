@@ -134,7 +134,7 @@ def _budget_usd(env):
         return 0.0
 
 
-def _compute_kpi(env, gen_scope):
+def _compute_kpi(env, gen_scope, projects):
     Project = env["video.editor.project"].sudo()
 
     total_tasks = Project.search_count(gen_scope)
@@ -171,21 +171,22 @@ def _compute_kpi(env, gen_scope):
         + [("state", "in", list(DONE_STATES)), ("write_date", ">=", today_start)]
     )
 
-    owner_rows = Project.read_group(
-        gen_scope,
-        fields=["assigned_to"],
-        groupby=["assigned_to"],
-        lazy=False,
+    # Team members are the people assigned to the project via its role
+    # fields (PL/QR/Tasker/AIRE/SWE + the PL's TPM), deduped — matching the
+    # project_team_member_list API and leviathan's _team_overview. Counting
+    # distinct task assignees (assigned_to) undercounts the real team.
+    members = (
+        projects.mapped("project_lead")
+        | projects.mapped("project_qc_reviewer")
+        | projects.mapped("project_tasker")
+        | projects.mapped("project_aire")
+        | projects.mapped("project_swe")
+        | projects.mapped("project_lead").mapped("task_forge_tpm_id")
     )
-    owner_ids = []
-    for row in owner_rows:
-        owner = row.get("assigned_to")
-        if owner and isinstance(owner, (list, tuple)):
-            owner_ids.append(owner[0])
-    members = env["res.users"].sudo().browse(owner_ids)
     manager_count = 0
-    for u in members:
-        if u.has_group("video_editor_s3.group_video_editor_s3_manager"):
+    for emp in members:
+        user = emp.user_id
+        if user and user.has_group("video_editor_s3.group_video_editor_s3_manager"):
             manager_count += 1
     member_count = len(members)
 
@@ -546,10 +547,21 @@ class CrowleySourcingDashboardOverviewController(http.Controller):
         gen_scope = base_scope + date_domain
         view = VIEW_BY_ROLE.get(role_tag, "tasker")
 
+        # Team-member count is scoped to the requested project (matching
+        # leviathan's _team_overview and the project_team_member_list API);
+        # fall back to the role's full project set when no project_id is given.
+        raw_pid = (params.get("project_id") or "").strip()
+        member_projects = (
+            env["project.project"].sudo().browse(int(raw_pid))
+            if raw_pid.isdigit()
+            else _projects
+        )
+
         # KPI section — only this view's cards (one item per card). The card
         # set differs per role per the Crowley overview designs.
         kpi_by_key = {
-            item["key"]: item for item in _compute_kpi(env, gen_scope)["items"]
+            item["key"]: item
+            for item in _compute_kpi(env, gen_scope, member_projects)["items"]
         }
         kpi_items = [
             kpi_by_key[key]

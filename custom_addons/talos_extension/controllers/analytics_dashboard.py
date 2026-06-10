@@ -19,24 +19,34 @@ CACHE_TTL = 60
 CACHE_MAX_ENTRIES = 256
 _CACHE = {}
 
-FULL_ACCESS_GROUP_XMLIDS = (
-    "etp_user_roles.group_cto",
-    "etp_user_roles.group_tpm",
-    "etp_user_roles.group_founder",
+FULL_ACCESS_ROLE_XMLIDS = (
+    "api_auth_gateway.role_cto_technical",
+    "api_auth_gateway.role_tpm_technical",
 )
 
-PL_GROUP_XMLIDS = (
-    "etp_user_roles.group_project_lead",
-    "etp_user_roles.group_delivery_manager",
+PL_ROLE_XMLIDS = (
+    "api_auth_gateway.role_pl_technical",
+    "api_auth_gateway.role_pl_stem",
+    "api_auth_gateway.role_pl_non_stem",
 )
 
-QR_GROUP_XMLIDS = (
-    "etp_user_roles.group_quality_reviewer",
-    "etp_user_roles.group_quality_lead",
+QR_ROLE_XMLIDS = (
+    "api_auth_gateway.role_qc_technical",
+    "api_auth_gateway.role_qc_stem",
+    "api_auth_gateway.role_qc_non_stem",
 )
 
-TASKER_GROUP_XMLIDS = (
-    "etp_user_roles.group_tasker",
+TASKER_ROLE_XMLIDS = (
+    "api_auth_gateway.role_tasker_technical",
+    "api_auth_gateway.role_tasker_stem",
+    "api_auth_gateway.role_tasker_non_stem",
+)
+
+TALOS_USER_ROLE_XMLIDS = (
+    FULL_ACCESS_ROLE_XMLIDS
+    + PL_ROLE_XMLIDS
+    + QR_ROLE_XMLIDS
+    + TASKER_ROLE_XMLIDS
 )
 
 TOKEN_FIELDS = (
@@ -77,24 +87,30 @@ def _fmt_duration(seconds):
     return f"{minutes}m {secs:02d}s"
 
 
-def _user_has_any_group(env, xmlids):
+def _get_role_ids(env, xmlids):
+    ids = []
     for xmlid in xmlids:
-        try:
-            if env.user.has_group(xmlid):
-                return True
-        except Exception:
-            continue
-    return False
+        rec = env.ref(xmlid, raise_if_not_found=False)
+        if rec:
+            ids.append(rec.id)
+    return ids
+
+
+def _user_has_role(env, xmlids):
+    role = env.user.user_role
+    if not role:
+        return False
+    return role.id in _get_role_ids(env, xmlids)
 
 
 def _user_role_tag(env):
-    if _user_has_any_group(env, FULL_ACCESS_GROUP_XMLIDS):
+    if _user_has_role(env, FULL_ACCESS_ROLE_XMLIDS):
         return "full"
-    if _user_has_any_group(env, PL_GROUP_XMLIDS):
+    if _user_has_role(env, PL_ROLE_XMLIDS):
         return "pl"
-    if _user_has_any_group(env, QR_GROUP_XMLIDS):
+    if _user_has_role(env, QR_ROLE_XMLIDS):
         return "qr"
-    if _user_has_any_group(env, TASKER_GROUP_XMLIDS):
+    if _user_has_role(env, TASKER_ROLE_XMLIDS):
         return "tasker"
     return None
 
@@ -326,14 +342,18 @@ def _build_team_members(env, projects):
     Users = env["res.users"].sudo()
     role_breakdown = []
     member_ids = set()
-    role_groups = (
-        ("team_lead", "etp_user_roles.group_project_lead"),
-        ("qc_reviewer", "etp_user_roles.group_quality_reviewer"),
-        ("tasker", "etp_user_roles.group_tasker"),
+    role_buckets = (
+        ("team_lead", PL_ROLE_XMLIDS),
+        ("qc_reviewer", QR_ROLE_XMLIDS),
+        ("tasker", TASKER_ROLE_XMLIDS),
     )
-    for role_key, xmlid in role_groups:
-        group = env.ref(xmlid, raise_if_not_found=False)
-        users = group.users if group else Users.browse()
+    for role_key, xmlids in role_buckets:
+        role_ids = _get_role_ids(env, xmlids)
+        users = (
+            Users.search([("user_role", "in", role_ids)])
+            if role_ids
+            else Users.browse()
+        )
         role_breakdown.append({"role": role_key, "count": len(users)})
         member_ids.update(users.ids)
     return {
@@ -407,11 +427,20 @@ def _build_qc_leaderboard(env, projects, filters):
     )
     date_domain = _create_date_domain(window_start, window_end)
 
-    qr_group = env.ref("etp_user_roles.group_quality_reviewer", raise_if_not_found=False)
-    tasker_group = env.ref("etp_user_roles.group_tasker", raise_if_not_found=False)
-
-    tasker_user_ids = tasker_group.users.ids if tasker_group else []
-    qr_users = qr_group.users if qr_group else env["res.users"].sudo().browse()
+    Users = env["res.users"].sudo()
+    qr_role_ids = _get_role_ids(env, QR_ROLE_XMLIDS)
+    tasker_role_ids = _get_role_ids(env, TASKER_ROLE_XMLIDS)
+    tasker_users = (
+        Users.search([("user_role", "in", tasker_role_ids)])
+        if tasker_role_ids
+        else Users.browse()
+    )
+    qr_users = (
+        Users.search([("user_role", "in", qr_role_ids)])
+        if qr_role_ids
+        else Users.browse()
+    )
+    tasker_user_ids = tasker_users.ids
 
     base_domain = [("user_id", "in", tasker_user_ids)] + date_domain
     total_by_user = {}
@@ -549,14 +578,18 @@ def _build_video_overview_aligned(env, scope, filters):
 def _build_team_overview_aligned(env, projects):
     Users = env["res.users"].sudo()
 
-    def _group_users(xmlid):
-        group = env.ref(xmlid, raise_if_not_found=False)
-        return group.users if group else Users.browse()
+    def _users_by_roles(xmlids):
+        role_ids = _get_role_ids(env, xmlids)
+        return (
+            Users.search([("user_role", "in", role_ids)])
+            if role_ids
+            else Users.browse()
+        )
 
-    tpm_users = _group_users("etp_user_roles.group_tpm")
-    pl_users = _group_users("etp_user_roles.group_project_lead")
-    qr_users = _group_users("etp_user_roles.group_quality_reviewer")
-    tasker_users = _group_users("etp_user_roles.group_tasker")
+    tpm_users = _users_by_roles(("api_auth_gateway.role_tpm_technical",))
+    pl_users = _users_by_roles(PL_ROLE_XMLIDS)
+    qr_users = _users_by_roles(QR_ROLE_XMLIDS)
+    tasker_users = _users_by_roles(TASKER_ROLE_XMLIDS)
     members = tpm_users | pl_users | qr_users | tasker_users
     return {
         "total_team_size": len(members),
@@ -681,12 +714,12 @@ def _range_label(rng):
 
 def _visible_taskers(env, project):
     tag = _user_role_tag(env)
-    tasker_group = env.ref("etp_user_roles.group_tasker", raise_if_not_found=False)
     Users = env["res.users"].sudo()
-    if not tasker_group:
+    tasker_role_ids = _get_role_ids(env, TASKER_ROLE_XMLIDS)
+    if not tasker_role_ids:
         return Users.browse(), tag
     if tag in ("full", "pl", "qr"):
-        return tasker_group.users, tag
+        return Users.search([("user_role", "in", tasker_role_ids)]), tag
     if tag == "tasker":
         return env.user, tag
     return Users.browse(), None

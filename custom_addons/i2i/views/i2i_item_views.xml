@@ -26,7 +26,7 @@
             <field name="arch" type="xml">
                 <form string="I2I Item">
                     <header>
-                        <button name="action_run_llm_qc" type="object" string="Run LLM QC" class="btn-primary" invisible="llm_status == 'processing' or state in ('approved', 'rejected')" groups="i2i.group_i2i_manager"/>
+                        <button name="action_run_llm_qc" type="object" string="Quality Check" class="btn-primary" invisible="llm_status == 'processing' or state in ('approved', 'rejected')" groups="i2i.group_i2i_manager"/>
                         <button name="action_send_to_human_qc" type="object" string="Submit" class="btn-primary" invisible="state != 'draft'"/>
                         <button name="action_approve" type="object" string="Approve" class="btn-success" invisible="state != 'human_qc'" groups="i2i.group_i2i_manager"/>
                         <button name="action_reject" type="object" string="Reject" class="btn-danger" invisible="state != 'human_qc'" groups="i2i.group_i2i_manager"/>
@@ -43,10 +43,11 @@
                                 <field name="project_type"/>
                                 <field name="user_id" readonly="1" force_save="1"/>
                             </group>
-                            <group string="QC Decision" invisible="state not in ('approved', 'rejected')">
-                                <field name="qc_verdict" readonly="1"/>
-                                <field name="qc_reviewer_id" readonly="1"/>
-                                <field name="qc_date" readonly="1"/>
+                            <group string="QC Decision" invisible="state not in ('human_qc', 'approved', 'rejected')">
+                                <field name="qc_verdict" readonly="1" invisible="state == 'human_qc'"/>
+                                <field name="qc_reviewer_id" readonly="1" invisible="state == 'human_qc'"/>
+                                <field name="qc_date" readonly="1" invisible="state == 'human_qc'"/>
+                                <field name="qc_remark" placeholder="Required when rejecting. Explain to tasker what went wrong." readonly="state in ('approved', 'rejected')"/>
                             </group>
                         </group>
                         <notebook>
@@ -95,9 +96,6 @@
                                     <field name="images_aligned"/>
                                     <field name="free_of_ai_slop"/>
                                 </group>
-                                <group string="QC Remark">
-                                    <field name="qc_remark" nolabel="1" placeholder="Required when rejecting..."/>
-                                </group>
                                 <separator string="Inspection Checklist (12 areas) - use the Flip Compare tool to compare Original vs Edited"/>
                                 <div class="row" style="margin-top: 8px;">
                                     <div class="col-md-6">
@@ -136,10 +134,10 @@
                                     <strong>Disagreement Detected:</strong> Tasker and LLM rated differently on one or more questions. Review carefully before approving or rejecting.
                                 </div>
                                 <div class="alert alert-info" invisible="llm_status != 'pending'" role="alert">
-                                    LLM QC is queued. Result will appear within ~2 minutes (background cron), or click <b>Run LLM QC</b> in the header to run it now.
+                                    LLM QC is queued. Result will appear within ~2 minutes (background cron), or click <b>Quality Check</b> in the header to run it now.
                                 </div>
                                 <div class="alert alert-secondary" invisible="llm_status != 'none'" role="alert">
-                                    LLM QC has not been run for this item yet. Click <b>Run LLM QC</b> in the header.
+                                    LLM QC has not been run for this item yet. Click <b>Quality Check</b> in the header.
                                 </div>
                                 <group>
                                     <group string="LLM Status">
@@ -308,7 +306,7 @@
                     <field name="user_id"/>
                     <field name="qc_reviewer_id"/>
                     <filter string="Draft" name="state_draft" domain="[('state', '=', 'draft')]"/>
-                    <filter string="Pending Human QC" name="state_human" domain="[('state', '=', 'human_qc')]"/>
+                    <filter string="Pending" name="state_human" domain="[('state', '=', 'human_qc')]"/>
                     <filter string="Approved" name="state_approved" domain="[('state', '=', 'approved')]"/>
                     <filter string="Rejected" name="state_rejected" domain="[('state', '=', 'rejected')]"/>
                     <separator/>

@@ -5,20 +5,20 @@ from odoo import api, models
 
 _logger = logging.getLogger(__name__)
 
-DONE_STATES = ("pass",)
-IN_PROGRESS_STATES = ("running",)
+DONE_STATES = ("passed",)
+IN_PROGRESS_STATES = ()
 
-APPROVED_VERDICTS = ("pass",)
-REWORK_VERDICTS = ("fail",)
+APPROVED_VERDICTS = ("passed",)
+REWORK_VERDICTS = ("failed",)
 DECIDED_VERDICTS = APPROVED_VERDICTS + REWORK_VERDICTS
 
 
 def _user_role_tag(env):
-    if env.user.has_group("skoll.group_skoll_pl"):
+    if env.user.has_group("etp_user_roles.group_project_lead"):
         return "full"
-    if env.user.has_group("skoll.group_skoll_ql"):
+    if env.user.has_group("etp_user_roles.group_quality_lead"):
         return "ql"
-    if env.user.has_group("skoll.group_skoll_tasker"):
+    if env.user.has_group("etp_user_roles.group_tasker"):
         return "tasker"
     return None
 
@@ -51,7 +51,7 @@ class SkollSkoll(models.Model):
         if tag in ("full", "ql"):
             return []
         if tag == "tasker":
-            return [("employee_ids.user_id", "=", self.env.user.id)]
+            return [("employee_id.user_id", "=", self.env.user.id)]
         return [("id", "=", 0)]
 
     @api.model
@@ -179,11 +179,7 @@ class SkollSkoll(models.Model):
         in_progress = Skoll.search(
             [("qc_status", "in", list(IN_PROGRESS_STATES))]
         )
-        in_progress_user_ids = list({
-            uid
-            for emp in in_progress.mapped("employee_ids")
-            for uid in emp.user_id.ids
-        })
+        in_progress_user_ids = list(set(in_progress.mapped("employee_id.user_id").ids))
         completed_today = Skoll.search_count([
             ("qc_status", "in", list(DONE_STATES)),
             ("write_date", ">=", today_from),

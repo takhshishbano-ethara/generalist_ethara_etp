@@ -13,13 +13,8 @@
     "data": [
         "security/skoll_security.xml",
         "security/ir.model.access.csv",
-        "data/cron.xml",
-        "data/persona_seed.xml",
         "views/res_config_settings_views.xml",
-        "views/domain_views.xml",
         "views/persona_views.xml",
-        "views/skoll_views.xml",
-        "views/menuitems.xml",
     ],
     "installable": True,
     "application": True,

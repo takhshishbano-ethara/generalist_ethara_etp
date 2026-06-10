@@ -5,24 +5,27 @@ from odoo import api, models
 
 _logger = logging.getLogger(__name__)
 
-FULL_ACCESS_GROUP_XMLIDS = (
-    "etp_user_roles.group_cto",
-    "etp_user_roles.group_tpm",
-    "etp_user_roles.group_founder",
+FULL_ACCESS_ROLE_XMLIDS = (
+    "api_auth_gateway.role_cto_technical",
+    "api_auth_gateway.role_tpm_technical",
 )
 
-PL_GROUP_XMLIDS = (
-    "etp_user_roles.group_project_lead",
-    "etp_user_roles.group_delivery_manager",
+PL_ROLE_XMLIDS = (
+    "api_auth_gateway.role_pl_technical",
+    "api_auth_gateway.role_pl_stem",
+    "api_auth_gateway.role_pl_non_stem",
 )
 
-QR_GROUP_XMLIDS = (
-    "etp_user_roles.group_quality_reviewer",
-    "etp_user_roles.group_quality_lead",
+QR_ROLE_XMLIDS = (
+    "api_auth_gateway.role_qc_technical",
+    "api_auth_gateway.role_qc_stem",
+    "api_auth_gateway.role_qc_non_stem",
 )
 
-TASKER_GROUP_XMLIDS = (
-    "etp_user_roles.group_tasker",
+TASKER_ROLE_XMLIDS = (
+    "api_auth_gateway.role_tasker_technical",
+    "api_auth_gateway.role_tasker_stem",
+    "api_auth_gateway.role_tasker_non_stem",
 )
 
 DONE_STATES = ("Submitted",)
@@ -53,14 +56,20 @@ def _total_tokens(rec):
     return sum(int(getattr(rec, f, 0) or 0) for f in TOKEN_FIELDS)
 
 
-def _user_has_any_group(env, xmlids):
+def _get_role_ids(env, xmlids):
+    ids = []
     for xmlid in xmlids:
-        try:
-            if env.user.has_group(xmlid):
-                return True
-        except Exception:
-            continue
-    return False
+        rec = env.ref(xmlid, raise_if_not_found=False)
+        if rec:
+            ids.append(rec.id)
+    return ids
+
+
+def _user_has_role(env, xmlids):
+    role = env.user.user_role
+    if not role:
+        return False
+    return role.id in _get_role_ids(env, xmlids)
 
 
 def _pct(part, whole):
@@ -76,13 +85,15 @@ class TalosTalos(models.Model):
     def _performance_scope_domain(self):
         env = self.env
         user = env.user
-        if _user_has_any_group(env, FULL_ACCESS_GROUP_XMLIDS):
+        if _user_has_role(env, FULL_ACCESS_ROLE_XMLIDS):
             return []
-        if _user_has_any_group(env, PL_GROUP_XMLIDS):
+        if _user_has_role(env, PL_ROLE_XMLIDS):
             return []
-        if _user_has_any_group(env, QR_GROUP_XMLIDS):
+        if _user_has_role(env, QR_ROLE_XMLIDS):
             return []
-        return [("user_id", "=", user.id)]
+        if _user_has_role(env, TASKER_ROLE_XMLIDS):
+            return [("user_id", "=", user.id)]
+        return [("id", "=", 0)]
 
     @api.model
     def get_performance_metrics(self):

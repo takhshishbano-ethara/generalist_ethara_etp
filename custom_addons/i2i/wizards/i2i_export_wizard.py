@@ -47,7 +47,7 @@ class I2IExportWizard(models.TransientModel):
         [
             ("all", "All"),
             ("draft", "Draft"),
-            ("human_qc", "Pending Human QC"),
+            ("human_qc", "Pending"),
             ("approved", "Approved"),
             ("rejected", "Rejected"),
         ],

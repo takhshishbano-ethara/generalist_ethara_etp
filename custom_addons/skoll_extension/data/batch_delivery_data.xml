@@ -12,8 +12,8 @@
 
         <record id="action_add_skoll_tasks_to_batch" model="ir.actions.server">
             <field name="name">Add to Batch Delivery</field>
-            <field name="model_id" ref="skoll.model_skoll_skoll"/>
-            <field name="binding_model_id" ref="skoll.model_skoll_skoll"/>
+            <field name="model_id" ref="skoll_project.model_skoll_skoll"/>
+            <field name="binding_model_id" ref="skoll_project.model_skoll_skoll"/>
             <field name="binding_view_types">list</field>
             <field name="state">code</field>
             <field name="code">action = {

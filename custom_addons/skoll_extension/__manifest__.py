@@ -9,7 +9,7 @@
         "base",
         "web",
         "hr",
-        "skoll",
+        "skoll_project",
         "api_auth_gateway",
     ],
     "data": [
