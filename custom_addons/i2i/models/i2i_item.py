@@ -349,8 +349,18 @@ class I2IItem(models.Model):
 
     def action_run_llm_qc(self):
         for rec in self:
-            rec._run_llm_qc_sync()
-        return True
+            rec.sudo().write({"llm_status": "none", "llm_error": False})
+            rec._schedule_llm_qc()
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Quality Check Queued"),
+                "message": _("Quality check is running in background. Results will appear shortly."),
+                "type": "success",
+                "sticky": False,
+            },
+        }
 
     def _run_llm_qc_sync(self):
         self.ensure_one()

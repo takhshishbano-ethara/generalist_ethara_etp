@@ -43,10 +43,11 @@
                                 <field name="project_type"/>
                                 <field name="user_id" readonly="1" force_save="1"/>
                             </group>
-                            <group string="QC Decision" invisible="state not in ('approved', 'rejected')">
-                                <field name="qc_verdict" readonly="1"/>
-                                <field name="qc_reviewer_id" readonly="1"/>
-                                <field name="qc_date" readonly="1"/>
+                            <group string="QC Decision" invisible="state not in ('human_qc', 'approved', 'rejected')">
+                                <field name="qc_verdict" readonly="1" invisible="state == 'human_qc'"/>
+                                <field name="qc_reviewer_id" readonly="1" invisible="state == 'human_qc'"/>
+                                <field name="qc_date" readonly="1" invisible="state == 'human_qc'"/>
+                                <field name="qc_remark" placeholder="Required when rejecting. Explain to tasker what went wrong." readonly="state in ('approved', 'rejected')"/>
                             </group>
                         </group>
                         <notebook>
@@ -94,9 +95,6 @@
                                     <field name="edit_only_instructed"/>
                                     <field name="images_aligned"/>
                                     <field name="free_of_ai_slop"/>
-                                </group>
-                                <group string="QC Remark">
-                                    <field name="qc_remark" nolabel="1" placeholder="Required when rejecting..."/>
                                 </group>
                                 <separator string="Inspection Checklist (12 areas) - use the Flip Compare tool to compare Original vs Edited"/>
                                 <div class="row" style="margin-top: 8px;">
