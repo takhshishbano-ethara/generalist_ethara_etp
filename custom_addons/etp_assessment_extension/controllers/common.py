@@ -135,3 +135,93 @@ def parse_json_body():
     if jdata:
         data.update(jdata)
     return data
+
+
+def m2o_link(rec):
+    """Many2one → `{"id": N, "display_name": "..."}` or `False`.
+
+    Mirrors Odoo's `web_read` shape so the frontend can render a chip /
+    label for the relation without making a second call.
+    """
+    if not rec:
+        return False
+    return {
+        "id": rec.id,
+        "display_name": (
+            rec.display_name
+            or (rec.name if hasattr(rec, "name") and rec.name else "")
+            or ""
+        ),
+    }
+
+
+def x2many_links(records):
+    """Many2many / One2many → `[{"id": N, "display_name": "..."}, ...]`.
+
+    Empty recordsets serialize to `[]` (matches Odoo `web_read`).
+    """
+    return [
+        {
+            "id": r.id,
+            "display_name": (
+                r.display_name
+                or (r.name if hasattr(r, "name") and r.name else "")
+                or ""
+            ),
+        }
+        for r in records
+    ]
+
+
+def jsonrpc_response(result, request_id=None):
+    """Render a JSON-RPC 2.0 success envelope as an HTTP response.
+
+    Usage:
+        return jsonrpc_response([record_dict])
+
+    Returns a Werkzeug Response with `Content-Type: application/json`.
+    The `request_id` is echoed back; defaults to 1 if not supplied.
+    """
+    import json
+
+    if request_id is None:
+        request_id = coerce_int((request.params or {}).get("id"), 1)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "result": result,
+    }
+    return request.make_response(
+        json.dumps(payload, default=str),
+        headers=[
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Cache-Control", "no-store"),
+        ],
+    )
+
+
+def jsonrpc_error(code, message, request_id=None, http_status=400):
+    """Render a JSON-RPC 2.0 error envelope.
+
+    Body shape:
+        {"jsonrpc": "2.0", "id": <id>, "error": {"code": N, "message": "..."}}
+    """
+    import json
+
+    if request_id is None:
+        request_id = coerce_int((request.params or {}).get("id"), 1)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "error": {"code": code, "message": message},
+    }
+    return request.make_response(
+        json.dumps(payload, default=str),
+        status=http_status,
+        headers=[
+            ("Content-Type", "application/json; charset=utf-8"),
+            ("Access-Control-Allow-Origin", "*"),
+            ("Cache-Control", "no-store"),
+        ],
+    )

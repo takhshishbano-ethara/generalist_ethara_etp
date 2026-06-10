@@ -131,7 +131,46 @@ def _resolve_or_create_employee(env, row):
     return Employee.create(vals), True
 
 
+CSV_TEMPLATE_BODY = (
+    "name,email,job_title,department\n"
+    "John Doe,john.doe@example.com,Evaluator,Engineering\n"
+    "Jane Smith,jane.smith@example.com,Senior Evaluator,Design\n"
+)
+
+
 class EtpAssessmentCandidateController(http.Controller):
+
+    @http.route(
+        "/api/v1/etp_assessment_ext/candidates/csv_template",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def get_candidate_csv_template(self, **kwargs):
+        """Stream the same CSV body served by
+        `etp.assessment.action_download_candidate_template()` so the
+        frontend can offer a one-click template download."""
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        payload = CSV_TEMPLATE_BODY.encode("utf-8")
+        return request.make_response(
+            payload,
+            headers=[
+                ("Content-Type", "text/csv; charset=utf-8"),
+                (
+                    "Content-Disposition",
+                    'attachment; filename="candidate_import_template.csv"',
+                ),
+                ("Content-Length", str(len(payload))),
+                ("Cache-Control", "no-store"),
+            ],
+        )
 
     @http.route(
         "/api/v1/etp_assessment_ext/assessments/<int:assessment_id>/candidates",
@@ -460,7 +499,8 @@ class EtpAssessmentCandidateController(http.Controller):
         row_errors = list(parse_errors)
         for row in rows:
             try:
-                employee, was_created = _resolve_or_create_employee(env, row)
+                with env.cr.savepoint():
+                    employee, was_created = _resolve_or_create_employee(env, row)
                 imported_ids.append(employee.id)
                 if was_created:
                     created_employees.append({
