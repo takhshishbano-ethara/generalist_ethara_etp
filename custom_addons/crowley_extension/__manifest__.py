@@ -15,6 +15,8 @@
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/batch_delivery_data.xml",
+        "views/batch_delivery_views.xml",
     ],
     "installable": True,
     "application": False,

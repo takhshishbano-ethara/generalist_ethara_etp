@@ -27,7 +27,11 @@
         "task_forge_bridge",
         "etp_projects",
     ],
-    "data": [],
+    "data": [
+        "security/ir.model.access.csv",
+        "data/batch_delivery_data.xml",
+        "views/batch_delivery_views.xml",
+    ],
     "installable": True,
     "application": False,
     "license": "LGPL-3",
