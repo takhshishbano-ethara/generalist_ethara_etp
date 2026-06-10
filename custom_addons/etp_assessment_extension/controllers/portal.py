@@ -6,6 +6,7 @@ rendered website templates. The candidate's per-assignment `access_token`
 authentication mechanism — no gateway access_token header is needed.
 """
 
+import base64
 import json
 import logging
 
@@ -16,6 +17,42 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import return_Response
 
 from .common import coerce_int, parse_json_body, pct
+
+
+def _detect_image_content_type(image_bytes):
+    """Best-effort sniff so the browser renders the image inline.
+
+    Matches `etp_assessment/controllers/portal.py:411` so the candidate
+    portal and the REST portal serve identical bytes with identical headers.
+    """
+    if not image_bytes:
+        return "application/octet-stream"
+    if image_bytes[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    if image_bytes[:3] == b"GIF":
+        return "image/gif"
+    return "image/png"
+
+
+def _serve_question_image_bytes(question, field):
+    """Decode the question's binary `field` and return a Response.
+
+    Returns None if the image is not set; caller decides the 404 envelope.
+    """
+    image_data = question[field]
+    if not image_data:
+        return None
+    image_bytes = base64.b64decode(image_data)
+    return request.make_response(
+        image_bytes,
+        headers=[
+            ("Content-Type", _detect_image_content_type(image_bytes)),
+            ("Cache-Control", "private, max-age=3600"),
+            ("Content-Length", str(len(image_bytes))),
+        ],
+    )
 
 _logger = logging.getLogger(__name__)
 
@@ -62,7 +99,15 @@ def _serialize_assessment_brief(a):
     }
 
 
-def _serialize_question_for_portal(q):
+def _serialize_question_for_portal(q, token=None):
+    """Question payload for the candidate portal.
+
+    `token` is the candidate's access_token - when supplied, we emit
+    `image_a_route` / `image_b_route` pointing at this module's binary
+    image endpoint so the frontend can fall back to the binary field
+    when no external URL is set. `has_image_a` / `has_image_b` are
+    booleans that signal whether the binary field is actually populated.
+    """
     dimensions = []
     for qd in q.question_dimension_ids.sorted("sequence"):
         dim = qd.dimension_id
@@ -82,6 +127,16 @@ def _serialize_question_for_portal(q):
             ],
         })
 
+    image_a_route = ""
+    image_b_route = ""
+    if token:
+        image_a_route = (
+            f"/api/v1/etp_assessment_ext/portal/{token}/image/{q.id}/image_a"
+        )
+        image_b_route = (
+            f"/api/v1/etp_assessment_ext/portal/{token}/image/{q.id}/image_b"
+        )
+
     return {
         "id": q.id,
         "name": q.name or "",
@@ -90,6 +145,10 @@ def _serialize_question_for_portal(q):
         "description": q.description or "",
         "image_a_url": q.image_a_url or "",
         "image_b_url": q.image_b_url or "",
+        "has_image_a": bool(q.image_a),
+        "has_image_b": bool(q.image_b),
+        "image_a_route": image_a_route,
+        "image_b_route": image_b_route,
         "code_snippet": q.code_snippet or "",
         "code_language": q.code_language or "",
         "video_url": q.video_url or "",
@@ -261,7 +320,7 @@ class EtpAssessmentPortalApiController(http.Controller):
                 "state": "question",
                 "assessment": _serialize_assessment_brief(assessment),
                 "evaluator": _serialize_evaluator(evaluator),
-                "question": _serialize_question_for_portal(question),
+                "question": _serialize_question_for_portal(question, token=token),
                 "current_index": current_index,
                 "total_questions": total,
             },
@@ -539,3 +598,41 @@ class EtpAssessmentPortalApiController(http.Controller):
                 "evaluator": _serialize_evaluator(evaluator),
             },
         )
+
+    @http.route(
+        "/api/v1/etp_assessment_ext/portal/<string:token>/image/<int:question_id>/<string:field>",
+        type="http",
+        auth="public",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    def portal_question_image(self, token, question_id, field, **kwargs):
+        """Serve `image_a` / `image_b` bytes of a question to the candidate.
+
+        Mirrors `etp_assessment.controllers.portal.assessment_image` so the
+        REST candidate (Flutter, web) can render `image_comparison` /
+        `image_text` questions that use the binary field instead of an
+        external URL.
+        """
+        evaluator = _get_evaluator(token)
+        if not evaluator:
+            return request.not_found()
+        if field not in ("image_a", "image_b"):
+            return request.not_found()
+
+        question = (
+            request.env["etp.assessment.question"].sudo().browse(question_id)
+        )
+        if not question.exists():
+            return request.not_found()
+
+        question_order = json.loads(evaluator.question_order or "[]")
+        if question_id not in question_order:
+            return request.not_found()
+
+        response = _serve_question_image_bytes(question, field)
+        if response is None:
+            return request.not_found()
+        return response

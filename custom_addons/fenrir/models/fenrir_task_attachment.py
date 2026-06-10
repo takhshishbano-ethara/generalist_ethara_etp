@@ -38,6 +38,7 @@ class FenrirTaskAttachment(models.Model):
             ("resources", "Resources"),
             ("tests", "Tests"),
             ("environment", "Environment"),
+            ("data", "Data"),
         ],
         string="Export Folder",
         default="resources",

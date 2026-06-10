@@ -1,7 +1,7 @@
 import logging
 from datetime import date, datetime
 
-from odoo import api, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -56,6 +56,13 @@ def _pct(part, whole):
 
 class GohanJob(models.Model):
     _inherit = "gohan.job"
+
+    llm_qc_cost_usd = fields.Float(
+        string="LLM QC Cost (USD)",
+        digits=(12, 6),
+        default=0.0,
+        help="USD cost of LLM-based QC for this job. Populated by the QC pipeline.",
+    )
 
     @api.model
     def _performance_scope_domain(self):
@@ -169,6 +176,43 @@ class GohanJob(models.Model):
                     continue
                 iso = parsed.isoformat()
             out.append((iso, count))
+        return out
+
+    @api.model
+    def get_daily_burn_timeseries(self, dt_from, dt_to):
+        domain = [
+            ("llm_qc_cost_usd", ">", 0),
+            ("completed_at", ">=", dt_from),
+            ("completed_at", "<=", dt_to),
+        ]
+        rows = self.sudo().read_group(
+            domain=domain,
+            fields=["completed_at", "llm_qc_cost_usd:sum"],
+            groupby=["completed_at:day"],
+            lazy=False,
+        )
+        out = []
+        for row in rows:
+            raw = row.get("completed_at:day") or row.get("completed_at")
+            cost = float(row.get("llm_qc_cost_usd") or 0.0)
+            if not raw or cost <= 0:
+                continue
+            if isinstance(raw, datetime):
+                iso = raw.date().isoformat()
+            elif isinstance(raw, date):
+                iso = raw.isoformat()
+            else:
+                parsed = None
+                for fmt in ("%Y-%m-%d", "%d %b %Y", "%d %B %Y"):
+                    try:
+                        parsed = datetime.strptime(str(raw), fmt).date()
+                        break
+                    except ValueError:
+                        continue
+                if not parsed:
+                    continue
+                iso = parsed.isoformat()
+            out.append((iso, cost))
         return out
 
     @api.model

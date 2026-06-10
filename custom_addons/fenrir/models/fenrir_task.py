@@ -134,6 +134,14 @@ class FenrirTask(models.Model):
         inverse_name="task_id",
         string="Attachments",
     )
+    data_attachment_ids = fields.One2many(
+        comodel_name="fenrir.task.attachment",
+        inverse_name="task_id",
+        domain=[("folder", "=", "data")],
+        string="Data",
+        help="Data files uploaded for this task. Land under data/ in the "
+             "Drive export and the S3 mirror.",
+    )
 
     reviewer_id = fields.Many2one(
         comodel_name="res.users",

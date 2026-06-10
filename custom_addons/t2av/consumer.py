@@ -41,6 +41,10 @@ QUEUE_PIPELINE = os.getenv("RABBITMQ_QUEUE", "t2av_pipeline")
 DLX_EXCHANGE = os.getenv("RABBITMQ_DLX", "t2av_pipeline.dlx")
 DLQ_QUEUE = os.getenv("RABBITMQ_DLQ", "t2av_pipeline.dead")
 
+POLL_WORK_QUEUE = os.getenv("RABBITMQ_POLL_QUEUE", "t2av_poll")
+POLL_DELAY_QUEUE = os.getenv("RABBITMQ_POLL_DELAY_QUEUE", "t2av_poll.delay")
+POLL_DLX_EXCHANGE = os.getenv("RABBITMQ_POLL_DLX", "t2av_poll.dlx")
+
 CONSUMER_WORKERS = int(os.getenv("CONSUMER_WORKERS", "15"))
 MAX_RETRIES = int(os.getenv("CONSUMER_MAX_RETRIES", "5"))
 RETRY_BACKOFF_BASE = int(os.getenv("CONSUMER_RETRY_BACKOFF", "30"))
@@ -301,8 +305,45 @@ def _make_pipeline_callback(connection, thread_pool):
     return on_message
 
 
+def _process_poll(connection, channel, delivery_tag, body):
+    attempt_id = None
+    try:
+        message = json.loads(body)
+        attempt_id = message.get("attempt_id")
+        if not attempt_id:
+            _logger.error("Missing attempt_id in poll message: %s", body)
+            connection.add_callback_threadsafe(
+                functools.partial(_ack_message, channel, delivery_tag)
+            )
+            return
+        _logger.info("Polling attempt_id=%s", attempt_id)
+        _call_odoo_method(
+            "t2av.attempt", "handle_poll_message", [],
+            args=[int(attempt_id)],
+        )
+        connection.add_callback_threadsafe(
+            functools.partial(_ack_message, channel, delivery_tag)
+        )
+    except Exception as exc:
+        _logger.error(
+            "POLL failed attempt_id=%s: %s",
+            attempt_id or "?", exc,
+        )
+        connection.add_callback_threadsafe(
+            functools.partial(_ack_message, channel, delivery_tag)
+        )
+
+
+def _make_poll_callback(connection, thread_pool):
+    def on_message(channel, method, properties, body):
+        thread_pool.submit(
+            _process_poll,
+            connection, channel, method.delivery_tag, body,
+        )
+    return on_message
+
+
 def _declare_topology(channel):
-    """Idempotent setup of DLX exchange, DLQ, and main queue bound to DLX."""
     channel.exchange_declare(
         exchange=DLX_EXCHANGE, exchange_type="direct", durable=True,
     )
@@ -316,6 +357,26 @@ def _declare_topology(channel):
         arguments={
             "x-dead-letter-exchange": DLX_EXCHANGE,
             "x-dead-letter-routing-key": DLQ_QUEUE,
+        },
+    )
+
+
+def _declare_poll_topology(channel):
+    channel.exchange_declare(
+        exchange=POLL_DLX_EXCHANGE, exchange_type="direct", durable=True,
+    )
+    channel.queue_declare(queue=POLL_WORK_QUEUE, durable=True)
+    channel.queue_bind(
+        queue=POLL_WORK_QUEUE,
+        exchange=POLL_DLX_EXCHANGE,
+        routing_key=POLL_WORK_QUEUE,
+    )
+    channel.queue_declare(
+        queue=POLL_DELAY_QUEUE,
+        durable=True,
+        arguments={
+            "x-dead-letter-exchange": POLL_DLX_EXCHANGE,
+            "x-dead-letter-routing-key": POLL_WORK_QUEUE,
         },
     )
 
@@ -362,7 +423,16 @@ def start_consumer():
         on_message_callback=_make_pipeline_callback(connection, thread_pool),
     )
 
-    _logger.info("Consumer started. Listening on queue '%s'.", QUEUE_PIPELINE)
+    _declare_poll_topology(channel)
+    channel.basic_consume(
+        queue=POLL_WORK_QUEUE,
+        on_message_callback=_make_poll_callback(connection, thread_pool),
+    )
+
+    _logger.info(
+        "Consumer started. Listening on queues '%s' (pipeline) and '%s' (poll).",
+        QUEUE_PIPELINE, POLL_WORK_QUEUE,
+    )
 
     try:
         while not _shutdown.is_set():

@@ -540,9 +540,62 @@ class T2AVAttempt(models.Model):
         self.message_post(body=_("Submitted to OpenRouter (job %s).") % job_id)
         self._push_bus()
 
-    # ------------------------------------------------------------------
-    # Pipeline — Phase 3: poll for completion
-    # ------------------------------------------------------------------
+        from ..services import rabbitmq_service
+        try:
+            rabbitmq_service.schedule_poll(self.id, delay_seconds=15)
+        except Exception:
+            _logger.exception(
+                "T2AV attempt %s: failed to schedule first poll; "
+                "attempt will need manual reconcile.", self.id,
+            )
+
+    @api.model
+    def handle_poll_message(self, attempt_id):
+        attempt = self.browse(int(attempt_id)).exists()
+        if not attempt:
+            return True
+
+        if attempt.state in (_STATE_SUBMITTING, _STATE_PROCESSING):
+            attempt._run_poll()
+            attempt.invalidate_recordset()
+
+        from ..services import rabbitmq_service
+
+        if attempt.state in (_STATE_SUBMITTING, _STATE_PROCESSING):
+            rabbitmq_service.schedule_poll(attempt.id, delay_seconds=15)
+            return True
+
+        if attempt.state == _STATE_DOWNLOADING:
+            rabbitmq_service.schedule_poll(attempt.id, delay_seconds=30)
+            return True
+
+        job = attempt.job_id
+        if not job:
+            return True
+
+        if job.pipeline_status in ("done", "failed"):
+            return True
+
+        if attempt.state == _STATE_DONE:
+            job.write({
+                "pipeline_status": "done",
+                "pipeline_finished_at": fields.Datetime.now(),
+            })
+            job.message_post(body=_("Pipeline complete; video ready."))
+        else:
+            error_msg = (
+                attempt.error_message
+                or attempt.error_code
+                or "attempt %s" % attempt.state
+            )
+            job.write({
+                "pipeline_status": "failed",
+                "pipeline_finished_at": fields.Datetime.now(),
+                "pipeline_error_text": error_msg,
+            })
+            job.message_post(body=_("Pipeline failed: %s") % error_msg)
+        return True
+
     def _run_poll(self):
         """Single poll iteration. Called by cron or by reconcile button."""
         self.ensure_one()

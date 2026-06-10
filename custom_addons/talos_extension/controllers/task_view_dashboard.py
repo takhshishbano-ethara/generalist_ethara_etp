@@ -8,23 +8,33 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .dashboard_overview import _scope_domain, _user_role_tag
+from .analytics_dashboard import _user_role_tag, _total_tokens
 
 LIST_DEFAULT_LIMIT = 50
 LIST_MAX_LIMIT = 500
 
-STATUS_SELECTION = (
-    ("unstarted", "unstarted"),
-    ("submitted", "submitted"),
-    ("approved", "approved"),
-    ("failed_qc", "failed_qc"),
-)
+
+def _user_scope_domain(env, tag):
+    if tag in ("full", "pl", "qr"):
+        return []
+    if tag == "tasker":
+        return [("user_id", "=", env.user.id)]
+    return [("id", "=", 0)]
+
 
 STAGE_SELECTION = (
     ("s1_draft", "S1 Draft"),
-    ("s2_submitted", "S2 Submitted"),
-    ("s3_qc", "S3 QC"),
+    ("s2_enriching", "S2 Enriching"),
+    ("s2_qc", "S2 QC"),
     ("failed", "Failed"),
+)
+
+STATUS_SELECTION = (
+    ("unstarted", "unstarted"),
+    ("generating", "generating"),
+    ("pending_review", "pending_review"),
+    ("approved", "approved"),
+    ("failed_qc", "failed_qc"),
 )
 
 
@@ -43,33 +53,81 @@ def _error_response(message, status):
     return return_Response(message=message, status=status, errors=[message])
 
 
-def _parse_selection(model, field_name, raw, label):
-    valid = dict(model._fields[field_name].selection)
-    requested = [v.strip() for v in raw.split(",") if v.strip()]
-    invalid = [v for v in requested if v not in valid]
+def _get_category_maps(env):
+    selection = list(env["talos.talos"]._fields["task_type"].selection)
+    slug_to_label = dict(selection)
+    label_to_slug = {v.lower(): k for k, v in slug_to_label.items()}
+    return slug_to_label, label_to_slug
+
+
+def _resolve_category_param(env, raw):
+    slug_to_label, label_to_slug = _get_category_maps(env)
+    out = []
+    invalid = []
+    for piece in (p.strip() for p in str(raw).split(",") if p.strip()):
+        if piece in slug_to_label:
+            out.append(piece)
+            continue
+        slug = label_to_slug.get(piece.lower())
+        if slug:
+            out.append(slug)
+        else:
+            invalid.append(piece)
     if invalid:
-        return None, _error_response(
-            f"Invalid {label} value(s): {', '.join(invalid)}.",
-            status=400,
+        return None, (
+            f"Invalid category {invalid}. "
+            f"Allowed slugs: {', '.join(slug_to_label)}."
         )
-    return requested, None
+    return out, None
 
 
 def _status_domain_for(status_slug):
     if status_slug == "unstarted":
-        return [("task_status", "in", ("NotSubmitted", "draft"))]
-    if status_slug == "submitted":
         return [
-            "|",
-            ("task_status", "in", ("in_progress", "Submitted")),
             "&",
-            ("task_status", "=", "completed"),
+            ("task_status", "=", "NotSubmitted"),
+            ("golden_status", "=", "idle"),
+        ]
+    if status_slug == "generating":
+        return [("golden_status", "=", "generating")]
+    if status_slug == "pending_review":
+        return [
+            "&",
+            ("task_status", "=", "Submitted"),
             ("qc_status", "=", "pending"),
         ]
     if status_slug == "approved":
         return [("qc_status", "=", "passed")]
     if status_slug == "failed_qc":
-        return [("qc_status", "=", "failed")]
+        return [
+            "|",
+            ("qc_status", "=", "failed"),
+            ("golden_status", "=", "error"),
+        ]
+    return []
+
+
+def _stage_domain_for(stage_slug):
+    if stage_slug == "s1_draft":
+        return [
+            "&",
+            ("task_status", "=", "NotSubmitted"),
+            ("golden_status", "in", ("idle", "generating")),
+        ]
+    if stage_slug == "s2_enriching":
+        return [("golden_status", "=", "generating")]
+    if stage_slug == "s2_qc":
+        return [
+            "&",
+            ("task_status", "=", "Submitted"),
+            ("qc_status", "=", "pending"),
+        ]
+    if stage_slug == "failed":
+        return [
+            "|",
+            ("golden_status", "=", "error"),
+            ("qc_status", "=", "failed"),
+        ]
     return []
 
 
@@ -85,26 +143,7 @@ def _or_join(sub_domains):
     return out
 
 
-def _stage_domain_for(stage_slug):
-    if stage_slug == "s1_draft":
-        return [("task_status", "in", ("NotSubmitted", "draft"))]
-    if stage_slug == "s2_submitted":
-        return [("task_status", "in", ("in_progress", "Submitted"))]
-    if stage_slug == "s3_qc":
-        return [
-            "|",
-            ("qc_status", "in", ("passed", "failed")),
-            "&",
-            ("task_status", "=", "completed"),
-            ("qc_status", "=", "pending"),
-        ]
-    if stage_slug == "failed":
-        return [("qc_status", "=", "failed")]
-    return []
-
-
 def _build_task_view_domain(env, params):
-    Talos = env["talos.talos"]
     domain = []
 
     raw_start = (params.get("start_date") or "").strip()
@@ -137,39 +176,20 @@ def _build_task_view_domain(env, params):
             )
         )
 
-    raw_task_type = (params.get("task_type") or "").strip()
-    if raw_task_type:
-        values, error = _parse_selection(
-            Talos, "task_type", raw_task_type, "task_type"
-        )
-        if error is not None:
-            return None, error
-        if values:
-            domain.append(("task_type", "in", values))
+    raw_cat = (params.get("category") or "").strip()
+    if raw_cat:
+        slugs, err = _resolve_category_param(env, raw_cat)
+        if err:
+            return None, _error_response(err, status=400)
+        if slugs:
+            domain.append(("task_type", "in", slugs))
 
-    raw_difficulty = (params.get("difficulty") or "").strip()
-    if raw_difficulty:
-        values, error = _parse_selection(
-            Talos, "difficulty", raw_difficulty, "difficulty"
-        )
-        if error is not None:
-            return None, error
-        if values:
-            domain.append(("difficulty", "in", values))
-
-    raw_persona = (params.get("persona") or "").strip()
-    if raw_persona:
-        if raw_persona.isdigit():
-            domain.append(("persona_id", "=", int(raw_persona)))
+    raw_ql = (params.get("ql") or "").strip()
+    if raw_ql:
+        if raw_ql.isdigit():
+            domain.append(("user_id", "=", int(raw_ql)))
         else:
-            domain.append(("persona_id.name", "ilike", raw_persona))
-
-    raw_tasker = (params.get("tasker") or "").strip()
-    if raw_tasker:
-        if raw_tasker.isdigit():
-            domain.append(("user_id", "=", int(raw_tasker)))
-        else:
-            domain.append(("user_id.name", "ilike", raw_tasker))
+            domain.append(("user_id.name", "ilike", raw_ql))
 
     stage_raw = (params.get("stage") or "").strip()
     if stage_raw:
@@ -200,87 +220,54 @@ def _build_task_view_domain(env, params):
     search = (params.get("search") or "").strip()
     if search:
         domain += [
-            "|", "|", "|", "|",
+            "|", "|", "|",
             ("task_id", "ilike", search),
             ("seed_prompt", "ilike", search),
             ("initial_prompt", "ilike", search),
             ("user_id.name", "ilike", search),
-            ("persona_id.name", "ilike", search),
         ]
 
     return domain, None
 
 
-def _derive_stage(task):
-    if not task.task_status or task.task_status in ("NotSubmitted", "draft", "not_assigned"):
-        return "not_assigned", "not_assigned"
-    if task.task_status in ("in_progress", "Submitted"):
-        return "s1_in_progress", "S1 In Progress"
-    if task.task_status == "completed":
+def _derive_stage(rec):
+    if rec.task_status == "NotSubmitted":
+        if rec.golden_status == "generating":
+            return "s2_enriching", "S2 Enriching"
+        return "s1_draft", "S1 Draft"
+    if rec.golden_status == "error" or rec.qc_status == "failed":
+        return "failed", "Failed"
+    if rec.task_status == "Submitted":
         return "s2_qc", "S2 QC"
-    return task.task_status, task.task_status
+    return rec.task_status or "", rec.task_status or ""
 
 
-def _derive_status(task):
-    if not task.task_status or task.task_status in ("NotSubmitted", "draft", "not_assigned"):
-        return "not_assigned"
-    if task.qc_status == "passed":
+def _derive_status(rec):
+    if rec.golden_status == "error" or rec.qc_status == "failed":
+        return "failed_qc"
+    if rec.qc_status == "passed":
         return "approved"
-    if task.qc_status == "failed":
-        return "rejected"
-    if task.task_status == "completed":
+    if rec.task_status == "Submitted" and rec.qc_status == "pending":
         return "pending_review"
-    return "in_progress"
+    if rec.golden_status == "generating":
+        return "generating"
+    if rec.task_status == "NotSubmitted" and rec.golden_status == "idle":
+        return "unstarted"
+    return rec.task_status or ""
 
 
-_COST_FIELDS = (
-    "claude_input_tokens", "claude_output_tokens",
-    "glm_input_tokens", "glm_output_tokens",
-    "oneP_input_tokens", "oneP_output_tokens",
-    "onePA_input_tokens", "onePA_output_tokens",
-    "onePB_input_tokens", "onePB_output_tokens",
-    "onePC_input_tokens", "onePC_output_tokens",
-    "onePD_input_tokens", "onePD_output_tokens",
-    "bedrock_input_tokens", "bedrock_output_tokens",
-    "traj_qc_input_tokens", "traj_qc_output_tokens",
-    "taskdesc_input_tokens", "taskdesc_output_tokens",
-    "golden_input_tokens", "golden_output_tokens",
-    "kimi_eval_input_tokens", "kimi_eval_output_tokens",
-)
+def _spec_string(rec):
+    parts = [
+        rec.difficulty or "-",
+        rec.task_type or "-",
+        rec.trajectory_modifier or "-",
+    ]
+    return " · ".join(parts)
 
 
-def _task_cost_usd(task):
-    total_tokens = 0
-    for fname in _COST_FIELDS:
-        total_tokens += getattr(task, fname, 0) or 0
-    return round(total_tokens / 1000.0, 4)
-
-
-def _task_token_split(task):
-    input_total = 0
-    output_total = 0
-    for fname in _COST_FIELDS:
-        value = getattr(task, fname, 0) or 0
-        if fname.endswith("_input_tokens"):
-            input_total += value
-        elif fname.endswith("_output_tokens"):
-            output_total += value
-    return input_total, output_total
-
-
-def _attempts(task):
-    sandboxes = task.sandbox_ids if "sandbox_ids" in task._fields else None
-    used = len(sandboxes) if sandboxes else 0
-    if not used and task.task_status and task.task_status not in (
-        "NotSubmitted", "draft", "not_assigned"
-    ):
-        used = 1
-    return used, max(0, 3 - used)
-
-
-def _prompts(task):
-    raw = (task.seed_prompt or "").strip()
-    golden = (task.initial_prompt or "").strip()
+def _prompts(rec):
+    raw = (rec.initial_prompt or "").strip()
+    golden = (rec.seed_prompt or "").strip()
     if not raw:
         raw = golden
         golden = ""
@@ -289,64 +276,30 @@ def _prompts(task):
     return raw, golden
 
 
-def _spec_string(task):
-    persona = task.persona_id.name or "-"
-    task_type = task.task_type or "-"
-    difficulty = task.difficulty or "-"
-    return f"{persona} · {task_type} · {difficulty}"
-
-
-def _category_label(task):
-    selection = dict(task._fields["task_type"].selection or [])
-    raw = task.task_type or ""
-    return selection.get(raw, raw.replace("_", " ").title() if raw else "")
-
-
-def _serialize_task(task):
-    raw_prompt, golden_prompt = _prompts(task)
-    stage_slug, stage_label = _derive_stage(task)
-    attempts_used, attempts_remaining = _attempts(task)
-    input_tokens, output_tokens = _task_token_split(task)
+def _serialize_task(rec, slug_to_label):
+    stage_slug, stage_label = _derive_stage(rec)
+    raw_prompt, golden_prompt = _prompts(rec)
     return {
-        "id": task.id,
-        "seq": task.task_id or "",
-        "spec": _spec_string(task),
+        "id": rec.id,
+        "seq": rec.task_id or "",
+        "spec": _spec_string(rec),
         "raw_prompt": raw_prompt,
         "golden_prompt": golden_prompt,
         "is_enriched": bool(golden_prompt),
-        "assigned_ql_id": task.user_id.id or False,
-        "assigned_ql_name": task.user_id.name or "",
-        "category_slug": task.task_type or "",
-        "category": _category_label(task),
+        "assigned_ql_id": False,
+        "assigned_ql_name": "",
+        "category_slug": rec.task_type or "",
+        "category": slug_to_label.get(rec.task_type, ""),
         "stage": stage_slug,
         "stage_label": stage_label,
-        "status": _derive_status(task),
-        "state": task.task_status or "",
-        "review_state": task.qc_status or "",
-        "cost_usd": _task_cost_usd(task),
-        "attempts_used": attempts_used,
-        "attempts_remaining": attempts_remaining,
-        "updated_at": _iso(task.write_date),
-        "created_at": _iso(task.create_date),
-        "persona_id": task.persona_id.id or 0,
-        "persona_name": task.persona_id.name or "",
-        "task_type": task.task_type or "",
-        "difficulty": task.difficulty or "",
-        "trajectory_modifier": task.trajectory_modifier or "",
-        "safety_critical": task.safety_critical or "",
-        "heart_taxonomy_ids": task.heart_taxonomy.ids,
-        "heart_taxonomy_names": task.heart_taxonomy.mapped("name"),
-        "golden_status": task.golden_status or "",
-        "task_description_status": task.task_description_status or "",
-        "auto_process_status": task.auto_process_status or "",
-        "claude_status": task.claude_status or "",
-        "glm_status": task.glm_status or "",
-        "sandbox_count": len(task.sandbox_ids),
-        "has_golden_trajectory": bool(
-            task.golden_trajectory or task.golden_trajectory_manual
-        ),
-        "total_input_tokens": input_tokens,
-        "total_output_tokens": output_tokens,
+        "status": _derive_status(rec),
+        "state": rec.task_status or "",
+        "review_state": rec.qc_status or "",
+        "cost_usd": float(_total_tokens(rec)),
+        "attempts_used": 0,
+        "attempts_remaining": 0,
+        "updated_at": _iso(rec.write_date),
+        "created_at": _iso(rec.create_date),
     }
 
 
@@ -370,13 +323,13 @@ class TalosTaskViewDashboardController(http.Controller):
                 message="You are not allowed to access Talos task view.",
                 status=403,
             )
-        scope = _scope_domain(env)
+        scope_domain = _user_scope_domain(env, role_tag)
         params = request.params or {}
 
         domain, error = _build_task_view_domain(env, params)
         if error is not None:
             return error
-        domain = scope + domain
+        domain = scope_domain + domain
 
         page = max(1, _coerce_int(params.get("page"), 1))
         limit = _coerce_int(params.get("limit"), LIST_DEFAULT_LIMIT)
@@ -392,7 +345,8 @@ class TalosTaskViewDashboardController(http.Controller):
             order="write_date desc, id desc",
         )
 
-        tasks = [_serialize_task(t) for t in records]
+        slug_to_label, _ = _get_category_maps(env)
+        tasks = [_serialize_task(r, slug_to_label) for r in records]
         return return_Response(
             message="OK",
             status=200,

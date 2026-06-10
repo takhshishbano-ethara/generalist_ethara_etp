@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_i2i_project_user,i2i.project.user,model_i2i_project,group_i2i_user,1,0,0,0
+access_i2i_project_manager,i2i.project.manager,model_i2i_project,group_i2i_manager,1,1,1,1
+access_i2i_item_user,i2i.item.user,model_i2i_item,group_i2i_user,1,1,1,0
+access_i2i_item_manager,i2i.item.manager,model_i2i_item,group_i2i_manager,1,1,1,1
+access_i2i_import_wizard_user,i2i.import.wizard.user,model_i2i_import_wizard,group_i2i_user,1,1,1,0
+access_i2i_import_wizard_manager,i2i.import.wizard.manager,model_i2i_import_wizard,group_i2i_manager,1,1,1,1
+access_i2i_export_wizard_user,i2i.export.wizard.user,model_i2i_export_wizard,group_i2i_user,1,1,1,0
+access_i2i_export_wizard_manager,i2i.export.wizard.manager,model_i2i_export_wizard,group_i2i_manager,1,1,1,1
