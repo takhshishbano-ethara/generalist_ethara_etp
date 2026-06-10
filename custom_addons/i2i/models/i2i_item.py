@@ -256,7 +256,7 @@ class I2IItem(models.Model):
     state = fields.Selection(
         [
             ("draft", "Draft"),
-            ("human_qc", "Pending Human QC"),
+            ("human_qc", "Pending"),
             ("approved", "Approved"),
             ("rejected", "Rejected"),
         ],
@@ -340,6 +340,12 @@ class I2IItem(models.Model):
         self.ensure_one()
         if self.llm_status in ("none", "failed"):
             self.sudo().write({"llm_status": "pending"})
+            cron = self.env.ref(
+                "i2i.cron_i2i_run_pending_llm_qc",
+                raise_if_not_found=False,
+            )
+            if cron:
+                cron.sudo()._trigger()
 
     def action_run_llm_qc(self):
         for rec in self:
