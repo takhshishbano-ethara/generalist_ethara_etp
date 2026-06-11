@@ -16,9 +16,18 @@ class EtpAssessmentPrompt(models.Model):
 
     name = fields.Char(string="Title", default="New Prompt", required=True)
     source_text = fields.Text(
-        string="Source Text (SOP / instructions)",
-        help="Paste the project SOP, instructions, or any reference text.",
+        string="Additional Notes (optional)",
+        help="Optional extra instructions appended after the uploaded "
+             "resource files in the generation payload.",
     )
+    resource_ids = fields.One2many(
+        "etp.assessment.prompt.resource", "prompt_id",
+        string="SOP / Resource Files",
+        help="Upload one or more resource documents (SOP, instruction docs, "
+             "guidelines). Their extracted text is concatenated and fed to "
+             "the seed prompt.",
+    )
+    resource_count = fields.Integer(compute="_compute_resource_count")
     generation_mode = fields.Selection(
         [
             ("seed", "Seed (SOP + golden example, 1 call)"),
@@ -74,6 +83,41 @@ class EtpAssessmentPrompt(models.Model):
                 rec.question_ids.filtered(lambda q: q.state == "approved")
             )
 
+    @api.depends("resource_ids")
+    def _compute_resource_count(self):
+        for rec in self:
+            rec.resource_count = len(rec.resource_ids)
+
+    def _compiled_source_text(self):
+        """All uploaded resources' extracted text + optional notes, in order.
+
+        This is THE input the seed prompt sees. Raises UserError when no
+        usable text exists at all.
+        """
+        self.ensure_one()
+        parts = []
+        for res in self.resource_ids.sorted("sequence"):
+            text = (res.extracted_text or "").strip()
+            if text:
+                parts.append(
+                    "===== RESOURCE: %s =====\n%s" % (res.name or "file", text)
+                )
+            elif res.extraction_error:
+                _logger.warning(
+                    "Prompt %s: resource '%s' has no extracted text (%s)",
+                    self.id, res.name, res.extraction_error,
+                )
+        if (self.source_text or "").strip():
+            parts.append(
+                "===== ADDITIONAL NOTES =====\n%s" % self.source_text.strip()
+            )
+        if not parts:
+            raise UserError(
+                "No source material. Upload at least one resource file "
+                "(or add notes) before generating."
+            )
+        return "\n\n".join(parts)
+
     # ---- serialization helpers (used by the JSON API for Flutter) ----
     def _skill_dict(self, skill):
         return {
@@ -117,6 +161,7 @@ class EtpAssessmentPrompt(models.Model):
             "create_date": self.create_date.isoformat() if self.create_date else False,
         }
         if include_children:
+            data["resources"] = [r.to_dict() for r in self.resource_ids]
             data["skills"] = [self._skill_dict(s) for s in self.skill_ids]
             data["questions"] = [self._question_dict(q) for q in self.question_ids]
         return data
@@ -166,7 +211,7 @@ class EtpAssessmentPrompt(models.Model):
         self.ensure_one()
         self.skill_ids.unlink()
         skills = bedrock_questions.extract_skills(
-            self.env, self.source_text or "", self._get_skills_system_prompt()
+            self.env, self._compiled_source_text(), self._get_skills_system_prompt()
         )
         seq = 10
         created = []
@@ -206,7 +251,7 @@ class EtpAssessmentPrompt(models.Model):
                 )
             qs = bedrock_questions.generate_questions_from_seed(
                 self.env,
-                self.source_text or "",
+                self._compiled_source_text(),
                 self.golden_example,
                 self._get_seed_system_prompt(),
                 max_questions=self.max_questions or 0,
@@ -217,7 +262,7 @@ class EtpAssessmentPrompt(models.Model):
                 for s in self.skill_ids
             ]
             qs = bedrock_questions.generate_questions(
-                self.env, self.source_text or "", skills,
+                self.env, self._compiled_source_text(), skills,
                 self._get_questions_system_prompt(),
             )
         created = []
@@ -397,3 +442,119 @@ class EtpAssessmentPromptQuestion(models.Model):
         """Approve every still-pending draft in this recordset (bulk)."""
         self.filtered(lambda r: r.state == "draft").action_approve()
         return True
+
+
+class EtpAssessmentPromptResource(models.Model):
+    """One uploaded resource file (SOP, instruction doc...) on a prompt.
+
+    Text is extracted at upload time so generation never re-parses files.
+    Supported: .docx (stdlib zip+xml, no python-docx dependency), .txt,
+    .md, .csv, .html. PDFs and images record an extraction error — convert
+    to docx/txt or paste into Additional Notes.
+    """
+    _name = "etp.assessment.prompt.resource"
+    _description = "Prompt Resource File"
+    _order = "sequence, id"
+
+    prompt_id = fields.Many2one(
+        "etp.assessment.prompt", required=True, ondelete="cascade"
+    )
+    sequence = fields.Integer(default=10)
+    name = fields.Char(string="Filename")
+    file = fields.Binary(string="File", attachment=True, required=True)
+    extracted_text = fields.Text(string="Extracted Text", readonly=True)
+    extraction_error = fields.Char(string="Extraction Issue", readonly=True)
+    char_count = fields.Integer(
+        string="Characters", compute="_compute_char_count", store=True
+    )
+
+    @api.depends("extracted_text")
+    def _compute_char_count(self):
+        for rec in self:
+            rec.char_count = len(rec.extracted_text or "")
+
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _extract_docx(raw):
+        """Pull paragraph text out of a .docx using stdlib only."""
+        import io
+        import re as _re
+        import zipfile
+        # defusedxml: docx files are user-uploaded; stdlib ElementTree is
+        # vulnerable to XXE / entity-expansion payloads.
+        try:
+            from defusedxml.ElementTree import fromstring as _xml_fromstring
+        except ImportError:
+            from xml.etree.ElementTree import (  # noqa: S314 — fallback only
+                fromstring as _xml_fromstring,
+            )
+
+        ns = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+        with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+            xml_bytes = zf.read("word/document.xml")
+        root = _xml_fromstring(xml_bytes)
+        paragraphs = []
+        for p in root.iter(f"{ns}p"):
+            texts = [t.text or "" for t in p.iter(f"{ns}t")]
+            line = "".join(texts).strip()
+            if line:
+                paragraphs.append(line)
+        text = "\n".join(paragraphs)
+        return _re.sub(r"\n{3,}", "\n\n", text)
+
+    def _extract_text(self):
+        """Best-effort text extraction by filename extension."""
+        self.ensure_one()
+        import base64
+
+        raw = base64.b64decode(self.file or b"")
+        if not raw:
+            return "", "Empty file."
+        ext = (self.name or "").rsplit(".", 1)[-1].lower()
+        try:
+            if ext == "docx":
+                return self._extract_docx(raw), False
+            if ext in ("txt", "md", "csv", "html", "htm", "json", "xml"):
+                text = raw.decode("utf-8", errors="replace")
+                if ext in ("html", "htm"):
+                    import re as _re
+                    text = _re.sub(r"<[^>]+>", " ", text)
+                    text = _re.sub(r"\s+", " ", text)
+                return text, False
+            if ext == "pdf":
+                return "", ("PDF text extraction not supported — convert to "
+                            ".docx/.txt or paste the text into Additional Notes.")
+            return "", f"Unsupported file type '.{ext}'."
+        except Exception as exc:
+            _logger.exception("Resource extraction failed: %s", self.name)
+            return "", str(exc)[:300]
+
+    def _run_extraction(self):
+        for rec in self:
+            text, error = rec._extract_text()
+            rec.write({
+                "extracted_text": text or False,
+                "extraction_error": error or False,
+            })
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        records._run_extraction()
+        return records
+
+    def write(self, vals):
+        res = super().write(vals)
+        if "file" in vals or "name" in vals:
+            self._run_extraction()
+        return res
+
+    def to_dict(self):
+        self.ensure_one()
+        return {
+            "id": self.id,
+            "name": self.name or "",
+            "sequence": self.sequence or 0,
+            "char_count": self.char_count,
+            "extraction_error": self.extraction_error or "",
+        }

@@ -38,13 +38,28 @@
             <field name="value">PLACEHOLDER_IMAGE_MODEL_ID</field>
         </record>
 
-        <!-- Provider switch: "bedrock" (default) or "openrouter".
-             OpenRouter routes all 3 text prompts through any model on
-             openrouter.ai (e.g. google/gemini-3-pro). Image generation
-             stays on Bedrock regardless. -->
+        <!-- Provider switch: "vertex" (TARGET — single Gemini model from
+             Vertex AI for generation AND multimodal scoring), "bedrock",
+             or "openrouter". -->
         <record id="param_llm_provider" model="ir.config_parameter">
             <field name="key">etp_assessment.llm_provider</field>
-            <field name="value">bedrock</field>
+            <field name="value">vertex</field>
+        </record>
+        <record id="param_vertex_project_id" model="ir.config_parameter">
+            <field name="key">etp_assessment.vertex_project_id</field>
+            <field name="value">PLACEHOLDER_VERTEX_PROJECT_ID</field>
+        </record>
+        <record id="param_vertex_location" model="ir.config_parameter">
+            <field name="key">etp_assessment.vertex_location</field>
+            <field name="value">us-central1</field>
+        </record>
+        <record id="param_vertex_model" model="ir.config_parameter">
+            <field name="key">etp_assessment.vertex_model</field>
+            <field name="value">gemini-3-pro</field>
+        </record>
+        <record id="param_vertex_api_key" model="ir.config_parameter">
+            <field name="key">etp_assessment.vertex_api_key</field>
+            <field name="value">PLACEHOLDER_VERTEX_API_KEY</field>
         </record>
         <record id="param_openrouter_api_key" model="ir.config_parameter">
             <field name="key">etp_assessment.openrouter_api_key</field>

@@ -24,7 +24,7 @@
                 <header>
                     <button name="action_start" string="Start Assessment" type="object" class="oe_highlight" invisible="state != 'draft'"/>
                     <button name="action_done" string="Mark Done" type="object" class="oe_highlight" invisible="state != 'in_progress'"/>
-                    <button name="action_llm_score_all" string="LLM Score All" type="object" icon="fa-magic" invisible="state == 'draft'"/>
+                    <button name="action_llm_score_all" string="Score Subjective (All)" type="object" icon="fa-magic" invisible="state == 'draft'"/>
                     <button name="action_cancel" string="Cancel" type="object" invisible="state in ('done', 'cancelled')"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state not in ('cancelled',)"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,in_progress,done"/>
@@ -112,7 +112,16 @@
                                 <list>
                                     <field name="evaluator_id"/>
                                     <field name="question_id"/>
-                                    <field name="score"/>
+                                    <field name="objective_score" string="Objective"/>
+                                    <field name="objective_max" string="Obj Max" optional="hide"/>
+                                    <field name="needs_llm" string="Subjective?" widget="boolean"/>
+                                    <field name="subjective_score" string="Subjective"/>
+                                    <field name="subjective_reasoning" string="Reasoning" optional="show"/>
+                                    <field name="llm_state" widget="badge" string="Subj State"
+                                           decoration-info="llm_state in ('pending','queued')"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-muted="llm_state == 'not_needed'"
+                                           decoration-danger="llm_state == 'failed'"/>
                                     <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'submitted'"/>
                                 </list>
                             </field>
@@ -156,7 +165,7 @@
         <field name="arch" type="xml">
              <form>
                 <header>
-                    <button name="action_llm_score" string="LLM Score" type="object" icon="fa-magic" invisible="state != 'submitted'"/>
+                    <button name="action_llm_score" string="Score Subjective" type="object" icon="fa-magic" invisible="state != 'submitted'"/>
                     <field name="state" widget="statusbar" statusbar_visible="pending,in_progress,submitted"/>
                 </header>
                 <div class="alert alert-danger" invisible="not is_violated" role="alert">
@@ -173,9 +182,12 @@
                             <field name="answered_count"/>
                             <field name="total_score"/>
                             <field name="max_possible_score"/>
-                            <field name="llm_total_score"/>
-                            <field name="llm_max_score"/>
-                            <field name="llm_state"/>
+                            <field name="objective_total" string="Objective Total"/>
+                            <field name="objective_max_total" string="Objective Max"/>
+                            <field name="llm_total_score" string="Subjective Total"/>
+                            <field name="llm_max_score" string="Subjective Max"/>
+                            <field name="subjective_pending" string="Subjective Pending"/>
+                            <field name="llm_state" string="Subjective State"/>
                             <field name="llm_scored_at"/>
                             <field name="llm_error" invisible="not llm_error"/>
                             <field name="is_locked"/>
@@ -187,9 +199,15 @@
                             <field name="response_ids">
                                 <list>
                                     <field name="question_id"/>
-                                    <field name="score"/>
-                                    <field name="llm_score" optional="show"/>
-                                    <field name="llm_state" widget="badge" optional="show"/>
+                                    <field name="objective_score" string="Objective"/>
+                                    <field name="needs_llm" string="Subjective?" widget="boolean"/>
+                                    <field name="subjective_score" string="Subjective"/>
+                                    <field name="subjective_reasoning" string="Reasoning" optional="show"/>
+                                    <field name="llm_state" widget="badge" string="Subj State"
+                                           decoration-info="llm_state in ('pending','queued')"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-muted="llm_state == 'not_needed'"
+                                           decoration-danger="llm_state == 'failed'"/>
                                     <field name="state" widget="badge"/>
                                 </list>
                             </field>
@@ -215,7 +233,14 @@
                 <field name="assessment_id"/>
                 <field name="evaluator_id"/>
                 <field name="question_id"/>
-                <field name="score"/>
+                <field name="objective_score" string="Objective"/>
+                <field name="needs_llm" string="Subjective?" widget="boolean"/>
+                <field name="subjective_score" string="Subjective"/>
+                <field name="llm_state" widget="badge" string="Subj State"
+                       decoration-info="llm_state in ('pending','queued')"
+                       decoration-success="llm_state == 'scored'"
+                       decoration-muted="llm_state == 'not_needed'"
+                       decoration-danger="llm_state == 'failed'"/>
                 <field name="state" widget="badge" decoration-info="state == 'draft'" decoration-success="state == 'submitted'"/>
             </list>
         </field>
@@ -238,11 +263,12 @@
                             <field name="question_id" readonly="1"/>
                         </group>
                         <group>
-                            <field name="score"/>
-                            <field name="max_score"/>
-                            <field name="llm_score"/>
-                            <field name="llm_max_score"/>
-                            <field name="llm_state"/>
+                            <field name="objective_score" string="Objective Score"/>
+                            <field name="objective_max" string="Objective Max"/>
+                            <field name="needs_llm" string="Needs Subjective"/>
+                            <field name="subjective_score" string="Subjective Score"/>
+                            <field name="llm_max_score" string="Subjective Max"/>
+                            <field name="llm_state" string="Subjective State"/>
                         </group>
                     </group>
                     <notebook>
@@ -257,7 +283,7 @@
                         <page string="Justification">
                             <field name="justification" nolabel="1" placeholder="Provide your justification..." readonly="state == 'submitted'"/>
                         </page>
-                        <page string="LLM Feedback" invisible="llm_state == 'pending'">
+                        <page string="Subjective Reasoning" invisible="llm_state in ('not_needed', 'pending', 'queued')">
                             <field name="llm_feedback" nolabel="1" readonly="1"/>
                         </page>
                     </notebook>

@@ -74,13 +74,92 @@ def _bedrock_creds(env):
 def _call_bedrock(env, system_prompt, user_text, max_tokens=4000, temperature=0.4):
     """Provider-dispatching LLM call (name kept for backward compatibility).
 
-    etp_assessment.llm_provider = "bedrock" (default) | "openrouter"
+    etp_assessment.llm_provider = "vertex" | "bedrock" (default) | "openrouter"
     """
     provider = (_param(env, "etp_assessment.llm_provider", "bedrock")
                 or "bedrock").strip().lower()
+    if provider == "vertex":
+        return _call_vertex(env, system_prompt, user_text,
+                            max_tokens=max_tokens, temperature=temperature)
     if provider == "openrouter":
         return _call_openrouter(env, system_prompt, user_text, max_tokens, temperature)
     return _call_bedrock_converse(env, system_prompt, user_text, max_tokens, temperature)
+
+
+def _vertex_creds(env):
+    return (
+        _param(env, "etp_assessment.vertex_project_id"),
+        _param(env, "etp_assessment.vertex_location", "us-central1"),
+        _param(env, "etp_assessment.vertex_model", "gemini-3-pro"),
+        _param(env, "etp_assessment.vertex_api_key"),
+    )
+
+
+def _vertex_endpoint(env):
+    project, location, model, api_key = _vertex_creds(env)
+    if not project or not api_key:
+        raise ValueError(
+            "Vertex AI not configured. Set etp_assessment.vertex_project_id "
+            "and etp_assessment.vertex_api_key (plus vertex_location / "
+            "vertex_model) in Settings > Technical > System Parameters."
+        )
+    host = (
+        f"https://{location}-aiplatform.googleapis.com"
+        if location != "global" else "https://aiplatform.googleapis.com"
+    )
+    url = (
+        f"{host}/v1/projects/{project}/locations/{location}"
+        f"/publishers/google/models/{model}:generateContent"
+    )
+    return url, api_key
+
+
+def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
+                 temperature=0.4, image_parts=None):
+    """Vertex AI Gemini generateContent call. ONE model for everything.
+
+    `image_parts` (optional): list of {"mime_type": ..., "data": <b64 str>}
+    — used by multimodal scoring so the model SEES the question images.
+    """
+    import httpx
+
+    url, api_key = _vertex_endpoint(env)
+    parts = [{"text": user_text}]
+    for img in (image_parts or []):
+        if img.get("data"):
+            parts.append({
+                "inlineData": {
+                    "mimeType": img.get("mime_type") or "image/png",
+                    "data": img["data"],
+                }
+            })
+    payload = {
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": temperature,
+        },
+    }
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+
+    _logger.info(
+        "etp_assessment Vertex call: model=%s parts=%d (images=%d) max_tokens=%d",
+        _vertex_creds(env)[2], len(parts), len(image_parts or []), max_tokens,
+    )
+    with httpx.Client(
+        timeout=httpx.Timeout(connect=30, read=180, write=60, pool=30)
+    ) as client:
+        resp = client.post(url, json=payload, headers=headers)
+    if resp.status_code != 200:
+        raise RuntimeError(f"Vertex error [{resp.status_code}]: {resp.text[:400]}")
+    data = resp.json()
+    try:
+        return data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError, TypeError):
+        raise RuntimeError(
+            f"Vertex response missing text content: {str(data)[:300]}"
+        )
 
 
 def _call_openrouter(env, system_prompt, user_text, max_tokens=4000, temperature=0.4):
