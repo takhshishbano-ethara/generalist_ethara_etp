@@ -92,9 +92,9 @@
                                     <strong>Golden Rule:</strong> If you are unsure on any answer, choose <b>No</b>.
                                 </div>
                                 <group>
-                                    <field name="edit_only_instructed"/>
-                                    <field name="images_aligned"/>
-                                    <field name="free_of_ai_slop"/>
+                                    <field name="edit_only_instructed" required="1"/>
+                                    <field name="images_aligned" required="1"/>
+                                    <field name="free_of_ai_slop" required="1"/>
                                 </group>
                                 <separator string="Inspection Checklist (12 areas) - use the Flip Compare tool to compare Original vs Edited"/>
                                 <div class="row" style="margin-top: 8px;">
@@ -147,7 +147,11 @@
                                     </group>
                                     <group string="LLM Cost">
                                         <field name="llm_tokens_used" readonly="1"/>
-                                        <field name="llm_cost_usd" readonly="1" digits="[12, 2]"/>
+                                        <label for="llm_cost_usd"/>
+                                        <div class="o_row">
+                                            <span>$</span>
+                                            <field name="llm_cost_usd" readonly="1" digits="[12, 4]" nolabel="1"/>
+                                        </div>
                                     </group>
                                 </group>
                                 <div class="i2i-llm-decision-banner" invisible="not llm_decision">
