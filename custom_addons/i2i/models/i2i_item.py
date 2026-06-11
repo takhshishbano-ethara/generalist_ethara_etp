@@ -125,6 +125,11 @@ class I2IItem(models.Model):
         help="AI slop includes melted fingers, warped faces, gibberish "
              "text, broken geometry, distorted shapes, etc.",
     )
+    tasker_remarks = fields.Text(
+        string="Tasker Remarks",
+        tracking=True,
+        help="Optional notes from the tasker about this item.",
+    )
 
     llm_status = fields.Selection(
         [
@@ -247,11 +252,30 @@ class I2IItem(models.Model):
         store=True,
     )
     has_disagreement = fields.Boolean(
-        string="Has Disagreement",
+        string="Disagreement",
         compute="_compute_disagreements",
         store=True,
         index=True,
     )
+    submitted_at = fields.Datetime(
+        string="Submitted At",
+        readonly=True,
+        copy=False,
+        tracking=True,
+    )
+    submitted_at_display = fields.Char(
+        string="Submitted At",
+        compute="_compute_submitted_at_display",
+    )
+
+    @api.depends("submitted_at")
+    def _compute_submitted_at_display(self):
+        for rec in self:
+            if rec.submitted_at:
+                local = fields.Datetime.context_timestamp(rec, rec.submitted_at)
+                rec.submitted_at_display = local.strftime("%b %d, %I:%M:%S %p")
+            else:
+                rec.submitted_at_display = ""
 
     state = fields.Selection(
         [
@@ -467,6 +491,7 @@ class I2IItem(models.Model):
                 ) % rec.display_name)
             if rec.llm_status in ("none", "failed"):
                 rec._schedule_llm_qc()
+            rec.submitted_at = fields.Datetime.now()
             rec.state = "human_qc"
 
     def action_approve(self):

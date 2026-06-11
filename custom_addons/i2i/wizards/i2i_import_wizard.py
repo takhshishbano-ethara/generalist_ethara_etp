@@ -11,18 +11,39 @@ from odoo.exceptions import UserError
 _logger = logging.getLogger(__name__)
 
 
-REQUIRED_HEADERS = (
-    "project_type",
-    "instruction",
-    "original_image_url",
-    "edited_image_url",
-)
-OPTIONAL_HEADERS = (
-    "edit_only_instructed",
-    "images_aligned",
-    "free_of_ai_slop",
-    "assigned_user_login",
-)
+HEADER_MAP = {
+    "project type": "project_type",
+    "instruction": "instruction",
+    "original image url": "original_image_url",
+    "edited image url": "edited_image_url",
+    "does the edit make only the instructed change?": "edit_only_instructed",
+    "are the two images aligned?": "images_aligned",
+    "are both images free of ai slop?": "free_of_ai_slop",
+    "tasker remarks": "tasker_remarks",
+    "email address": "_email",
+    "timestamp": "_skip",
+    "qc status": "_skip",
+    "ql remarks": "_skip",
+    "final decision": "_skip",
+    "qr remark": "_skip",
+}
+
+VALUE_MAP = {
+    "edit_only_instructed": {
+        "instruction aligned": "instruction_aligned",
+        "no": "no",
+    },
+    "images_aligned": {
+        "images aligned": "images_aligned",
+        "no": "no",
+    },
+    "free_of_ai_slop": {
+        "slop free": "slop_free",
+        "no": "no",
+    },
+}
+
+REQUIRED_FIELDS = ("project_type", "instruction", "original_image_url", "edited_image_url")
 
 
 class I2IImportWizard(models.TransientModel):
@@ -39,36 +60,50 @@ class I2IImportWizard(models.TransientModel):
         self.ensure_one()
         if not self.file:
             raise UserError(_("Please upload a CSV or XLSX file."))
+        if not self.skip_header:
+            raise UserError(_("File must have a header row for column mapping."))
+
         filename = (self.filename or "").lower()
         raw = base64.b64decode(self.file)
-        if filename.endswith(".xlsx"):
-            rows = self._read_xlsx(raw)
-        else:
-            rows = self._read_csv(raw)
-
+        rows = self._read_xlsx(raw) if filename.endswith(".xlsx") else self._read_csv(raw)
         if not rows:
             raise UserError(_("File contains no data rows."))
 
-        header = [str(c or "").strip().lower() for c in rows[0]]
-        data_rows = rows[1:] if self.skip_header else rows
-        missing = [h for h in REQUIRED_HEADERS if h not in header]
-        if missing and self.skip_header:
+        header_raw = [str(c or "").strip().lower() for c in rows[0]]
+        header_map = [HEADER_MAP.get(h, None) for h in header_raw]
+
+        mapped_fields = {f for f in header_map if f and not f.startswith("_")}
+        missing = [f for f in REQUIRED_FIELDS if f not in mapped_fields]
+        if missing:
             raise UserError(_(
-                "Missing required columns: %s. Required: %s"
-            ) % (", ".join(missing), ", ".join(REQUIRED_HEADERS)))
+                "Missing required columns: %s.\n"
+                "Headers found: %s"
+            ) % (", ".join(missing), ", ".join(header_raw)))
 
         Item = self.env["i2i.item"]
         Users = self.env["res.users"]
         created = 0
         errors = []
-        for idx, row in enumerate(data_rows, start=2 if self.skip_header else 1):
+        created_items = self.env["i2i.item"]
+
+        for idx, row in enumerate(rows[1:], start=2):
             try:
-                values = self._row_to_vals(header, row, Users)
-                Item.create(values)
+                vals = self._row_to_vals(header_map, row, Users, idx)
+                item = Item.create(vals)
+                created_items |= item
                 created += 1
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"Row {idx}: {exc}")
                 _logger.warning("I2I import row %d failed: %s", idx, exc)
+
+        for item in created_items:
+            try:
+                item.state = "human_qc"
+                if item.llm_status in ("none", "failed"):
+                    item._schedule_llm_qc()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"Item {item.name}: post-import advance failed: {exc}")
+                _logger.warning("I2I import: post-create advance for %s failed: %s", item.name, exc)
 
         self.write({
             "created_count": created,
@@ -83,7 +118,7 @@ class I2IImportWizard(models.TransientModel):
                 "view_mode": "form",
                 "target": "new",
             }
-        message = _("%d items imported successfully.") % created
+        message = _("%d items imported, advanced to Pending, LLM QC queued.") % created
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -96,28 +131,40 @@ class I2IImportWizard(models.TransientModel):
             },
         }
 
-    def _row_to_vals(self, header, row, Users):
-        get = lambda key: (str(row[header.index(key)]).strip() if key in header and header.index(key) < len(row) else "")
+    def _row_to_vals(self, header_map, row, Users, row_idx):
         vals = {}
-        for key in REQUIRED_HEADERS + OPTIONAL_HEADERS:
-            val = get(key) if self.skip_header else ""
-            if key == "assigned_user_login":
-                if val:
-                    user = Users.search([("login", "=", val)], limit=1)
-                    if user:
-                        vals["assigned_user_id"] = user.id
+        email = None
+        for col_idx, field_name in enumerate(header_map):
+            if not field_name or field_name == "_skip":
                 continue
-            if val:
-                vals[key] = val
-        if not self.skip_header:
-            if len(row) >= 4:
-                vals["project_type"] = (str(row[0]).strip() or "i2i")
-                vals["instruction"] = str(row[1]).strip()
-                vals["original_image_url"] = str(row[2]).strip()
-                vals["edited_image_url"] = str(row[3]).strip()
-        for required in ("instruction", "original_image_url", "edited_image_url"):
+            if col_idx >= len(row):
+                continue
+            raw_val = str(row[col_idx] or "").strip()
+            if not raw_val:
+                continue
+            if field_name == "_email":
+                email = raw_val
+                continue
+            if field_name in VALUE_MAP:
+                key = VALUE_MAP[field_name].get(raw_val.lower())
+                if not key:
+                    raise UserError(_(
+                        "Invalid value '%s' for column '%s'. Allowed: %s"
+                    ) % (raw_val, field_name, ", ".join(VALUE_MAP[field_name].keys())))
+                vals[field_name] = key
+            else:
+                vals[field_name] = raw_val
+
+        for required in REQUIRED_FIELDS:
             if not vals.get(required):
                 raise UserError(_("Missing required field: %s") % required)
+
+        if email:
+            user = Users.search([("login", "=ilike", email)], limit=1)
+            if not user:
+                raise UserError(_("User with email '%s' not found.") % email)
+            vals["user_id"] = user.id
+
         return vals
 
     def _read_csv(self, raw):
