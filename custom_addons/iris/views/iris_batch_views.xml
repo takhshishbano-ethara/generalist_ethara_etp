@@ -1,0 +1,254 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Form View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_screening_batch_form" model="ir.ui.view">
+            <field name="name">iris.screening.batch.form</field>
+            <field name="model">iris.screening.batch</field>
+            <field name="arch" type="xml">
+                <form string="Screening Batch">
+                    <header>
+                        <button name="action_screen_batch" string="Screen Batch"
+                                type="object" class="oe_highlight"
+                                invisible="state != 'draft'"
+                                confirm="This will screen every member through the configured LLM (one call per member) and incur usage costs. Continue?"/>
+                        <button name="action_run_consistency" string="Run Consistency Review"
+                                type="object" class="oe_highlight"
+                                invisible="state != 'screening' or settled_count != member_count"
+                                confirm="Run the cross-candidate consistency review via the configured LLM? This incurs usage costs."/>
+                        <button name="action_rerun_consistency" string="Re-run Consistency"
+                                type="object"
+                                invisible="state != 'done'"
+                                groups="iris.group_iris_manager"
+                                confirm="Re-run the consistency review? The prior report is preserved as an attachment revision. This incurs LLM usage costs."/>
+                        <button name="action_retry_llm" string="Retry"
+                                type="object" class="btn-warning"
+                                invisible="llm_status != 'failed'"
+                                confirm="Retry the failed consistency review? This incurs LLM usage costs."/>
+                        <button name="action_cancel" string="Cancel"
+                                type="object"
+                                invisible="state not in ('draft', 'screening')"
+                                confirm="Cancel this batch? Member screenings already in flight will continue on the individual candidates."/>
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,screening,consistency,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="alert alert-danger" role="alert"
+                             invisible="state != 'failed'">
+                            <strong>Consistency review failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+                        <div class="alert alert-info" role="alert"
+                             invisible="state != 'screening' or settled_count != member_count">
+                            <strong>All members settled —</strong> the consistency review has not
+                            started automatically. Use the Run Consistency Review button.
+                        </div>
+                        <div class="alert alert-secondary text-muted" role="alert"
+                             invisible="state != 'cancelled'">
+                            <strong>Cancelled.</strong> This batch is closed; its members remain
+                            on their individual pipelines.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" readonly="1"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Batch">
+                                <field name="role_id" readonly="state != 'draft'"
+                                       options="{'no_create': True, 'no_quick_create': True}"/>
+                                <field name="user_id" widget="many2one_avatar_user"/>
+                                <field name="auto_run_consistency"/>
+                            </group>
+                            <group string="Progress">
+                                <field name="member_count"/>
+                                <field name="settled_count"/>
+                                <field name="total_cost_usd"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Members" name="members">
+                                <field name="candidate_ids" widget="many2many"
+                                       readonly="state != 'draft'"
+                                       domain="[('state', '=', 'draft'), ('batch_id', '=', False), ('role_id', '=', role_id)]"
+                                       context="{'default_role_id': role_id}">
+                                    <list editable="bottom"
+                                          decoration-success="state == 'shipped'"
+                                          decoration-warning="state in ('hold', 'needs_review')"
+                                          decoration-danger="state in ('blocked', 'pending_block')">
+                                        <field name="reference" readonly="1" optional="show"/>
+                                        <field name="name"/>
+                                        <field name="email" optional="show"/>
+                                        <field name="role_id" optional="hide"
+                                               options="{'no_create': True, 'no_quick_create': True}"/>
+                                        <field name="resume_file" widget="binary"
+                                               filename="resume_filename"/>
+                                        <field name="resume_filename" column_invisible="1"/>
+                                        <field name="state" widget="badge"
+                                               decoration-success="state == 'shipped'"
+                                               decoration-warning="state in ('hold', 'needs_review')"
+                                               decoration-danger="state in ('blocked', 'pending_block')"
+                                               decoration-info="state == 'screening'"/>
+                                        <field name="current_verdict" optional="show"/>
+                                    </list>
+                                </field>
+                                <group string="Notes">
+                                    <field name="notes" nolabel="1" colspan="2"
+                                           placeholder="Internal notes about this batch."/>
+                                </group>
+                            </page>
+
+                            <page string="Report" name="report">
+                                <group>
+                                    <field name="report_attachment_id" readonly="1"
+                                           invisible="not report_attachment_id"/>
+                                </group>
+                                <field name="batch_report_html" readonly="1" nolabel="1"/>
+                            </page>
+
+                            <page string="Findings" name="findings">
+                                <group>
+                                    <group string="Counters">
+                                        <field name="inconsistency_count" readonly="1"/>
+                                        <field name="revision_advisory_count" readonly="1"/>
+                                    </group>
+                                    <group string="Waiting On"
+                                           invisible="state not in ('draft', 'screening')">
+                                        <field name="blocking_candidate_ids" readonly="1"
+                                               nolabel="1" colspan="2" widget="many2many_tags"/>
+                                    </group>
+                                </group>
+                                <group string="Machine Summary (parsed JSON)">
+                                    <field name="consistency_findings_json" readonly="1"
+                                           nolabel="1" colspan="2"
+                                           placeholder="Empty: not run yet, or the machine summary was unparseable (the batch fails OPEN — read the report)."/>
+                                </group>
+                            </page>
+
+                            <page string="LLM Log" name="llm_log">
+                                <group>
+                                    <group string="Status">
+                                        <field name="llm_status" readonly="1"/>
+                                        <field name="llm_error" readonly="1"
+                                               invisible="not llm_error"/>
+                                        <field name="llm_model_used" readonly="1"/>
+                                    </group>
+                                    <group string="Usage">
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                                <group string="Prompt Input">
+                                    <field name="llm_prompt_input" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                                <group string="Raw Response">
+                                    <field name="llm_raw_response" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- List View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_screening_batch_list" model="ir.ui.view">
+            <field name="name">iris.screening.batch.list</field>
+            <field name="model">iris.screening.batch</field>
+            <field name="arch" type="xml">
+                <list string="Screening Batches"
+                      decoration-success="state == 'done'"
+                      decoration-danger="state == 'failed'"
+                      decoration-info="state in ('screening', 'consistency')"
+                      decoration-muted="state == 'cancelled'">
+                    <field name="name"/>
+                    <field name="role_id"/>
+                    <field name="state" widget="badge"
+                           decoration-success="state == 'done'"
+                           decoration-danger="state == 'failed'"
+                           decoration-warning="state == 'consistency'"
+                           decoration-info="state == 'screening'"/>
+                    <field name="member_count"/>
+                    <field name="settled_count"/>
+                    <field name="inconsistency_count" optional="show"/>
+                    <field name="revision_advisory_count" optional="show"/>
+                    <field name="user_id" optional="show" widget="many2one_avatar_user"/>
+                    <field name="total_cost_usd" optional="show" sum="Total"/>
+                    <field name="create_date" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_screening_batch_search" model="ir.ui.view">
+            <field name="name">iris.screening.batch.search</field>
+            <field name="model">iris.screening.batch</field>
+            <field name="arch" type="xml">
+                <search string="Search Screening Batches">
+                    <field name="name"/>
+                    <field name="role_id"/>
+                    <field name="user_id"/>
+
+                    <filter name="filter_draft" string="Draft"
+                            domain="[('state', '=', 'draft')]"/>
+                    <filter name="filter_screening" string="Screening"
+                            domain="[('state', '=', 'screening')]"/>
+                    <filter name="filter_consistency" string="Consistency Review"
+                            domain="[('state', '=', 'consistency')]"/>
+                    <filter name="filter_done" string="Done"
+                            domain="[('state', '=', 'done')]"/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('state', '=', 'failed')]"/>
+                    <filter name="filter_cancelled" string="Cancelled"
+                            domain="[('state', '=', 'cancelled')]"/>
+                    <separator/>
+                    <filter name="filter_my_batches" string="My Batches"
+                            domain="[('user_id', '=', uid)]"/>
+
+                    <group>
+                        <filter name="group_state" string="State"
+                                context="{'group_by': 'state'}"/>
+                        <filter name="group_role" string="Role"
+                                context="{'group_by': 'role_id'}"/>
+                        <filter name="group_user" string="Batch Owner"
+                                context="{'group_by': 'user_id'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action (no menu here — menus live in iris_menus.xml)         -->
+        <!-- ============================================================ -->
+        <record id="action_iris_screening_batch" model="ir.actions.act_window">
+            <field name="name">Screening Batches</field>
+            <field name="res_model">iris.screening.batch</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_screening_batch_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">Create your first screening batch</p>
+                <p>
+                    Add at least 2 draft candidates sharing one role, hit Screen Batch,
+                    and a cross-candidate consistency review runs once every member settles.
+                </p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

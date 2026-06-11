@@ -316,7 +316,35 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             body=_("Rejected by %s.") % approver_label,
             subtype_xmlid="mail.mt_note",
         )
+        self._cleanup_inactive_shell_budget()
         return True
+
+    def _cleanup_inactive_shell_budget(self):
+        """Remove the inactive shell budget this request initiated.
+
+        If this request was an initial-budget shell (the linked budget is
+        still inactive) and nothing else references that budget, remove the
+        shell so the project can re-initiate. ``budget_id`` is
+        ``ondelete='cascade'``, so unlinking the budget cascade-deletes this
+        request too — the intended "clean re-initiation" behaviour. Top-ups
+        run against active budgets, so they're untouched. Best-effort: never
+        raise from cleanup — log and move on.
+        """
+        self.ensure_one()
+        try:
+            budget = self.budget_id.sudo()
+            if budget and budget.exists() and not budget.active:
+                other_requests = self.env[self._name].sudo().search_count([
+                    ("budget_id", "=", budget.id),
+                    ("id", "!=", self.id),
+                ])
+                if not other_requests:
+                    budget.unlink()
+        except Exception:
+            _logger.exception(
+                "Failed to clean up inactive shell budget for request %s",
+                self.id,
+            )
 
     def _check_backend_approver(self):
         approver_ids = set(self._get_approver_users().ids)
@@ -402,9 +430,14 @@ class EtpProjectTokenPurchaseRequest(models.Model):
         if mark_finance_token_used:
             vals["finance_token_used"] = True
         self.write(vals)
-        self.budget_id.sudo().write({
+        budget_vals = {
             "project_budget": round(balance_before_val + amount_val, 2),
-        })
+        }
+        # Initial budget goes live on the first completion: a shell budget
+        # created via the initial-budget route is inactive until approved+done.
+        if not self.budget_id.active:
+            budget_vals["active"] = True
+        self.budget_id.sudo().write(budget_vals)
         completer_label = completed_by_user.name if completed_by_user else _("Finance link (anonymous)")
         self.budget_id.message_post(
             body=_(
@@ -582,6 +615,7 @@ class EtpProjectTokenPurchaseRequest(models.Model):
                 body=_("Withdrawn by %s.") % (self.env.user.name or _("requester")),
                 subtype_xmlid="mail.mt_note",
             )
+            rec._cleanup_inactive_shell_budget()
         return True
 
     def action_update(self, vals):

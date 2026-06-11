@@ -1,0 +1,344 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Session Form                                                 -->
+        <!-- ============================================================ -->
+        <record id="view_iris_calibration_session_form" model="ir.ui.view">
+            <field name="name">iris.calibration.session.form</field>
+            <field name="model">iris.calibration.session</field>
+            <field name="arch" type="xml">
+                <form string="Calibration Session">
+                    <header>
+                        <button name="action_start" string="Start Session" type="object"
+                                class="oe_highlight" invisible="state != 'draft'"
+                                confirm="Start this calibration session? One LLM reference screening is queued per participant × resume — this incurs usage costs."/>
+                        <button name="action_close" string="Close Session" type="object"
+                                class="oe_highlight" invisible="state != 'in_progress'"/>
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,in_progress,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="oe_button_box" name="button_box">
+                            <button name="action_open_tasks" type="object"
+                                    class="oe_stat_button" icon="fa-tasks"
+                                    invisible="state == 'draft'">
+                                <field name="task_count" widget="statinfo" string="Tasks"/>
+                            </button>
+                        </div>
+
+                        <div class="alert alert-warning" role="alert"
+                             invisible="not divergent">
+                            <strong>Divergent —</strong> screener verdicts disagree on at
+                            least one reference resume. See the Results tab.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1><field name="name" placeholder="e.g. 2026-Q2 Screener Calibration"/></h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="session_date"/>
+                            </group>
+                            <group>
+                                <field name="participant_ids" widget="many2many_tags"
+                                       readonly="state != 'draft'"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Setup" name="setup">
+                                <div class="alert alert-warning" role="alert">
+                                    Upload <strong>anonymized or synthetic resumes only</strong> —
+                                    never real candidate materials.
+                                </div>
+                                <field name="resume_ids" readonly="state != 'draft'">
+                                    <list editable="bottom">
+                                        <field name="name"/>
+                                        <field name="target_role"/>
+                                        <field name="filename" column_invisible="True"/>
+                                        <field name="file" filename="filename" widget="binary"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="Results" name="results" invisible="state == 'draft'">
+                                <group>
+                                    <field name="divergent" readonly="1"/>
+                                </group>
+                                <group string="Divergence Summary">
+                                    <field name="divergence_summary" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                                <field name="task_ids" readonly="1">
+                                    <list default_group_by="resume_ref_id">
+                                        <field name="resume_ref_id"/>
+                                        <field name="screener_id" widget="many2one_avatar_user"/>
+                                        <field name="llm_status" widget="badge"
+                                               decoration-success="llm_status == 'done'"
+                                               decoration-danger="llm_status == 'failed'"
+                                               decoration-warning="llm_status == 'needs_review'"
+                                               decoration-info="llm_status in ('queued', 'running')"/>
+                                        <field name="llm_verdict" widget="badge"
+                                               decoration-success="llm_verdict == 'ship'"
+                                               decoration-warning="llm_verdict == 'hold'"
+                                               decoration-danger="llm_verdict == 'block'"/>
+                                        <field name="screener_verdict" widget="badge"
+                                               decoration-success="screener_verdict == 'ship'"
+                                               decoration-warning="screener_verdict == 'hold'"
+                                               decoration-danger="screener_verdict == 'block'"/>
+                                        <field name="llm_cost_usd" optional="hide" sum="Total"/>
+                                    </list>
+                                </field>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Session List + Search + Action                               -->
+        <!-- ============================================================ -->
+        <record id="view_iris_calibration_session_list" model="ir.ui.view">
+            <field name="name">iris.calibration.session.list</field>
+            <field name="model">iris.calibration.session</field>
+            <field name="arch" type="xml">
+                <list string="Calibration Sessions">
+                    <field name="name"/>
+                    <field name="session_date"/>
+                    <field name="participant_ids" widget="many2many_tags" optional="show"/>
+                    <field name="task_count" string="Tasks" optional="show"/>
+                    <field name="divergent" optional="show"/>
+                    <field name="state" widget="badge"
+                           decoration-info="state == 'in_progress'"
+                           decoration-success="state == 'done'"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_iris_calibration_session_search" model="ir.ui.view">
+            <field name="name">iris.calibration.session.search</field>
+            <field name="model">iris.calibration.session</field>
+            <field name="arch" type="xml">
+                <search string="Search Calibration Sessions">
+                    <field name="name"/>
+                    <field name="participant_ids"/>
+
+                    <filter name="filter_draft" string="Draft"
+                            domain="[('state', '=', 'draft')]"/>
+                    <filter name="filter_in_progress" string="In Progress"
+                            domain="[('state', '=', 'in_progress')]"/>
+                    <filter name="filter_done" string="Done"
+                            domain="[('state', '=', 'done')]"/>
+
+                    <group>
+                        <filter name="group_state" string="State"
+                                context="{'group_by': 'state'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record id="action_iris_calibration_session" model="ir.actions.act_window">
+            <field name="name">Calibration Sessions</field>
+            <field name="res_model">iris.calibration.session</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_calibration_session_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No calibration sessions yet</p>
+                <p>
+                    Run quarterly calibration: every participant screens the same
+                    anonymized reference resumes, and verdicts are compared to surface
+                    screener drift.
+                </p>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Reference Resume Form (anonymization banner)                 -->
+        <!-- ============================================================ -->
+        <record id="view_iris_calibration_resume_form" model="ir.ui.view">
+            <field name="name">iris.calibration.resume.form</field>
+            <field name="model">iris.calibration.resume</field>
+            <field name="arch" type="xml">
+                <form string="Reference Resume">
+                    <sheet>
+                        <div class="alert alert-warning" role="alert">
+                            Upload <strong>anonymized or synthetic resumes only</strong> —
+                            never real candidate materials.
+                        </div>
+                        <group>
+                            <group>
+                                <field name="session_id" readonly="1"/>
+                                <field name="name" placeholder='e.g. "Reference A"'/>
+                                <field name="target_role"/>
+                            </group>
+                            <group>
+                                <field name="filename" invisible="1"/>
+                                <field name="file" filename="filename"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Extracted Text" name="extracted_text">
+                                <field name="resume_text" readonly="1" nolabel="1"
+                                       placeholder="Text is extracted automatically when a PDF is uploaded."/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Task Form (readonly assignment + Submit Verdict + LLM Log)   -->
+        <!-- ============================================================ -->
+        <record id="view_iris_calibration_task_form" model="ir.ui.view">
+            <field name="name">iris.calibration.task.form</field>
+            <field name="model">iris.calibration.task</field>
+            <field name="arch" type="xml">
+                <form string="Calibration Task" create="false">
+                    <header>
+                        <button name="action_submit_verdict" string="Submit Verdict"
+                                type="object" class="oe_highlight"/>
+                        <field name="llm_status" widget="statusbar"
+                               statusbar_visible="queued,running,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="alert alert-danger" role="alert"
+                             invisible="llm_status != 'failed'">
+                            <strong>LLM call failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+                        <div class="alert alert-warning" role="alert"
+                             invisible="llm_status != 'needs_review'">
+                            <strong>Needs Review —</strong> the LLM verdict could not be
+                            parsed unambiguously. The record below is still usable for
+                            calibration; compare against it manually.
+                        </div>
+
+                        <group>
+                            <group string="Assignment">
+                                <field name="session_id" readonly="1"/>
+                                <field name="resume_ref_id" readonly="1"/>
+                                <field name="screener_id" readonly="1" widget="many2one_avatar_user"/>
+                            </group>
+                            <group string="Verdicts">
+                                <field name="llm_verdict" widget="badge" readonly="1"
+                                       decoration-success="llm_verdict == 'ship'"
+                                       decoration-warning="llm_verdict == 'hold'"
+                                       decoration-danger="llm_verdict == 'block'"/>
+                                <field name="screener_verdict"/>
+                                <field name="screener_notes"
+                                       placeholder="Why you ruled this way — compared in the close-out divergence review."/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="LLM Record" name="llm_record">
+                                <field name="markdown_html" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Markdown" name="raw_markdown">
+                                <field name="markdown_record" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="LLM Log" name="llm_log">
+                                <group>
+                                    <group string="Model">
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                    </group>
+                                    <group string="Timing">
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                                <group string="Prompt Input">
+                                    <field name="llm_prompt_input" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                                <group string="Raw Response">
+                                    <field name="llm_raw_response" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Task List + Search + Action                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_calibration_task_list" model="ir.ui.view">
+            <field name="name">iris.calibration.task.list</field>
+            <field name="model">iris.calibration.task</field>
+            <field name="arch" type="xml">
+                <list string="Calibration Tasks" create="false">
+                    <field name="session_id"/>
+                    <field name="resume_ref_id"/>
+                    <field name="screener_id" widget="many2one_avatar_user"/>
+                    <field name="llm_status" widget="badge"
+                           decoration-success="llm_status == 'done'"
+                           decoration-danger="llm_status == 'failed'"
+                           decoration-warning="llm_status == 'needs_review'"
+                           decoration-info="llm_status in ('queued', 'running')"/>
+                    <field name="llm_verdict" widget="badge"
+                           decoration-success="llm_verdict == 'ship'"
+                           decoration-warning="llm_verdict == 'hold'"
+                           decoration-danger="llm_verdict == 'block'"/>
+                    <field name="screener_verdict" widget="badge"
+                           decoration-success="screener_verdict == 'ship'"
+                           decoration-warning="screener_verdict == 'hold'"
+                           decoration-danger="screener_verdict == 'block'"/>
+                    <field name="llm_cost_usd" optional="hide" sum="Total"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_iris_calibration_task_search" model="ir.ui.view">
+            <field name="name">iris.calibration.task.search</field>
+            <field name="model">iris.calibration.task</field>
+            <field name="arch" type="xml">
+                <search string="Search Calibration Tasks">
+                    <field name="session_id"/>
+                    <field name="resume_ref_id"/>
+                    <field name="screener_id"/>
+
+                    <filter name="filter_my_tasks" string="My Tasks"
+                            domain="[('screener_id', '=', uid)]"/>
+                    <separator/>
+                    <filter name="filter_pending_verdict" string="Pending My Verdict"
+                            domain="[('screener_id', '=', uid), ('screener_verdict', '=', False)]"/>
+                    <filter name="filter_needs_review" string="LLM Needs Review"
+                            domain="[('llm_status', '=', 'needs_review')]"/>
+
+                    <group>
+                        <filter name="group_session" string="Session"
+                                context="{'group_by': 'session_id'}"/>
+                        <filter name="group_resume" string="Reference Resume"
+                                context="{'group_by': 'resume_ref_id'}"/>
+                        <filter name="group_screener" string="Screener"
+                                context="{'group_by': 'screener_id'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record id="action_iris_calibration_task" model="ir.actions.act_window">
+            <field name="name">Calibration Tasks</field>
+            <field name="res_model">iris.calibration.task</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_calibration_task_search"/>
+            <field name="context">{'search_default_filter_my_tasks': 1}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No calibration tasks</p>
+                <p>Tasks are created when a calibration session is started.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>
