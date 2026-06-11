@@ -15,11 +15,13 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from .analytics_dashboard import (
     DONE_STATE,
     PASS_RATE_GOOD,
+    SKOLL_FULL_ACCESS_ROLE_XMLIDS,
     WEEKDAY_LABELS,
     _money,
     _parse_date,
     _pct1,
     _scope as _role_scope,
+    _user_has_role,
     _user_role_tag,
 )
 
@@ -216,7 +218,7 @@ def _compute_kpi(env, task_scope, gen_scope):
     for t in tasks_for_team:
         if t.employee_id and t.employee_id.user_id:
             user_ids.add(t.employee_id.user_id.id)
-    if env.user.has_group("etp_user_roles.group_project_lead"):
+    if _user_has_role(env, SKOLL_FULL_ACCESS_ROLE_XMLIDS):
         user_ids.add(env.user.id)
 
     today_from, today_to, today_date = _today_bounds(env)

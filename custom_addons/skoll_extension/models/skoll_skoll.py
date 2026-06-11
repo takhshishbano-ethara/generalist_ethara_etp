@@ -13,12 +13,49 @@ REWORK_VERDICTS = ("failed",)
 DECIDED_VERDICTS = APPROVED_VERDICTS + REWORK_VERDICTS
 
 
+SKOLL_FULL_ACCESS_ROLE_XMLIDS = (
+    "api_auth_gateway.role_cto_technical",
+    "api_auth_gateway.role_tpm_technical",
+    "api_auth_gateway.role_pl_technical",
+    "api_auth_gateway.role_pl_stem",
+    "api_auth_gateway.role_pl_non_stem",
+)
+
+SKOLL_QL_ROLE_XMLIDS = (
+    "api_auth_gateway.role_qc_technical",
+    "api_auth_gateway.role_qc_stem",
+    "api_auth_gateway.role_qc_non_stem",
+)
+
+SKOLL_TASKER_ROLE_XMLIDS = (
+    "api_auth_gateway.role_tasker_technical",
+    "api_auth_gateway.role_tasker_stem",
+    "api_auth_gateway.role_tasker_non_stem",
+)
+
+
+def _get_role_ids(env, xmlids):
+    ids = []
+    for xmlid in xmlids:
+        rec = env.ref(xmlid, raise_if_not_found=False)
+        if rec:
+            ids.append(rec.id)
+    return ids
+
+
+def _user_has_role(env, xmlids):
+    role = env.user.user_role
+    if not role:
+        return False
+    return role.id in _get_role_ids(env, xmlids)
+
+
 def _user_role_tag(env):
-    if env.user.has_group("etp_user_roles.group_project_lead"):
+    if _user_has_role(env, SKOLL_FULL_ACCESS_ROLE_XMLIDS):
         return "full"
-    if env.user.has_group("etp_user_roles.group_quality_lead"):
+    if _user_has_role(env, SKOLL_QL_ROLE_XMLIDS):
         return "ql"
-    if env.user.has_group("etp_user_roles.group_tasker"):
+    if _user_has_role(env, SKOLL_TASKER_ROLE_XMLIDS):
         return "tasker"
     return None
 
