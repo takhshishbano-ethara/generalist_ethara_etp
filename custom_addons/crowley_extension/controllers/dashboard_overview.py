@@ -174,7 +174,7 @@ def _approved_reviewed(Attempt, attempt_scope, window_start=None):
     return approved, rejected
 
 
-def _compute_kpi(env, gen_scope, attempt_scope):
+def _compute_kpi(env, gen_scope, attempt_scope, project_id=None):
     Generation = env["crowley.generation"].sudo()
     Attempt = env["crowley.attempt"].sudo()
 
@@ -213,14 +213,40 @@ def _compute_kpi(env, gen_scope, attempt_scope):
     reviewed = approved + rejected
     approval_rate = _pct(approved, reviewed)
 
-    owner_rows = Generation.read_group(
-        gen_scope, fields=["user_id"], groupby=["user_id"], lazy=False
-    )
-    owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
-    members = env["res.users"].sudo().browse(owner_ids)
-    manager_count = len(
-        members.filtered(lambda u: u.has_group("crowley.group_crowley_manager"))
-    )
+    project_obj = None
+    if project_id:
+        try:
+            pid = int(project_id)
+            if pid:
+                project_obj = env["project.project"].sudo().browse(pid)
+                if not project_obj.exists():
+                    project_obj = None
+        except (ValueError, TypeError):
+            project_obj = None
+
+    if project_obj:
+        team_employees = (
+            project_obj.mapped("project_lead")
+            | project_obj.mapped("project_qc_reviewer")
+            | project_obj.mapped("project_tasker")
+            | project_obj.mapped("project_aire")
+            | project_obj.mapped("project_swe")
+            | project_obj.mapped("project_lead.task_forge_tpm_id")
+        )
+        members = team_employees
+        member_users = team_employees.mapped("user_id")
+        manager_count = len(
+            member_users.filtered(lambda u: u.has_group("crowley.group_crowley_manager"))
+        )
+    else:
+        owner_rows = Generation.read_group(
+            gen_scope, fields=["user_id"], groupby=["user_id"], lazy=False
+        )
+        owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
+        members = env["res.users"].sudo().browse(owner_ids)
+        manager_count = len(
+            members.filtered(lambda u: u.has_group("crowley.group_crowley_manager"))
+        )
 
     today_start, today_end = _today_bounds(env)
     yesterday_start = today_start - timedelta(days=1)
@@ -712,9 +738,10 @@ class CrowleyDashboardOverviewController(http.Controller):
         view = _overview_view(env, role_tag)
 
         # KPI — role-specific cards (one card per item), in this view's order.
+        project_id = params.get("project_id")
         kpi_by_key = {
             item["key"]: item
-            for item in _compute_kpi(env, gen_scope, attempt_scope)["items"]
+            for item in _compute_kpi(env, gen_scope, attempt_scope, project_id=project_id)["items"]
         }
         kpi_items = [
             kpi_by_key[key]

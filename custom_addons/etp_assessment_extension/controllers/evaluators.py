@@ -174,7 +174,7 @@ class EtpAssessmentEvaluatorController(http.Controller):
     @validate_token
     def get_evaluator_detail(self, assignment_id, **kwargs):
         """Standalone version of
-        `/assessments/<id>/candidates/<assignment_id>/detail` - useful when
+        `/assessments/<id>/candidates/<employee_id>/detail` - useful when
         the caller only knows the assignment id."""
         forbidden = require_assessment_user()
         if forbidden is not None:

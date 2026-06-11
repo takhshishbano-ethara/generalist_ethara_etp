@@ -28,13 +28,9 @@
         "etp_projects",
     ],
     "data": [
-<<<<<<< HEAD
-        "data/leviathan_project_data.xml",
-=======
         "security/ir.model.access.csv",
         "data/batch_delivery_data.xml",
         "views/batch_delivery_views.xml",
->>>>>>> 1514fcf4dd84fbed463cd8dbe4747e8f19d04187
     ],
     "installable": True,
     "application": False,

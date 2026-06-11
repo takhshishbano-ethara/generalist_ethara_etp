@@ -31,7 +31,7 @@
                                 <field name="i2i_openrouter_max_retries"/>
                             </setting>
                             <setting id="i2i_cost_setting" string="USD per 1M tokens">
-                                <field name="i2i_usd_per_mtoken"/>
+                                <field name="i2i_usd_per_mtoken" digits="[12, 4]"/>
                             </setting>
                         </block>
                     </app>
