@@ -19,6 +19,18 @@ _logger = logging.getLogger(__name__)
 DEFAULT_BURN_GRAPH_DAYS = 30
 MAX_BURN_GRAPH_DAYS = 365
 
+# Burn-per-batch batches collect rows of this backend model via `job_ids`. A
+# project "owns" these batches only when its `connected_table` points here.
+LEVIATHAN_JOB_MODEL = "leviathan.job"
+DELIVERED_BATCH_STATE = "delivered"
+# Both shippable verdicts count as approved; not_shippable counts as rework.
+# A job is "reviewed" once it has any of these verdicts set.
+APPROVED_VERDICTS = ("shippable", "fixes")
+REWORK_VERDICTS = ("not_shippable",)
+REVIEWED_VERDICTS = APPROVED_VERDICTS + REWORK_VERDICTS
+BURN_BATCH_LIMIT = 200
+BURN_TASK_LIMIT = 200
+
 
 def _pct(part, whole):
     if not whole:
@@ -174,7 +186,7 @@ def _build_budget_kpi(env, project_id, include_inactive):
         runway_days = 0
 
     return {
-        "budget_count": len(budgets),
+        "budget_count": _delivered_batch_count(env, project_id),
         "total_budget": {
             "amount": _round2(total_budget),
             "percentage": 100.0 if total_budget else 0.0,
@@ -340,6 +352,84 @@ def _build_daily_burn_graph(env, budgets, filters):
     }
 
 
+def _project_owns_batches(env, project_id):
+    """Whether this project's task table is the one burn batches collect.
+
+    Batches reference ``leviathan.job`` rows; a project is linked to that
+    backend through its ``connected_table``. With no project filter, all
+    batches are in scope.
+    """
+    if not project_id:
+        return True
+    project = env["project.project"].sudo().browse(project_id)
+    table = (getattr(project, "connected_table", None) or "").strip()
+    return table == LEVIATHAN_JOB_MODEL
+
+
+def _delivered_batch_count(env, project_id):
+    """Total batches delivered for this project."""
+    if not _project_owns_batches(env, project_id):
+        return 0
+    return env["leviathan.batch.delivery"].sudo().search_count(
+        [("state", "=", DELIVERED_BATCH_STATE)]
+    )
+
+
+def _scoped_batches(env, project_id):
+    if not _project_owns_batches(env, project_id):
+        return env["leviathan.batch.delivery"].sudo().browse()
+    return env["leviathan.batch.delivery"].sudo().search(
+        [], limit=BURN_BATCH_LIMIT
+    )
+
+
+def _approval_status(rate, reviewed):
+    if not reviewed:
+        return "pending"
+    if rate >= 80:
+        return "approved"
+    if rate >= 50:
+        return "partial"
+    return "rejected"
+
+
+def _serialize_burn_batch(batch, verdict_labels):
+    jobs = batch.job_ids
+    total_burn = sum(job.llm_qc_cost_usd or 0.0 for job in jobs)
+    reviewed = sum(1 for job in jobs if job.qc_verdict in REVIEWED_VERDICTS)
+    approved = sum(1 for job in jobs if job.qc_verdict in APPROVED_VERDICTS)
+    rate = round((approved / reviewed) * 100) if reviewed else 0
+    tasks = [
+        {
+            "ref": job.name or "",
+            "category": job.category_id.name or "" if job.category_id else "",
+            "status": verdict_labels.get(job.qc_verdict, "") if job.qc_verdict else "",
+            "burn": _round2(job.llm_qc_cost_usd or 0.0),
+        }
+        for job in jobs[:BURN_TASK_LIMIT]
+    ]
+    return {
+        "batch_id": batch.name or "",
+        "videos": batch.job_count,
+        "burn": _round2(total_burn),
+        "approval": {"rate": rate, "status": _approval_status(rate, reviewed)},
+        "feedback": batch.notes or "",
+        "tasks": tasks,
+    }
+
+
+def _build_burn_per_batch(env, project_id):
+    Job = env["leviathan.job"].sudo()
+    verdict_labels = dict(Job._fields["qc_verdict"].selection)
+    batches = _scoped_batches(env, project_id)
+    return {
+        "title": "Burn per batch",
+        "batches": [
+            _serialize_burn_batch(batch, verdict_labels) for batch in batches
+        ],
+    }
+
+
 class LeviathanBudgetController(http.Controller):
 
     @http.route(
@@ -409,29 +499,7 @@ class LeviathanBudgetController(http.Controller):
                         end=filters["end"],
                         graph_days=filters["graph_days"],
                     ),
-                "burn_per_batch": {
-                    "title": "Burn per batch",
-                    "batches": [
-                        {
-                            "batch_id": "B-023",
-                            "videos": 640,
-                            "burn": 3380,
-                            "approval": {
-                                "rate": 86,
-                                "status": "approved"
-                            },
-                            "feedback": "Everything was good",
-                            "tasks": [
-                                {
-                                    "ref": "CRW000211",
-                                    "category": "Human Activities",
-                                    "status": "Revision",
-                                    "burn": 3.70
-                                }
-                            ]
-                        }
-                    ]
-                },
+                "burn_per_batch": _build_burn_per_batch(env, project_id),
                 "allocation_ledger": env["etp.project.token.purchase.request"]
                     .sudo()._get_allocation_ledger_for_project(project_id)
 

@@ -1,5 +1,6 @@
 from . import analytics_dashboard
 from . import task_view_dashboard
+from . import batch_dashboard
 from . import urls_added
 from . import dashboard_overview
 from . import reference_data

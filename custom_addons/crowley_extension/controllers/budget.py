@@ -17,6 +17,14 @@ _logger = logging.getLogger(__name__)
 DEFAULT_BURN_GRAPH_DAYS = 30
 MAX_BURN_GRAPH_DAYS = 365
 
+# Batches collect rows of this backend model via `job_ids`. A project
+# "owns" these batches only when its `connected_table` points here.
+CROWLEY_JOB_MODEL = "crowley.generation"
+DELIVERED_BATCH_STATE = "delivered"
+APPROVAL_REVIEWED_STATES = ("approved", "rejected")
+BURN_BATCH_LIMIT = 200
+BURN_TASK_LIMIT = 200
+
 
 def _pct(part, whole):
     if not whole:
@@ -172,7 +180,7 @@ def _build_budget_kpi(env, project_id, include_inactive):
         runway_days = 0
 
     return {
-        "budget_count": len(budgets),
+        "budget_count": _delivered_batch_count(env, project_id),
         "total_budget": {
             "amount": _round2(total_budget),
             "percentage": 100.0 if total_budget else 0.0,
@@ -338,6 +346,88 @@ def _build_daily_burn_graph(env, budgets, filters):
     }
 
 
+def _project_owns_crowley_batches(env, project_id):
+    """Whether this project's task table is the one Crowley batches collect.
+
+    Batches reference ``crowley.generation`` rows; a project is linked to
+    that backend through its ``connected_table``. With no project filter, all
+    batches are in scope.
+    """
+    if not project_id:
+        return True
+    project = env["project.project"].sudo().browse(project_id)
+    table = (getattr(project, "connected_table", None) or "").strip()
+    return table == CROWLEY_JOB_MODEL
+
+
+def _delivered_batch_count(env, project_id):
+    """Total batches delivered for this project."""
+    if not _project_owns_crowley_batches(env, project_id):
+        return 0
+    return env["crowley.batch.delivery"].sudo().search_count(
+        [("state", "=", DELIVERED_BATCH_STATE)]
+    )
+
+
+def _scoped_crowley_batches(env, project_id):
+    if not _project_owns_crowley_batches(env, project_id):
+        return env["crowley.batch.delivery"].sudo().browse()
+    return env["crowley.batch.delivery"].sudo().search(
+        [], limit=BURN_BATCH_LIMIT
+    )
+
+
+def _approval_status(rate, reviewed):
+    if not reviewed:
+        return "pending"
+    if rate >= 80:
+        return "approved"
+    if rate >= 50:
+        return "partial"
+    return "rejected"
+
+
+def _serialize_burn_batch(batch, category_labels, review_labels):
+    jobs = batch.job_ids
+    total_burn = sum(job.cost_usd or 0.0 for job in jobs)
+    reviewed = sum(
+        1 for job in jobs if job.review_state in APPROVAL_REVIEWED_STATES
+    )
+    approved = sum(1 for job in jobs if job.review_state == "approved")
+    rate = round((approved / reviewed) * 100) if reviewed else 0
+    tasks = [
+        {
+            "ref": job.name or "",
+            "category": category_labels.get(job.category, "") if job.category else "",
+            "status": review_labels.get(job.review_state, "") if job.review_state else "",
+            "burn": _round2(job.cost_usd or 0.0),
+        }
+        for job in jobs[:BURN_TASK_LIMIT]
+    ]
+    return {
+        "batch_id": batch.name or "",
+        "videos": batch.job_count,
+        "burn": _round2(total_burn),
+        "approval": {"rate": rate, "status": _approval_status(rate, reviewed)},
+        "feedback": batch.notes or "",
+        "tasks": tasks,
+    }
+
+
+def _build_burn_per_batch(env, project_id):
+    Job = env["crowley.generation"].sudo()
+    category_labels = dict(Job._fields["category"].selection)
+    review_labels = dict(Job._fields["review_state"].selection)
+    batches = _scoped_crowley_batches(env, project_id)
+    return {
+        "title": "Burn per batch",
+        "batches": [
+            _serialize_burn_batch(batch, category_labels, review_labels)
+            for batch in batches
+        ],
+    }
+
+
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
     kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
     service_costs, _service_total = _build_service_costs(env, budgets, filters)
@@ -366,29 +456,7 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
                 end=filters["end"],
                 graph_days=filters["graph_days"],
             ),
-        "burn_per_batch": {
-            "title": "Burn per batch",
-            "batches": [
-                {
-                    "batch_id": "B-023",
-                    "videos": 640,
-                    "burn": 3380,
-                    "approval": {
-                        "rate": 86,
-                        "status": "approved"
-                    },
-                    "feedback": "Everything was good",
-                    "tasks": [
-                        {
-                            "ref": "CRW000211",
-                            "category": "Human Activities",
-                            "status": "Revision",
-                            "burn": 3.70
-                        }
-                    ]
-                }
-            ]
-        },
+        "burn_per_batch": _build_burn_per_batch(env, project_id),
         "allocation_ledger": env["etp.project.token.purchase.request"]
             .sudo()._get_allocation_ledger_for_project(project_id),
     }

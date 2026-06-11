@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="dim_instruction_following" model="etp.assessment.dimension">
+            <field name="name">Instruction following</field>
+            <field name="sequence">10</field>
+            <field name="active">True</field>
+        </record>
+        <record id="dim_instruction_following_opt_a" model="etp.assessment.dimension.option">
+            <field name="name">A</field>
+            <field name="sequence">10</field>
+            <field name="dimension_id" ref="dim_instruction_following"/>
+        </record>
+        <record id="dim_instruction_following_opt_b" model="etp.assessment.dimension.option">
+            <field name="name">B</field>
+            <field name="sequence">20</field>
+            <field name="dimension_id" ref="dim_instruction_following"/>
+        </record>
+
+        <record id="dim_visual_quality" model="etp.assessment.dimension">
+            <field name="name">Visual Quality</field>
+            <field name="sequence">20</field>
+            <field name="active">True</field>
+        </record>
+        <record id="dim_visual_quality_opt_a" model="etp.assessment.dimension.option">
+            <field name="name">A</field>
+            <field name="sequence">10</field>
+            <field name="dimension_id" ref="dim_visual_quality"/>
+        </record>
+        <record id="dim_visual_quality_opt_b" model="etp.assessment.dimension.option">
+            <field name="name">B</field>
+            <field name="sequence">20</field>
+            <field name="dimension_id" ref="dim_visual_quality"/>
+        </record>
+
+        <record id="dim_less_ai_generated" model="etp.assessment.dimension">
+            <field name="name">Less AI-Generated</field>
+            <field name="sequence">30</field>
+            <field name="active">True</field>
+        </record>
+        <record id="dim_less_ai_generated_opt_a" model="etp.assessment.dimension.option">
+            <field name="name">A</field>
+            <field name="sequence">10</field>
+            <field name="dimension_id" ref="dim_less_ai_generated"/>
+        </record>
+        <record id="dim_less_ai_generated_opt_b" model="etp.assessment.dimension.option">
+            <field name="name">B</field>
+            <field name="sequence">20</field>
+            <field name="dimension_id" ref="dim_less_ai_generated"/>
+        </record>
+
+        <record id="dim_overall" model="etp.assessment.dimension">
+            <field name="name">Overall</field>
+            <field name="sequence">40</field>
+            <field name="active">True</field>
+        </record>
+        <record id="dim_overall_opt_a" model="etp.assessment.dimension.option">
+            <field name="name">A</field>
+            <field name="sequence">10</field>
+            <field name="dimension_id" ref="dim_overall"/>
+        </record>
+        <record id="dim_overall_opt_b" model="etp.assessment.dimension.option">
+            <field name="name">B</field>
+            <field name="sequence">20</field>
+            <field name="dimension_id" ref="dim_overall"/>
+        </record>
+
+    </data>
+</odoo>

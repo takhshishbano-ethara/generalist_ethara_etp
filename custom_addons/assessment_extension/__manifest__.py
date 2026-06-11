@@ -1,40 +1,23 @@
-# -*- coding: utf-8 -*-
 {
-    "name": "Assessment Extension",
-    "version": "19.0.1.0.0",
-    "category": "Human Resources",
-    "summary": (
-        "REST API for the assessment monitoring screens: per-candidate result "
-        "(SCR-096), item analysis + distribution drawer (SCR-097), CTO override "
-        "approvals (SCR-098), candidate history (SCR-099), score override "
-        "(MOD-Score-Override)."
-    ),
+    "name": "Assessment Extension (PEN Workflow APIs)",
+    "summary": "Backend APIs for the PEN-driven assessment authoring workflow.",
     "description": """
-Backend (models + JSON endpoints) for five surfaces of the Assessment design
-package (/Users/alok/Egon/assessment):
+Backend APIs that implement the PEN workflow modules:
 
-  * SCR-096 — Candidate Result drill-in (per-day index + per-question REVIEW)
-  * SCR-097 — Item Analysis (per-question cohort performance)
-  * SCR-097 — Distribution Drawer (per-question histogram + flag-for-regen)
-  * SCR-098 — CTO Override Approvals (self-case escalation inbox)
-  * SCR-099 — Candidate History (one candidate's results across assessments)
-  * MOD-Score-Override — Override commit (direct OR self-case → CTO request)
+* MOD-View-System-Prompt  (read-only)
+* MOD-Review-Question     (Eval Compare + Prompt Writing variants)
+* MOD-Lock-Confirm        (assessment-level question-bank lock)
+* MOD-Schedule-Confirm    (send / go-live)
 
-Adds the fields ASSESSMENT-WORKFLOW.md §12 requires on etp.assessment /
-etp.assessment.question / etp.assessment.evaluator and introduces three
-new models — etp.assessment.day.session, etp.assessment.submission,
-etp.assessment.override.request — that back the §6 scoring, §6.4 override,
-§6.5 self-case guard, and §6.6 aggregation flows.
-
-All HTTP endpoints follow the api_auth_gateway return_Response envelope and
-are guarded by @validate_token, consistent with etp_assessment_extension /
-aurora_extension / crowley_extension.
-
-UI for these surfaces is OUT OF SCOPE in this addon — the SCR-096..099 / MOD
-screens are built by the frontend team against this API.
-    """,
+All endpoints are namespaced under ``/api/v1/assessment_extension/`` and
+reuse the ``etp_assessment`` groups + ``api_auth_gateway`` decorators.
+No mutations are performed on the base module; this addon only
+``_inherit``-extends a few fields on ``etp.assessment`` /
+``etp.assessment.question`` and adds four new models.
+""",
+    "version": "19.0.1.0.0",
+    "category": "Human Resources/Assessment",
     "author": "Ethara",
-    "website": "https://www.ethara.com",
     "license": "LGPL-3",
     "depends": [
         "base",
@@ -45,11 +28,11 @@ screens are built by the frontend team against this API.
         "api_auth_gateway",
     ],
     "data": [
-        "security/assessment_extension_security.xml",
-        "security/ir.model.access.csv",
-        "data/sequences.xml",
+        "mod_security/ir.model.access.csv",
+        "mod_data/eval_compare_dimensions_data.xml",
+        "mod_data/system_prompt_data.xml",
     ],
-    "installable": True,
     "application": False,
+    "installable": True,
     "auto_install": False,
 }
