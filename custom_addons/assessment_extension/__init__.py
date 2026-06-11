@@ -1,3 +1,2 @@
-# -*- coding: utf-8 -*-
-from . import models
-from . import controllers
+from . import mod_models
+from . import mod_controllers
