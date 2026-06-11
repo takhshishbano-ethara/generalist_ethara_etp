@@ -72,6 +72,23 @@ class EtpPromptController(http.Controller):
             rec.write(vals)
         return rec.to_dict(include_children=False)
 
+    # ------------------------------------------------------ resource upload
+    @http.route("/etp_assessment/prompt/upload_resource", type="json", auth="user")
+    def upload_resource(self, prompt_id, filename, file_b64):
+        rec = request.env["etp.assessment.prompt.resource"].create({
+            "prompt_id": prompt_id,
+            "name": filename,
+            "file": file_b64,
+        })
+        return rec.to_dict()
+
+    @http.route("/etp_assessment/prompt/remove_resource", type="json", auth="user")
+    def remove_resource(self, resource_id):
+        rec = request.env["etp.assessment.prompt.resource"].browse(resource_id).exists()
+        if rec:
+            rec.unlink()
+        return {"removed": True}
+
     # ----------------------------------------------- CALL 1: extract skills
     @http.route("/etp_assessment/prompt/extract_skills", type="json", auth="user")
     def extract_skills(self, prompt_id, source_text=None, title=None, category_id=None):
@@ -101,12 +118,40 @@ class EtpPromptController(http.Controller):
                 Skill.browse(s["id"]).write(vals)
         return {"saved": True}
 
-    # ------------------------------------------------- CALL 2: generate all
+    # ------------------------------------------------- generation (seed)
     @http.route("/etp_assessment/prompt/generate", type="json", auth="user")
-    def generate(self, prompt_id):
+    def generate(self, prompt_id, title=None, notes=None, golden_example=None,
+                 max_questions=None, category_id=None):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id)
+        vals = {}
+        if title:
+            vals["name"] = title
+        if notes is not None:
+            vals["source_text"] = notes
+        if golden_example is not None:
+            vals["golden_example"] = golden_example
+        if max_questions is not None:
+            vals["max_questions"] = int(max_questions or 0)
+        if category_id is not None:
+            vals["category_id"] = category_id or False
+        if vals:
+            rec.write(vals)
         questions = rec.action_generate_questions()
         return {"questions": questions, "state": rec.state}
+
+    # -------------------------------------------- image generation (drafts)
+    @http.route("/etp_assessment/prompt/generate_images", type="json", auth="user")
+    def generate_images(self, prompt_id, question_ids=None):
+        rec = request.env["etp.assessment.prompt"].browse(prompt_id)
+        drafts = rec.question_ids
+        if question_ids:
+            drafts = drafts.filtered(lambda q: q.id in question_ids)
+        drafts.action_generate_images()
+        return {"questions": [
+            rec._question_dict(q)
+            for q in drafts.filtered(
+                lambda q: q.question_type == "image_comparison")
+        ]}
 
     # --------------------------------------------------- approve / deny one
     @http.route("/etp_assessment/prompt/decision", type="json", auth="user")
@@ -163,16 +208,25 @@ class EtpPromptController(http.Controller):
     # -------------------------------------------------------- system prompts
     @http.route("/etp_assessment/prompt/system_prompts", type="json", auth="user")
     def get_system_prompts(self):
+        """The two live prompts: seed (generation) + scoring."""
         Prompt = request.env["etp.assessment.prompt"]
+        from odoo.addons.etp_assessment.services.bedrock_scoring import (
+            _get_scoring_prompt,
+        )
         return {
+            "seed": Prompt._get_seed_system_prompt(),
+            "scoring": _get_scoring_prompt(request.env),
+            # legacy slots kept for the dormant skills mode
             "skills": Prompt._get_skills_system_prompt(),
             "questions": Prompt._get_questions_system_prompt(),
         }
 
     @http.route("/etp_assessment/prompt/save_system_prompt", type="json", auth="user")
     def save_system_prompt(self, which, value):
-        key = "etp_assessment.%s_system_prompt" % (
-            "skills" if which == "skills" else "questions")
+        allowed = {"seed", "scoring", "skills", "questions"}
+        if which not in allowed:
+            return {"error": f"unknown prompt '{which}'"}
+        key = f"etp_assessment.{which}_system_prompt"
         request.env["ir.config_parameter"].sudo().set_param(key, value or "")
         return {"saved": True}
 

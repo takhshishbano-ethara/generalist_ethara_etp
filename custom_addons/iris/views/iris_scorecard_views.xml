@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Form View (audit artifact — readonly except manager          -->
+        <!-- manual-recommendation override)                              -->
+        <!-- ============================================================ -->
+        <record id="view_iris_scorecard_form" model="ir.ui.view">
+            <field name="name">iris.scorecard.form</field>
+            <field name="model">iris.scorecard</field>
+            <field name="arch" type="xml">
+                <form string="Scorecard" create="false">
+                    <header>
+                        <button name="action_retry_llm" string="Retry" type="object"
+                                class="btn-warning"
+                                invisible="llm_status != 'failed'"
+                                confirm="Re-generate this scorecard through the configured LLM? This incurs usage costs."/>
+                        <field name="llm_status" widget="statusbar"
+                               statusbar_visible="queued,running,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="alert alert-danger" role="alert"
+                             invisible="llm_status != 'failed'">
+                            <strong>LLM call failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+                        <div class="alert alert-warning" role="alert"
+                             invisible="llm_status != 'needs_review'">
+                            <strong>Needs Review —</strong> the recommendation could not be parsed
+                            from the raw LLM response. A manager can set it manually below.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="recommendation" widget="badge" readonly="1"
+                                       decoration-success="recommendation in ('strong_hire', 'hire')"
+                                       decoration-danger="recommendation in ('no_hire', 'strong_no_hire')"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Scorecard">
+                                <field name="candidate_id" readonly="1"/>
+                                <field name="interview_id" readonly="1"/>
+                                <field name="attachment_id" readonly="1"
+                                       invisible="not attachment_id"/>
+                            </group>
+                            <group string="Manager Override" groups="iris.group_iris_manager">
+                                <field name="recommendation" string="Manual Recommendation"/>
+                                <field name="recommendation_manual" readonly="1"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Scorecard" name="scorecard">
+                                <field name="scorecard_html" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Markdown" name="raw_markdown">
+                                <field name="scorecard_markdown" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Notes Snapshot" name="notes_snapshot">
+                                <field name="notes_snapshot" readonly="1" nolabel="1"
+                                       placeholder="Interviewer notes as they were when this scorecard was generated."/>
+                            </page>
+                            <page string="Prompt Input" name="prompt_input">
+                                <field name="llm_prompt_input" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Response" name="raw_response">
+                                <field name="llm_raw_response" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Metadata" name="metadata">
+                                <group>
+                                    <group string="Model">
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                    </group>
+                                    <group string="Timing">
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- List View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_scorecard_list" model="ir.ui.view">
+            <field name="name">iris.scorecard.list</field>
+            <field name="model">iris.scorecard</field>
+            <field name="arch" type="xml">
+                <list string="Scorecards" create="false"
+                      decoration-success="recommendation in ('strong_hire', 'hire')"
+                      decoration-danger="recommendation in ('no_hire', 'strong_no_hire')">
+                    <field name="candidate_id"/>
+                    <field name="interview_id"/>
+                    <field name="recommendation" widget="badge"
+                           decoration-success="recommendation in ('strong_hire', 'hire')"
+                           decoration-danger="recommendation in ('no_hire', 'strong_no_hire')"/>
+                    <field name="llm_status" widget="badge"
+                           decoration-success="llm_status == 'done'"
+                           decoration-danger="llm_status == 'failed'"
+                           decoration-warning="llm_status == 'needs_review'"
+                           decoration-info="llm_status in ('queued', 'running')"/>
+                    <field name="llm_cost_usd" optional="show" sum="Total"/>
+                    <field name="create_date" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_scorecard_search" model="ir.ui.view">
+            <field name="name">iris.scorecard.search</field>
+            <field name="model">iris.scorecard</field>
+            <field name="arch" type="xml">
+                <search string="Search Scorecards">
+                    <field name="candidate_id"/>
+                    <field name="interview_id"/>
+
+                    <filter name="filter_strong_hire" string="Strong Hire"
+                            domain="[('recommendation', '=', 'strong_hire')]"/>
+                    <filter name="filter_hire" string="Hire"
+                            domain="[('recommendation', '=', 'hire')]"/>
+                    <filter name="filter_no_hire" string="No Hire"
+                            domain="[('recommendation', '=', 'no_hire')]"/>
+                    <filter name="filter_strong_no_hire" string="Strong No Hire"
+                            domain="[('recommendation', '=', 'strong_no_hire')]"/>
+                    <separator/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('llm_status', '=', 'failed')]"/>
+                    <filter name="filter_in_flight" string="In Flight"
+                            domain="[('llm_status', 'in', ('queued', 'running'))]"/>
+
+                    <group>
+                        <filter name="group_candidate" string="Candidate"
+                                context="{'group_by': 'candidate_id'}"/>
+                        <filter name="group_recommendation" string="Recommendation"
+                                context="{'group_by': 'recommendation'}"/>
+                        <filter name="group_llm_status" string="LLM Status"
+                                context="{'group_by': 'llm_status'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action                                                       -->
+        <!-- ============================================================ -->
+        <record id="action_iris_scorecard" model="ir.actions.act_window">
+            <field name="name">Scorecards</field>
+            <field name="res_model">iris.scorecard</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_scorecard_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No scorecards yet</p>
+                <p>Scorecards are generated from an interview once notes are submitted.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

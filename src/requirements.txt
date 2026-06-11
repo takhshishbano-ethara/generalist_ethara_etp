@@ -143,6 +143,7 @@ PyMuPDF==1.26.1
 pyOpenSSL==24.1.0
 pyparsing==3.2.3
 PyPDF2==2.12.1
+python-docx==1.2.0
 pypng==0.20220715.0
 pyserial==3.5
 pytesseract==0.3.13

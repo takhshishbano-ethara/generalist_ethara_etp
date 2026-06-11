@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- Dedicated activity type for the dual sign-off on BLOCK:
+             scheduled on the candidate by IrisScreening._apply_verdict's
+             pending-block intercept, completed by the co-sign and unlinked
+             by the sign-off rejection. -->
+        <record id="mail_activity_type_block_signoff" model="mail.activity.type">
+            <field name="name">BLOCK Sign-off</field>
+            <field name="summary">Second-screener sign-off required on BLOCK</field>
+            <field name="res_model">iris.candidate</field>
+            <field name="icon">fa-gavel</field>
+            <field name="delay_count">1</field>
+            <field name="delay_unit">days</field>
+            <field name="sequence">95</field>
+        </record>
+
+    </data>
+</odoo>

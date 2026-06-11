@@ -10,7 +10,7 @@ Includes a public portal for candidates to take assessments via email link.
     "author": "Ethara",
     "website": "https://www.ethara.com",
     "category": "Human Resources",
-    "version": "19.0.0.9",
+    "version": "19.0.0.10",
     "application": True,
     "depends": ["base", "web", "hr", "mail", "website"],
     "data": [
@@ -23,7 +23,7 @@ Includes a public portal for candidates to take assessments via email link.
         "views/dimension_views.xml",
         "views/question_views.xml",
         "views/assessment_views.xml",
-        "views/question_import_views.xml",
+        "data/cron.xml",
         "views/portal_templates.xml",
         "views/menu_items.xml",
     ],

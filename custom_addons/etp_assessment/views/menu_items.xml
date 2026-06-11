@@ -49,12 +49,6 @@
               action="action_etp_assessment_prompt"
               sequence="11"/>
 
-    <menuitem id="menu_etp_assessment_question_import"
-              name="Import Questions"
-              parent="menu_etp_assessment_root"
-              action="action_etp_assessment_question_import"
-              sequence="12"/>
-
 
     <menuitem id="menu_etp_assessment_list"
               name="Assessments"

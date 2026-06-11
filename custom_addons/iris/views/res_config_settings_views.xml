@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <record id="res_config_settings_view_form_iris" model="ir.ui.view">
+            <field name="name">res.config.settings.view.form.inherit.iris</field>
+            <field name="model">res.config.settings</field>
+            <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//form" position="inside">
+                    <app data-string="Iris" string="Iris" name="iris"
+                         groups="iris.group_iris_manager">
+                        <block title="LLM" name="iris_llm_block">
+                            <setting string="OpenRouter API Key"
+                                     help="Stored Fernet-encrypted via ir.config_parameter (IRIS_ENCRYPTION_KEY). Required for screening, guide and scorecard generation.">
+                                <field name="iris_api_key_is_set" invisible="1"/>
+                                <field name="iris_openrouter_api_key" password="True"/>
+                                <div class="text-success mt8" invisible="not iris_api_key_is_set">
+                                    <i class="fa fa-check"/> API key configured
+                                </div>
+                            </setting>
+                            <setting string="Model"
+                                     help="Any OpenRouter chat-completions model id, e.g. anthropic/claude-sonnet-4.5, moonshotai/kimi-k2, google/gemini-2.5-pro.">
+                                <field name="iris_llm_model"/>
+                            </setting>
+                            <setting string="Base URL"
+                                     help="Chat-completions endpoint base. Default is OpenRouter; any OpenAI-compatible endpoint works.">
+                                <field name="iris_openrouter_base_url"/>
+                            </setting>
+                            <setting string="Request Timeout (seconds)"
+                                     help="Per-request timeout for LLM calls.">
+                                <field name="iris_llm_timeout"/>
+                            </setting>
+                            <setting string="Max Retries"
+                                     help="Retries on retryable HTTP errors (429/5xx) before the job is marked failed.">
+                                <field name="iris_openrouter_max_retries"/>
+                            </setting>
+                            <setting string="USD per Million Tokens"
+                                     help="Fallback cost rate when the provider response does not include billed cost.">
+                                <field name="iris_usd_per_mtoken"/>
+                            </setting>
+                        </block>
+                        <block title="Screening Policy" name="iris_policy_block">
+                            <setting string="Hold Auto-Block (business days)"
+                                     help="HOLD candidates without verification evidence are auto-blocked this many business days (Mon-Fri) after the first HOLD verdict.">
+                                <field name="iris_hold_business_days"/>
+                            </setting>
+                        </block>
+                        <block title="Roles &amp; Batches" name="iris_roles_batches_block">
+                            <setting string="Enable Role Creation"
+                                     help="v1.1 ships with the seeded Head of Engineering role only. Tick to unlock creating additional role profiles — one config flip, no code change.">
+                                <field name="iris_enable_role_creation"/>
+                            </setting>
+                            <setting string="Batch Max Members"
+                                     help="Maximum candidates per screening batch. Caps the token budget of the LLM batch-consistency pass.">
+                                <field name="iris_batch_max_members"/>
+                            </setting>
+                        </block>
+                        <block title="Duplicate Detection" name="iris_duplicates_block">
+                            <setting string="Similarity Threshold"
+                                     help="Near-duplicate resume ratio (0-1). Resumes at or above this similarity are flagged as possible duplicates. Advisory only — never blocks an upload, never touches state.">
+                                <field name="iris_dup_similarity_threshold"/>
+                            </setting>
+                            <setting string="Scan Limit"
+                                     help="How many of the most recent resumes each upload is compared against in the near-duplicate scan (0 disables the near-duplicate scan; exact-hash matching always runs).">
+                                <field name="iris_dup_scan_limit"/>
+                            </setting>
+                        </block>
+                        <block title="Storage" name="iris_storage_block">
+                            <setting string="S3 Connector"
+                                     help="Which s3.connector to use for private resume PDF storage (presigned GET). Leave empty to keep resumes as Odoo attachments only.">
+                                <field name="iris_s3_connector_id"/>
+                            </setting>
+                        </block>
+                        <block title="Prompt Overrides" name="iris_prompts_block">
+                            <setting string="Screening Prompt"
+                                     help="Leave empty to use the bundled prompts/SCREENING.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_screening"
+                                       placeholder="File default (prompts/SCREENING.md) is used when empty."/>
+                            </setting>
+                            <setting string="Interview Questions Prompt"
+                                     help="Leave empty to use the bundled prompts/QUESTIONS.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_questions"
+                                       placeholder="File default (prompts/QUESTIONS.md) is used when empty."/>
+                            </setting>
+                            <setting string="Scorecard Prompt"
+                                     help="Leave empty to use the bundled prompts/SCORECARD.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_scorecard"
+                                       placeholder="File default (prompts/SCORECARD.md) is used when empty."/>
+                            </setting>
+                            <setting string="Batch Consistency Prompt"
+                                     help="Leave empty to use the bundled prompts/BATCH_CONSISTENCY.md file. Any non-blank text here overrides the file (a per-role override on the role profile takes precedence over both).">
+                                <field name="iris_prompt_batch_consistency"
+                                       placeholder="File default (prompts/BATCH_CONSISTENCY.md) is used when empty."/>
+                            </setting>
+                            <setting string="JD Critique Prompt"
+                                     help="Leave empty to use the bundled prompts/JD_CRITIQUE.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_jd_critique"
+                                       placeholder="File default (prompts/JD_CRITIQUE.md) is used when empty."/>
+                            </setting>
+                            <setting string="JD Rewrite Prompt"
+                                     help="Leave empty to use the bundled prompts/JD_REWRITE.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_jd_rewrite"
+                                       placeholder="File default (prompts/JD_REWRITE.md) is used when empty."/>
+                            </setting>
+                            <setting string="Assessment Review Prompt"
+                                     help="Leave empty to use the bundled prompts/ASSESSMENT_REVIEW.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_assessment_review"
+                                       placeholder="File default (prompts/ASSESSMENT_REVIEW.md) is used when empty."/>
+                            </setting>
+                            <setting string="Clarifying Questions Prompt"
+                                     help="Leave empty to use the bundled prompts/CLARIFYING_QUESTIONS.md file. Any non-blank text here overrides the file.">
+                                <field name="iris_prompt_clarifying_questions"
+                                       placeholder="File default (prompts/CLARIFYING_QUESTIONS.md) is used when empty."/>
+                            </setting>
+                        </block>
+                    </app>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="action_iris_config_settings" model="ir.actions.act_window">
+            <field name="name">Iris Settings</field>
+            <field name="res_model">res.config.settings</field>
+            <field name="view_mode">form</field>
+            <field name="target">main</field>
+            <field name="context">{'module': 'iris'}</field>
+        </record>
+    </data>
+</odoo>

@@ -448,49 +448,72 @@ class EtpAssessment(models.Model):
         self.write({"state": "done"})
 
     def action_llm_score_all(self):
-        """LLM-score every submitted-but-unscored candidate of this assessment.
+        """Enqueue subjective scoring for every submitted candidate.
 
-        One Bedrock call per candidate. Failures are recorded per candidate
-        (llm_state='failed') and never abort the batch.
+        Per-question RabbitMQ tasks; broker-down falls back to the cron
+        drainer. Re-runnable; never aborts the batch.
         """
         self.ensure_one()
         todo = self.assessment_evaluator_ids.filtered(
-            lambda ev: ev.state == "submitted" and ev.llm_state in ("pending", "failed")
+            lambda ev: ev.state == "submitted" and ev.llm_state in
+            ("pending", "scoring", "partial", "failed")
         )
         if not todo:
             raise UserError(
-                "No submitted, unscored candidates found on this assessment."
+                "No submitted candidates awaiting subjective scoring."
             )
         todo.action_llm_score()
-        scored = len(todo.filtered(lambda ev: ev.llm_state == "scored"))
-        failed = len(todo) - scored
+        queued = sum(len(ev.response_ids.filtered(
+            lambda r: r.llm_state in ("queued", "pending"))) for ev in todo)
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "LLM Scoring Complete",
-                "message": f"{scored} candidate(s) scored, {failed} failed.",
-                "type": "success" if not failed else "warning",
-                "sticky": bool(failed),
+                "title": "Subjective Scoring Triggered",
+                "message": f"{len(todo)} candidate(s), {queued} response(s) "
+                           f"queued for LLM scoring.",
+                "type": "success",
+                "sticky": False,
             },
         }
 
     @api.model
     def _cron_llm_auto_score(self):
-        """Score submitted candidates on llm_auto_score assessments.
+        """Drain pending per-response subjective scoring (no-broker fallback).
 
-        Runs from ir.cron so candidate submit requests are never blocked by
-        a Bedrock round-trip. Picks up pending evaluators in small batches;
-        failures stay 'failed' and are NOT retried automatically (re-run via
-        the button) to avoid burning Bedrock spend on a poisoned payload.
+        Two jobs:
+          1. Auto-enqueue submitted candidates on llm_auto_score assessments
+             whose responses still need subjective scoring.
+          2. Score any response left in 'pending' (broker was down at submit
+             time, or manual trigger with no consumer running) directly,
+             in small batches, so local dev works without RabbitMQ.
         """
+        Resp = self.env["etp.assessment.response"]
+
+        # (1) enqueue auto-score assessments still waiting
         evaluators = self.env["etp.assessment.evaluator"].search([
             ("state", "=", "submitted"),
-            ("llm_state", "=", "pending"),
+            ("llm_state", "in", ("pending", "scoring")),
             ("assessment_id.llm_auto_score", "=", True),
+        ], limit=20)
+        for ev in evaluators:
+            ev.response_ids.filtered(
+                lambda r: r.needs_llm and r.llm_state in ("not_needed", "pending")
+            )._enqueue_subjective_scoring()
+
+        # (2) drain pending responses inline (the broker-less path)
+        pending = Resp.search([
+            ("llm_state", "=", "pending"),
+            ("needs_llm", "=", True),
         ], limit=10)
-        if evaluators:
-            evaluators.action_llm_score()
+        for resp in pending:
+            try:
+                resp.rmq_score_subjective()
+            except Exception:
+                _logger.exception(
+                    "Cron subjective scoring failed for response %s", resp.id)
+                # rmq_score_subjective already marked it failed
+                continue
 
     def action_cancel(self):
         for rec in self:
@@ -599,82 +622,88 @@ class EtpAssessmentEvaluator(models.Model):
     is_violated = fields.Boolean(default=False, string="Violated", readonly=True)
 
     # ------------------------------------------------------------------
-    # LLM scoring (rollups of response-level llm_score; mechanical score
-    # in total_score is never overwritten — the two live side by side)
+    # OBJECTIVE / SUBJECTIVE rollups.
+    # objective = sum of dimension-pick scores (instant, no LLM)
+    # subjective = sum of per-question LLM scores (justification grading)
     # ------------------------------------------------------------------
     llm_state = fields.Selection(
         [
-            ("pending", "Not Scored"),
+            ("pending", "Pending"),
             ("scoring", "Scoring"),
             ("scored", "Scored"),
+            ("partial", "Partial"),
             ("failed", "Failed"),
         ],
         default="pending",
-        string="LLM Scoring",
+        string="Subjective Scoring",
         copy=False,
     )
+    objective_total = fields.Integer(
+        related="total_score", store=True, string="Objective Total", readonly=True
+    )
+    objective_max_total = fields.Integer(
+        related="max_possible_score", store=True,
+        string="Objective Max", readonly=True
+    )
     llm_total_score = fields.Integer(
-        compute="_compute_llm_progress", store=True, string="LLM Score"
+        compute="_compute_llm_progress", store=True, string="Subjective Total"
     )
     llm_max_score = fields.Integer(
-        compute="_compute_llm_progress", store=True, string="LLM Max"
+        compute="_compute_llm_progress", store=True, string="Subjective Max"
     )
-    llm_scored_at = fields.Datetime(string="LLM Scored At", readonly=True)
-    llm_error = fields.Char(string="LLM Error", readonly=True)
+    subjective_pending = fields.Integer(
+        compute="_compute_llm_progress", store=True, string="Subjective Pending"
+    )
+    llm_scored_at = fields.Datetime(string="Subjective Scored At", readonly=True)
+    llm_error = fields.Char(string="Subjective Error", readonly=True)
 
     @api.depends("response_ids.llm_score", "response_ids.llm_max_score",
                  "response_ids.llm_state")
     def _compute_llm_progress(self):
         for rec in self:
             scored = rec.response_ids.filtered(
-                lambda r: r.llm_state == "scored"
-            )
+                lambda r: r.llm_state == "scored")
             rec.llm_total_score = sum(scored.mapped("llm_score"))
             rec.llm_max_score = sum(scored.mapped("llm_max_score"))
+            rec.subjective_pending = len(rec.response_ids.filtered(
+                lambda r: r.llm_state in ("pending", "queued")))
+
+    def _compute_subjective_rollup(self):
+        """Refresh the evaluator subjective state after a per-response score."""
+        for rec in self:
+            resp = rec.response_ids
+            need = resp.filtered(lambda r: r.needs_llm)
+            if not need:
+                rec.llm_state = "scored"
+            elif all(r.llm_state == "scored" for r in need):
+                rec.llm_state = "scored"
+                rec.llm_scored_at = fields.Datetime.now()
+            elif any(r.llm_state == "failed" for r in need):
+                rec.llm_state = "partial" if any(
+                    r.llm_state == "scored" for r in need) else "failed"
+            elif any(r.llm_state == "scored" for r in need):
+                rec.llm_state = "partial"
+            else:
+                rec.llm_state = "pending"
 
     def action_llm_score(self):
-        """LLM-score this candidate's submitted responses.
+        """Trigger subjective (LLM) scoring for this candidate's responses.
 
-        ONE Bedrock call per candidate (batched payload — never one call per
-        response). Idempotent and re-runnable: a failed or partial run can be
-        triggered again; previously scored responses are simply re-scored.
+        Enqueues ONE RabbitMQ task PER justification-bearing response.
+        Idempotent and re-runnable; re-queues pending/failed responses.
         """
-        from ..services import bedrock_scoring
         for rec in self:
             if rec.state != "submitted":
                 raise UserError(
-                    "Candidate '%s' has not submitted yet — LLM scoring runs "
-                    "on submitted assessments only." % rec.employee_id.name
+                    "Candidate '%s' has not submitted yet — scoring runs on "
+                    "submitted assessments only." % rec.employee_id.name
                 )
             rec.write({"llm_state": "scoring", "llm_error": False})
-            try:
-                results = bedrock_scoring.score_evaluator(self.env, rec)
-            except Exception as exc:
-                _logger.exception("LLM scoring failed for evaluator %s", rec.id)
-                rec.write({
-                    "llm_state": "failed",
-                    "llm_error": str(exc)[:500],
-                })
-                continue
-
-            for resp in rec.response_ids.filtered(
-                lambda r: r.state == "submitted"
-            ):
-                item = results.get(resp.question_id.id)
-                if item:
-                    resp.write({
-                        "llm_score": item["score"],
-                        "llm_max_score": item["max_score"],
-                        "llm_feedback": item["feedback"],
-                        "llm_state": "scored",
-                    })
-                else:
-                    resp.write({"llm_state": "failed"})
-
-            rec.write({
-                "llm_state": "scored",
-                "llm_scored_at": fields.Datetime.now(),
-            })
+            todo = rec.response_ids.filtered(
+                lambda r: r.needs_llm and r.llm_state in
+                ("not_needed", "pending", "queued", "failed"))
+            todo._enqueue_subjective_scoring()
+            rec._compute_subjective_rollup()
         return True
 
     @api.depends("response_ids", "response_ids.state", "response_ids.score")
@@ -737,22 +766,62 @@ class EtpAssessmentResponse(models.Model):
     )
 
     # ------------------------------------------------------------------
-    # LLM scoring (qualitative grade of selections + justification;
-    # never touches the mechanical `score`)
+    # OBJECTIVE scoring: dimension picks vs the defined correct option.
+    # Known instantly, no LLM. (objective_* mirror score/max_score, with
+    # the clearer name the PL screens use.)
     # ------------------------------------------------------------------
-    llm_score = fields.Integer(string="LLM Score", readonly=True, copy=False)
-    llm_max_score = fields.Integer(string="LLM Max", readonly=True, copy=False)
-    llm_feedback = fields.Text(string="LLM Feedback", readonly=True, copy=False)
+    objective_score = fields.Integer(
+        related="score", store=True, string="Objective Score", readonly=True
+    )
+    objective_max = fields.Integer(
+        related="max_score", store=True, string="Objective Max", readonly=True
+    )
+    has_objective = fields.Boolean(
+        compute="_compute_scoring_kind", store=True,
+        string="Has Objective", help="Question has at least one dimension "
+        "with a defined correct option.")
+
+    # ------------------------------------------------------------------
+    # SUBJECTIVE scoring: the written justification, graded by the LLM.
+    # Only runs when a justification is present (needs_llm). Stored in the
+    # llm_* fields (kept for backward compat); subjective_* are friendly
+    # aliases the UI/API use.
+    # ------------------------------------------------------------------
+    needs_llm = fields.Boolean(
+        compute="_compute_scoring_kind", store=True, string="Needs LLM",
+        help="True when the candidate provided a written justification that "
+             "requires subjective grading.")
+    llm_score = fields.Integer(string="Subjective Score", readonly=True, copy=False)
+    llm_max_score = fields.Integer(string="Subjective Max", readonly=True, copy=False)
+    llm_feedback = fields.Text(string="Subjective Reasoning", readonly=True, copy=False)
     llm_state = fields.Selection(
         [
-            ("pending", "Not Scored"),
+            ("not_needed", "Not Needed"),
+            ("pending", "Pending"),
+            ("queued", "Queued"),
             ("scored", "Scored"),
             ("failed", "Failed"),
         ],
-        default="pending",
-        string="LLM Scoring",
+        default="not_needed",
+        string="Subjective State",
         copy=False,
     )
+    subjective_score = fields.Integer(
+        related="llm_score", string="Subjective Score ", readonly=True)
+    subjective_reasoning = fields.Text(
+        related="llm_feedback", string="Subjective Reasoning ", readonly=True)
+
+    @api.depends("line_ids.selected_option_id", "justification",
+                 "question_id")
+    def _compute_scoring_kind(self):
+        Opt = self.env["etp.assessment.question.dimension.option"]
+        for rec in self:
+            has_obj = bool(Opt.search_count([
+                ("question_dimension_id.question_id", "=", rec.question_id.id),
+                ("is_correct", "=", True),
+            ]))
+            rec.has_objective = has_obj
+            rec.needs_llm = bool((rec.justification or "").strip())
 
     @api.depends("line_ids.selected_option_id")
     def _compute_score(self):
@@ -786,8 +855,73 @@ class EtpAssessmentResponse(models.Model):
                 )
             rec.write({"state": "submitted"})
 
+            # Subjective scoring: enqueue per-question if a justification
+            # was provided. Objective score is already computed instantly.
+            if (rec.justification or "").strip():
+                rec.with_context(autoscore=True)._enqueue_subjective_scoring()
+
             if rec.assessment_evaluator_id:
                 rec._check_all_submitted()
+
+    # ------------------------------------------------------------------
+    # SUBJECTIVE (LLM) scoring — per question, RabbitMQ-driven
+    # ------------------------------------------------------------------
+    def _enqueue_subjective_scoring(self):
+        """Publish a per-question scoring task to RabbitMQ.
+
+        Honors the assessment's llm_auto_score flag for the on-submit path
+        (manual/bulk triggers bypass the flag). Falls back to inline state
+        'pending' (cron drainer picks it up) when the broker is unreachable.
+        """
+        for rec in self:
+            if not (rec.justification or "").strip():
+                rec.llm_state = "not_needed"
+                continue
+            if self.env.context.get("autoscore") and \
+                    not rec.assessment_id.llm_auto_score:
+                # auto path but assessment opted out — leave as pending,
+                # the PL triggers it manually later
+                rec.llm_state = "pending"
+                continue
+            rec.llm_state = "queued"
+            try:
+                from ..services import rabbitmq_service
+                rabbitmq_service.publish_score_task(rec.id)
+            except Exception as exc:
+                # broker down (e.g. local dev) — drop to pending so the
+                # cron drainer / manual button can score it
+                _logger.warning(
+                    "Score task publish failed for response %s, "
+                    "falling back to pending: %s", rec.id, exc)
+                rec.llm_state = "pending"
+
+    def rmq_score_subjective(self):
+        """Entry point called by the RabbitMQ consumer (per response).
+
+        Scores ONLY this response's justification. Idempotent and
+        re-runnable. Returns a small status dict for the consumer log.
+        """
+        self.ensure_one()
+        from ..services import bedrock_scoring
+        if not (self.justification or "").strip():
+            self.llm_state = "not_needed"
+            return {"status": "skipped", "reason": "no justification"}
+        try:
+            result = bedrock_scoring.score_one_response(self.env, self)
+        except Exception as exc:
+            _logger.exception("Subjective scoring failed for response %s", self.id)
+            self.write({"llm_state": "failed",
+                        "llm_feedback": ("ERROR: " + str(exc))[:1000]})
+            raise
+        self.write({
+            "llm_score": result.get("score", 0),
+            "llm_max_score": result.get("max_score", 10),
+            "llm_feedback": result.get("feedback", ""),
+            "llm_state": "scored",
+        })
+        if self.assessment_evaluator_id:
+            self.assessment_evaluator_id._compute_subjective_rollup()
+        return {"status": "scored", "score": result.get("score", 0)}
 
     def _check_all_submitted(self):
         evaluator_assignment = self.assessment_evaluator_id

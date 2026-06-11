@@ -1,0 +1,185 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Form View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_interview_form" model="ir.ui.view">
+            <field name="name">iris.interview.form</field>
+            <field name="model">iris.interview</field>
+            <field name="arch" type="xml">
+                <form string="Interview" create="false">
+                    <header>
+                        <button name="action_retry_llm" string="Retry" type="object"
+                                class="btn-warning"
+                                invisible="llm_status != 'failed'"
+                                confirm="Re-generate the interview guide through the configured LLM? This incurs usage costs."/>
+                        <button name="action_submit_notes" string="Submit Notes" type="object"
+                                class="oe_highlight"
+                                invisible="notes_submitted or llm_status != 'done'"
+                                confirm="Submit the interviewer notes? The candidate moves to Interviewed and the notes feed the scorecard."/>
+                        <button name="action_generate_scorecard" string="Generate Scorecard"
+                                type="object" class="oe_highlight"
+                                invisible="not notes_submitted"
+                                confirm="Generate the scorecard from this guide and the submitted notes via the configured LLM? This incurs usage costs."/>
+                        <field name="llm_status" widget="statusbar"
+                               statusbar_visible="queued,running,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="alert alert-danger" role="alert"
+                             invisible="llm_status != 'failed'">
+                            <strong>LLM call failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+
+                        <group>
+                            <group string="Interview">
+                                <field name="candidate_id" readonly="1"/>
+                                <field name="screening_id" readonly="1"/>
+                                <field name="attachment_id" readonly="1"
+                                       invisible="not attachment_id"/>
+                            </group>
+                            <group string="Interviewer">
+                                <field name="interviewer_id"/>
+                                <field name="interviewer_name"
+                                       placeholder="External interviewer name (free text)"/>
+                                <field name="interviewed_at"/>
+                                <field name="notes_submitted" readonly="1"/>
+                            </group>
+                        </group>
+
+                        <group string="Interviewer Notes">
+                            <field name="notes" nolabel="1" colspan="2"
+                                   readonly="notes_submitted"
+                                   placeholder="Terse notes per question: what the candidate said, ladder depth reached, red flags..."/>
+                        </group>
+
+                        <notebook>
+                            <page string="Guide" name="guide">
+                                <field name="guide_html" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Guide" name="raw_guide">
+                                <field name="guide_markdown" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Scorecards" name="scorecards">
+                                <field name="scorecard_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false">
+                                        <field name="recommendation" widget="badge"
+                                               decoration-success="recommendation in ('strong_hire', 'hire')"
+                                               decoration-danger="recommendation in ('no_hire', 'strong_no_hire')"/>
+                                        <field name="llm_status" widget="badge"
+                                               decoration-success="llm_status == 'done'"
+                                               decoration-danger="llm_status == 'failed'"
+                                               decoration-info="llm_status in ('queued', 'running')"/>
+                                        <field name="llm_cost_usd" optional="show" sum="Total"/>
+                                        <field name="create_date" optional="show"/>
+                                    </list>
+                                </field>
+                            </page>
+                            <page string="Prompt Input" name="prompt_input">
+                                <field name="llm_prompt_input" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Response" name="raw_response">
+                                <field name="llm_raw_response" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Metadata" name="metadata">
+                                <group>
+                                    <group string="Model">
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                    </group>
+                                    <group string="Timing">
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- List View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_interview_list" model="ir.ui.view">
+            <field name="name">iris.interview.list</field>
+            <field name="model">iris.interview</field>
+            <field name="arch" type="xml">
+                <list string="Interviews" create="false">
+                    <field name="candidate_id"/>
+                    <field name="interviewer_id" optional="show"/>
+                    <field name="interviewer_name" optional="show"/>
+                    <field name="interviewed_at" optional="show"/>
+                    <field name="notes_submitted" optional="show"/>
+                    <field name="llm_status" widget="badge"
+                           decoration-success="llm_status == 'done'"
+                           decoration-danger="llm_status == 'failed'"
+                           decoration-info="llm_status in ('queued', 'running')"/>
+                    <field name="llm_cost_usd" optional="show" sum="Total"/>
+                    <field name="create_date" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_interview_search" model="ir.ui.view">
+            <field name="name">iris.interview.search</field>
+            <field name="model">iris.interview</field>
+            <field name="arch" type="xml">
+                <search string="Search Interviews">
+                    <field name="candidate_id"/>
+                    <field name="interviewer_id"/>
+                    <field name="interviewer_name"/>
+
+                    <filter name="filter_notes_pending" string="Notes Pending"
+                            domain="[('notes_submitted', '=', False)]"/>
+                    <filter name="filter_notes_submitted" string="Notes Submitted"
+                            domain="[('notes_submitted', '=', True)]"/>
+                    <separator/>
+                    <filter name="filter_queued" string="Queued"
+                            domain="[('llm_status', '=', 'queued')]"/>
+                    <filter name="filter_running" string="Running"
+                            domain="[('llm_status', '=', 'running')]"/>
+                    <filter name="filter_done" string="Done"
+                            domain="[('llm_status', '=', 'done')]"/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('llm_status', '=', 'failed')]"/>
+
+                    <group>
+                        <filter name="group_candidate" string="Candidate"
+                                context="{'group_by': 'candidate_id'}"/>
+                        <filter name="group_interviewer" string="Interviewer"
+                                context="{'group_by': 'interviewer_id'}"/>
+                        <filter name="group_llm_status" string="LLM Status"
+                                context="{'group_by': 'llm_status'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action                                                       -->
+        <!-- ============================================================ -->
+        <record id="action_iris_interview" model="ir.actions.act_window">
+            <field name="name">Interviews</field>
+            <field name="res_model">iris.interview</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_interview_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No interviews yet</p>
+                <p>Interview guides are generated from a shipped candidate via the Generate Interview Guide button.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

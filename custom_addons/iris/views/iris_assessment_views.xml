@@ -1,0 +1,261 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Assessment — Form View                                       -->
+        <!-- ============================================================ -->
+        <record id="view_iris_assessment_form" model="ir.ui.view">
+            <field name="name">iris.assessment.form</field>
+            <field name="model">iris.assessment</field>
+            <field name="arch" type="xml">
+                <form string="Assessment">
+                    <header>
+                        <button name="action_send_brief" string="Send Brief" type="object"
+                                class="oe_highlight"
+                                invisible="status != 'draft'"/>
+                        <button name="action_generate_review_draft" string="Generate LLM Draft"
+                                type="object" class="oe_highlight"
+                                invisible="status != 'submitted'"
+                                confirm="Send the brief, submission and resume to the configured LLM to produce a review DRAFT? This incurs usage costs. The draft never changes any state — only Finalize Review does."/>
+                        <button name="action_apply_draft" string="Copy Draft to Feedback"
+                                type="object"
+                                invisible="not llm_draft_markdown or status == 'reviewed'"
+                                confirm="Copy the LLM draft sections into the EMPTY feedback fields? Fields you already filled are kept untouched."/>
+                        <button name="action_finalize_review" string="Finalize Review"
+                                type="object" class="btn-success"
+                                invisible="status != 'submitted'"
+                                confirm="Finalize this review? The structured feedback is rendered to the Feedback.md attachment and the assessment is locked as Reviewed."/>
+                        <button name="action_retry_llm" string="Retry" type="object"
+                                class="btn-warning"
+                                invisible="llm_status != 'failed'"
+                                confirm="Re-run the LLM review draft? This incurs usage costs."/>
+                        <field name="status" widget="statusbar"
+                               statusbar_visible="draft,sent,submitted,reviewed"/>
+                    </header>
+
+                    <sheet>
+                        <field name="llm_status" invisible="1"/>
+                        <field name="llm_draft_markdown" invisible="1"/>
+
+                        <div class="alert alert-danger" role="alert"
+                             invisible="llm_status != 'failed'">
+                            <strong>LLM draft failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+                        <div class="alert alert-info" role="alert"
+                             invisible="llm_status != 'done' or status == 'reviewed'">
+                            <strong>Draft ready —</strong> the LLM review draft is advisory only.
+                            Copy it to the feedback fields, edit, then Finalize Review.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="candidate_id" readonly="status != 'draft'"
+                                       options="{'no_create': True}"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Outcome">
+                                <field name="rating" widget="badge" readonly="1"
+                                       decoration-success="rating in ('exceptional', 'above_average')"
+                                       decoration-info="rating == 'average'"
+                                       decoration-danger="rating in ('below_average', 'poor')"/>
+                                <field name="recommendation" widget="badge" readonly="1"
+                                       decoration-success="recommendation == 'hire'"
+                                       decoration-info="recommendation == 'lean_hire'"
+                                       decoration-warning="recommendation == 'lean_no_hire'"
+                                       decoration-danger="recommendation == 'no_hire'"/>
+                            </group>
+                            <group string="Timeline">
+                                <field name="sent_at" readonly="1"/>
+                                <field name="submitted_at" readonly="1"/>
+                                <field name="reviewed_by" readonly="1"
+                                       invisible="not reviewed_by"/>
+                                <field name="reviewed_at" readonly="1"
+                                       invisible="not reviewed_at"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Brief" name="brief">
+                                <field name="brief" nolabel="1"
+                                       readonly="status != 'draft'"
+                                       placeholder="The take-home / FSD brief to send to the candidate."/>
+                            </page>
+
+                            <page string="Submission" name="submission">
+                                <group>
+                                    <group string="File">
+                                        <field name="submission_file" widget="binary"
+                                               filename="submission_filename"
+                                               readonly="status == 'reviewed'"/>
+                                        <field name="submission_filename" readonly="1"/>
+                                        <field name="submitted_at" readonly="1"/>
+                                    </group>
+                                </group>
+                                <group string="Extracted Text">
+                                    <field name="submission_text" readonly="1" nolabel="1" colspan="2"
+                                           placeholder="Text is extracted automatically from the uploaded submission (PDF / docx / md / txt)."/>
+                                </group>
+                            </page>
+
+                            <page string="LLM Draft" name="llm_draft">
+                                <field name="llm_draft_html" readonly="1" nolabel="1"/>
+                            </page>
+
+                            <page string="Feedback" name="feedback">
+                                <group>
+                                    <group string="Verdict">
+                                        <field name="rating" readonly="status == 'reviewed'"/>
+                                        <field name="recommendation" readonly="status == 'reviewed'"/>
+                                    </group>
+                                    <group string="Render">
+                                        <field name="attachment_id" readonly="1"
+                                               invisible="not attachment_id"/>
+                                        <field name="draft_attachment_id" readonly="1"
+                                               invisible="not draft_attachment_id"/>
+                                    </group>
+                                </group>
+                                <group string="Summary">
+                                    <field name="summary" nolabel="1" colspan="2"
+                                           readonly="status == 'reviewed'"/>
+                                </group>
+                                <group string="Strengths">
+                                    <field name="strengths" nolabel="1" colspan="2"
+                                           readonly="status == 'reviewed'"/>
+                                </group>
+                                <group string="Concerns">
+                                    <field name="concerns" nolabel="1" colspan="2"
+                                           readonly="status == 'reviewed'"/>
+                                </group>
+                                <group string="Fit for Current Need">
+                                    <field name="fit_for_current_need" nolabel="1" colspan="2"
+                                           readonly="status == 'reviewed'"/>
+                                </group>
+                                <group string="Recommendation Conditions">
+                                    <field name="recommendation_conditions" nolabel="1" colspan="2"
+                                           readonly="status == 'reviewed'"/>
+                                </group>
+                            </page>
+
+                            <page string="LLM Log" name="llm_log">
+                                <group>
+                                    <group string="Model">
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                    </group>
+                                    <group string="Timing">
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                                <group string="Prompt Input">
+                                    <field name="llm_prompt_input" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                                <group string="Raw Response">
+                                    <field name="llm_raw_response" readonly="1" nolabel="1" colspan="2"/>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Assessment — List View                                       -->
+        <!-- ============================================================ -->
+        <record id="view_iris_assessment_list" model="ir.ui.view">
+            <field name="name">iris.assessment.list</field>
+            <field name="model">iris.assessment</field>
+            <field name="arch" type="xml">
+                <list string="Assessments">
+                    <field name="candidate_id"/>
+                    <field name="status" widget="badge"
+                           decoration-success="status == 'reviewed'"
+                           decoration-warning="status == 'submitted'"
+                           decoration-info="status == 'sent'"/>
+                    <field name="rating" widget="badge"
+                           decoration-success="rating in ('exceptional', 'above_average')"
+                           decoration-info="rating == 'average'"
+                           decoration-danger="rating in ('below_average', 'poor')"/>
+                    <field name="recommendation" widget="badge"
+                           decoration-success="recommendation == 'hire'"
+                           decoration-info="recommendation == 'lean_hire'"
+                           decoration-warning="recommendation == 'lean_no_hire'"
+                           decoration-danger="recommendation == 'no_hire'"/>
+                    <field name="llm_status" widget="badge" optional="show"
+                           decoration-success="llm_status == 'done'"
+                           decoration-danger="llm_status == 'failed'"
+                           decoration-info="llm_status in ('queued', 'running')"/>
+                    <field name="submitted_at" optional="show"/>
+                    <field name="reviewed_by" optional="hide"/>
+                    <field name="llm_cost_usd" optional="show" sum="Total"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Assessment — Search View                                     -->
+        <!-- ============================================================ -->
+        <record id="view_iris_assessment_search" model="ir.ui.view">
+            <field name="name">iris.assessment.search</field>
+            <field name="model">iris.assessment</field>
+            <field name="arch" type="xml">
+                <search string="Search Assessments">
+                    <field name="candidate_id"/>
+                    <field name="brief"/>
+                    <field name="submission_text"/>
+
+                    <filter name="filter_draft" string="Draft"
+                            domain="[('status', '=', 'draft')]"/>
+                    <filter name="filter_sent" string="Sent"
+                            domain="[('status', '=', 'sent')]"/>
+                    <filter name="filter_submitted" string="Submitted"
+                            domain="[('status', '=', 'submitted')]"/>
+                    <filter name="filter_reviewed" string="Reviewed"
+                            domain="[('status', '=', 'reviewed')]"/>
+                    <separator/>
+                    <filter name="filter_llm_failed" string="LLM Failed"
+                            domain="[('llm_status', '=', 'failed')]"/>
+                    <filter name="filter_draft_ready" string="Draft Ready"
+                            domain="[('llm_status', '=', 'done'), ('status', '!=', 'reviewed')]"/>
+
+                    <group>
+                        <filter name="group_candidate" string="Candidate"
+                                context="{'group_by': 'candidate_id'}"/>
+                        <filter name="group_status" string="Status"
+                                context="{'group_by': 'status'}"/>
+                        <filter name="group_rating" string="Rating"
+                                context="{'group_by': 'rating'}"/>
+                        <filter name="group_recommendation" string="Recommendation"
+                                context="{'group_by': 'recommendation'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Assessment — Action                                          -->
+        <!-- ============================================================ -->
+        <record id="action_iris_assessment" model="ir.actions.act_window">
+            <field name="name">Assessments</field>
+            <field name="res_model">iris.assessment</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_assessment_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No assessments yet</p>
+                <p>Create a take-home / FSD assessment for a candidate past screening:
+                   send the brief, upload the submission, generate the LLM review draft,
+                   then finalize the human review.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

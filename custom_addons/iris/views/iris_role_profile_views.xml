@@ -1,0 +1,140 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Form View (create locked: seed-only in v1.1)                 -->
+        <!-- ============================================================ -->
+        <record id="view_iris_role_profile_form" model="ir.ui.view">
+            <field name="name">iris.role.profile.form</field>
+            <field name="model">iris.role.profile</field>
+            <field name="arch" type="xml">
+                <form string="Role Profile" create="false">
+                    <sheet>
+                        <widget name="web_ribbon" title="Archived"
+                                bg_color="text-bg-danger" invisible="active"/>
+                        <field name="active" invisible="1"/>
+
+                        <div class="oe_button_box" name="button_box">
+                            <button class="oe_stat_button" type="object"
+                                    name="action_view_candidates" icon="fa-users">
+                                <field name="candidate_count" widget="statinfo"
+                                       string="Candidates"/>
+                            </button>
+                        </div>
+
+                        <div class="alert alert-info" role="alert" invisible="not is_legacy">
+                            <strong>Legacy role —</strong> created by the v1.1 migration from a
+                            pre-existing free-text target role. Archived and never selectable
+                            for new candidates.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" placeholder="Role Name"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Identity">
+                                <field name="code" readonly="1"/>
+                                <field name="sequence"/>
+                                <field name="is_legacy" invisible="not is_legacy"/>
+                            </group>
+                            <group string="Description">
+                                <field name="description" nolabel="1" colspan="2"
+                                       placeholder="What this role is, in one paragraph."/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Screening Guidance" name="guidance">
+                                <group string="Competence Guidance">
+                                    <field name="competence_guidance" nolabel="1" colspan="2"
+                                           placeholder="Role-specific calibration injected into the screening INPUTS block as ROLE COMPETENCE GUIDANCE."/>
+                                </group>
+                                <group string="Default Tech Date Reference">
+                                    <field name="default_tech_date_reference" nolabel="1" colspan="2"
+                                           placeholder="Starter GA-date markdown table copied onto new candidates of this role."/>
+                                </group>
+                            </page>
+                            <page string="Prompt Overrides" name="prompt_overrides">
+                                <p class="text-muted">
+                                    FULL per-role replacements for the bundled prompts. Leave empty
+                                    to fall through to the Settings override, then the bundled
+                                    prompts/*.md file. Editing these changes verdict behaviour —
+                                    keep the output contract (Metadata verdict row, emoji verdicts,
+                                    filename rule) intact or screenings will land in Needs Review.
+                                </p>
+                                <group>
+                                    <field name="screening_prompt"/>
+                                    <field name="questions_prompt"/>
+                                    <field name="scorecard_prompt"/>
+                                    <field name="batch_consistency_prompt"/>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- List View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_role_profile_list" model="ir.ui.view">
+            <field name="name">iris.role.profile.list</field>
+            <field name="model">iris.role.profile</field>
+            <field name="arch" type="xml">
+                <list string="Role Profiles" create="false">
+                    <field name="sequence" widget="handle"/>
+                    <field name="name"/>
+                    <field name="code"/>
+                    <field name="candidate_count"/>
+                    <field name="is_legacy" optional="show"/>
+                    <field name="active" optional="hide"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_role_profile_search" model="ir.ui.view">
+            <field name="name">iris.role.profile.search</field>
+            <field name="model">iris.role.profile</field>
+            <field name="arch" type="xml">
+                <search string="Search Role Profiles">
+                    <field name="name"/>
+                    <field name="code"/>
+
+                    <filter name="filter_legacy" string="Legacy (Migration)"
+                            domain="[('is_legacy', '=', True)]"/>
+                    <separator/>
+                    <filter name="filter_archived" string="Archived"
+                            domain="[('active', '=', False)]"/>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action (no menu here — menus live in iris_menus.xml)         -->
+        <!-- ============================================================ -->
+        <record id="action_iris_role_profile" model="ir.actions.act_window">
+            <field name="name">Role Profiles</field>
+            <field name="res_model">iris.role.profile</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_role_profile_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No role profiles</p>
+                <p>
+                    iris v1.1 ships with the seeded Head of Engineering role only.
+                    Creating additional roles is locked behind the
+                    <code>iris.enable_role_creation</code> system parameter.
+                </p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

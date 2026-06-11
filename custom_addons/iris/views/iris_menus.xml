@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <menuitem id="menu_iris_root"
+                  name="Iris"
+                  web_icon="iris,static/description/icon.png"
+                  sequence="95"
+                  groups="iris.group_iris_user"/>
+
+        <menuitem id="menu_iris_job_descriptions"
+                  name="Job Descriptions"
+                  parent="menu_iris_root"
+                  action="action_iris_job_description"
+                  sequence="5"/>
+
+        <menuitem id="menu_iris_candidates"
+                  name="Candidates"
+                  parent="menu_iris_root"
+                  action="action_iris_candidate"
+                  sequence="10"/>
+
+        <menuitem id="menu_iris_batches"
+                  name="Batches"
+                  parent="menu_iris_root"
+                  action="action_iris_screening_batch"
+                  sequence="15"/>
+
+        <menuitem id="menu_iris_screenings"
+                  name="Screenings"
+                  parent="menu_iris_root"
+                  action="action_iris_screening"
+                  sequence="20"/>
+
+        <menuitem id="menu_iris_interviews"
+                  name="Interviews"
+                  parent="menu_iris_root"
+                  action="action_iris_interview"
+                  sequence="30"/>
+
+        <menuitem id="menu_iris_assessments"
+                  name="Assessments"
+                  parent="menu_iris_root"
+                  action="action_iris_assessment"
+                  sequence="35"/>
+
+        <menuitem id="menu_iris_scorecards"
+                  name="Scorecards"
+                  parent="menu_iris_root"
+                  action="action_iris_scorecard"
+                  sequence="40"/>
+
+        <menuitem id="menu_iris_calibration"
+                  name="Calibration"
+                  parent="menu_iris_root"
+                  action="action_iris_calibration_session"
+                  sequence="50"/>
+
+        <!-- Configuration is user-visible (NOT manager-only) so screeners
+             can read the Tech Date Reference table; the sensitive children
+             (Settings, Role Profiles) stay manager-gated individually. -->
+        <menuitem id="menu_iris_config"
+                  name="Configuration"
+                  parent="menu_iris_root"
+                  sequence="90"
+                  groups="iris.group_iris_user"/>
+
+        <menuitem id="menu_iris_role_profiles"
+                  name="Role Profiles"
+                  parent="menu_iris_config"
+                  action="action_iris_role_profile"
+                  sequence="5"
+                  groups="iris.group_iris_manager"/>
+
+        <menuitem id="menu_iris_settings"
+                  name="Settings"
+                  parent="menu_iris_config"
+                  action="action_iris_config_settings"
+                  sequence="10"
+                  groups="iris.group_iris_manager"/>
+
+        <menuitem id="menu_iris_tech_date_reference"
+                  name="Tech Date Reference"
+                  parent="menu_iris_config"
+                  action="action_iris_tech_date_reference"
+                  sequence="20"
+                  groups="iris.group_iris_user"/>
+    </data>
+</odoo>

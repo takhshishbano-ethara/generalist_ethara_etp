@@ -42,6 +42,8 @@ CLAUDE.md
 /odoo.conf
 /.sisyphus
 jaeger-ref/
+crowley-ref/
+iris-ref/
 .repo_cache/
 custom_addons/jaeger/plan.md
 

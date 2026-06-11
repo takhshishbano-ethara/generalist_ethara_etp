@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- LLM auto-score drainer (no-op unless an assessment enables llm_auto_score) -->
+    <record id="ir_cron_llm_auto_score" model="ir.cron">
+        <field name="name">ETP Assessment: LLM auto-score submitted candidates</field>
+        <field name="model_id" ref="model_etp_assessment"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_llm_auto_score()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

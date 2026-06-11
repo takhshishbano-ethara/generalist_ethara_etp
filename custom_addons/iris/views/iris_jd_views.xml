@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Job Description — Form View                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_job_description_form" model="ir.ui.view">
+            <field name="name">iris.job.description.form</field>
+            <field name="model">iris.job.description</field>
+            <field name="arch" type="xml">
+                <form string="Job Description">
+                    <header>
+                        <button name="action_critique" string="Critique JD" type="object"
+                                class="oe_highlight"
+                                invisible="state not in ('draft', 'critiqued', 'rewritten')"
+                                confirm="Send the original JD text to the configured LLM for a critique? This incurs usage costs."/>
+                        <button name="action_rewrite" string="Rewrite JD" type="object"
+                                class="oe_highlight"
+                                invisible="state not in ('critiqued', 'rewritten')"
+                                confirm="Generate the rewritten JD from the completed critique via the configured LLM? This incurs usage costs."/>
+                        <button name="action_approve" string="Approve" type="object"
+                                class="btn-success"
+                                invisible="state != 'rewritten'"
+                                groups="iris.group_iris_manager"
+                                confirm="Approve this job description for publication? Approval is blocked while any [FILL-IN: ...] placeholder remains in the Final JD."/>
+                        <button name="action_reopen" string="Reopen" type="object"
+                                invisible="state != 'approved'"
+                                groups="iris.group_iris_manager"
+                                confirm="Reopen this approved job description for further edits? The approval will be rescinded."/>
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,critiquing,critiqued,rewriting,rewritten,approved"/>
+                    </header>
+
+                    <sheet>
+                        <field name="last_llm_failed" invisible="1"/>
+                        <field name="has_fillins" invisible="1"/>
+
+                        <div class="alert alert-danger" role="alert"
+                             invisible="not last_llm_failed">
+                            <strong>LLM run failed: </strong>
+                            <field name="last_llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                            — retry from the artifact record below.
+                        </div>
+                        <div class="alert alert-success" role="alert"
+                             invisible="state != 'approved'">
+                            <strong>Approved</strong> by
+                            <field name="approved_by" readonly="1" nolabel="1" class="oe_inline"/>
+                            on
+                            <field name="approved_at" readonly="1" nolabel="1" class="oe_inline"/>.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" placeholder="Role Title" required="1"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Context">
+                                <field name="company_name"/>
+                                <field name="active" invisible="active"/>
+                            </group>
+                            <group string="Current Artifacts">
+                                <field name="current_critique_id" readonly="1"/>
+                                <field name="current_rewrite_id" readonly="1"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Original JD" name="original_jd">
+                                <group>
+                                    <group string="Source File">
+                                        <field name="source_file" widget="binary"
+                                               filename="source_filename"/>
+                                        <field name="source_filename" readonly="1"/>
+                                    </group>
+                                </group>
+                                <group string="JD Text">
+                                    <field name="raw_jd" nolabel="1" colspan="2"
+                                           readonly="state != 'draft'"
+                                           placeholder="Paste the job description text here, or upload a PDF above (the text is extracted automatically when this field is empty)."/>
+                                </group>
+                            </page>
+
+                            <page string="Critique" name="critique">
+                                <field name="critique_html" readonly="1" nolabel="1"/>
+                            </page>
+
+                            <page string="Rewrite" name="rewrite">
+                                <field name="rewrite_html" readonly="1" nolabel="1"/>
+                            </page>
+
+                            <page string="Final JD" name="final_jd">
+                                <div class="alert alert-warning" role="alert"
+                                     invisible="not has_fillins">
+                                    <strong>Unresolved placeholders —</strong> the Final JD still
+                                    contains [FILL-IN: ...] markers. Resolve every placeholder
+                                    before approval; placeholders must never be published.
+                                </div>
+                                <field name="final_jd" nolabel="1"
+                                       readonly="state == 'approved'"
+                                       placeholder="Seeded automatically from the rewrite output — edit here to resolve every [FILL-IN: ...] placeholder."/>
+                            </page>
+
+                            <page string="Artifacts" name="artifacts">
+                                <field name="artifact_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-danger="llm_status == 'failed'"
+                                          decoration-info="llm_status in ('queued', 'running')">
+                                        <field name="operation"/>
+                                        <field name="attempt" string="#"/>
+                                        <field name="llm_status" widget="badge"
+                                               decoration-success="llm_status == 'done'"
+                                               decoration-danger="llm_status == 'failed'"
+                                               decoration-info="llm_status in ('queued', 'running')"/>
+                                        <field name="llm_model_used" optional="show"/>
+                                        <field name="llm_cost_usd" optional="show" sum="Total"/>
+                                        <field name="create_date" optional="show"/>
+                                    </list>
+                                </field>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Job Description — List View                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_job_description_list" model="ir.ui.view">
+            <field name="name">iris.job.description.list</field>
+            <field name="model">iris.job.description</field>
+            <field name="arch" type="xml">
+                <list string="Job Descriptions">
+                    <field name="name"/>
+                    <field name="company_name" optional="show"/>
+                    <field name="state" widget="badge"
+                           decoration-success="state == 'approved'"
+                           decoration-warning="state in ('critiqued', 'rewritten')"
+                           decoration-info="state in ('critiquing', 'rewriting')"/>
+                    <field name="has_fillins" optional="show"/>
+                    <field name="approved_by" optional="show"/>
+                    <field name="create_date" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Job Description — Search View                                -->
+        <!-- ============================================================ -->
+        <record id="view_iris_job_description_search" model="ir.ui.view">
+            <field name="name">iris.job.description.search</field>
+            <field name="model">iris.job.description</field>
+            <field name="arch" type="xml">
+                <search string="Search Job Descriptions">
+                    <field name="name"/>
+                    <field name="company_name"/>
+                    <field name="raw_jd"/>
+
+                    <filter name="filter_draft" string="Draft"
+                            domain="[('state', '=', 'draft')]"/>
+                    <filter name="filter_in_progress" string="In Progress"
+                            domain="[('state', 'in', ('critiquing', 'critiqued', 'rewriting'))]"/>
+                    <filter name="filter_rewritten" string="Rewritten"
+                            domain="[('state', '=', 'rewritten')]"/>
+                    <filter name="filter_approved" string="Approved"
+                            domain="[('state', '=', 'approved')]"/>
+                    <separator/>
+                    <!-- has_fillins is a non-stored compute (unsearchable);
+                         the FILL-IN warning lives on the form alert instead. -->
+                    <filter name="filter_archived" string="Archived"
+                            domain="[('active', '=', False)]"/>
+
+                    <group>
+                        <filter name="group_state" string="State"
+                                context="{'group_by': 'state'}"/>
+                        <filter name="group_company" string="Company"
+                                context="{'group_by': 'company_name'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Job Description — Action                                     -->
+        <!-- ============================================================ -->
+        <record id="action_iris_job_description" model="ir.actions.act_window">
+            <field name="name">Job Descriptions</field>
+            <field name="res_model">iris.job.description</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_job_description_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">Add your first job description</p>
+                <p>Paste (or upload) the JD, run the LLM critique, generate the rewrite,
+                   resolve the [FILL-IN: ...] placeholders, then approve.</p>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- JD Artifact — Form View (audit artifact — readonly)          -->
+        <!-- ============================================================ -->
+        <record id="view_iris_jd_artifact_form" model="ir.ui.view">
+            <field name="name">iris.jd.artifact.form</field>
+            <field name="model">iris.jd.artifact</field>
+            <field name="arch" type="xml">
+                <form string="JD Artifact" create="false">
+                    <header>
+                        <button name="action_retry_llm" string="Retry" type="object"
+                                class="btn-warning"
+                                invisible="llm_status != 'failed'"
+                                confirm="Re-run this JD operation through the configured LLM? This incurs usage costs."/>
+                        <field name="llm_status" widget="statusbar"
+                               statusbar_visible="queued,running,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="alert alert-danger" role="alert"
+                             invisible="llm_status != 'failed'">
+                            <strong>LLM call failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="operation" widget="badge" readonly="1"
+                                       decoration-info="operation == 'critique'"
+                                       decoration-success="operation == 'rewrite'"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Artifact">
+                                <field name="jd_id" readonly="1"/>
+                                <field name="attempt" readonly="1"/>
+                            </group>
+                            <group string="Output">
+                                <field name="attachment_id" readonly="1"
+                                       invisible="not attachment_id"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Result" name="result">
+                                <field name="markdown_html" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Markdown" name="raw_markdown">
+                                <field name="markdown_result" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Prompt Input" name="prompt_input">
+                                <field name="llm_prompt_input" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Response" name="raw_response">
+                                <field name="llm_raw_response" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Metadata" name="metadata">
+                                <group>
+                                    <group string="Model">
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                    </group>
+                                    <group string="Timing">
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- JD Artifact — List View                                      -->
+        <!-- ============================================================ -->
+        <record id="view_iris_jd_artifact_list" model="ir.ui.view">
+            <field name="name">iris.jd.artifact.list</field>
+            <field name="model">iris.jd.artifact</field>
+            <field name="arch" type="xml">
+                <list string="JD Artifacts" create="false">
+                    <field name="jd_id"/>
+                    <field name="operation"/>
+                    <field name="attempt" string="#"/>
+                    <field name="llm_status" widget="badge"
+                           decoration-success="llm_status == 'done'"
+                           decoration-danger="llm_status == 'failed'"
+                           decoration-info="llm_status in ('queued', 'running')"/>
+                    <field name="llm_model_used" optional="show"/>
+                    <field name="llm_cost_usd" optional="show" sum="Total"/>
+                    <field name="create_date" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- JD Artifact — Search View                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_jd_artifact_search" model="ir.ui.view">
+            <field name="name">iris.jd.artifact.search</field>
+            <field name="model">iris.jd.artifact</field>
+            <field name="arch" type="xml">
+                <search string="Search JD Artifacts">
+                    <field name="jd_id"/>
+                    <field name="markdown_result"/>
+
+                    <filter name="filter_critiques" string="Critiques"
+                            domain="[('operation', '=', 'critique')]"/>
+                    <filter name="filter_rewrites" string="Rewrites"
+                            domain="[('operation', '=', 'rewrite')]"/>
+                    <separator/>
+                    <filter name="filter_done" string="Done"
+                            domain="[('llm_status', '=', 'done')]"/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('llm_status', '=', 'failed')]"/>
+
+                    <group>
+                        <filter name="group_jd" string="Job Description"
+                                context="{'group_by': 'jd_id'}"/>
+                        <filter name="group_operation" string="Operation"
+                                context="{'group_by': 'operation'}"/>
+                        <filter name="group_llm_status" string="LLM Status"
+                                context="{'group_by': 'llm_status'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- JD Artifact — Action                                         -->
+        <!-- ============================================================ -->
+        <record id="action_iris_jd_artifact" model="ir.actions.act_window">
+            <field name="name">JD Artifacts</field>
+            <field name="res_model">iris.jd.artifact</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_jd_artifact_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No JD artifacts yet</p>
+                <p>Artifacts are created from a job description via the
+                   Critique JD / Rewrite JD buttons.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>
