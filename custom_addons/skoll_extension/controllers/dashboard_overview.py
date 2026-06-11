@@ -15,13 +15,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from .analytics_dashboard import (
     DONE_STATE,
     PASS_RATE_GOOD,
-    SKOLL_FULL_ACCESS_ROLE_XMLIDS,
     WEEKDAY_LABELS,
     _money,
     _parse_date,
     _pct1,
     _scope as _role_scope,
-    _user_has_role,
     _user_role_tag,
 )
 
@@ -193,6 +191,38 @@ def _done_per_day(env, task_scope, day_from, day_to):
     return out
 
 
+def _team_members_from_projects(projects):
+    leads = projects.mapped("project_lead")
+    qrs = projects.mapped("project_qc_reviewer")
+    taskers = projects.mapped("project_tasker")
+    aires = projects.mapped("project_aire")
+    swes = projects.mapped("project_swe")
+    total = len(leads | qrs | taskers | aires | swes)
+    sub_string = (
+        f"{len(leads)} leads · {len(qrs)} QR · {len(taskers)} taskers · "
+        f"{len(aires)} AIRE · {len(swes)} SWE"
+    )
+    return total, sub_string
+
+
+def _scope_projects_for_team(env):
+    role_tag = _user_role_tag(env)
+    Project = env["project.project"].sudo()
+    if role_tag in ("full", "ql", "manager"):
+        return Project.search([])
+    employee_ids = env.user.employee_ids.ids
+    if not employee_ids:
+        return Project.browse()
+    return Project.search([
+        "|", "|", "|", "|",
+        ("project_lead", "in", employee_ids),
+        ("project_qc_reviewer", "in", employee_ids),
+        ("project_tasker", "in", employee_ids),
+        ("project_aire", "in", employee_ids),
+        ("project_swe", "in", employee_ids),
+    ])
+
+
 def _compute_kpi(env, task_scope, gen_scope):
     Task = env["skoll.skoll"].sudo()
     Generation = env["skoll.generation"].sudo()
@@ -213,13 +243,9 @@ def _compute_kpi(env, task_scope, gen_scope):
     approved, reviewed = _approved_reviewed(env, task_scope)
     approval_rate = _pct(approved, reviewed) if reviewed else 0.0
 
-    user_ids = set()
-    tasks_for_team = Task.search(task_scope, limit=2000)
-    for t in tasks_for_team:
-        if t.employee_id and t.employee_id.user_id:
-            user_ids.add(t.employee_id.user_id.id)
-    if _user_has_role(env, SKOLL_FULL_ACCESS_ROLE_XMLIDS):
-        user_ids.add(env.user.id)
+    team_total, team_sub_string = _team_members_from_projects(
+        _scope_projects_for_team(env)
+    )
 
     today_from, today_to, today_date = _today_bounds(env)
     yesterday_date = today_date - timedelta(days=1)
@@ -284,8 +310,8 @@ def _compute_kpi(env, task_scope, gen_scope):
         _kpi_item(
             "team_members",
             "Team Members",
-            f"{len(user_ids)}",
-            "Active contributors",
+            f"{team_total}",
+            team_sub_string,
         ),
         _kpi_item(
             "approved_today",

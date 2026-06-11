@@ -15,6 +15,7 @@ from .analytics_dashboard import (
     _budget_usd,
     _scope as _role_scope,
     _task_cost,
+    _user_role_tag,
 )
 
 BUDGET_PARAM = "fenrir.budget_usd"
@@ -121,6 +122,38 @@ def _date_filter_domain(params):
     return domain, None
 
 
+def _team_members_from_projects(projects):
+    leads = projects.mapped("project_lead")
+    qrs = projects.mapped("project_qc_reviewer")
+    taskers = projects.mapped("project_tasker")
+    aires = projects.mapped("project_aire")
+    swes = projects.mapped("project_swe")
+    total = len(leads | qrs | taskers | aires | swes)
+    sub_string = (
+        f"{len(leads)} leads · {len(qrs)} QR · {len(taskers)} taskers · "
+        f"{len(aires)} AIRE · {len(swes)} SWE"
+    )
+    return total, sub_string
+
+
+def _scope_projects_for_team(env):
+    role_tag = _user_role_tag(env)
+    Project = env["project.project"].sudo()
+    if role_tag in ("full", "ql", "manager"):
+        return Project.search([])
+    employee_ids = env.user.employee_ids.ids
+    if not employee_ids:
+        return Project.browse()
+    return Project.search([
+        "|", "|", "|", "|",
+        ("project_lead", "in", employee_ids),
+        ("project_qc_reviewer", "in", employee_ids),
+        ("project_tasker", "in", employee_ids),
+        ("project_aire", "in", employee_ids),
+        ("project_swe", "in", employee_ids),
+    ])
+
+
 def _compute_kpi(env, task_scope):
     Task = env["fenrir.task"].sudo()
 
@@ -156,12 +189,9 @@ def _compute_kpi(env, task_scope):
         + [("status", "in", list(DONE_STATES)), ("write_date", ">=", today_start)]
     )
 
-    owner_ids = list({uid for uid in Task.search(task_scope).mapped("lead_user_id").ids if uid})
-    members = env["res.users"].sudo().browse(owner_ids)
-    manager_count = sum(
-        1 for u in members if u.has_group("fenrir.group_fenrir_manager")
+    team_total, team_sub_string = _team_members_from_projects(
+        _scope_projects_for_team(env)
     )
-    member_count = len(members)
 
     items = [
         _kpi_item(
@@ -185,8 +215,8 @@ def _compute_kpi(env, task_scope):
         _kpi_item(
             "team_members",
             "Total Members",
-            member_count,
-            sub_string=f"{manager_count} managers" if manager_count else "",
+            team_total,
+            sub_string=team_sub_string,
         ),
         _kpi_item(
             "tasks_done_qc",
