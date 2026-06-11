@@ -153,6 +153,10 @@ def _format_tasks_done(count):
 def _build_task_view_domain(env, params):
     domain = []
 
+    urls_added = (params.get("urls_added") or "").strip().lower()
+    if urls_added in ("1", "true", "yes"):
+        domain.append(("url", "!=", False))
+
     raw_start = (params.get("start_date") or "").strip()
     if raw_start:
         try:
