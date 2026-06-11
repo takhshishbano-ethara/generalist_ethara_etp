@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Question Bank CSV Import Wizard -->
+    <record id="etp_assessment_question_import_form" model="ir.ui.view">
+        <field name="name">etp.assessment.question.import.form</field>
+        <field name="model">etp.assessment.question.import</field>
+        <field name="arch" type="xml">
+            <form string="Import Questions">
+                <field name="state" invisible="1"/>
+                <group invisible="state == 'done'">
+                    <group>
+                        <field name="csv_file" filename="csv_filename" required="1"/>
+                        <field name="csv_filename" invisible="1"/>
+                        <field name="default_category_id"/>
+                        <field name="create_missing_dimensions"/>
+                    </group>
+                    <group>
+                        <div class="text-muted" colspan="2">
+                            <p><strong>CSV columns</strong> (header row required):</p>
+                            <p>
+                                <code>name</code>, <code>question_type</code>,
+                                <code>prompt</code> are required.<br/>
+                                Optional: <code>description</code>, <code>category</code>,
+                                <code>image_a_url</code>, <code>image_b_url</code>,
+                                <code>code_snippet</code>, <code>code_language</code>,
+                                <code>video_url</code>, <code>sequence</code>,
+                                <code>active</code>,<br/>
+                                <code>dimensions</code> (pipe-separated, e.g.
+                                <code>Accuracy|Clarity</code>),<br/>
+                                <code>correct_options</code> (e.g.
+                                <code>Accuracy:Yes|Clarity:Excellent</code>)
+                            </p>
+                            <p>Types: image_comparison, text, coding, image_text, video.</p>
+                        </div>
+                    </group>
+                </group>
+                <group invisible="state != 'done'">
+                    <field name="result_summary" nolabel="1" readonly="1"/>
+                </group>
+                <footer>
+                    <button name="action_import" string="Import" type="object"
+                            class="btn-primary" invisible="state == 'done'"/>
+                    <button name="action_download_template" string="Download Template"
+                            type="object" icon="fa-download" invisible="state == 'done'"/>
+                    <button string="Close" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_question_import" model="ir.actions.act_window">
+        <field name="name">Import Questions</field>
+        <field name="res_model">etp.assessment.question.import</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- menuitem lives in menu_items.xml (loads after this file) -->
+
+    <!-- LLM auto-score drainer (no-op unless an assessment enables llm_auto_score) -->
+    <record id="ir_cron_llm_auto_score" model="ir.cron">
+        <field name="name">ETP Assessment: LLM auto-score submitted candidates</field>
+        <field name="model_id" ref="model_etp_assessment"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_llm_auto_score()</field>
+        <field name="interval_number">2</field>
+        <field name="interval_type">minutes</field>
+        <field name="active">True</field>
+    </record>
+</odoo>

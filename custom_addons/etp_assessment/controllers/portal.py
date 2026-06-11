@@ -206,14 +206,21 @@ class EtpAssessmentPortal(http.Controller):
         if not question_id:
             return request.redirect(f"/assessment/{token}")
 
-        if not justification:
-            return request.redirect(f"/assessment/{token}?error=justification_required")
-
         question = (
             request.env["etp.assessment.question"].sudo().browse(question_id)
         )
         if not question.exists():
             return request.redirect(f"/assessment/{token}")
+
+        # Justification is optional for image-comparison questions unless the
+        # assessment explicitly requires it. All other types always require it.
+        assessment = evaluator.assessment_id
+        justification_required = not (
+            question.question_type == "image_comparison"
+            and not assessment.require_justification_image_comparison
+        )
+        if justification_required and not justification:
+            return request.redirect(f"/assessment/{token}?error=justification_required")
 
         existing_response = (
             request.env["etp.assessment.response"]
@@ -339,7 +346,9 @@ class EtpAssessmentPortal(http.Controller):
             "violation_datetime": fields.Datetime.now(),
         })
 
-        self._auto_submit_remaining_violation(evaluator, reason)
+        # 'log_only' mode: record the violation but let the candidate continue.
+        if evaluator.assessment_id.violation_action == "auto_submit":
+            self._auto_submit_remaining_violation(evaluator, reason)
 
         return request.redirect(f"/assessment/{token}")
 

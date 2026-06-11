@@ -4,3 +4,5 @@ from . import dimension
 from . import question
 from . import question_dimension
 from . import assessment
+from . import prompt
+from . import question_import

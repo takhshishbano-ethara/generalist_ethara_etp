@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+      LLM configuration placeholders (noupdate: module upgrades will NEVER
+      overwrite values pasted here — safe to fill on stage/prod).
+
+      Settings > Technical > Parameters > System Parameters, filter "etp_assessment."
+
+      CREDENTIALS (replace PLACEHOLDER_* with real values; any value still
+      containing "PLACEHOLDER" is treated as unset by the services):
+        etp_assessment.bedrock_inference_arn   - Bedrock inference profile ARN
+        etp_assessment.bedrock_region          - e.g. us-east-1
+        etp_assessment.bedrock_bearer_token    - Bedrock API bearer token
+        etp_assessment.bedrock_image_model_id  - e.g. amazon.nova-canvas-v1:0
+                                                 (empty/placeholder = image gen off)
+
+      SYSTEM PROMPTS (seeded with the working defaults; the research team
+      edits these in place — changes apply on the next LLM call, no deploy):
+        etp_assessment.skills_system_prompt
+        etp_assessment.questions_system_prompt
+        etp_assessment.scoring_system_prompt
+    -->
+    <data noupdate="1">
+        <record id="param_bedrock_inference_arn" model="ir.config_parameter">
+            <field name="key">etp_assessment.bedrock_inference_arn</field>
+            <field name="value">PLACEHOLDER_INFERENCE_ARN</field>
+        </record>
+        <record id="param_bedrock_region" model="ir.config_parameter">
+            <field name="key">etp_assessment.bedrock_region</field>
+            <field name="value">us-east-1</field>
+        </record>
+        <record id="param_bedrock_bearer_token" model="ir.config_parameter">
+            <field name="key">etp_assessment.bedrock_bearer_token</field>
+            <field name="value">PLACEHOLDER_BEARER_TOKEN</field>
+        </record>
+        <record id="param_bedrock_image_model_id" model="ir.config_parameter">
+            <field name="key">etp_assessment.bedrock_image_model_id</field>
+            <field name="value">PLACEHOLDER_IMAGE_MODEL_ID</field>
+        </record>
+
+        <!-- Provider switch: "bedrock" (default) or "openrouter".
+             OpenRouter routes all 3 text prompts through any model on
+             openrouter.ai (e.g. google/gemini-3-pro). Image generation
+             stays on Bedrock regardless. -->
+        <record id="param_llm_provider" model="ir.config_parameter">
+            <field name="key">etp_assessment.llm_provider</field>
+            <field name="value">bedrock</field>
+        </record>
+        <record id="param_openrouter_api_key" model="ir.config_parameter">
+            <field name="key">etp_assessment.openrouter_api_key</field>
+            <field name="value">PLACEHOLDER_OPENROUTER_API_KEY</field>
+        </record>
+        <record id="param_openrouter_model" model="ir.config_parameter">
+            <field name="key">etp_assessment.openrouter_model</field>
+            <field name="value">google/gemini-3-pro</field>
+        </record>
+
+        <record id="param_skills_system_prompt" model="ir.config_parameter">
+            <field name="key">etp_assessment.skills_system_prompt</field>
+            <field name="value">You are an expert assessment designer. Given a project's SOP or instruction text, identify the distinct SKILLS a candidate must be tested on to work on this project. Return ONLY a JSON array, no prose. Each item: {"skill": "&lt;short skill name&gt;", "reason": "&lt;one line why it matters&gt;", "suggested_max": &lt;int 3-10&gt;}. Extract 4-10 skills.</field>
+        </record>
+        <!-- SEED prompt: the research-team flow. ONE call: SOP + golden
+             example question -> full question set. This is the primary
+             generation prompt; skills/questions prompts below remain for
+             the legacy two-stage mode. -->
+        <record id="param_seed_system_prompt" model="ir.config_parameter">
+            <field name="key">etp_assessment.seed_system_prompt</field>
+            <field name="value">You are an expert assessment author. You will receive a project SOP and ONE golden example question that demonstrates the desired style, depth and format. Generate a set of assessment questions grounded in the SOP, matching the golden example's quality and shape. Return ONLY a JSON array, no prose. Each item: {"title": "&lt;short question title&gt;", "prompt": "&lt;the full question text&gt;", "type": "text"}. For visual-evaluation content you may emit "type": "image_comparison" items; those MUST additionally include "image_prompt_a": "&lt;text-to-image prompt for response A&gt;" and "image_prompt_b": "&lt;text-to-image prompt for response B, a deliberately different/flawed variant of A&gt;". Make questions concrete, project-relevant, and non-trivial.</field>
+        </record>
+        <record id="param_questions_system_prompt" model="ir.config_parameter">
+            <field name="key">etp_assessment.questions_system_prompt</field>
+            <field name="value">You are an expert assessment author. Generate assessment questions for the given list of SKILLS, grounded in the provided project text. For each skill produce exactly the requested number of questions. Return ONLY a JSON array, no prose. Each item: {"skill": "&lt;skill name exactly as given&gt;", "title": "&lt;short question title&gt;", "prompt": "&lt;the full question text&gt;", "type": "text"}. For visual-evaluation skills you may instead emit "type": "image_comparison" items; those MUST additionally include "image_prompt_a": "&lt;text-to-image prompt for response A&gt;" and "image_prompt_b": "&lt;text-to-image prompt for response B, a deliberately different/flawed variant of A&gt;". Make questions concrete, project-relevant, and non-trivial.</field>
+        </record>
+        <record id="param_scoring_system_prompt" model="ir.config_parameter">
+            <field name="key">etp_assessment.scoring_system_prompt</field>
+            <field name="value">You are an expert assessment grader. You will receive a JSON payload describing one candidate's submitted assessment: for each question you get the question prompt, its type, the rating dimensions with the option the candidate selected and the correct option (when defined), and the candidate's written justification. Grade the QUALITY of the candidate's reasoning and correctness. Return ONLY a JSON array, no prose. One item per question, exactly: {"question_id": &lt;int, echo back unchanged&gt;, "score": &lt;int 0-10&gt;, "max_score": 10, "feedback": "&lt;2-3 sentence rationale for the score&gt;"}. Score every question in the payload - do not skip any.</field>
+        </record>
+    </data>
+</odoo>

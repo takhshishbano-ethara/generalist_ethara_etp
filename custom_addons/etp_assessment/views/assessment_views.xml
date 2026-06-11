@@ -24,6 +24,7 @@
                 <header>
                     <button name="action_start" string="Start Assessment" type="object" class="oe_highlight" invisible="state != 'draft'"/>
                     <button name="action_done" string="Mark Done" type="object" class="oe_highlight" invisible="state != 'in_progress'"/>
+                    <button name="action_llm_score_all" string="LLM Score All" type="object" icon="fa-magic" invisible="state == 'draft'"/>
                     <button name="action_cancel" string="Cancel" type="object" invisible="state in ('done', 'cancelled')"/>
                     <button name="action_reset_draft" string="Reset to Draft" type="object" invisible="state not in ('cancelled',)"/>
                     <field name="state" widget="statusbar" statusbar_visible="draft,in_progress,done"/>
@@ -48,6 +49,21 @@
                             <field name="response_count"/>
                         </group>
                     </group>
+                    <group>
+                        <group string="Rules &amp; Proctoring">
+                            <field name="rule_block_tab_switch" readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_screenshot" readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_copy_paste" readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_right_click" readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_devtools" readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_watermark" readonly="state in ('done', 'cancelled')"/>
+                        </group>
+                        <group string="Violations &amp; Answers">
+                            <field name="violation_action" widget="radio" readonly="state in ('done', 'cancelled')"/>
+                            <field name="require_justification_image_comparison" readonly="state in ('done', 'cancelled')"/>
+                            <field name="llm_auto_score" readonly="state in ('done', 'cancelled')"/>
+                        </group>
+                    </group>
                     <notebook>
                         <page string="Candidates" invisible="state == 'draft'">
                             <field name="assessment_evaluator_ids" readonly="1">
@@ -60,6 +76,8 @@
                                     <field name="total_questions"/>
                                     <field name="total_score"/>
                                     <field name="max_possible_score"/>
+                                    <field name="llm_total_score" optional="show"/>
+                                    <field name="llm_state" widget="badge" optional="show" decoration-success="llm_state == 'scored'" decoration-danger="llm_state == 'failed'"/>
                                     <field name="is_locked"/>
                                 </list>
                             </field>
@@ -123,6 +141,8 @@
                 <field name="answered_count"/>
                 <field name="total_questions"/>
                 <field name="total_score"/>
+                <field name="llm_total_score" optional="show"/>
+                <field name="llm_state" widget="badge" optional="show" decoration-success="llm_state == 'scored'" decoration-danger="llm_state == 'failed'"/>
                 <field name="is_locked"/>
                 <field name="is_violated" widget="boolean" decoration-danger="is_violated"/>
                 <field name="violation_reason" optional="hide"/>
@@ -136,6 +156,7 @@
         <field name="arch" type="xml">
              <form>
                 <header>
+                    <button name="action_llm_score" string="LLM Score" type="object" icon="fa-magic" invisible="state != 'submitted'"/>
                     <field name="state" widget="statusbar" statusbar_visible="pending,in_progress,submitted"/>
                 </header>
                 <div class="alert alert-danger" invisible="not is_violated" role="alert">
@@ -152,6 +173,11 @@
                             <field name="answered_count"/>
                             <field name="total_score"/>
                             <field name="max_possible_score"/>
+                            <field name="llm_total_score"/>
+                            <field name="llm_max_score"/>
+                            <field name="llm_state"/>
+                            <field name="llm_scored_at"/>
+                            <field name="llm_error" invisible="not llm_error"/>
                             <field name="is_locked"/>
                             <field name="is_violated"/>
                         </group>
@@ -162,6 +188,8 @@
                                 <list>
                                     <field name="question_id"/>
                                     <field name="score"/>
+                                    <field name="llm_score" optional="show"/>
+                                    <field name="llm_state" widget="badge" optional="show"/>
                                     <field name="state" widget="badge"/>
                                 </list>
                             </field>
@@ -212,6 +240,9 @@
                         <group>
                             <field name="score"/>
                             <field name="max_score"/>
+                            <field name="llm_score"/>
+                            <field name="llm_max_score"/>
+                            <field name="llm_state"/>
                         </group>
                     </group>
                     <notebook>
@@ -225,6 +256,9 @@
                         </page>
                         <page string="Justification">
                             <field name="justification" nolabel="1" placeholder="Provide your justification..." readonly="state == 'submitted'"/>
+                        </page>
+                        <page string="LLM Feedback" invisible="llm_state == 'pending'">
+                            <field name="llm_feedback" nolabel="1" readonly="1"/>
                         </page>
                     </notebook>
                 </sheet>
