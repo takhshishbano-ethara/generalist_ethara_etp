@@ -288,42 +288,72 @@ class EtpAssessmentController(http.Controller):
         if not assessment.exists():
             return jsonrpc_error(404, "Assessment not found", http_status=404)
 
+        def _dt(value):
+            return value.strftime("%Y-%m-%d %H:%M:%S") if value else False
+
+        evaluator_rows = []
+        for ev in assessment.assessment_evaluator_ids:
+            evaluator_rows.append({
+                "id": ev.id,
+                "employee_id": m2o_link(ev.employee_id),
+                "state": ev.state,
+                "started_at": _dt(ev.started_at),
+                "deadline_datetime": _dt(ev.deadline_datetime),
+                "answered_count": ev.answered_count or 0,
+                "total_questions": ev.total_questions or 0,
+                "total_score": ev.total_score or 0,
+                "max_possible_score": ev.max_possible_score or 0,
+                "is_locked": bool(ev.is_locked),
+            })
+
+        question_rows = []
+        for q in assessment.question_ids:
+            question_rows.append({
+                "id": q.id,
+                "sequence": q.sequence or 0,
+                "name": q.name or "",
+                "prompt": q.prompt or "",
+                "category_id": m2o_link(q.category_id),
+            })
+
+        response_rows = []
+        for r in assessment.response_ids:
+            response_rows.append({
+                "id": r.id,
+                "evaluator_id": m2o_link(r.evaluator_id),
+                "question_id": m2o_link(r.question_id),
+                "score": r.score or 0,
+                "state": r.state,
+            })
+
         record = {
             "id": assessment.id,
             "state": assessment.state,
             "name": assessment.name or "",
-            "display_name": (
-                assessment.display_name or assessment.name or ""
-            ),
             "category_id": m2o_link(assessment.category_id),
             "question_limit": assessment.question_limit or 0,
             "total_questions_available": (
                 assessment.total_questions_available or 0
             ),
             "duration_minutes": assessment.duration_minutes or 0,
-            "start_date": (
-                assessment.start_date.strftime("%Y-%m-%d %H:%M:%S")
-                if assessment.start_date else False
-            ),
-            "end_date": (
-                assessment.end_date.strftime("%Y-%m-%d %H:%M:%S")
-                if assessment.end_date else False
-            ),
+            "start_date": _dt(assessment.start_date),
+            "end_date": _dt(assessment.end_date),
             "deadline": (
                 assessment.deadline.strftime("%Y-%m-%d")
                 if assessment.deadline else False
             ),
             "response_count": assessment.response_count or 0,
-            "assessment_evaluator_ids": (
-                x2many_links(assessment.assessment_evaluator_ids)
-            ),
+            "assessment_evaluator_ids": evaluator_rows,
             "evaluator_ids": x2many_links(assessment.evaluator_ids),
             "candidate_csv_file": False,
             "candidate_csv_filename": (
                 assessment.candidate_csv_filename or False
             ),
-            "question_ids": x2many_links(assessment.question_ids),
-            "response_ids": x2many_links(assessment.response_ids),
+            "question_ids": question_rows,
+            "response_ids": response_rows,
+            "display_name": (
+                assessment.display_name or assessment.name or ""
+            ),
         }
 
         return jsonrpc_response([record])
