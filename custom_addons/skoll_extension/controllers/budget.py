@@ -28,6 +28,19 @@ MIN_GRAPH_DAYS = 1
 MAX_GRAPH_DAYS = 365
 DEFAULT_TARGET_AHT_MINUTES = 0.0
 
+# Burn-per-batch batches collect rows of this backend model via `job_ids`. A
+# project "owns" these batches only when its `connected_table` points here.
+SKOLL_JOB_MODEL = "skoll.skoll"
+DELIVERED_BATCH_STATE = "delivered"
+# QC outcome: passed counts as approved, failed as rework; a task is
+# "reviewed" once it has either verdict (pending excluded). Burn = generation
+# cost summed per task.
+APPROVED_VERDICTS = ("passed",)
+REWORK_VERDICTS = ("failed",)
+REVIEWED_VERDICTS = APPROVED_VERDICTS + REWORK_VERDICTS
+BURN_BATCH_LIMIT = 200
+BURN_TASK_LIMIT = 200
+
 
 def _resolve_filters(params):
     start = _parse_date(params.get("start_date"))
@@ -89,7 +102,7 @@ def _gen_scope(env, filters):
     return out
 
 
-def _build_kpi(env, gen_scope, filters):
+def _build_kpi(env, gen_scope, filters, project_id):
     Generation = env["skoll.generation"].sudo()
     budget = _budget_amount(env)
 
@@ -113,7 +126,7 @@ def _build_kpi(env, gen_scope, filters):
     pct = _pct1(total_consumed, budget) if budget else 0.0
 
     return {
-        "budget_count": 1 if budget else 0,
+        "budget_count": _delivered_batch_count(env, project_id),
         "total_budget": {"amount": round(budget, 2), "percentage": 100.0 if budget else 0.0},
         "total_consumed": {"amount": round(total_consumed, 2), "percentage": pct},
         "total_remaining": {
@@ -216,20 +229,113 @@ def _build_daily_burn_graph(env, gen_scope, filters):
     }
 
 
-def _build_burn_per_batch(env, gen_scope):
-    return {"title": "Burn per batch", "batches": []}
+def _project_owns_batches(env, project_id):
+    """Whether this project's task table is the one burn batches collect.
+
+    Batches reference ``skoll.skoll`` rows; a project is linked to that
+    backend through its ``connected_table``. With no project filter, all
+    batches are in scope.
+    """
+    if not project_id:
+        return True
+    project = env["project.project"].sudo().browse(project_id)
+    table = (getattr(project, "connected_table", None) or "").strip()
+    return table == SKOLL_JOB_MODEL
+
+
+def _delivered_batch_count(env, project_id):
+    """Total batches delivered for this project."""
+    if not _project_owns_batches(env, project_id):
+        return 0
+    return env["skoll.batch.delivery"].sudo().search_count(
+        [("state", "=", DELIVERED_BATCH_STATE)]
+    )
+
+
+def _scoped_batches(env, project_id):
+    if not _project_owns_batches(env, project_id):
+        return env["skoll.batch.delivery"].sudo().browse()
+    return env["skoll.batch.delivery"].sudo().search(
+        [], limit=BURN_BATCH_LIMIT
+    )
+
+
+def _approval_status(rate, reviewed):
+    if not reviewed:
+        return "pending"
+    if rate >= 80:
+        return "approved"
+    if rate >= 50:
+        return "partial"
+    return "rejected"
+
+
+def _cost_by_task(env, tasks):
+    """Sum skoll.generation.total_cost per skoll.skoll task (one read_group)."""
+    if not tasks:
+        return {}
+    rows = env["skoll.generation"].sudo().read_group(
+        [("task_id", "in", tasks.ids)], ["total_cost:sum"], ["task_id"]
+    )
+    out = {}
+    for row in rows:
+        task = row.get("task_id")
+        if task:
+            out[task[0]] = float(row.get("total_cost") or 0.0)
+    return out
+
+
+def _serialize_burn_batch(batch, type_labels, status_labels, cost_by_task):
+    tasks_recs = batch.job_ids
+    reviewed = sum(1 for t in tasks_recs if t.qc_status in REVIEWED_VERDICTS)
+    approved = sum(1 for t in tasks_recs if t.qc_status in APPROVED_VERDICTS)
+    rate = round((approved / reviewed) * 100) if reviewed else 0
+    total_burn = sum(cost_by_task.get(t.id, 0.0) for t in tasks_recs)
+    tasks = [
+        {
+            "ref": t.task_id or "",
+            "category": type_labels.get(t.task_type, "") if t.task_type else "",
+            "status": status_labels.get(t.qc_status, "") if t.qc_status else "",
+            "burn": round(cost_by_task.get(t.id, 0.0), 2),
+        }
+        for t in tasks_recs[:BURN_TASK_LIMIT]
+    ]
+    return {
+        "batch_id": batch.name or "",
+        "videos": batch.job_count,
+        "burn": round(total_burn, 2),
+        "approval": {"rate": rate, "status": _approval_status(rate, reviewed)},
+        "feedback": batch.notes or "",
+        "tasks": tasks,
+    }
+
+
+def _build_burn_per_batch(env, project_id):
+    Task = env["skoll.skoll"].sudo()
+    type_labels = dict(Task._fields["task_type"].selection)
+    status_labels = dict(Task._fields["qc_status"].selection)
+    batches = _scoped_batches(env, project_id)
+    all_tasks = batches.mapped("job_ids")
+    cost_by_task = _cost_by_task(env, all_tasks)
+    return {
+        "title": "Burn per batch",
+        "batches": [
+            _serialize_burn_batch(batch, type_labels, status_labels, cost_by_task)
+            for batch in batches
+        ],
+    }
 
 
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
     gen_scope = _gen_scope(env, filters)
     return {
         "filters": filters,
-        "kpi": _build_kpi(env, gen_scope, filters),
+        "kpi": _build_kpi(env, gen_scope, filters, project_id),
         "service_costs": _build_service_costs(env, gen_scope),
         "aht_overview": _build_aht_overview(env, gen_scope, filters["target_aht_minutes"]),
         "daily_burn_graph": _build_daily_burn_graph(env, gen_scope, filters),
         "budget_timeline": {},
-        "burn_per_batch": _build_burn_per_batch(env, gen_scope),
+        "burn_per_batch": _build_burn_per_batch(env, project_id),
         "allocation_ledger": {},
     }
 

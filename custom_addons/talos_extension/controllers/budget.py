@@ -16,6 +16,18 @@ _logger = logging.getLogger(__name__)
 DEFAULT_BURN_GRAPH_DAYS = 30
 MAX_BURN_GRAPH_DAYS = 365
 
+# Burn-per-batch batches collect rows of this backend model via `job_ids`. A
+# project "owns" these batches only when its `connected_table` points here.
+TALOS_JOB_MODEL = "talos.talos"
+DELIVERED_BATCH_STATE = "delivered"
+# QC outcome: passed counts as approved, failed as rework; a task is
+# "reviewed" once it has either verdict (pending excluded). Burn = QC tokens.
+APPROVED_VERDICTS = ("passed",)
+REWORK_VERDICTS = ("failed",)
+REVIEWED_VERDICTS = APPROVED_VERDICTS + REWORK_VERDICTS
+BURN_BATCH_LIMIT = 200
+BURN_TASK_LIMIT = 200
+
 
 def _pct(part, whole):
     if not whole:
@@ -133,7 +145,7 @@ def _resolve_filters(params):
 
 def _build_budget_kpi(env, project_id, include_inactive):
     return {
-        "budget_count": 0,
+        "budget_count": _delivered_batch_count(env, project_id),
         "total_budget": {"amount": 0.0, "percentage": 0.0},
         "total_consumed": {"amount": 0.0, "percentage": 0.0},
         "total_remaining": {"amount": 0.0, "percentage": 0.0},
@@ -233,11 +245,88 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
         "aht_overview": aht_overview,
         "daily_burn_graph": burn_graph,
         "budget_timeline": [],
-        "burn_per_batch": {
-            "title": "Burn per batch",
-            "batches": [],
-        },
+        "burn_per_batch": _build_burn_per_batch(env, project_id),
         "allocation_ledger": [],
+    }
+
+
+def _project_owns_batches(env, project_id):
+    """Whether this project's task table is the one burn batches collect.
+
+    Batches reference ``talos.talos`` rows; a project is linked to that
+    backend through its ``connected_table``. With no project filter, all
+    batches are in scope.
+    """
+    if not project_id:
+        return True
+    project = env["project.project"].sudo().browse(project_id)
+    table = (getattr(project, "connected_table", None) or "").strip()
+    return table == TALOS_JOB_MODEL
+
+
+def _delivered_batch_count(env, project_id):
+    """Total batches delivered for this project."""
+    if not _project_owns_batches(env, project_id):
+        return 0
+    return env["talos.batch.delivery"].sudo().search_count(
+        [("state", "=", DELIVERED_BATCH_STATE)]
+    )
+
+
+def _scoped_batches(env, project_id):
+    if not _project_owns_batches(env, project_id):
+        return env["talos.batch.delivery"].sudo().browse()
+    return env["talos.batch.delivery"].sudo().search(
+        [], limit=BURN_BATCH_LIMIT
+    )
+
+
+def _approval_status(rate, reviewed):
+    if not reviewed:
+        return "pending"
+    if rate >= 80:
+        return "approved"
+    if rate >= 50:
+        return "partial"
+    return "rejected"
+
+
+def _serialize_burn_batch(batch, type_labels, status_labels):
+    tasks_recs = batch.job_ids
+    total_burn = sum(int(_total_tokens(task)) for task in tasks_recs)
+    reviewed = sum(1 for task in tasks_recs if task.qc_status in REVIEWED_VERDICTS)
+    approved = sum(1 for task in tasks_recs if task.qc_status in APPROVED_VERDICTS)
+    rate = round((approved / reviewed) * 100) if reviewed else 0
+    tasks = [
+        {
+            "ref": task.task_id or "",
+            "category": type_labels.get(task.task_type, "") if task.task_type else "",
+            "status": status_labels.get(task.qc_status, "") if task.qc_status else "",
+            "burn": int(_total_tokens(task)),
+        }
+        for task in tasks_recs[:BURN_TASK_LIMIT]
+    ]
+    return {
+        "batch_id": batch.name or "",
+        "videos": batch.job_count,
+        "burn": total_burn,
+        "approval": {"rate": rate, "status": _approval_status(rate, reviewed)},
+        "feedback": batch.notes or "",
+        "tasks": tasks,
+    }
+
+
+def _build_burn_per_batch(env, project_id):
+    Task = env["talos.talos"].sudo()
+    type_labels = dict(Task._fields["task_type"].selection)
+    status_labels = dict(Task._fields["qc_status"].selection)
+    batches = _scoped_batches(env, project_id)
+    return {
+        "title": "Burn per batch",
+        "batches": [
+            _serialize_burn_batch(batch, type_labels, status_labels)
+            for batch in batches
+        ],
     }
 
 
