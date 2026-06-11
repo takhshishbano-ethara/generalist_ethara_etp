@@ -9,68 +9,27 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .analytics_dashboard import (
+    STAGE_BUCKETS,
+    _build_team_overview_aligned,
+    _classify_job_action,
     _create_date_domain,
+    _initials,
     _pct,
     _resolve_dashboard_filters,
     _scope,
+    _team_breakdown_sub,
+    _time_ago,
     _user_role_tag,
+    _week_start,
 )
 
 # vegeta.job lifecycle buckets (see vegeta/models/vegeta_job.py state field).
-DRAFT_STATES = ("not_assigned", "draft")
-IN_FLIGHT_STATES = ("extracting", "generating", "scoring")
 DONE_STATES = ("done", "submitted")
-FAILED_STATES = ("failed", "discarded", "cancelled")
 
-# QC verdict groupings: a job "passes" QC when the reviewer marks it shippable
-# or shippable-with-fixes; "reviewed" is any decided verdict.
-APPROVED_VERDICTS = ("shippable", "fixes")
-DECIDED_VERDICTS = ("shippable", "fixes", "not_shippable")
-
-QC_PASS_RATE_WINDOW_DAYS = 30
-DEFAULT_TREND_WEEKS = 6
+# Submission-trend weekly window (the pen shows 7 trailing weeks).
+DEFAULT_TREND_WEEKS = 7
 MAX_TREND_WEEKS = 26
-
-# Which KPI cards each view shows, in order. CTO/TPM and PL get the team-level
-# "manager" cards; QC/tasker get the individual "individual" cards. Mirrors the
-# crowley_extension dashboard_overview KPI_KEYS_BY_VIEW split so one frontend
-# model fits both projects.
-#
-# Crowley's `total_burned` card is KEPT (never omitted) for schema parity, but
-# vegeta has no cost data (`llm_qc_cost_usd` is declared on vegeta.job yet never
-# populated by the pipeline), so it is emitted with an empty value — the Flutter
-# KPI strip renders an empty value as "—". It self-heals to a real figure if the
-# QC pipeline ever writes cost. `avg_score` is a vegeta-specific addition (same
-# KPI item shape). Every other card maps to a populated vegeta.job field
-# (state, qc_verdict, score, completed_at, owners).
-KPI_KEYS_BY_VIEW = {
-    "manager": (
-        "total_burned",
-        "active_tasks",
-        "approval_rate",
-        "team_members",
-        "avg_score",
-    ),
-    "individual": (
-        "total_tasks_done",
-        "qc_pass_rate",
-        "approved_today",
-        "total_burned",
-        "avg_score",
-    ),
-}
-
-# Funnel buckets for the Task Progress card.
-STAGE_BUCKETS = (
-    ("draft", "Draft / Queued", [("state", "in", list(DRAFT_STATES))]),
-    ("in_progress", "In Progress", [("state", "in", list(IN_FLIGHT_STATES))]),
-    ("done", "Done / Submitted", [("state", "in", list(DONE_STATES))]),
-    ("failed", "Failed / Discarded", [("state", "in", list(FAILED_STATES))]),
-)
-
-
-def _overview_view(role_tag):
-    return "manager" if role_tag in ("full", "pl") else "individual"
+RECENT_ACTIVITY_LIMIT = 8
 
 
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
@@ -82,16 +41,6 @@ def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
         "pattern": pattern,
         "sign": sign,
     }
-
-
-def _week_start(d):
-    return d - timedelta(days=d.weekday())
-
-
-def _today_bounds(env):
-    today = fields.Datetime.now().date()
-    start = datetime.combine(today, datetime.min.time())
-    return start, start + timedelta(days=1)
 
 
 def _resolve_trend_weeks(params):
@@ -126,19 +75,24 @@ def _resolve_project(env, params):
     return project, None
 
 
-def _compute_kpi(env, scope):
-    """Role-scoped KPI cards over vegeta.job, keyed for KPI_KEYS_BY_VIEW.
+def _build_overview_kpi(env, scope, role_scope, projects):
+    """The pen's universal 4 KPI cards — identical for every role:
+    Total Tasks Done · Total URLs Added · AVG Quality Score · Team Size.
 
-    Every key is always computed; the controller filters the items down to the
-    set this view shows (manager vs individual).
+    (Locked decision: the old manager/individual 5-KPI split is dropped; all
+    roles get the same four.)
     """
     Job = env["vegeta.job"].sudo()
 
-    total_tasks = Job.search_count(scope)
-    draft = Job.search_count(scope + [("state", "in", list(DRAFT_STATES))])
-    in_flight = Job.search_count(scope + [("state", "in", list(IN_FLIGHT_STATES))])
-    active = draft + in_flight
-    tasks_done = Job.search_count(scope + [("state", "in", list(DONE_STATES))])
+    total = Job.search_count(scope)
+    done = Job.search_count(scope + [("state", "in", list(DONE_STATES))])
+    urls = Job.search_count(scope + [("url", "!=", False)])
+
+    today = fields.Datetime.now().date()
+    week_start_dt = datetime.combine(_week_start(today), datetime.min.time())
+    this_week_added = Job.search_count(
+        role_scope + [("create_date", ">=", week_start_dt)]
+    )
 
     score_rows = Job.formatted_read_group(
         scope + [("score", ">", 0)], [], ["__count", "score:avg"]
@@ -146,151 +100,73 @@ def _compute_kpi(env, scope):
     scored = (score_rows[0]["__count"] if score_rows else 0) or 0
     avg_score = (score_rows[0]["score:avg"] if score_rows else 0.0) or 0.0
 
-    approved = Job.search_count(
-        scope + [("qc_verdict", "in", list(APPROVED_VERDICTS))]
-    )
-    reviewed = Job.search_count(
-        scope + [("qc_verdict", "in", list(DECIDED_VERDICTS))]
-    )
-    approval_rate = _pct(approved, reviewed)
-
-    owner_rows = Job.formatted_read_group(scope, ["user_id"], ["__count"])
-    owner_ids = {row["user_id"][0] for row in owner_rows if row.get("user_id")}
-    members = len(owner_ids)
-
-    today_start, today_end = _today_bounds(env)
-    yesterday_start = today_start - timedelta(days=1)
-    window_start = today_start - timedelta(days=QC_PASS_RATE_WINDOW_DAYS - 1)
-
-    done_today = Job.search_count(
-        scope
-        + [
-            ("state", "in", list(DONE_STATES)),
-            ("completed_at", ">=", today_start),
-            ("completed_at", "<", today_end),
-        ]
-    )
-    done_yesterday = Job.search_count(
-        scope
-        + [
-            ("state", "in", list(DONE_STATES)),
-            ("completed_at", ">=", yesterday_start),
-            ("completed_at", "<", today_start),
-        ]
-    )
-    today_delta = done_today - done_yesterday
-
-    approved_30 = Job.search_count(
-        scope
-        + [
-            ("qc_verdict", "in", list(APPROVED_VERDICTS)),
-            ("completed_at", ">=", window_start),
-        ]
-    )
-    reviewed_30 = Job.search_count(
-        scope
-        + [
-            ("qc_verdict", "in", list(DECIDED_VERDICTS)),
-            ("completed_at", ">=", window_start),
-        ]
-    )
-    qc_pass_rate = _pct(approved_30, reviewed_30)
+    team = _build_team_overview_aligned(env, projects)
+    team_sub = _team_breakdown_sub(team["role_counts"])
 
     items = [
-        # Cost is not tracked on vegeta.job — keep crowley's key, empty value
-        # (the KPI strip shows "—"); self-heals if llm_qc_cost_usd is populated.
         _kpi_item(
-            "total_burned",
-            "Total Burned",
-            "",
-            sub_string="",
+            "total_tasks_done",
+            "Total Tasks Done",
+            done,
+            sub_string=f"{this_week_added} added this week",
         ),
         _kpi_item(
-            "avg_score",
-            "Avg Quality Score",
-            round(avg_score, 1),
+            "total_urls_added",
+            "Total URLs Added",
+            urls,
+            sub_string=f"{done} of {total} completed",
+        ),
+        _kpi_item(
+            "avg_quality_score",
+            "AVG Quality Score",
+            f"{round(avg_score, 1)}%",
             sub_string=(
                 f"across {scored} scored jobs" if scored else "No scored jobs yet"
             ),
         ),
         _kpi_item(
-            "active_tasks",
-            "Active Tasks",
-            f"{active}/{total_tasks}",
-            sub_string=f"{draft} unstarted · {in_flight} in progress",
-        ),
-        _kpi_item(
-            "approval_rate",
-            "Approval Rate",
-            approval_rate,
-            sub_string=f"{approved} approved of {reviewed} reviewed",
-        ),
-        _kpi_item(
-            "team_members",
-            "Team Members",
-            members,
-            sub_string=f"{members} contributing",
-        ),
-        _kpi_item(
-            "total_tasks_done",
-            "Total Tasks Done",
-            tasks_done,
-            sub_string=f"{_pct(tasks_done, total_tasks)}% of {total_tasks} tasks",
-        ),
-        _kpi_item(
-            "qc_pass_rate",
-            "QC Pass Rate",
-            qc_pass_rate,
-            sub_string=(
-                f"{approved_30} of {reviewed_30} reviewed · "
-                f"last {QC_PASS_RATE_WINDOW_DAYS}d"
-                if reviewed_30
-                else f"No reviews in last {QC_PASS_RATE_WINDOW_DAYS}d"
-            ),
-        ),
-        _kpi_item(
-            "approved_today",
-            "Completed Today",
-            done_today,
-            sub_string=(
-                f"{'+' if today_delta > 0 else ''}{today_delta} vs yesterday"
-            ),
-            pattern="up" if today_delta > 0 else ("down" if today_delta < 0 else ""),
-            sign="+" if today_delta > 0 else ("-" if today_delta < 0 else ""),
+            "team_size",
+            "Team Size",
+            team["total_team_size"],
+            sub_string=team_sub,
         ),
     ]
     return {"count": str(len(items)), "items": items}
 
 
-def _compute_task_progress(env, scope):
+def _build_task_progress(env, scope):
+    """6-stage funnel matching the pen ProgressCard (Draft, Extracting,
+    Generating PRD, Scoring, Done, Failed), each carrying a color_token."""
     Job = env["vegeta.job"].sudo()
     total = Job.search_count(scope)
     items = []
-    for key, label, bucket in STAGE_BUCKETS:
-        count = Job.search_count(scope + bucket)
+    for key, label, states, color_token in STAGE_BUCKETS:
+        count = Job.search_count(scope + [("state", "in", list(states))])
         items.append({
             "key": key,
             "label": label,
             "value": count,
             "percentage": _pct(count, total),
+            "color_token": color_token,
         })
     return {
-        "label": "Task Progress (by Stage)",
+        "label": "Task Progress",
         "total": total,
         "count": str(len(items)),
         "items": items,
     }
 
 
-def _compute_approved_per_week(env, role_scope, weeks):
+def _build_submission_trend(env, role_scope, weeks):
     """Weekly count of jobs that reached a done/submitted state, by
-    completed_at. Uses the role scope (NOT the request date filter) so the
-    trailing-N-weeks window is the only date constraint."""
+    completed_at — the pen Submission Trend bar chart. Uses the role scope (NOT
+    the request date filter) so the trailing-N-weeks window is the only date
+    constraint."""
     Job = env["vegeta.job"].sudo()
     today = fields.Datetime.now().date()
     current_week_start = _week_start(today)
-    window_start = current_week_start - timedelta(weeks=weeks)
-    window_start_dt = datetime.combine(window_start, datetime.min.time())
+    earliest = current_week_start - timedelta(weeks=weeks - 1)
+    window_start_dt = datetime.combine(earliest, datetime.min.time())
 
     rows = Job.search_read(
         role_scope
@@ -305,32 +181,59 @@ def _compute_approved_per_week(env, role_scope, weeks):
         when = row.get("completed_at")
         if not when:
             continue
-        day = _week_start(when.date())
-        counts[day] = counts.get(day, 0) + 1
+        wk = _week_start(when.date())
+        counts[wk] = counts.get(wk, 0) + 1
 
     items = []
-    prev_count = counts.get(window_start, 0)
-    for offset in range(weeks - 1, -1, -1):
-        start = current_week_start - timedelta(weeks=offset)
-        end = start + timedelta(days=6)
-        count = counts.get(start, 0)
-        delta = count - prev_count
+    total = 0
+    for i in range(weeks):
+        wk_start = earliest + timedelta(weeks=i)
+        wk_end = wk_start + timedelta(days=6)
+        count = counts.get(wk_start, 0)
+        total += count
         items.append({
-            "key": f"w{start.isocalendar()[1]}",
-            "label": f"W{start.isocalendar()[1]}",
+            "key": f"w{wk_start.isocalendar()[1]}",
+            "label": f"{wk_start.strftime('%b')} {wk_start.day}",
             "value": count,
-            "week_start": start.isoformat(),
-            "week_end": end.isoformat(),
-            "delta_vs_prev_week": delta,
-            "pattern": "up" if delta > 0 else ("down" if delta < 0 else ""),
-            "sign": "+" if delta > 0 else ("-" if delta < 0 else ""),
+            "week_start": wk_start.isoformat(),
+            "week_end": wk_end.isoformat(),
         })
-        prev_count = count
 
     return {
-        "label": "Tasks Completed per Week",
-        "sub_string": f"Trailing {weeks} weeks",
-        "total": sum(item["value"] for item in items),
+        "title": "Submission Trend",
+        "sub_title": "Tasks completed per week · project-wide",
+        "type": "bar",
+        "total": total,
+        "count": str(len(items)),
+        "items": items,
+    }
+
+
+def _build_recent_activity(env, role_scope, limit=RECENT_ACTIVITY_LIMIT):
+    """The pen ActivityCard: most recently-touched jobs as a feed. Each item is
+    a structured row (actor + classified action + task code + category + age);
+    the Flutter widget composes the display sentence and avatar colour."""
+    Job = env["vegeta.job"].sudo()
+    jobs = Job.search(role_scope, order="write_date desc, id desc", limit=limit)
+    items = []
+    for job in jobs:
+        actor = job.user_id
+        when = job.write_date
+        category = (job.category_id.name or "") if job.category_id else ""
+        if not category:
+            category = job.site_name or ""
+        items.append({
+            "actor_id": actor.id if actor else 0,
+            "actor_name": actor.name if actor else "",
+            "initials": _initials(actor.name if actor else ""),
+            "action": _classify_job_action(job.state),
+            "task_code": job.name or "",
+            "category": category,
+            "timestamp": when.isoformat() if when else "",
+            "time_ago": _time_ago(when),
+        })
+    return {
+        "label": "Recent Activity",
         "count": str(len(items)),
         "items": items,
     }
@@ -350,12 +253,13 @@ class VegetaDashboardOverviewController(http.Controller):
     def vegeta_ext_dashboard_overview(self, **kwargs):
         """Role-scoped Overview tab for vegeta.job.
 
-        Returns the crowley_extension-style ``{"overview": {...}}`` envelope so
-        the Flutter ``InternalOverviewTab`` renders it: a role-filtered KPI
-        strip, a task-progress funnel and a tasks-completed-per-week trend.
-        ``project_id`` is optional (the Overview tab is fetched with an empty
-        ``project_id`` query param); when supplied the metrics narrow to that
-        project's taskers, otherwise they stay role-scoped.
+        Returns the crowley_extension-style ``{"overview": {...}}`` envelope the
+        Flutter ``InternalOverviewTab`` renders, now enriched for the updated
+        pen: the universal-4 KPI strip, a 6-stage task-progress funnel, a weekly
+        ``submission_trend`` bar chart and a ``recent_activity`` feed. The
+        remaining keys stay blank ({}) for crowley schema parity. ``project_id``
+        is optional; when supplied the metrics narrow to that project's taskers,
+        otherwise they stay role-scoped.
         """
         env = request.env
         role_tag = _user_role_tag(env)
@@ -376,40 +280,27 @@ class VegetaDashboardOverviewController(http.Controller):
         if error is not None:
             return error
 
-        _tag, role_domain, _projects = _scope(env)
+        _tag, role_domain, scope_projects = _scope(env)
         if project:
             tasker_user_ids = project.project_tasker.mapped("user_id").ids
             role_scope = role_domain + [("user_id", "in", tasker_user_ids)]
+            team_projects = project
         else:
             role_scope = role_domain
+            team_projects = scope_projects
         date_domain = _create_date_domain(filters["start"], filters["end"])
         scope = role_scope + date_domain
 
-        view = _overview_view(role_tag)
-        kpi_by_key = {
-            item["key"]: item for item in _compute_kpi(env, scope)["items"]
-        }
-        kpi_items = [
-            kpi_by_key[key]
-            for key in KPI_KEYS_BY_VIEW[view]
-            if key in kpi_by_key
-        ]
-
-        # Single `overview` wrapper holding the crowley 12-key schema. Only the
-        # three sections the InternalOverviewTab consumes (kpi, task_progress,
-        # approved_per_week) are populated; the rest are returned blank ({}) for
-        # schema parity with crowley_extension / crowley_sourcing_extension.
         overview = {
-            "role": role_tag or "tasker",
-            "kpi": {"count": str(len(kpi_items)), "items": kpi_items},
+            "role": role_tag,
+            "kpi": _build_overview_kpi(env, scope, role_scope, team_projects),
             "budget": {},
             "burn_rate": {},
             "accepted_per_day": {},
-            "task_progress": _compute_task_progress(env, scope),
-            "approved_per_week": _compute_approved_per_week(
-                env, role_scope, weeks
-            ),
-            "recent_activity": {},
+            "task_progress": _build_task_progress(env, scope),
+            "approved_per_week": {},
+            "submission_trend": _build_submission_trend(env, role_scope, weeks),
+            "recent_activity": _build_recent_activity(env, role_scope),
             "coordination_events": {},
             "tasks_done_chart": {},
             "burned_amount_chart": {},

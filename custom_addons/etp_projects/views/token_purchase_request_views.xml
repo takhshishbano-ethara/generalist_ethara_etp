@@ -22,7 +22,8 @@
                 <field name="state" widget="badge"
                        decoration-info="state == 'pending'"
                        decoration-success="state == 'approved' or state == 'completed'"
-                       decoration-danger="state == 'rejected'"/>
+                       decoration-danger="state == 'rejected'"
+                       decoration-muted="state == 'withdrawn'"/>
                 <field name="create_date" optional="hide"/>
             </list>
         </field>
@@ -45,11 +46,15 @@
                             confirm="Reject this request?"/>
                     <button name="action_complete" type="object" string="Mark Completed"
                             class="btn-primary" invisible="state != 'approved'"/>
+                    <button name="action_withdraw" type="object" string="Withdraw"
+                            invisible="state != 'pending' or not can_withdraw"
+                            confirm="Withdraw this request?"/>
                     <button name="action_reset_to_draft" type="object" string="Reset to Draft"
                             invisible="state != 'rejected'"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,pending,approved,completed"/>
                     <field name="can_approve" invisible="1"/>
+                    <field name="can_withdraw" invisible="1"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -92,6 +97,10 @@
                                     <field name="cost_center"
                                            readonly="state == 'completed'"/>
                                 </group>
+                                <group>
+                                    <field name="decision_note"
+                                           readonly="state == 'completed'"/>
+                                </group>
                             </group>
                             <group string="Supporting Documents">
                                 <field name="supporting_document_ids" nolabel="1"
@@ -126,6 +135,7 @@
                 <filter name="filter_pending" string="Pending Approval" domain="[('state','=','pending')]"/>
                 <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
                 <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
+                <filter name="filter_withdrawn" string="Withdrawn" domain="[('state','=','withdrawn')]"/>
                 <filter name="filter_completed" string="Completed" domain="[('state','=','completed')]"/>
                 <filter name="filter_my_requests" string="My Requests"
                         domain="[('requester_id','=', uid)]"/>

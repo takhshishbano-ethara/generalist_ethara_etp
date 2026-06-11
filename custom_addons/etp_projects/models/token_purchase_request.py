@@ -54,6 +54,7 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             ("pending", "Pending Approval"),
             ("approved", "Approved"),
             ("rejected", "Rejected"),
+            ("withdrawn", "Withdrawn"),
             ("completed", "Completed"),
         ],
         default="draft", required=True, tracking=True, copy=False,
@@ -66,6 +67,7 @@ class EtpProjectTokenPurchaseRequest(models.Model):
     approver_id = fields.Many2one("res.users", string="Approved/Rejected By", readonly=True, tracking=True)
     approval_date = fields.Datetime(readonly=True, tracking=True)
     rejection_reason = fields.Text(string="Rejection Reason")
+    decision_note = fields.Text(string="Decision Note", tracking=True)
 
     approval_token = fields.Char(readonly=True, copy=False, index=True)
     token_used = fields.Boolean(readonly=True, copy=False, default=False)
@@ -101,6 +103,16 @@ class EtpProjectTokenPurchaseRequest(models.Model):
         compute="_compute_can_approve", store=False,
         help="True when the current user is in the configured approver list.",
     )
+    can_complete = fields.Boolean(
+        compute="_compute_can_complete", store=False,
+        help="True when the current user is in the configured finance list "
+             "and the request is approved (awaiting completion).",
+    )
+    can_withdraw = fields.Boolean(
+        compute="_compute_can_withdraw", store=False,
+        help="True when the current user is the requester and the request "
+             "is still pending approval.",
+    )
 
     @api.depends("supporting_document_ids")
     def _compute_supporting_document_count(self):
@@ -113,7 +125,26 @@ class EtpProjectTokenPurchaseRequest(models.Model):
         current_uid = self.env.uid
         is_approver = current_uid in approver_ids
         for rec in self:
-            rec.can_approve = is_approver
+            rec.can_approve = (
+                is_approver
+                and rec.requester_id.id != current_uid
+                and rec.state == "pending"
+            )
+
+    @api.depends_context("uid")
+    def _compute_can_complete(self):
+        finance_ids = set(self._get_finance_users().ids)
+        is_finance = self.env.uid in finance_ids
+        for rec in self:
+            rec.can_complete = is_finance and rec.state == "approved"
+
+    @api.depends_context("uid")
+    def _compute_can_withdraw(self):
+        current_uid = self.env.uid
+        for rec in self:
+            rec.can_withdraw = (
+                rec.requester_id.id == current_uid and rec.state == "pending"
+            )
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -197,12 +228,32 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             )
         return True
 
-    def _act_approve(self, user):
+    def _act_approve(self, user, approved_amount=None, decision_note=None):
         self.ensure_one()
         if self.state != "pending":
             raise UserError(_("Request is no longer pending approval."))
         if self.token_used:
             raise UserError(_("This approval link has already been used."))
+
+        requested = float(self.requested_amount or 0.0)
+        if approved_amount is None:
+            amount_val = requested
+        else:
+            try:
+                amount_val = float(approved_amount)
+            except (TypeError, ValueError):
+                raise ValidationError(_("Approved Amount must be a valid number."))
+        if not (0 < amount_val <= requested):
+            raise ValidationError(_(
+                "Approved Amount must be greater than zero and at most the "
+                "requested amount (%(req).2f)."
+            ) % {"req": requested})
+        note = (decision_note or "").strip()
+        if amount_val < requested and not note:
+            raise ValidationError(_(
+                "A Decision Note is required when approving a partial amount."
+            ))
+
         self.write({
             "state": "approved",
             "approver_id": user.id if user else False,
@@ -210,6 +261,8 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             "token_used": True,
             "finance_token": secrets.token_urlsafe(32),
             "finance_token_used": False,
+            "approved_amount": amount_val,
+            "decision_note": note,
         })
         finance_partner_ids = self._finance_partner_ids()
         template = self.env.ref(
@@ -267,10 +320,27 @@ class EtpProjectTokenPurchaseRequest(models.Model):
 
     def _check_backend_approver(self):
         approver_ids = set(self._get_approver_users().ids)
-        if self.env.uid not in approver_ids and not self.env.user.has_group("base.group_system"):
+        if self.env.uid not in approver_ids:
             raise UserError(_(
                 "You are not in the configured Token Purchase Approvers list. "
                 "Ask an administrator to add you in Settings → ETP Projects."
+            ))
+        # Two-person rule: a request's requester cannot approve/reject it,
+        # even if they are an approver or a system admin.
+        for rec in self:
+            if rec.requester_id and rec.requester_id.id == self.env.uid:
+                raise UserError(_(
+                    "You cannot approve or reject your own token purchase "
+                    "request (self-approval is not permitted)."
+                ))
+
+    def _check_finance_user(self):
+        finance_ids = set(self._get_finance_users().ids)
+        if self.env.uid not in finance_ids:
+            raise UserError(_(
+                "You are not in the configured Token Purchase Finance Users "
+                "list. Ask an administrator to add you in Settings → "
+                "ETP Projects."
             ))
 
     def action_approve(self):
@@ -292,18 +362,34 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             raise UserError(_("Only approved requests can be completed."))
         if mark_finance_token_used and self.finance_token_used:
             raise UserError(_("This finance link has already been used."))
+        # Reuse the amount locked at approval time when none is supplied.
+        if approved_amount in (None, False, 0, 0.0, ""):
+            amount_source = self.approved_amount or 0.0
+        else:
+            amount_source = approved_amount
         try:
-            amount_val = float(approved_amount or 0.0)
+            amount_val = float(amount_source or 0.0)
         except (TypeError, ValueError):
             raise ValidationError(_("Approved Amount must be a valid number."))
+        requested = float(self.requested_amount or 0.0)
         if amount_val <= 0:
             raise ValidationError(_("Approved Amount must be greater than zero."))
+        if requested and amount_val > requested:
+            raise ValidationError(_(
+                "Approved Amount cannot exceed the requested amount "
+                "(%(req).2f)."
+            ) % {"req": requested})
+        if amount_val > 1_000_000:
+            raise ValidationError(_(
+                "Approved Amount cannot exceed 1,000,000."
+            ))
+        amount_val = round(amount_val, 2)
         # if not cost_center or not str(cost_center).strip():
         #     raise ValidationError(_("Module / Cost Center is required to complete the request."))
         attachment_id_list = [int(a) for a in (attachment_ids or []) if a]
         if not attachment_id_list:
             raise ValidationError(_("Please attach at least one Supporting Document."))
-        balance_before_val = self.budget_id.project_budget or 0.0
+        balance_before_val = round(self.budget_id.project_budget or 0.0, 2)
         vals = {
             "approved_amount": amount_val,
             "cost_center": str(cost_center).strip(),
@@ -317,7 +403,7 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             vals["finance_token_used"] = True
         self.write(vals)
         self.budget_id.sudo().write({
-            "project_budget": balance_before_val + amount_val,
+            "project_budget": round(balance_before_val + amount_val, 2),
         })
         completer_label = completed_by_user.name if completed_by_user else _("Finance link (anonymous)")
         self.budget_id.message_post(
@@ -478,3 +564,160 @@ class EtpProjectTokenPurchaseRequest(models.Model):
                 "approval_date": False,
             })
         return True
+
+    def action_withdraw(self):
+        for rec in self:
+            if rec.state != "pending":
+                raise UserError(_("Only pending requests can be withdrawn."))
+            if rec.requester_id.id != self.env.uid:
+                raise UserError(_(
+                    "Only the requester can withdraw this request."
+                ))
+            rec.write({
+                "state": "withdrawn",
+                "approval_token": False,
+                "token_used": False,
+            })
+            rec.message_post(
+                body=_("Withdrawn by %s.") % (self.env.user.name or _("requester")),
+                subtype_xmlid="mail.mt_note",
+            )
+        return True
+
+    def action_update(self, vals):
+        """Edit a draft/pending request in place (requester-only).
+
+        Allows only ``model_name`` / ``description`` / ``requested_amount`` and
+        never touches ``budget_id``. Applies the same validation as create.
+        """
+        self.ensure_one()
+        if self.state not in ("draft", "pending"):
+            raise UserError(_(
+                "Only draft or pending requests can be edited."
+            ))
+        if self.requester_id.id != self.env.uid:
+            raise UserError(_("Only the requester can edit this request."))
+
+        vals = vals or {}
+        write_vals = {}
+        if "model_name" in vals:
+            model_name = (vals.get("model_name") or "").strip()
+            if not model_name:
+                raise ValidationError(_("'model_name' cannot be empty."))
+            write_vals["model_name"] = model_name
+        if "description" in vals:
+            description = (vals.get("description") or "").strip()
+            if not description:
+                raise ValidationError(_("'description' cannot be empty."))
+            write_vals["description"] = description
+        if "requested_amount" in vals:
+            try:
+                amount_val = float(vals.get("requested_amount"))
+            except (TypeError, ValueError):
+                raise ValidationError(_("'requested_amount' must be a number."))
+            if amount_val <= 0:
+                raise ValidationError(_(
+                    "'requested_amount' must be greater than zero."
+                ))
+            if amount_val > 1_000_000:
+                raise ValidationError(_(
+                    "'requested_amount' cannot exceed 1,000,000."
+                ))
+            write_vals["requested_amount"] = round(amount_val, 2)
+        if write_vals:
+            self.write(write_vals)
+        return True
+
+    def _activity_entries(self):
+        """Structured lifecycle trail (newest-first) built from the record's
+        own fields — NOT chatter/mail HTML."""
+        self.ensure_one()
+
+        def _fmt(value):
+            return value.strftime("%Y-%m-%d %H:%M:%S") if value else ""
+
+        requested = float(self.requested_amount or 0.0)
+        approved = float(self.approved_amount or 0.0)
+        requester_name = self.requester_id.name if self.requester_id else ""
+        approver_name = self.approver_id.name if self.approver_id else ""
+        completer_name = self.completed_by_id.name if self.completed_by_id else ""
+        is_partial = (
+            self.state in ("approved", "completed")
+            and 0 < approved < requested
+        )
+
+        entries = []
+
+        # Always: the original request.
+        entries.append({
+            "kind": "requested",
+            "verb": "Requested",
+            "amount": requested,
+            "requested_amount": requested,
+            "actor_name": requester_name,
+            "actor_role": "",
+            "occurred_at": _fmt(self.create_date),
+            "ref": self.name or "",
+            "is_partial": False,
+            "badge": "This request",
+        })
+
+        if self.approver_id and self.approval_date and self.state in ("approved", "completed"):
+            entries.append({
+                "kind": "partial" if is_partial else "approved",
+                "verb": "Approved",
+                "amount": approved,
+                "requested_amount": requested,
+                "actor_name": approver_name,
+                "actor_role": "",
+                "occurred_at": _fmt(self.approval_date),
+                "ref": self.name or "",
+                "is_partial": is_partial,
+                "badge": "Partial" if is_partial else None,
+            })
+
+        if self.state == "rejected" and self.approver_id:
+            entries.append({
+                "kind": "rejected",
+                "verb": "Rejected",
+                "amount": requested,
+                "requested_amount": requested,
+                "actor_name": approver_name,
+                "actor_role": "",
+                "occurred_at": _fmt(self.approval_date),
+                "ref": self.name or "",
+                "is_partial": False,
+                "badge": None,
+            })
+
+        if self.state == "completed" and self.completed_date:
+            entries.append({
+                "kind": "completed",
+                "verb": "Completed",
+                "amount": approved,
+                "requested_amount": requested,
+                "actor_name": completer_name,
+                "actor_role": "",
+                "occurred_at": _fmt(self.completed_date),
+                "ref": self.name or "",
+                "is_partial": is_partial,
+                "badge": None,
+            })
+
+        if self.state == "withdrawn":
+            entries.append({
+                "kind": "rejected",
+                "verb": "Withdrawn",
+                "amount": requested,
+                "requested_amount": requested,
+                "actor_name": requester_name,
+                "actor_role": "",
+                "occurred_at": _fmt(self.write_date or self.approval_date),
+                "ref": self.name or "",
+                "is_partial": False,
+                "badge": None,
+            })
+
+        # Newest-first.
+        entries.sort(key=lambda e: e.get("occurred_at") or "", reverse=True)
+        return entries

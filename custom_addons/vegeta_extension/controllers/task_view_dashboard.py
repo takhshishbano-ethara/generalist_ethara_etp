@@ -8,8 +8,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 
 from .analytics_dashboard import (
     _create_date_domain,
+    _domain_from_url,
+    _format_short_date,
     _parse_date,
     _scope,
+    _state_badge,
     _user_role_tag,
 )
 
@@ -21,6 +24,52 @@ SORT_FIELDS = {
     "grade": "grade",
     "seq": "name",
 }
+
+# Self-describing columns for the Tasks table. The shape mirrors the
+# leviathan_extension task view (the schema the Flutter project_detail Tasks
+# tab is built against): every display cell is a plain string/date, with the
+# rich values kept in sibling raw fields on each row. Keeping the key set and
+# `type` identical to leviathan is what lets the shared Flutter table render
+# vegeta tasks without per-project special-casing.
+TASK_VIEW_COLUMNS = [
+    {"key": "task", "label": "Task", "type": "string", "width": "fill"},
+    {"key": "category", "label": "Category", "type": "string", "width": 180},
+    {"key": "status", "label": "Status", "type": "string", "width": 150},
+    {"key": "qc", "label": "QC", "type": "string", "width": 120},
+    {"key": "assets", "label": "Assets", "type": "string", "width": 90},
+    {"key": "assigned_ql", "label": "Assigned QL", "type": "string", "width": 150},
+    {"key": "created", "label": "Created", "type": "date", "width": 90},
+]
+
+# vegeta.job.qc_verdict -> short label for the flat "QC" column ("Pass · 84").
+# Mirrors leviathan's Pass/Warning/Fail vocabulary so the column reads the same.
+QC_VERDICT_LABEL = {
+    "shippable": "Pass",
+    "fixes": "Warning",
+    "not_shippable": "Fail",
+}
+
+
+def _s3_base_url(env):
+    """Resolve the vegeta S3/CDN base used to turn asset_keys into full URLs."""
+    icp = env["ir.config_parameter"].sudo()
+    cdn_url = icp.get_param("vegeta.s3_cdn_url", "")
+    bucket = icp.get_param("vegeta.s3_bucket", "")
+    region = icp.get_param("vegeta.s3_region", "us-east-1")
+    if cdn_url:
+        return cdn_url.rstrip("/")
+    if bucket:
+        return f"https://{bucket}.s3.{region}.amazonaws.com"
+    return ""
+
+
+def _qc_string(qc_verdict, score):
+    """Flat "QC" cell: "—" when undecided, else "Pass · 84"-style label."""
+    if not qc_verdict:
+        return "—"
+    prefix = QC_VERDICT_LABEL.get(qc_verdict, qc_verdict)
+    score_int = int(round(score or 0))
+    return f"{prefix} · {score_int}" if score else prefix
 
 
 def _coerce_int(value, default):
@@ -71,6 +120,9 @@ def _build_task_view_domain(env, params):
             return None, error
         if values:
             domain.append(("state", "in", values))
+
+    # NOTE: vegeta.job has no `eq_tier` field (unlike gohan.job), so the Tasks
+    # tab exposes no EQ-Tier filter here.
 
     raw_verdict = (params.get("qc_verdict") or "").strip()
     if raw_verdict:
@@ -133,22 +185,45 @@ def _resolve_order(params):
     return f"{SORT_FIELDS[raw_sort]} {direction}, id desc", None
 
 
-def _serialize(job, verdict_labels):
+def _serialize(job, base_url):
+    """One Tasks-table row in the leviathan/Flutter shape: every display column
+    (task/category/status/qc/assets/assigned_ql/created) is a flat string/date,
+    followed by the raw fields the client keeps for filter/sort and asset
+    previews. Key order and types mirror leviathan_extension's task view so the
+    shared Flutter table renders vegeta tasks unchanged."""
+    url = job.url or ""
+    seq = job.name or ""
+    title = job.site_name or _domain_from_url(url) or seq or ""
+
+    asset_keys = job.asset_keys or []
+    asset_links = [f"{base_url}/{key}" for key in asset_keys] if base_url else []
+    assets_count = len(asset_keys)
+
+    qr_name = ""
+    if job.user_id and job.user_id.employee_id:
+        qr_name = job.user_id.employee_id.task_forge_qr_id.name or ""
+
     return {
         "id": job.id,
-        "task_name": job.site_name or job.url or "",
-        "seq": job.name or "",
-        "url": job.url or "",
+        "task": f"{title} — {seq}" if title and seq else (title or seq),
         "category": job.category_id.name or "",
-        "score": job.score,
-        "grade": job.grade or "",
+        "status": _state_badge(job.state)["label"],
+        "qc": _qc_string(job.qc_verdict, job.score),
+        "assets": f"{assets_count} files" if assets_count else "—",
+        "assigned_ql": qr_name or "Unassigned",
+        "created": _format_short_date(job.create_date),
+        # Raw fields retained for client-side filtering / sorting / previews.
+        "seq": seq,
         "state": job.state or "",
         "qc_verdict": job.qc_verdict or "",
-        "qc_verdict_label": verdict_labels.get(job.qc_verdict, ""),
-        "tasker_name": job.user_id.name or "",
-        "created_date": job.create_date.isoformat() if job.create_date else None,
-        "added_by": job.create_uid.name or "",
-        "url_added": bool(job.url),
+        "score": job.score or 0.0,
+        "category_id": job.category_id.id or False,
+        "assets_count": assets_count,
+        "asset_file_links": asset_links,
+        "assigned_tasker_name": job.user_id.name or "",
+        "source": url,
+        "created_at": job.create_date.isoformat() if job.create_date else "",
+        "created_by": job.create_uid.name or "",
     }
 
 
@@ -190,26 +265,17 @@ class VegetaTaskViewDashboardController(http.Controller):
         Job = env["vegeta.job"].sudo()
         total = Job.search_count(domain)
         records = Job.search(domain, limit=limit, offset=offset, order=order)
-        verdict_labels = dict(Job._fields["qc_verdict"].selection)
-        tasks = [_serialize(job, verdict_labels) for job in records]
-        total_pages = (total + limit - 1) // limit if total else 0
+        base_url = _s3_base_url(env)
+        tasks = [_serialize(job, base_url) for job in records]
+        # Flat pagination (total_records/page/limit at the data root), matching
+        # the leviathan task view the Flutter client parses. A nested
+        # `pagination` object would leave those fields unread (client defaults).
         data = {
-            "columns": [{"key": "seq", "label": "Seq.", "type": "string"},
-                        {"key": "task_name", "label": "Task", "type": "string"},
-                        {"key": "url", "label": "URL", "type": "string"},
-                        {"key": "category", "label": "Category", "type": "string"},
-                        {"key": "score", "label": "Score", "type": "string"},
-                        {"key": "state", "label": "Status", "type": "string"},
-                        {"key": "grade", "label": "Grade", "type": "string"},
-                        {"key": "qc_verdict", "label": "QC Verdict", "type": "string"},
-                        {"key": "tasker_name", "label": "Tasker", "type": "string"},
-                        {"key": "created_date", "label": "Created", "type": "string"}],
+            "role": _user_role_tag(env) or "tasker",
+            "columns": TASK_VIEW_COLUMNS,
             "rows": tasks,
-            "pagination": {
-                "total_records": total,
-                "page": page,
-                "limit": limit,
-                "total_pages": total_pages,
-            },
+            "total_records": total,
+            "page": page,
+            "limit": limit,
         }
         return return_Response(message="OK", status=200, data=data)

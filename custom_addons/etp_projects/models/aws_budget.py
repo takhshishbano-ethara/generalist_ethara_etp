@@ -1,6 +1,6 @@
 import calendar
 import logging
-from datetime import date
+from datetime import date, timedelta
 
 from dateutil.relativedelta import relativedelta
 
@@ -110,6 +110,62 @@ class EtpProjectAwsBudget(models.Model):
                 rec.daily_burn_rate = latest_total / days_in_month if days_in_month else 0.0
             else:
                 rec.daily_burn_rate = 0.0
+
+    def _budget_snapshot(self, window_days=14):
+        """Real-data budget snapshot for the API (burn rate + runway).
+
+        Burn rate = total INR consumption over a trailing ``window_days``
+        window (from the latest cost-line period backwards) divided by the
+        span actually covered, so every figure derives from real cost rows.
+        Returns ``0``/``""`` (never a constant) when there is no consumption.
+        """
+        self.ensure_one()
+        window_days = max(int(window_days or 1), 1)
+        remaining_cost = float(self.remaining or 0.0)
+        currency_symbol = (
+            self.currency_id.symbol if self.currency_id else ""
+        ) or ""
+
+        periods = [l.period for l in self.cost_line_ids if l.period]
+        if not periods:
+            return {
+                "daily_burn_rate": 0.0,
+                "runway_days": 0,
+                "runway_days_exact": 0.0,
+                "runway_depletes_on": "",
+                "currency_symbol": currency_symbol,
+            }
+
+        latest = max(periods)
+        window_start = latest - timedelta(days=window_days - 1)
+        window_total = sum(
+            (l.amount_inr or 0.0)
+            for l in self.cost_line_ids
+            if l.period and window_start <= l.period <= latest
+        )
+        # Span actually covered by data inside the window (never < 1 day).
+        covered = (latest - window_start).days + 1
+        daily_burn_rate = round(window_total / covered, 2) if covered else 0.0
+
+        if daily_burn_rate <= 0.0:
+            return {
+                "daily_burn_rate": 0.0,
+                "runway_days": 0,
+                "runway_days_exact": 0.0,
+                "runway_depletes_on": "",
+                "currency_symbol": currency_symbol,
+            }
+
+        runway_days_exact = round(max(remaining_cost, 0.0) / daily_burn_rate, 4)
+        runway_days = int(runway_days_exact)  # floor
+        depletes_on = (date.today() + timedelta(days=runway_days)).isoformat()
+        return {
+            "daily_burn_rate": daily_burn_rate,
+            "runway_days": runway_days,
+            "runway_days_exact": runway_days_exact,
+            "runway_depletes_on": depletes_on,
+            "currency_symbol": currency_symbol,
+        }
 
     def action_fetch_cost(self):
         messages = []

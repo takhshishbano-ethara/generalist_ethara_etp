@@ -191,6 +191,8 @@ class EtpProjectsAwsCostController(http.Controller):
 
             records = []
             for budget in budgets:
+                # Real-data burn/runway snapshot from the budget's cost lines.
+                snapshot = budget._budget_snapshot()
                 records.append({
                     "id": budget.id,
                     "seq": budget.name or "",
@@ -202,7 +204,11 @@ class EtpProjectsAwsCostController(http.Controller):
                     "remaining_cost": float(budget.remaining or 0.0),
                     "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
                     "currency": budget.currency_id.name if budget.currency_id else "",
-                    "currency_symbol": budget.currency_id.symbol if budget.currency_id else "",
+                    "currency_symbol": snapshot["currency_symbol"],
+                    "daily_burn_rate": snapshot["daily_burn_rate"],
+                    "runway_days": snapshot["runway_days"],
+                    "runway_days_exact": snapshot["runway_days_exact"],
+                    "runway_depletes_on": snapshot["runway_depletes_on"],
                 })
 
             return return_Response(
