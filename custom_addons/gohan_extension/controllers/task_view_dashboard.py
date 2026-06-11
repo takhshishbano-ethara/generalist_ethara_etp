@@ -7,15 +7,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .analytics_dashboard import (
-    COMPLETED_STATES,
     _create_date_domain,
     _domain_from_url,
     _format_short_date,
-    _grade_band_token,
     _parse_date,
-    _qc_badge,
     _scope,
-    _score_band_token,
     _state_badge,
     _user_role_tag,
 )
@@ -29,18 +25,51 @@ SORT_FIELDS = {
     "seq": "name",
 }
 
-# Self-describing columns for the pen Tasks table (8 columns). `type` tells the
-# Flutter table how to render each cell; `width` is a layout hint.
+# Self-describing columns for the Tasks table. The shape mirrors the
+# leviathan_extension task view (the schema the Flutter project_detail Tasks
+# tab is built against): every display cell is a plain string/date, with the
+# rich values kept in sibling raw fields on each row. Keeping the key set and
+# `type` identical to leviathan is what lets the shared Flutter table render
+# gohan tasks without per-project special-casing.
 TASK_VIEW_COLUMNS = [
-    {"key": "task", "label": "Task", "type": "composite", "width": "fill"},
-    {"key": "category", "label": "Category", "type": "string", "width": 150},
-    {"key": "status", "label": "Status", "type": "badge", "width": 130},
-    {"key": "score", "label": "Score", "type": "badge", "width": 80},
-    {"key": "grade", "label": "Grade", "type": "badge", "width": 70},
-    {"key": "qc_verdict", "label": "QC Verdict", "type": "badge", "width": 130},
-    {"key": "tasker", "label": "Tasker", "type": "string", "width": 150},
+    {"key": "task", "label": "Task", "type": "string", "width": "fill"},
+    {"key": "category", "label": "Category", "type": "string", "width": 180},
+    {"key": "status", "label": "Status", "type": "string", "width": 150},
+    {"key": "qc", "label": "QC", "type": "string", "width": 120},
+    {"key": "assets", "label": "Assets", "type": "string", "width": 90},
+    {"key": "assigned_ql", "label": "Assigned QL", "type": "string", "width": 150},
     {"key": "created", "label": "Created", "type": "date", "width": 90},
 ]
+
+# gohan.job.qc_verdict -> short label for the flat "QC" column ("Pass · 84").
+# Mirrors leviathan's Pass/Warning/Fail vocabulary so the column reads the same.
+QC_VERDICT_LABEL = {
+    "shippable": "Pass",
+    "fixes": "Warning",
+    "not_shippable": "Fail",
+}
+
+
+def _s3_base_url(env):
+    """Resolve the gohan S3/CDN base used to turn asset_keys into full URLs."""
+    icp = env["ir.config_parameter"].sudo()
+    cdn_url = icp.get_param("gohan.s3_cdn_url", "")
+    bucket = icp.get_param("gohan.s3_bucket", "")
+    region = icp.get_param("gohan.s3_region", "us-east-1")
+    if cdn_url:
+        return cdn_url.rstrip("/")
+    if bucket:
+        return f"https://{bucket}.s3.{region}.amazonaws.com"
+    return ""
+
+
+def _qc_string(qc_verdict, score):
+    """Flat "QC" cell: "—" when undecided, else "Pass · 84"-style label."""
+    if not qc_verdict:
+        return "—"
+    prefix = QC_VERDICT_LABEL.get(qc_verdict, qc_verdict)
+    score_int = int(round(score or 0))
+    return f"{prefix} · {score_int}" if score else prefix
 
 
 def _coerce_int(value, default):
@@ -161,50 +190,45 @@ def _resolve_order(params):
     return f"{SORT_FIELDS[raw_sort]} {direction}, id desc", None
 
 
-def _serialize(job):
-    """One Tasks-table row in the pen shape: a composite Task cell, badge
-    objects for Status/Score/Grade/QC Verdict, plus the raw fields the client
-    keeps for filter/sort. Score/Grade/QC Verdict are gated on completion — they
-    render "—" until the job reaches a done/submitted state (pen rule)."""
+def _serialize(job, base_url):
+    """One Tasks-table row in the leviathan/Flutter shape: every display column
+    (task/category/status/qc/assets/assigned_ql/created) is a flat string/date,
+    followed by the raw fields the client keeps for filter/sort and asset
+    previews. Key order and types mirror leviathan_extension's task view so the
+    shared Flutter table renders gohan tasks unchanged."""
     url = job.url or ""
     seq = job.name or ""
-    bottom = " · ".join(p for p in [url or _domain_from_url(url), seq] if p)
+    title = job.site_name or _domain_from_url(url) or seq or ""
 
-    is_done = job.state in COMPLETED_STATES
-    score = job.score if is_done else 0.0
-    grade = job.grade if is_done else ""
-    verdict = job.qc_verdict if is_done else ""
+    asset_keys = job.asset_keys or []
+    asset_links = [f"{base_url}/{key}" for key in asset_keys] if base_url else []
+    assets_count = len(asset_keys)
+
+    qr_name = ""
+    if job.user_id and job.user_id.employee_id:
+        qr_name = job.user_id.employee_id.task_forge_qr_id.name or ""
 
     return {
         "id": job.id,
-        "task": {
-            "top": job.site_name or _domain_from_url(url) or seq or "",
-            "bottom": bottom,
-        },
+        "task": f"{title} — {seq}" if title and seq else (title or seq),
         "category": job.category_id.name or "",
-        "status": _state_badge(job.state),
-        "score": {
-            "value": str(int(round(score))) if score else "—",
-            "color_token": _score_band_token(score),
-        },
-        "grade": {
-            "value": grade or "—",
-            "color_token": _grade_band_token(grade),
-        },
-        "qc_verdict": _qc_badge(verdict),
-        "tasker": job.user_id.name or "Unassigned",
+        "status": _state_badge(job.state)["label"],
+        "qc": _qc_string(job.qc_verdict, job.score),
+        "assets": f"{assets_count} files" if assets_count else "—",
+        "assigned_ql": qr_name or "Unassigned",
         "created": _format_short_date(job.create_date),
-        # Raw fields retained for client-side filtering / sorting.
+        # Raw fields retained for client-side filtering / sorting / previews.
         "seq": seq,
-        "url": url,
         "state": job.state or "",
-        "score_value": job.score or 0.0,
-        "grade_value": job.grade or "",
-        "qc_verdict_key": job.qc_verdict or "",
+        "qc_verdict": job.qc_verdict or "",
+        "score": job.score or 0.0,
         "category_id": job.category_id.id or False,
-        "eq_tier": job.eq_tier or "",
-        "added_by": job.create_uid.name or "",
-        "created_at": job.create_date.isoformat() if job.create_date else None,
+        "assets_count": assets_count,
+        "asset_file_links": asset_links,
+        "assigned_tasker_name": job.user_id.name or "",
+        "source": url,
+        "created_at": job.create_date.isoformat() if job.create_date else "",
+        "created_by": job.create_uid.name or "",
     }
 
 
@@ -246,17 +270,17 @@ class GohanTaskViewDashboardController(http.Controller):
         Job = env["gohan.job"].sudo()
         total = Job.search_count(domain)
         records = Job.search(domain, limit=limit, offset=offset, order=order)
-        tasks = [_serialize(job) for job in records]
-        total_pages = (total + limit - 1) // limit if total else 0
+        base_url = _s3_base_url(env)
+        tasks = [_serialize(job, base_url) for job in records]
+        # Flat pagination (total_records/page/limit at the data root), matching
+        # the leviathan task view the Flutter client parses. A nested
+        # `pagination` object would leave those fields unread (client defaults).
         data = {
             "role": _user_role_tag(env) or "tasker",
             "columns": TASK_VIEW_COLUMNS,
             "rows": tasks,
-            "pagination": {
-                "total_records": total,
-                "page": page,
-                "limit": limit,
-                "total_pages": total_pages,
-            },
+            "total_records": total,
+            "page": page,
+            "limit": limit,
         }
         return return_Response(message="OK", status=200, data=data)
