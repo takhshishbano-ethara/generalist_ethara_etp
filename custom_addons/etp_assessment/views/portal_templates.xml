@@ -44,9 +44,9 @@
                     .timer-bar.timer-warning { background: rgba(255, 193, 7, 0.3); }
                     .timer-bar.timer-danger { background: rgba(220, 53, 69, 0.4); animation: pulse 1s infinite; }
                     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-                    body { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
-                    body * { -webkit-touch-callout: none; }
-                    img { pointer-events: none; -webkit-user-drag: none; }
+                    body.proctor-noselect { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+                    body.proctor-noselect * { -webkit-touch-callout: none; }
+                    body.proctor-noselect img { pointer-events: none; -webkit-user-drag: none; }
                     .violation-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(220,53,69,0.95); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
                     .violation-overlay h2 { font-size: 2rem; margin-bottom: 12px; }
                     .violation-overlay p { font-size: 1.1rem; opacity: 0.9; }
@@ -71,7 +71,13 @@
 
                 </style>
             </head>
-            <body oncontextmenu="return false;" oncopy="return false;" oncut="return false;" onpaste="return false;" ondragstart="return false;" onselectstart="return false;">
+            <body t-att-oncontextmenu="'return false;' if (not assessment or assessment.rule_block_right_click) else None"
+                  t-att-oncopy="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
+                  t-att-oncut="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
+                  t-att-onpaste="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
+                  t-att-ondragstart="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
+                  t-att-onselectstart="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
+                  t-att-class="'' if (assessment and not assessment.rule_block_copy_paste) else 'proctor-noselect'">
                 <!-- Mobile Device Blocker -->
                 <div class="mobile-block-overlay" id="mobile-block-overlay">
                     <div class="mobile-block-card">
@@ -114,6 +120,13 @@
                 <div class="validation-toast" id="validation-toast">Please select an option for all dimensions before submitting.</div>
                 <span data-candidate-name="" t-att-data-candidate-name="evaluator.employee_id.name if evaluator else ''" style="display:none;"/>
                 <span data-token="" t-att-data-token="token if token else ''" style="display:none;"/>
+                <span id="proctor-rules" style="display:none;"
+                      t-att-data-tab-switch="'1' if (not assessment or assessment.rule_block_tab_switch) else '0'"
+                      t-att-data-screenshot="'1' if (not assessment or assessment.rule_block_screenshot) else '0'"
+                      t-att-data-copy-paste="'1' if (not assessment or assessment.rule_block_copy_paste) else '0'"
+                      t-att-data-devtools="'1' if (not assessment or assessment.rule_block_devtools) else '0'"
+                      t-att-data-watermark="'1' if (not assessment or assessment.rule_watermark) else '0'"
+                      t-att-data-violation-action="assessment.violation_action if assessment else 'auto_submit'"/>
                 <div class="assessment-container">
                     <t t-raw="0"/>
                 </div>
@@ -121,6 +134,21 @@
                     (function() {
                         var form = document.querySelector("form");
                         var violated = false;
+
+                        /* ===== PROCTORING RULE FLAGS (set per-assessment in backend) ===== */
+                        var rulesEl = document.getElementById("proctor-rules");
+                        function ruleOn(attr) {
+                            /* default ON when the flag element is missing (safety) */
+                            return !rulesEl || rulesEl.getAttribute(attr) !== "0";
+                        }
+                        var RULES = {
+                            tabSwitch: ruleOn("data-tab-switch"),
+                            screenshot: ruleOn("data-screenshot"),
+                            copyPaste: ruleOn("data-copy-paste"),
+                            devtools: ruleOn("data-devtools"),
+                            watermark: ruleOn("data-watermark"),
+                            violationAction: (rulesEl &amp;&amp; rulesEl.getAttribute("data-violation-action")) || "auto_submit"
+                        };
 
                         /* ===== WATERMARK OVERLAY ===== */
                         function createWatermark() {
@@ -143,11 +171,36 @@
                             }
                             document.body.appendChild(overlay);
                         }
-                        createWatermark();
+                        if (RULES.watermark) {
+                            createWatermark();
+                        }
 
                         /* ===== VIOLATION HANDLER ===== */
                         function triggerViolation(reason) {
                             if (violated) return;
+                            var tokenEl = document.querySelector("[data-token]");
+                            var token = tokenEl ? tokenEl.getAttribute("data-token") : "";
+
+                            if (RULES.violationAction === "log_only") {
+                                /* Record the violation server-side but let the candidate continue. */
+                                if (token) {
+                                    try {
+                                        var fd = new FormData();
+                                        fd.append("violation_reason", reason);
+                                        navigator.sendBeacon
+                                            ? navigator.sendBeacon("/assessment/" + token + "/violation", fd)
+                                            : fetch("/assessment/" + token + "/violation", {method: "POST", body: fd});
+                                    } catch (e) {}
+                                }
+                                var toast = document.getElementById("validation-toast");
+                                if (toast) {
+                                    toast.textContent = "⚠️ Violation recorded: " + reason;
+                                    toast.style.display = "block";
+                                    setTimeout(function() { toast.style.display = "none"; }, 4000);
+                                }
+                                return;
+                            }
+
                             violated = true;
                             document.body.classList.remove("content-blurred");
                             var overlay = document.createElement("div");
@@ -155,8 +208,6 @@
                             overlay.innerHTML = '&lt;h2&gt;⚠️ Violation Detected&lt;/h2&gt;&lt;p&gt;' + reason + '&lt;/p&gt;&lt;p&gt;Your assessment is being submitted automatically.&lt;/p&gt;';
                             document.body.appendChild(overlay);
 
-                            var tokenEl = document.querySelector("[data-token]");
-                            var token = tokenEl ? tokenEl.getAttribute("data-token") : "";
                             if (token) {
                                 var violationForm = document.createElement("form");
                                 violationForm.method = "POST";
@@ -177,7 +228,7 @@
 
                         /* ===== CONTENT BLUR ON FOCUS LOSS ===== */
                         window.addEventListener("blur", function() {
-                            if (form &amp;&amp; !violated) {
+                            if (RULES.tabSwitch &amp;&amp; form &amp;&amp; !violated) {
                                 document.body.classList.add("content-blurred");
                             }
                         });
@@ -190,31 +241,31 @@
 
                         /* ===== KEYBOARD SHORTCUTS BLOCKING ===== */
                         document.addEventListener("keydown", function(e) {
-                            if (e.key === "PrintScreen" || e.key === "Snapshot") {
+                            if (RULES.screenshot &amp;&amp; (e.key === "PrintScreen" || e.key === "Snapshot")) {
                                 e.preventDefault();
                                 triggerViolation("Screenshot attempt detected");
                             }
                             /* macOS screenshot shortcuts: Cmd+Shift+3, Cmd+Shift+4, Cmd+Shift+5 */
-                            if (e.metaKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "3" || e.key === "4" || e.key === "5")) {
+                            if (RULES.screenshot &amp;&amp; e.metaKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "3" || e.key === "4" || e.key === "5")) {
                                 e.preventDefault();
                                 triggerViolation("Screenshot shortcut detected (Cmd+Shift+" + e.key + ")");
                             }
-                            if ((e.ctrlKey || e.metaKey) &amp;&amp; e.shiftKey &amp;&amp; (e.key === "S" || e.key === "s")) {
+                            if (RULES.screenshot &amp;&amp; (e.ctrlKey || e.metaKey) &amp;&amp; e.shiftKey &amp;&amp; (e.key === "S" || e.key === "s")) {
                                 e.preventDefault();
                                 triggerViolation("Screenshot shortcut detected");
                             }
-                            if ((e.ctrlKey || e.metaKey) &amp;&amp; (e.key === "c" || e.key === "C" || e.key === "a" || e.key === "A" || e.key === "u" || e.key === "U" || e.key === "s" || e.key === "S" || e.key === "p" || e.key === "P")) {
+                            if (RULES.copyPaste &amp;&amp; (e.ctrlKey || e.metaKey) &amp;&amp; (e.key === "c" || e.key === "C" || e.key === "a" || e.key === "A" || e.key === "u" || e.key === "U" || e.key === "s" || e.key === "S" || e.key === "p" || e.key === "P")) {
                                 e.preventDefault();
                                 return false;
                             }
-                            if (e.key === "F12" || (e.ctrlKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j"))) {
+                            if (RULES.devtools &amp;&amp; (e.key === "F12" || (e.ctrlKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j")))) {
                                 e.preventDefault();
                                 triggerViolation("Developer tools detected");
                             }
                         });
 
                         /* ===== SCREEN CAPTURE API OVERRIDE ===== */
-                        if (navigator.mediaDevices &amp;&amp; navigator.mediaDevices.getDisplayMedia) {
+                        if (RULES.screenshot &amp;&amp; navigator.mediaDevices &amp;&amp; navigator.mediaDevices.getDisplayMedia) {
                             navigator.mediaDevices.getDisplayMedia = function() {
                                 triggerViolation("Screen capture attempt detected");
                                 return Promise.reject(new Error("Screen capture blocked"));
@@ -222,24 +273,28 @@
                         }
 
                         /* ===== EXTENSION DETECTION ===== */
-                        var perfObserver = new PerformanceObserver(function(list) {
-                            list.getEntries().forEach(function(entry) {
-                                if (entry.name &amp;&amp; entry.name.indexOf("screenshot") !== -1) {
-                                    triggerViolation("Screenshot extension detected");
-                                }
+                        if (RULES.screenshot) {
+                            var perfObserver = new PerformanceObserver(function(list) {
+                                list.getEntries().forEach(function(entry) {
+                                    if (entry.name &amp;&amp; entry.name.indexOf("screenshot") !== -1) {
+                                        triggerViolation("Screenshot extension detected");
+                                    }
+                                });
                             });
-                        });
-                        try { perfObserver.observe({entryTypes: ["resource"]}); } catch(e) {}
+                            try { perfObserver.observe({entryTypes: ["resource"]}); } catch(e) {}
+                        }
 
                         /* ===== DEV TOOLS SIZE DETECTION ===== */
-                        setInterval(function() {
-                            var threshold = 160;
-                            if (window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold) {
-                                if (!violated &amp;&amp; form) {
-                                    triggerViolation("Developer tools detected");
+                        if (RULES.devtools) {
+                            setInterval(function() {
+                                var threshold = 160;
+                                if (window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold) {
+                                    if (!violated &amp;&amp; form) {
+                                        triggerViolation("Developer tools detected");
+                                    }
                                 }
-                            }
-                        }, 2000);
+                            }, 2000);
+                        }
                     })();
                 </script>
             </body>
@@ -374,13 +429,16 @@
                     <h6 style="color: #dc3545; margin-bottom: 12px; font-weight: 700;">⚠️ Important Rules</h6>
                     <div style="background: #fff5f5; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px;">
                         <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #444; line-height: 2;">
-                            <li><strong>Do NOT switch tabs or windows</strong> — Content will be blurred while you are away.</li>
-                            <li><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will auto-submit your assessment. Content blurs instantly on any attempt.</li>
-                            <li><strong>Do NOT copy text</strong> — Text selection, copy, cut, and paste are disabled.</li>
-                            <li><strong>Do NOT open Developer Tools</strong> — Opening browser dev tools will auto-submit your assessment.</li>
-                            <li><strong>Do NOT right-click</strong> — Context menu is disabled throughout the assessment.</li>
-                            <li><strong>Do NOT use screen recording</strong> — Screen capture attempts are detected and will auto-submit.</li>
-                            <li><strong>Watermark tracking is active</strong> — All content is watermarked with your name and timestamp.</li>
+                            <li t-if="assessment.rule_block_tab_switch"><strong>Do NOT switch tabs or windows</strong> — Content will be blurred while you are away.</li>
+                            <li t-if="assessment.rule_block_screenshot"><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will be flagged as a violation. Content blurs instantly on any attempt.</li>
+                            <li t-if="assessment.rule_block_copy_paste"><strong>Do NOT copy text</strong> — Text selection, copy, cut, and paste are disabled.</li>
+                            <li t-if="assessment.rule_block_devtools"><strong>Do NOT open Developer Tools</strong> — Opening browser dev tools will be flagged as a violation.</li>
+                            <li t-if="assessment.rule_block_right_click"><strong>Do NOT right-click</strong> — Context menu is disabled throughout the assessment.</li>
+                            <li t-if="assessment.rule_block_screenshot"><strong>Do NOT use screen recording</strong> — Screen capture attempts are detected and flagged.</li>
+                            <li t-if="assessment.rule_watermark"><strong>Watermark tracking is active</strong> — All content is watermarked with your name and timestamp.</li>
+                            <t t-if="not (assessment.rule_block_tab_switch or assessment.rule_block_screenshot or assessment.rule_block_copy_paste or assessment.rule_block_devtools or assessment.rule_block_right_click or assessment.rule_watermark)">
+                                <li>Complete the assessment honestly and without external assistance.</li>
+                            </t>
                         </ul>
                     </div>
                 </div>
@@ -404,7 +462,13 @@
 
                 <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 24px 0;">
                     <p style="margin: 0; font-size: 13px; color: #92400e;">
-                        <strong>⚡ Note:</strong> By clicking "Start Assessment" below, you acknowledge that you have read and understood the above rules. Any violation will result in immediate auto-submission of your assessment.
+                        <strong>⚡ Note:</strong> By clicking "Start Assessment" below, you acknowledge that you have read and understood the above rules.
+                        <t t-if="assessment.violation_action == 'auto_submit'">
+                            Any violation will result in immediate auto-submission of your assessment.
+                        </t>
+                        <t t-else="">
+                            Any violation will be recorded and reviewed by the assessment team.
+                        </t>
                     </p>
                 </div>
             </div>
@@ -559,12 +623,23 @@
                 </div>
 
                 <!-- Justification -->
-                <div class="assessment-card">
-                    <h5 class="mb-3">Justification <span style="color: #dc3545;">*</span></h5>
-                    <textarea name="justification" class="form-control" rows="4" required="required"
-                              placeholder="Explain your reasoning for the ratings above..." minlength="10"></textarea>
-                    <small class="text-muted">Required — minimum 10 characters.</small>
-                </div>
+                <t t-set="justification_optional" t-value="question.question_type == 'image_comparison' and not assessment.require_justification_image_comparison"/>
+                <t t-if="not justification_optional">
+                    <div class="assessment-card">
+                        <h5 class="mb-3">Justification <span style="color: #dc3545;">*</span></h5>
+                        <textarea name="justification" class="form-control" rows="4" required="required"
+                                  placeholder="Explain your reasoning for the ratings above..." minlength="10"></textarea>
+                        <small class="text-muted">Required — minimum 10 characters.</small>
+                    </div>
+                </t>
+                <t t-else="">
+                    <div class="assessment-card">
+                        <h5 class="mb-3">Justification <span class="text-muted" style="font-size: 13px; font-weight: 400;">(optional)</span></h5>
+                        <textarea name="justification" class="form-control" rows="4"
+                                  placeholder="Optionally explain your reasoning for the ratings above..."></textarea>
+                        <small class="text-muted">Optional for image comparison questions.</small>
+                    </div>
+                </t>
 
                 <!-- Submit Button -->
                 <div class="text-center mb-5">

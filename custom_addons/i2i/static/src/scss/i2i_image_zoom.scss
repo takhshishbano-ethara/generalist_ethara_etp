@@ -373,3 +373,15 @@
         flex: 1 1 100%;
     }
 }
+
+.i2i-disagreement-toggle .o_boolean_toggle input[type="checkbox"],
+.i2i-disagreement-toggle .form-switch input[type="checkbox"] {
+    background-color: rgba(40, 167, 69, 0.5) !important;
+    border-color: rgba(40, 167, 69, 0.6) !important;
+}
+
+.i2i-disagreement-toggle .o_boolean_toggle input[type="checkbox"]:checked,
+.i2i-disagreement-toggle .form-switch input[type="checkbox"]:checked {
+    background-color: rgba(220, 53, 69, 0.65) !important;
+    border-color: rgba(220, 53, 69, 0.75) !important;
+}

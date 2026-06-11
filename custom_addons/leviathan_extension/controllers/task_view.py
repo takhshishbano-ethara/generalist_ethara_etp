@@ -86,20 +86,17 @@ def _category_color_token(category_id):
     return CATEGORY_COLOR_TOKENS[category_id % len(CATEGORY_COLOR_TOKENS)]
 
 
-def _state_badge(state):
-    label, color = STATE_BADGE.get(state or "", (state or "", "muted"))
-    return {"key": state or "", "label": label, "color_token": color}
+def _state_label(state):
+    label, _ = STATE_BADGE.get(state or "", (state or "", "muted"))
+    return label
 
 
-def _qc_badge(qc_verdict, score):
+def _qc_label(qc_verdict, score):
     if not qc_verdict:
-        return {"key": "", "label": "—", "color_token": "muted"}
-    label_prefix, color = QC_VERDICT_BADGE.get(
-        qc_verdict, (qc_verdict, "muted")
-    )
+        return "—"
+    label_prefix, _ = QC_VERDICT_BADGE.get(qc_verdict, (qc_verdict, "muted"))
     score_int = int(round(score or 0))
-    label = f"{label_prefix} · {score_int}" if score else label_prefix
-    return {"key": qc_verdict, "label": label, "color_token": color}
+    return f"{label_prefix} · {score_int}" if score else label_prefix
 
 
 def _source_badge(via_batch):
@@ -350,13 +347,15 @@ def _serialize_task(job, base_url):
         qr_name = job.user_id.employee_id.task_forge_qr_id.name or ""
     return {
         "id": job.id,
-        "task": {
-            "top": job.site_name or _domain_from_url(job.url) or "",
-            "bottom": job.name or "",
-        },
+        "task": " — ".join(
+            part for part in (
+                job.site_name or _domain_from_url(job.url) or "",
+                job.name or "",
+            ) if part
+        ),
         "category": job.category_id.name or "",
-        "status": _state_badge(job.state),
-        "qc": _qc_badge(job.qc_verdict, job.score),
+        "status": _state_label(job.state),
+        "qc": _qc_label(job.qc_verdict, job.score),
         "assets": f"{assets_count} files" if assets_count else "—",
         "assigned_ql": qr_name or "Unassigned",
         "created": _format_short_date(job.create_date),
@@ -398,10 +397,10 @@ def _serialize_url_row(job):
 
 
 TASK_VIEW_COLUMNS = [
-    {"key": "task", "label": "Task", "type": "composite", "width": "fill"},
+    {"key": "task", "label": "Task", "type": "string", "width": "fill"},
     {"key": "category", "label": "Category", "type": "string", "width": 180},
-    {"key": "status", "label": "Status", "type": "badge", "width": 150},
-    {"key": "qc", "label": "QC", "type": "badge", "width": 120},
+    {"key": "status", "label": "Status", "type": "string", "width": 150},
+    {"key": "qc", "label": "QC", "type": "string", "width": 120},
     {"key": "assets", "label": "Assets", "type": "string", "width": 90},
     {"key": "assigned_ql", "label": "Assigned QL", "type": "string", "width": 150},
     {"key": "created", "label": "Created", "type": "date", "width": 90},

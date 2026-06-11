@@ -26,3 +26,4 @@ class ProjectProject(models.Model):
     connected_table = fields.Char(string='Connected Table')
     category_url = fields.Char(string='Category URL')
     tasker_url = fields.Char(string='Tasker URL')
+    budget_refresh_url = fields.Char(string='Budget Refresh URL')

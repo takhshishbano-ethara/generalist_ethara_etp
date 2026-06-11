@@ -11,6 +11,7 @@
                 <field name="project_classification" widget="radio" options="{'horizontal': true}"/>
                 <field name="connected_table"/>
                 <field name="category_url"/>
+                <field name="budget_refresh_url"/>
                 <field name="tasker_url"/>
             </xpath>
             <xpath expr="//page[@name='settings']" position="after">

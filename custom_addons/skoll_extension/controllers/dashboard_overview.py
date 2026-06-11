@@ -166,7 +166,7 @@ def _done_per_day(env, task_scope, day_from, day_to):
         ("write_date", ">=", datetime.combine(day_from, time.min)),
         ("write_date", "<=", datetime.combine(day_to, time.max)),
     ]
-    rows = Task.read_group(dom, ["write_date:day", "id:count"], ["write_date:day"])
+    rows = Task.read_group(dom, ["id:count"], ["write_date:day"])
     out = defaultdict(int)
     for row in rows:
         raw_day = row.get("write_date:day") or row.get("write_date")
