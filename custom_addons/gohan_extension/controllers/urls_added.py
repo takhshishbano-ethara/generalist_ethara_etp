@@ -29,16 +29,16 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .analytics_dashboard import (
+    _category_badge,
     _create_date_domain,
+    _domain_from_url,
+    _format_long_date,
     _parse_date,
     _scope,
+    _source_badge,
     _user_role_tag,
 )
 from .task_view_dashboard import DEFAULT_LIMIT, MAX_LIMIT, _coerce_int
-
-# "Source" column labels for the gohan.job.via_batch flag.
-SOURCE_BULK = "Bulk CSV"
-SOURCE_SINGLE = "Single"
 
 # sort_by -> ORM field. Mirrors task_view_dashboard's allow-list approach.
 URL_SORT_FIELDS = {
@@ -47,13 +47,14 @@ URL_SORT_FIELDS = {
     "seq": "name",
 }
 
+# Self-describing columns for the pen "URLs Added" table (6 columns).
 URL_COLUMNS = [
-    {"key": "url", "label": "Website URL", "type": "string"},
-    {"key": "category", "label": "Category", "type": "string"},
-    {"key": "added_by", "label": "Added by", "type": "string"},
-    {"key": "tasker_name", "label": "Assigned Tasker", "type": "string"},
-    {"key": "source", "label": "Source", "type": "string"},
-    {"key": "created_date", "label": "Date added", "type": "string"},
+    {"key": "website_url", "label": "Website URL", "type": "url", "width": "fill"},
+    {"key": "category", "label": "Category", "type": "badge", "width": 200},
+    {"key": "added_by", "label": "Added by", "type": "string", "width": 150},
+    {"key": "assigned_tasker", "label": "Assigned Tasker", "type": "string", "width": 150},
+    {"key": "source", "label": "Source", "type": "badge", "width": 110},
+    {"key": "date_added", "label": "Date added", "type": "date", "width": 110},
 ]
 
 
@@ -116,15 +117,26 @@ def _build_urls_domain(env, params):
 
 
 def _serialize_url(job):
+    """One "URLs Added" row in the pen shape: a Website URL link object, badge
+    objects for Category and Source, plus the raw fields kept for filter/sort."""
+    url = job.url or ""
     return {
         "id": job.id,
-        "seq": job.name or "",
-        "url": job.url or "",
-        "category": job.category_id.name or "",
+        "website_url": {
+            "label": job.site_name or _domain_from_url(url) or url,
+            "href": url,
+        },
+        "category": _category_badge(job.category_id),
         "added_by": job.create_uid.name or "",
-        "tasker_name": job.user_id.name or "",
-        "source": SOURCE_BULK if job.via_batch else SOURCE_SINGLE,
-        "created_date": job.create_date.isoformat() if job.create_date else None,
+        "assigned_tasker": job.user_id.name or "—",
+        "source": _source_badge(bool(job.via_batch)),
+        "date_added": _format_long_date(job.create_date),
+        # Raw fields retained for client-side filtering / sorting.
+        "seq": job.name or "",
+        "url": url,
+        "category_id": job.category_id.id or False,
+        "via_batch": bool(job.via_batch),
+        "created_at": job.create_date.isoformat() if job.create_date else None,
     }
 
 
@@ -171,6 +183,7 @@ class GohanUrlsAddedController(http.Controller):
         rows = [_serialize_url(job) for job in records]
         total_pages = (total + limit - 1) // limit if total else 0
         data = {
+            "role": _user_role_tag(env) or "tasker",
             "columns": URL_COLUMNS,
             "rows": rows,
             "pagination": {
