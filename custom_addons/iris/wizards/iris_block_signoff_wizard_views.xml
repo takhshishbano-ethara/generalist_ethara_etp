@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Co-sign Wizard Form                                          -->
+        <!-- ============================================================ -->
+        <record id="view_iris_block_signoff_wizard_form" model="ir.ui.view">
+            <field name="name">iris.block.signoff.wizard.form</field>
+            <field name="model">iris.block.signoff.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Co-sign BLOCK">
+                    <div class="alert alert-danger" role="alert">
+                        You are confirming this BLOCK as the <strong>second screener</strong>.
+                        The candidate moves to Blocked and the hold deadline is cleared.
+                        The sign-off must come from a different screener than the one who
+                        proposed the BLOCK.
+                    </div>
+                    <group>
+                        <field name="candidate_id" readonly="1"/>
+                        <field name="block_kind" widget="radio"/>
+                        <field name="note"
+                               placeholder="Optional — what you reviewed before co-signing (quotes checked, dates confirmed, ...)."/>
+                    </group>
+                    <footer>
+                        <button name="action_confirm" string="Co-sign BLOCK" type="object"
+                                class="btn-danger" data-hotkey="q"/>
+                        <button string="Cancel" special="cancel" data-hotkey="x"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <!-- Action (opened by iris.candidate.action_open_block_signoff_wizard
+             with {'default_candidate_id': id} in context) -->
+        <record id="action_iris_block_signoff_wizard" model="ir.actions.act_window">
+            <field name="name">Co-sign BLOCK</field>
+            <field name="res_model">iris.block.signoff.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="view_id" ref="view_iris_block_signoff_wizard_form"/>
+            <field name="target">new</field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Reject Wizard Form                                           -->
+        <!-- ============================================================ -->
+        <record id="view_iris_block_reject_wizard_form" model="ir.ui.view">
+            <field name="name">iris.block.reject.wizard.form</field>
+            <field name="model">iris.block.reject.wizard</field>
+            <field name="arch" type="xml">
+                <form string="Reject BLOCK Sign-off">
+                    <div class="alert alert-warning" role="alert">
+                        Rejecting the sign-off returns the candidate to
+                        <strong>Needs Review</strong> for a manager decision.
+                        A reason is mandatory and is recorded on the screening.
+                    </div>
+                    <group>
+                        <field name="candidate_id" readonly="1"/>
+                        <field name="reason" required="1"
+                               placeholder="Why this BLOCK should not stand as-is — missing evidence, guard item misread, date verified out-of-band, ..."/>
+                    </group>
+                    <footer>
+                        <button name="action_confirm" string="Reject Sign-off" type="object"
+                                class="btn-warning" data-hotkey="q"/>
+                        <button string="Cancel" special="cancel" data-hotkey="x"/>
+                    </footer>
+                </form>
+            </field>
+        </record>
+
+        <!-- Action (opened by iris.candidate.action_open_block_reject_wizard
+             with {'default_candidate_id': id} in context) -->
+        <record id="action_iris_block_reject_wizard" model="ir.actions.act_window">
+            <field name="name">Reject BLOCK Sign-off</field>
+            <field name="res_model">iris.block.reject.wizard</field>
+            <field name="view_mode">form</field>
+            <field name="view_id" ref="view_iris_block_reject_wizard_form"/>
+            <field name="target">new</field>
+        </record>
+
+    </data>
+</odoo>

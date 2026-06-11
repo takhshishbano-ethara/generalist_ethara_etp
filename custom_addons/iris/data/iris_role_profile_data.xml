@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ============================================================ -->
+        <!-- Seeded role: Head of Engineering (the ONLY role in v1.1).    -->
+        <!-- competence_guidance is distilled from the approved JD        -->
+        <!-- rewrite (iris-ref/iris-repo/iris/Ethara_AI_HoE_JD_Rewrite.md -->
+        <!-- — Year-One Mandate + Who We Think You Are).                  -->
+        <!-- ============================================================ -->
+        <record id="role_head_of_engineering" model="iris.role.profile">
+            <field name="name">Head of Engineering</field>
+            <field name="code">head_of_engineering</field>
+            <field name="sequence">10</field>
+            <field name="description">Head of Engineering at Ethara.AI — an AI-data company building human-in-the-loop datasets for training, aligning and evaluating LLMs (math, code, reasoning). Runs engineering end-to-end: inherits ~25 engineers, expected to reach ~45 within 12 months; Gurugram, on-site. Owns the engineering roadmap, architecture for shipped systems, and engineering hiring; proposes budget; co-owns research-to-production handoff with the CTO.</field>
+            <field name="competence_guidance">ROLE CALIBRATION — Head of Engineering (engineering leadership, NOT an ML-research role).
+
+Year-one mandate the hire must credibly own (anchor competence claims against these three problems):
+1. Ship a production-grade internal EVALUATION PLATFORM: 10K+ eval tasks/day across hundreds of concurrent projects; multi-turn, tool-use and agentic evals (not just single-turn scoring); dataset versioning and lineage that survives client audits; integration with client-side model endpoints (OpenAI, Anthropic, Bedrock, Vertex, on-prem).
+2. Scale the ANNOTATION PLATFORM ~3x in volume WITHOUT linear cost scaling: latency targets (P95 task latency), annotator-productivity telemetry with real-time quality signals, role-based data-governance controls at SOC 2 Type II grade.
+3. Stand up MLOPS / TRAINING INFRASTRUCTURE for proprietary IP (reward models, small specialist models, eval judges): distributed training (e.g. Ray on Kubernetes), GPU scheduling across on-prem and cloud bursting, experiment tracking and reproducibility, checkpoint-to-production deployment in hours not weeks. Explicitly NOT asked to train a frontier foundation model — that is not where this business creates value.
+
+Competence bar (must-haves — treat as the rubric's "required level"):
+- 12+ years building software, with at least 4 as an engineering manager of managers.
+- Shipped at least one platform from 0 to meaningful scale (built, not merely maintained or inherited).
+- Hands-on enough to do architecture reviews and read PRs credibly (Python OR a typed language) — roughly 10% of the job, but non-negotiable.
+- Worked ADJACENT to ML systems (inference, data pipelines, training infra, eval). Does NOT need to be an ML researcher; the problems are classical platform engineering at data-company scale.
+- Can name one specific org-design or hiring decision that went badly and articulate the lesson.
+
+Strong positive signals: data-intensive B2B background (annotation, analytics, observability, fintech data) or a hyperscaler ML-infra org; has operated a 25-75 person engineering org; has navigated a services-to-product transition.
+
+Anti-unicorn calibration (do NOT penalize, and treat the opposite claims with suspicion):
+- No advanced-degree gate: what they built and shipped outweighs credentials.
+- No "frontier AI" requirement: absence of frontier-lab experience is NOT a competence gap for this role.
+- Distrust "full-stack hands-on across frontend, backend and cloud-native" at claimed senior level — credible senior leaders have a center of gravity; claiming all three at expert depth is itself a calibration red flag.</field>
+            <field name="default_tech_date_reference">| Technology | GA Date | Source |
+|---|---|---|
+| ChatGPT (public launch) | 2022-11-30 | https://openai.com/index/chatgpt/ |
+| GPT-4 | 2023-03-14 | https://openai.com/index/gpt-4-research/ |
+| Claude (first public release) | 2023-03-14 | https://www.anthropic.com/news/introducing-claude |
+| Model Context Protocol (MCP) | 2024-11-25 | https://www.anthropic.com/news/model-context-protocol |
+| OpenAI function calling (API) | 2023-06-13 | https://openai.com/index/function-calling-and-other-api-updates/ |
+| GitHub Copilot (GA) | 2022-06-21 | https://github.blog/2022-06-21-github-copilot-is-generally-available-to-all-developers/ |
+| LangChain (initial release) | 2022-10-24 | https://github.com/langchain-ai/langchain |
+| vLLM (initial release) | 2023-06-20 | https://blog.vllm.ai/2023/06/20/vllm.html |
+| Amazon Bedrock (GA) | 2023-09-28 | https://aws.amazon.com/about-aws/whats-new/2023/09/amazon-bedrock-generally-available/ |
+| Ray 1.0 | 2020-09-30 | https://github.com/ray-project/ray/releases/tag/ray-1.0.0 |
+| PyTorch 1.0 | 2018-12-07 | https://pytorch.org/blog/the-road-to-1_0/ |
+| Kubernetes 1.0 | 2015-07-21 | https://kubernetes.io/blog/2015/07/kubernetes-1-0-launch-party-at-oscon/ |
+| Terraform 1.0 | 2021-06-08 | https://www.hashicorp.com/blog/announcing-hashicorp-terraform-1-0-general-availability |</field>
+        </record>
+
+    </data>
+</odoo>

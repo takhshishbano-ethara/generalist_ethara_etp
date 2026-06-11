@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Possible Duplicates action (smart button target)             -->
+        <!-- Opened from the candidate form: active_id is the candidate.  -->
+        <!-- The duplicate M2M is written symmetrically on both sides, so -->
+        <!-- this domain returns the other members of the duplicate set.  -->
+        <!-- ============================================================ -->
+        <record id="action_iris_candidate_duplicates" model="ir.actions.act_window">
+            <field name="name">Possible Duplicates</field>
+            <field name="res_model">iris.candidate</field>
+            <field name="view_mode">list,form</field>
+            <field name="domain">[('duplicate_candidate_ids', 'in', [active_id])]</field>
+            <field name="context">{'active_test': False}</field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Form View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_candidate_form" model="ir.ui.view">
+            <field name="name">iris.candidate.form</field>
+            <field name="model">iris.candidate</field>
+            <field name="arch" type="xml">
+                <form string="Candidate">
+                    <header>
+                        <button name="action_screen" string="Screen Resume" type="object"
+                                class="oe_highlight"
+                                invisible="state not in ('draft', 'needs_review')"
+                                confirm="This will send the extracted resume text to the configured LLM and incur usage costs. Continue?"/>
+
+                        <!-- Dual sign-off on BLOCK (v1.1, P0-1) -->
+                        <button name="action_open_block_signoff_wizard" string="Co-sign BLOCK"
+                                type="object" class="btn-danger"
+                                invisible="state != 'pending_block'"/>
+                        <button name="action_open_block_reject_wizard" string="Reject BLOCK Sign-off"
+                                type="object"
+                                invisible="state != 'pending_block'"/>
+
+                        <!-- HOLD lifecycle -->
+                        <button name="action_open_evidence_wizard" string="Record Evidence"
+                                type="object"
+                                invisible="state != 'hold'"
+                                context="{'default_candidate_id': id}"/>
+                        <button name="action_generate_clarifying_questions"
+                                string="Generate Clarifying Questions" type="object"
+                                invisible="state != 'hold'"
+                                confirm="Generate neutral, candidate-facing clarifying questions from the HOLD screening record via the configured LLM? This incurs usage costs."/>
+                        <button name="action_rescreen" string="Re-screen" type="object"
+                                invisible="state != 'hold'"
+                                confirm="Re-screen this candidate using the recorded verification evidence? This will incur LLM usage costs."/>
+
+                        <!-- Batch-consistency advisory re-screen (v1.1) — the model
+                             guard additionally requires the batch to be done. -->
+                        <button name="action_rescreen_advisory" string="Re-screen (Advisory)"
+                                type="object" groups="iris.group_iris_manager"
+                                invisible="state not in ('shipped', 'blocked') or not batch_id"
+                                confirm="Re-screen this candidate from the batch consistency advisory? The batch finding is recorded as verification evidence and this incurs LLM usage costs."/>
+
+                        <!-- Post-SHIP pipeline -->
+                        <button name="action_generate_guide" string="Generate Interview Guide"
+                                type="object" class="oe_highlight"
+                                invisible="state != 'shipped'"
+                                confirm="Generate the 5-question interview guide via the configured LLM? This incurs usage costs."/>
+                        <button name="action_generate_scorecard" string="Generate Scorecard"
+                                type="object" class="oe_highlight"
+                                invisible="state != 'interviewed'"
+                                confirm="Generate the scorecard from the interview guide and notes via the configured LLM? This incurs usage costs."/>
+
+                        <!-- Final decision -->
+                        <button name="action_mark_hired" string="Mark Hired" type="object"
+                                class="oe_highlight"
+                                invisible="state != 'scored'"/>
+                        <button name="action_mark_rejected" string="Mark Rejected" type="object"
+                                invisible="state != 'scored'"/>
+
+                        <!-- Candidate communication (v1.1, P1-5 — manual composer send) -->
+                        <button name="action_send_hold_verification_email"
+                                string="Send Verification Email" type="object"
+                                invisible="state != 'hold'"/>
+                        <button name="action_send_interview_invite_email"
+                                string="Send Interview Invite" type="object"
+                                invisible="state not in ('shipped', 'interview_ready')"/>
+                        <button name="action_send_rejection_email"
+                                string="Send Rejection Email" type="object"
+                                invisible="state not in ('blocked', 'rejected')"/>
+
+                        <!-- Manager manual verdict (verdict parse failure recovery) -->
+                        <button name="action_manual_verdict_ship" string="Ship (Manual)"
+                                type="object" class="btn-success"
+                                invisible="state != 'needs_review'"
+                                groups="iris.group_iris_manager"/>
+                        <button name="action_manual_verdict_hold" string="Hold (Manual)"
+                                type="object" class="btn-warning"
+                                invisible="state != 'needs_review'"
+                                groups="iris.group_iris_manager"/>
+                        <button name="action_manual_verdict_block" string="Block (Manual)"
+                                type="object" class="btn-danger"
+                                invisible="state != 'needs_review'"
+                                groups="iris.group_iris_manager"/>
+
+                        <field name="state" widget="statusbar"
+                               statusbar_visible="draft,screening,hold,shipped,interview_ready,interviewed,scored"/>
+                    </header>
+
+                    <sheet>
+                        <!-- Smart buttons -->
+                        <div class="oe_button_box" name="button_box">
+                            <button class="oe_stat_button" type="action"
+                                    name="%(iris.action_iris_screening)d"
+                                    icon="fa-filter"
+                                    context="{'search_default_candidate_id': id}">
+                                <field name="screening_count" widget="statinfo" string="Screenings"/>
+                            </button>
+                            <button class="oe_stat_button" type="action"
+                                    name="%(iris.action_iris_interview)d"
+                                    icon="fa-comments-o"
+                                    context="{'search_default_candidate_id': id}">
+                                <field name="interview_count" widget="statinfo" string="Interviews"/>
+                            </button>
+                            <button class="oe_stat_button" type="action"
+                                    name="%(iris.action_iris_scorecard)d"
+                                    icon="fa-list-ol"
+                                    context="{'search_default_candidate_id': id}">
+                                <field name="scorecard_count" widget="statinfo" string="Scorecards"/>
+                            </button>
+                            <button class="oe_stat_button" type="action"
+                                    name="%(iris.action_iris_assessment)d"
+                                    icon="fa-tasks"
+                                    context="{'search_default_candidate_id': id}">
+                                <field name="assessment_count" widget="statinfo" string="Assessments"/>
+                            </button>
+                            <button class="oe_stat_button" type="action"
+                                    name="%(iris.action_iris_candidate_duplicates)d"
+                                    icon="fa-copy"
+                                    invisible="duplicate_count == 0">
+                                <field name="duplicate_count" widget="statinfo"
+                                       string="Possible Duplicates"/>
+                            </button>
+                        </div>
+
+                        <!-- State banners -->
+                        <div class="alert alert-danger" role="alert"
+                             invisible="state != 'pending_block'">
+                            <strong>Pending BLOCK Sign-off —</strong> a BLOCK proposed by
+                            <field name="block_proposed_by_id" readonly="1" nolabel="1"
+                                   class="oe_inline"/>
+                            requires a second screener's co-sign (or a sign-off rejection
+                            with a reason) before the candidate is finally blocked and any
+                            communication is sent.
+                        </div>
+                        <div class="alert alert-warning" role="alert"
+                             invisible="not duplicate_warning">
+                            <strong>Possible duplicate resume —</strong>
+                            <field name="duplicate_warning" readonly="1" nolabel="1"
+                                   class="oe_inline"/>
+                            Advisory only — this never blocks the pipeline.
+                        </div>
+                        <div class="alert alert-warning" role="alert" invisible="state != 'hold'">
+                            <strong>On Hold —</strong> verification evidence is required before re-screening.
+                            This hold auto-blocks after
+                            <field name="hold_deadline" readonly="1" nolabel="1" class="oe_inline"/>.
+                        </div>
+                        <div class="alert alert-danger" role="alert" invisible="state != 'needs_review'">
+                            <strong>Needs Review —</strong> the screening verdict could not be parsed from
+                            the LLM response. A manager must set the verdict manually (Ship / Hold / Block).
+                        </div>
+                        <div class="alert alert-secondary text-muted" role="alert" invisible="state != 'blocked'">
+                            <strong>Blocked.</strong> This candidate was blocked (co-signed screening
+                            verdict or expired hold). The pipeline is closed.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="name" placeholder="Candidate Name" required="1"/>
+                            </h1>
+                            <div class="o_row">
+                                <field name="reference" readonly="1"/>
+                            </div>
+                        </div>
+
+                        <group>
+                            <group string="Contact &amp; Role">
+                                <field name="email" widget="email"/>
+                                <field name="phone" widget="phone"/>
+                                <field name="role_id"
+                                       options="{'no_create': True, 'no_quick_create': True}"
+                                       domain="[('active', '=', True), ('is_legacy', '=', False)]"/>
+                                <field name="jd_id"
+                                       domain="[('state', '=', 'approved')]"
+                                       options="{'no_create': True, 'no_quick_create': True}"/>
+                                <field name="tech_date_reference" readonly="1"
+                                       string="Tech Date Reference (deprecated — superseded by the central Tech Date Reference)"/>
+                            </group>
+                            <group string="Pipeline">
+                                <field name="batch_id" readonly="1"/>
+                                <field name="hold_deadline" readonly="1"/>
+                                <field name="current_verdict" readonly="1"/>
+                                <field name="final_recommendation" readonly="1"/>
+                            </group>
+                        </group>
+
+                        <notebook>
+                            <page string="Resume" name="resume">
+                                <group>
+                                    <group string="File">
+                                        <field name="resume_file" widget="binary"
+                                               filename="resume_filename"/>
+                                        <field name="resume_filename" readonly="1"/>
+                                        <field name="resume_uploaded_at" readonly="1"/>
+                                        <field name="resume_s3_key" readonly="1"/>
+                                    </group>
+                                </group>
+                                <group string="Extracted Text">
+                                    <field name="resume_text" readonly="1" nolabel="1"
+                                           placeholder="Text is extracted automatically from the uploaded PDF."/>
+                                </group>
+                            </page>
+
+                            <page string="Screening" name="screening">
+                                <group>
+                                    <field name="current_screening_id" readonly="1"/>
+                                </group>
+                                <field name="screening_ids" readonly="1">
+                                    <list create="false" delete="false" edit="false"
+                                          decoration-success="verdict == 'ship'"
+                                          decoration-warning="verdict == 'hold'"
+                                          decoration-danger="verdict == 'block'">
+                                        <field name="attempt" string="#"/>
+                                        <field name="is_rescreen" optional="show"/>
+                                        <field name="rescreen_reason" optional="hide"/>
+                                        <field name="verdict" widget="badge"
+                                               decoration-success="verdict == 'ship'"
+                                               decoration-warning="verdict == 'hold'"
+                                               decoration-danger="verdict == 'block'"/>
+                                        <field name="llm_status" widget="badge"
+                                               decoration-success="llm_status == 'done'"
+                                               decoration-danger="llm_status == 'failed'"
+                                               decoration-warning="llm_status == 'needs_review'"
+                                               decoration-info="llm_status in ('queued', 'running')"/>
+                                        <field name="block_signoff_state" optional="hide"/>
+                                        <field name="screened_at" optional="show"/>
+                                        <field name="hold_deadline" optional="show"/>
+                                        <field name="auto_blocked" optional="hide"/>
+                                        <field name="llm_cost_usd" optional="show" sum="Total"/>
+                                    </list>
+                                </field>
+                            </page>
+
+                            <page string="LLM Log" name="llm_log">
+                                <p class="text-muted">
+                                    Per-artifact LLM audit (prompt input, raw response, cost) lives on
+                                    each screening / interview / scorecard record — open them from the
+                                    smart buttons above or the lists below.
+                                </p>
+                                <group string="Interview Guides">
+                                    <field name="interview_ids" readonly="1" nolabel="1" colspan="2">
+                                        <list create="false" delete="false" edit="false">
+                                            <field name="interviewer_name" optional="show"/>
+                                            <field name="interviewed_at" optional="show"/>
+                                            <field name="notes_submitted" optional="show"/>
+                                            <field name="llm_status" widget="badge"
+                                                   decoration-success="llm_status == 'done'"
+                                                   decoration-danger="llm_status == 'failed'"
+                                                   decoration-info="llm_status in ('queued', 'running')"/>
+                                            <field name="llm_model_used" optional="show"/>
+                                            <field name="llm_cost_usd" optional="show" sum="Total"/>
+                                            <field name="create_date" optional="show"/>
+                                        </list>
+                                    </field>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- List View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_candidate_list" model="ir.ui.view">
+            <field name="name">iris.candidate.list</field>
+            <field name="model">iris.candidate</field>
+            <field name="arch" type="xml">
+                <list string="Candidates">
+                    <field name="reference"/>
+                    <field name="name"/>
+                    <field name="target_role"/>
+                    <field name="role_id" optional="hide"/>
+                    <field name="batch_id" optional="show"/>
+                    <field name="state" widget="badge"
+                           decoration-success="state in ('shipped', 'scored', 'hired')"
+                           decoration-danger="state in ('blocked', 'rejected', 'pending_block')"
+                           decoration-warning="state in ('hold', 'needs_review')"
+                           decoration-info="state in ('screening', 'interview_ready', 'interviewed')"/>
+                    <field name="current_verdict" optional="show"/>
+                    <field name="hold_deadline" optional="show"/>
+                    <field name="final_recommendation" optional="show"/>
+                    <field name="create_date" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_candidate_search" model="ir.ui.view">
+            <field name="name">iris.candidate.search</field>
+            <field name="model">iris.candidate</field>
+            <field name="arch" type="xml">
+                <search string="Search Candidates">
+                    <field name="name"/>
+                    <field name="reference"/>
+                    <field name="email"/>
+                    <field name="target_role"/>
+                    <field name="role_id"/>
+                    <field name="batch_id"/>
+
+                    <filter name="filter_draft" string="Draft"
+                            domain="[('state', '=', 'draft')]"/>
+                    <filter name="filter_screening" string="Screening"
+                            domain="[('state', '=', 'screening')]"/>
+                    <filter name="filter_hold" string="On Hold"
+                            domain="[('state', '=', 'hold')]"/>
+                    <filter name="filter_needs_review" string="Needs Review"
+                            domain="[('state', '=', 'needs_review')]"/>
+                    <filter name="filter_shipped" string="Shipped"
+                            domain="[('state', '=', 'shipped')]"/>
+                    <filter name="filter_interview" string="Interview Stage"
+                            domain="[('state', 'in', ('interview_ready', 'interviewed'))]"/>
+                    <filter name="filter_scored" string="Scored"
+                            domain="[('state', '=', 'scored')]"/>
+                    <filter name="filter_hired" string="Hired"
+                            domain="[('state', '=', 'hired')]"/>
+                    <filter name="filter_rejected" string="Rejected"
+                            domain="[('state', '=', 'rejected')]"/>
+                    <filter name="filter_pending_block" string="Pending BLOCK Sign-off"
+                            domain="[('state', '=', 'pending_block')]"/>
+                    <filter name="filter_blocked" string="Blocked"
+                            domain="[('state', '=', 'blocked')]"/>
+                    <separator/>
+                    <filter name="filter_holds_expiring" string="Holds Expiring"
+                            domain="[
+                                ('state', '=', 'hold'),
+                                ('hold_deadline', '&lt;=', (context_today() + relativedelta(days=1)).strftime('%Y-%m-%d'))
+                            ]"/>
+                    <separator/>
+                    <filter name="filter_duplicates" string="Possible Duplicates"
+                            domain="[('duplicate_candidate_ids', '!=', False)]"/>
+                    <separator/>
+                    <filter name="filter_archived" string="Archived"
+                            domain="[('active', '=', False)]"/>
+
+                    <group>
+                        <filter name="group_state" string="State"
+                                context="{'group_by': 'state'}"/>
+                        <filter name="group_role" string="Role"
+                                context="{'group_by': 'role_id'}"/>
+                        <filter name="group_target_role" string="Target Role"
+                                context="{'group_by': 'target_role'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action                                                       -->
+        <!-- ============================================================ -->
+        <record id="action_iris_candidate" model="ir.actions.act_window">
+            <field name="name">Candidates</field>
+            <field name="res_model">iris.candidate</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_candidate_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">Add your first candidate</p>
+                <p>Upload a resume PDF, set the target role, then hit Screen Resume.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

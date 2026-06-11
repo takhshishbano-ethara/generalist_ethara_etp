@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- List View (inline editing for fast table maintenance)        -->
+        <!-- ============================================================ -->
+        <record id="view_iris_tech_date_reference_list" model="ir.ui.view">
+            <field name="name">iris.tech.date.reference.list</field>
+            <field name="model">iris.tech.date.reference</field>
+            <field name="arch" type="xml">
+                <list string="Tech Date Reference" editable="bottom">
+                    <field name="technology"/>
+                    <field name="ga_date"/>
+                    <field name="source_url" widget="url" optional="show"/>
+                    <field name="note" optional="show"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Form View (chatter = audit trail of date changes)            -->
+        <!-- ============================================================ -->
+        <record id="view_iris_tech_date_reference_form" model="ir.ui.view">
+            <field name="name">iris.tech.date.reference.form</field>
+            <field name="model">iris.tech.date.reference</field>
+            <field name="arch" type="xml">
+                <form string="Tech Date Reference">
+                    <sheet>
+                        <widget name="web_ribbon" title="Archived"
+                                bg_color="text-bg-danger" invisible="active"/>
+                        <div class="oe_title">
+                            <h1><field name="technology" placeholder="e.g. MCP (Model Context Protocol)"/></h1>
+                        </div>
+                        <group>
+                            <group>
+                                <field name="active" invisible="1"/>
+                                <field name="ga_date"/>
+                                <field name="source_url" widget="url"
+                                       placeholder="https://... (announcement / changelog backing the date)"/>
+                            </group>
+                            <group>
+                                <field name="note"/>
+                            </group>
+                        </group>
+                        <div class="alert alert-info" role="alert">
+                            To change a date, <strong>archive this row and create a new one</strong> —
+                            archived rows are the version history of the reference table.
+                        </div>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_tech_date_reference_search" model="ir.ui.view">
+            <field name="name">iris.tech.date.reference.search</field>
+            <field name="model">iris.tech.date.reference</field>
+            <field name="arch" type="xml">
+                <search string="Search Tech Date Reference">
+                    <field name="technology"/>
+                    <field name="note"/>
+
+                    <filter name="filter_archived" string="Archived"
+                            domain="[('active', '=', False)]"/>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action (menu item registered in iris_menus.xml)              -->
+        <!-- ============================================================ -->
+        <record id="action_iris_tech_date_reference" model="ir.actions.act_window">
+            <field name="name">Tech Date Reference</field>
+            <field name="res_model">iris.tech.date.reference</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_tech_date_reference_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No reference dates yet</p>
+                <p>
+                    Maintain the authoritative technology GA-date table consumed by the
+                    screening LLM. One active row per technology; archive rows to
+                    version them. Screeners may not assert dates from memory.
+                </p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

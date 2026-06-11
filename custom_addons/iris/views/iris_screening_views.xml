@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <!-- ============================================================ -->
+        <!-- Form View (audit artifact — mostly readonly)                 -->
+        <!-- ============================================================ -->
+        <record id="view_iris_screening_form" model="ir.ui.view">
+            <field name="name">iris.screening.form</field>
+            <field name="model">iris.screening</field>
+            <field name="arch" type="xml">
+                <form string="Screening" create="false">
+                    <header>
+                        <button name="action_retry_llm" string="Retry" type="object"
+                                class="btn-warning"
+                                invisible="llm_status != 'failed'"
+                                confirm="Re-run this screening through the configured LLM? This incurs usage costs."/>
+                        <button name="action_generate_clarifying_questions"
+                                string="Generate Clarifying Questions" type="object"
+                                invisible="verdict != 'hold'"
+                                confirm="Generate neutral, candidate-facing clarifying questions from this HOLD screening record via the configured LLM? This incurs usage costs."/>
+                        <field name="llm_status" widget="statusbar"
+                               statusbar_visible="queued,running,done"/>
+                    </header>
+
+                    <sheet>
+                        <div class="alert alert-danger" role="alert"
+                             invisible="llm_status != 'failed'">
+                            <strong>LLM call failed: </strong>
+                            <field name="llm_error" readonly="1" nolabel="1" class="oe_inline"/>
+                        </div>
+                        <div class="alert alert-warning" role="alert"
+                             invisible="llm_status != 'needs_review'">
+                            <strong>Needs Review —</strong> the verdict could not be parsed from
+                            the raw LLM response. A manager must set it manually on the candidate.
+                        </div>
+
+                        <div class="oe_title">
+                            <h1>
+                                <field name="verdict" widget="badge" readonly="1"
+                                       decoration-success="verdict == 'ship'"
+                                       decoration-warning="verdict == 'hold'"
+                                       decoration-danger="verdict == 'block'"/>
+                            </h1>
+                        </div>
+
+                        <group>
+                            <group string="Screening">
+                                <field name="candidate_id" readonly="1"/>
+                                <field name="attempt" readonly="1"/>
+                                <field name="is_rescreen" readonly="1"/>
+                                <field name="parent_screening_id" readonly="1"
+                                       invisible="not is_rescreen"/>
+                                <field name="screened_at" readonly="1"/>
+                            </group>
+                            <group string="Outcome">
+                                <field name="verdict_manual" readonly="1"
+                                       invisible="not verdict_manual"/>
+                                <field name="hold_deadline" readonly="1"
+                                       invisible="not hold_deadline"/>
+                                <field name="auto_blocked" readonly="1"
+                                       invisible="not auto_blocked"/>
+                                <field name="attachment_id" readonly="1"
+                                       invisible="not attachment_id"/>
+                            </group>
+                        </group>
+
+                        <!-- Dual sign-off audit (v1.1, P0-1) — readonly -->
+                        <group string="BLOCK Sign-off" invisible="block_signoff_state == 'none'">
+                            <group>
+                                <field name="block_proposed_by_id" readonly="1"/>
+                                <field name="block_proposed_at" readonly="1"/>
+                                <field name="block_signoff_state" readonly="1" widget="badge"
+                                       decoration-warning="block_signoff_state == 'pending'"
+                                       decoration-success="block_signoff_state == 'approved'"
+                                       decoration-danger="block_signoff_state == 'rejected'"/>
+                            </group>
+                            <group>
+                                <field name="block_signed_off_by_id" readonly="1"
+                                       invisible="not block_signed_off_by_id"/>
+                                <field name="block_signed_off_at" readonly="1"
+                                       invisible="not block_signed_off_at"/>
+                                <field name="block_kind" readonly="1"
+                                       invisible="not block_kind"/>
+                                <field name="block_signoff_rejection_reason" readonly="1"
+                                       invisible="not block_signoff_rejection_reason"/>
+                            </group>
+                        </group>
+
+                        <group string="Verification Evidence" invisible="verdict != 'hold'">
+                            <field name="verification_evidence" readonly="1" nolabel="1" colspan="2"
+                                   placeholder="No verification evidence recorded yet."/>
+                            <field name="evidence_recorded_by" readonly="1"/>
+                            <field name="evidence_recorded_at" readonly="1"/>
+                        </group>
+
+                        <!-- Clarifying questions (v1.1, P2-9) — latest generated set;
+                             prior sets stay auditable on the clarification rows. -->
+                        <field name="clarifying_questions_markdown" invisible="1"/>
+                        <group string="Clarifying Questions"
+                               invisible="not clarifying_questions_markdown">
+                            <field name="clarifying_questions_html" readonly="1"
+                                   nolabel="1" colspan="2"/>
+                        </group>
+
+                        <notebook>
+                            <page string="Record" name="record">
+                                <field name="markdown_html" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Markdown" name="raw_markdown">
+                                <field name="markdown_record" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Prompt Input" name="prompt_input">
+                                <field name="llm_prompt_input" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Raw Response" name="raw_response">
+                                <field name="llm_raw_response" readonly="1" nolabel="1"/>
+                            </page>
+                            <page string="Metadata" name="metadata">
+                                <group>
+                                    <group string="Model">
+                                        <field name="llm_model_used" readonly="1"/>
+                                        <field name="llm_prompt_tokens" readonly="1"/>
+                                        <field name="llm_completion_tokens" readonly="1"/>
+                                        <field name="llm_cost_usd" readonly="1"/>
+                                    </group>
+                                    <group string="Timing">
+                                        <field name="llm_latency_ms" readonly="1"/>
+                                        <field name="llm_started_at" readonly="1"/>
+                                        <field name="llm_completed_at" readonly="1"/>
+                                    </group>
+                                </group>
+                            </page>
+                        </notebook>
+                    </sheet>
+                    <chatter/>
+                </form>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- List View                                                    -->
+        <!-- ============================================================ -->
+        <record id="view_iris_screening_list" model="ir.ui.view">
+            <field name="name">iris.screening.list</field>
+            <field name="model">iris.screening</field>
+            <field name="arch" type="xml">
+                <list string="Screenings" create="false"
+                      decoration-success="verdict == 'ship'"
+                      decoration-warning="verdict == 'hold'"
+                      decoration-danger="verdict == 'block'">
+                    <field name="candidate_id"/>
+                    <field name="attempt" string="#"/>
+                    <field name="is_rescreen" optional="show"/>
+                    <field name="rescreen_reason" optional="hide"/>
+                    <field name="batch_id" optional="hide"/>
+                    <field name="verdict" widget="badge"
+                           decoration-success="verdict == 'ship'"
+                           decoration-warning="verdict == 'hold'"
+                           decoration-danger="verdict == 'block'"/>
+                    <field name="llm_status" widget="badge"
+                           decoration-success="llm_status == 'done'"
+                           decoration-danger="llm_status == 'failed'"
+                           decoration-warning="llm_status == 'needs_review'"
+                           decoration-info="llm_status in ('queued', 'running')"/>
+                    <field name="screened_at" optional="show"/>
+                    <field name="llm_cost_usd" optional="show" sum="Total"/>
+                </list>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Search View                                                  -->
+        <!-- ============================================================ -->
+        <record id="view_iris_screening_search" model="ir.ui.view">
+            <field name="name">iris.screening.search</field>
+            <field name="model">iris.screening</field>
+            <field name="arch" type="xml">
+                <search string="Search Screenings">
+                    <field name="candidate_id"/>
+                    <field name="markdown_record"/>
+
+                    <filter name="filter_ship" string="Ship"
+                            domain="[('verdict', '=', 'ship')]"/>
+                    <filter name="filter_hold" string="Hold"
+                            domain="[('verdict', '=', 'hold')]"/>
+                    <filter name="filter_block" string="Block"
+                            domain="[('verdict', '=', 'block')]"/>
+                    <separator/>
+                    <filter name="filter_queued" string="Queued"
+                            domain="[('llm_status', '=', 'queued')]"/>
+                    <filter name="filter_running" string="Running"
+                            domain="[('llm_status', '=', 'running')]"/>
+                    <filter name="filter_done" string="Done"
+                            domain="[('llm_status', '=', 'done')]"/>
+                    <filter name="filter_failed" string="Failed"
+                            domain="[('llm_status', '=', 'failed')]"/>
+                    <filter name="filter_needs_review" string="Needs Review"
+                            domain="[('llm_status', '=', 'needs_review')]"/>
+                    <separator/>
+                    <filter name="filter_rescreens" string="Re-screens"
+                            domain="[('is_rescreen', '=', True)]"/>
+                    <filter name="filter_auto_blocked" string="Auto-Blocked"
+                            domain="[('auto_blocked', '=', True)]"/>
+
+                    <group>
+                        <filter name="group_candidate" string="Candidate"
+                                context="{'group_by': 'candidate_id'}"/>
+                        <filter name="group_verdict" string="Verdict"
+                                context="{'group_by': 'verdict'}"/>
+                        <filter name="group_llm_status" string="LLM Status"
+                                context="{'group_by': 'llm_status'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <!-- ============================================================ -->
+        <!-- Action                                                       -->
+        <!-- ============================================================ -->
+        <record id="action_iris_screening" model="ir.actions.act_window">
+            <field name="name">Screenings</field>
+            <field name="res_model">iris.screening</field>
+            <field name="view_mode">list,form</field>
+            <field name="search_view_id" ref="view_iris_screening_search"/>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">No screenings yet</p>
+                <p>Screenings are created from a candidate via the Screen Resume button.</p>
+            </field>
+        </record>
+
+    </data>
+</odoo>

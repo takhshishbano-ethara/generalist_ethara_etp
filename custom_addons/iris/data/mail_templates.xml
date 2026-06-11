@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!-- ================================================================
+             Iris candidate-communication templates (v1.1, P1-5).
+
+             Manual send only (mail.compose.message composer) via the
+             candidate action_send_* buttons — no auto-send, no API send.
+             The rejection template is COMPUTED from the screening's
+             block_kind (sender cannot pick the wrong letter), and the
+             wording below is linted by CI:
+             - credibility letter: only the neutral "unable to reconcile
+               statements" cause sentence, zero accusation vocabulary;
+             - competence letter: experience-fit language only, zero
+               credibility/reconciliation vocabulary.
+             ================================================================ -->
+
+        <!-- 1. HOLD verification request: embeds the generated clarifying
+             questions when present, else a placeholder completed in the
+             composer. -->
+        <record id="mail_template_iris_hold_verification" model="mail.template">
+            <field name="name">Iris: HOLD Verification Request</field>
+            <field name="model_id" ref="model_iris_candidate"/>
+            <field name="email_from">{{ (object.create_uid.email_formatted or user.email_formatted) }}</field>
+            <field name="email_to">{{ object.email or '' }}</field>
+            <field name="subject">A few follow-up questions about your application — Ethara AI</field>
+            <field name="body_html" type="html">
+<div style="margin: 0px; padding: 0px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <table style="width: 100%; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px; text-align: center;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Follow-up Questions</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <p style="font-size: 16px; color: #333;">
+                    Dear <strong><t t-out="object.name">Candidate</t></strong>,
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Thank you for your application for the
+                    <strong><t t-out="object.target_role">role</t></strong> position at Ethara AI.
+                    As part of our standard review process, we would like to ask a few
+                    follow-up questions so we can complete our assessment of your application.
+                </p>
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                    <t t-set="hold_questions" t-value="object._get_current_hold_screening().clarifying_questions_markdown"/>
+                    <t t-if="hold_questions">
+                        <pre style="margin: 0; font-family: inherit; font-size: 14px; color: #333; white-space: pre-wrap;"><t t-out="hold_questions"/></pre>
+                    </t>
+                    <t t-else="">
+                        <p style="margin: 0; font-size: 14px; color: #333;">[INSERT VERIFICATION ITEMS FROM THE HOLD CHECKLIST]</p>
+                    </t>
+                </div>
+                <p style="font-size: 14px; color: #555;">
+                    A written reply to this email is all we need — there is no form to fill in.
+                    If anything above is unclear, just reply and ask.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    We appreciate your time and look forward to your response.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Kind regards,<br/>
+                    Ethara AI Recruiting Team
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+        <!-- 2. Credibility rejection: the ONLY cause sentence permitted is
+             the neutral "unable to reconcile statements" wording. No
+             accusation vocabulary anywhere in this template. -->
+        <record id="mail_template_iris_reject_credibility" model="mail.template">
+            <field name="name">Iris: Rejection (Credibility)</field>
+            <field name="model_id" ref="model_iris_candidate"/>
+            <field name="email_from">{{ (object.create_uid.email_formatted or user.email_formatted) }}</field>
+            <field name="email_to">{{ object.email or '' }}</field>
+            <field name="subject">Update on your application — Ethara AI</field>
+            <field name="body_html" type="html">
+<div style="margin: 0px; padding: 0px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <table style="width: 100%; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px; text-align: center;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Application Update</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <p style="font-size: 16px; color: #333;">
+                    Dear <strong><t t-out="object.name">Candidate</t></strong>,
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Thank you for your interest in the
+                    <strong><t t-out="object.target_role">role</t></strong> position at Ethara AI,
+                    and for the time you invested in your application.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    After careful review, we were unable to reconcile statements in the
+                    application materials, and we will not be progressing your application
+                    at this time.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    We appreciate the effort that goes into a job search and wish you the
+                    very best going forward.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Kind regards,<br/>
+                    Ethara AI Recruiting Team
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+        <!-- 3. Competence rejection: experience-fit language only — zero
+             reconciliation vocabulary. -->
+        <record id="mail_template_iris_reject_competence" model="mail.template">
+            <field name="name">Iris: Rejection (Competence)</field>
+            <field name="model_id" ref="model_iris_candidate"/>
+            <field name="email_from">{{ (object.create_uid.email_formatted or user.email_formatted) }}</field>
+            <field name="email_to">{{ object.email or '' }}</field>
+            <field name="subject">Update on your application — Ethara AI</field>
+            <field name="body_html" type="html">
+<div style="margin: 0px; padding: 0px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <table style="width: 100%; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px; text-align: center;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Application Update</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <p style="font-size: 16px; color: #333;">
+                    Dear <strong><t t-out="object.name">Candidate</t></strong>,
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Thank you for applying for the
+                    <strong><t t-out="object.target_role">role</t></strong> position at Ethara AI,
+                    and for the time you invested in the process.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    After careful consideration, we have decided to progress candidates whose
+                    experience more closely matches the current requirements of the role.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    This decision reflects the specific needs of the role today rather than
+                    the quality of your background, and we would be glad to see you apply
+                    again for future openings that align with your experience.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Kind regards,<br/>
+                    Ethara AI Recruiting Team
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+        <!-- 4. Interview invitation (SHIP). -->
+        <record id="mail_template_iris_ship_invite" model="mail.template">
+            <field name="name">Iris: Interview Invitation</field>
+            <field name="model_id" ref="model_iris_candidate"/>
+            <field name="email_from">{{ (object.create_uid.email_formatted or user.email_formatted) }}</field>
+            <field name="email_to">{{ object.email or '' }}</field>
+            <field name="subject">Interview invitation — {{ object.target_role }} at Ethara AI</field>
+            <field name="body_html" type="html">
+<div style="margin: 0px; padding: 0px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
+    <table style="width: 100%; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <tr>
+            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px; text-align: center;">
+                <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Interview Invitation</h1>
+            </td>
+        </tr>
+        <tr>
+            <td style="padding: 32px;">
+                <p style="font-size: 16px; color: #333;">
+                    Dear <strong><t t-out="object.name">Candidate</t></strong>,
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Thank you for your application for the
+                    <strong><t t-out="object.target_role">role</t></strong> position at Ethara AI.
+                    We enjoyed reviewing your background and would like to invite you to an
+                    interview with our team.
+                </p>
+                <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                    <p style="margin: 0; font-size: 14px; color: #333;">[INSERT PROPOSED TIMES / SCHEDULING DETAILS]</p>
+                </div>
+                <p style="font-size: 14px; color: #555;">
+                    Please reply with the option that works best for you, or suggest an
+                    alternative if none of them do. We will confirm the final schedule and
+                    share the meeting details right after.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    We look forward to speaking with you.
+                </p>
+                <p style="font-size: 14px; color: #555;">
+                    Kind regards,<br/>
+                    Ethara AI Recruiting Team
+                </p>
+            </td>
+        </tr>
+    </table>
+</div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+    </data>
+</odoo>
