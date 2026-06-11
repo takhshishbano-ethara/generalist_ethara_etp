@@ -35,7 +35,7 @@ class EtpProjectsAwsCostController(http.Controller):
             return {}
 
     @http.route(
-        '/api/v1/etp_projects/aws_cost/update_all',
+        '/api/v1/etp_projects/aws_cost/status_all',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
     )
     def update_all_aws_cost(self, **params):
@@ -182,6 +182,97 @@ class EtpProjectsAwsCostController(http.Controller):
             )
         except Exception as e:
             _logger.exception("update_all_aws_cost failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
+    @http.route(
+        '/api/v1/etp_projects/aws_cost/update_all',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def status_all_aws_cost(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            include_inactive = bool(jdata.get('include_inactive'))
+            domain = []
+            if not include_inactive:
+                domain.append(('active', '=', True))
+
+            budget_ids = jdata.get('budget_ids') or []
+            project_ids = jdata.get('project_ids') or []
+            if budget_ids:
+                if not isinstance(budget_ids, list) or not all(isinstance(x, int) for x in budget_ids):
+                    return return_Response(
+                        message="'budget_ids' must be a list of integers.",
+                        status=400,
+                    )
+                domain.append(('id', 'in', budget_ids))
+            if project_ids:
+                if not isinstance(project_ids, list) or not all(isinstance(x, int) for x in project_ids):
+                    return return_Response(
+                        message="'project_ids' must be a list of integers.",
+                        status=400,
+                    )
+                domain.append(('project_id', 'in', project_ids))
+
+            Budget = request.env[BUDGET_MODEL].sudo()
+            budgets = Budget.search(domain)
+
+            if not budgets:
+                return return_Response(
+                    message="No AWS budgets matched the given filters.",
+                    status=200,
+                    data={"data": {
+                        "total_budgets": 0,
+                        "success_count": 0,
+                        "error_count": 0,
+                        "total_created": 0,
+                        "total_updated": 0,
+                        "results": [],
+                    }},
+                )
+
+            results = []
+            for budget in budgets:
+                results.append({
+                    "budget_id": budget.id,
+                    "budget_name": budget.name or "",
+                    "project_id": budget.project_id.id if budget.project_id else False,
+                    "project_name": budget.project_id.name if budget.project_id else "",
+                    "tag_key": budget.tag_key or "",
+                    "tag_value": budget.tag_value or "",
+                    "status": "success",
+                    "created": 0,
+                    "updated": 0,
+                    "budget_amount": float(budget.budget_amount or 0.0),
+                    "total_consumed": float(budget.total_consumed or 0.0),
+                    "remaining": float(budget.remaining or 0.0),
+                    "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
+                    "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                    "last_fetched_at": (
+                        budget.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S")
+                        if budget.last_fetched_at else ""
+                    ),
+                })
+
+            return return_Response(
+                message="AWS cost status retrieved.",
+                status=200,
+                data={"data": {
+                    "total_budgets": len(budgets),
+                    "success_count": len(budgets),
+                    "error_count": 0,
+                    "total_created": 0,
+                    "total_updated": 0,
+                    "results": results,
+                }},
+            )
+        except Exception as e:
+            _logger.exception("status_all_aws_cost failed")
             return return_Response(
                 message="Something went wrong.",
                 status=400,
