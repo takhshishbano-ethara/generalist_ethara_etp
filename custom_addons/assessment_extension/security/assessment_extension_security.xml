@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+        <record id="module_category_assessment_extension" model="ir.module.category">
+            <field name="name">Assessment Monitoring</field>
+            <field name="description">Roles for the assessment monitoring screens (SCR-095..099).</field>
+            <field name="sequence">211</field>
+        </record>
+
+        <!-- Odoo 19: groups belong to a res.groups.privilege which itself
+             carries category_id (the old category_id on res.groups was removed). -->
+        <record id="privilege_assessment_extension" model="res.groups.privilege">
+            <field name="name">Assessment Monitoring Access</field>
+            <field name="category_id" ref="module_category_assessment_extension"/>
+            <field name="sequence">10</field>
+        </record>
+
+        <record id="group_assessment_pl" model="res.groups">
+            <field name="name">Project Lead (PL)</field>
+            <field name="privilege_id" ref="privilege_assessment_extension"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Project Lead / Team-Lead — owns their own assessments. SCR-090/SCR-091/SCR-095..099. WORKFLOW §13.</field>
+        </record>
+
+        <record id="group_assessment_hr_admin" model="res.groups">
+            <field name="name">HR Admin (org-wide)</field>
+            <field name="privilege_id" ref="privilege_assessment_extension"/>
+            <field name="implied_ids" eval="[(4, ref('assessment_extension.group_assessment_pl'))]"/>
+            <field name="comment">HR Administrator — org-wide oversight. WORKFLOW §13.</field>
+        </record>
+
+        <record id="group_assessment_cto" model="res.groups">
+            <field name="name">CTO (self-case approver)</field>
+            <field name="privilege_id" ref="privilege_assessment_extension"/>
+            <field name="implied_ids" eval="[(4, ref('assessment_extension.group_assessment_hr_admin'))]"/>
+            <field name="comment">CTO — self-case override sign-off (SCR-098). WORKFLOW §6.5 / §13.</field>
+        </record>
+    </data>
+</odoo>
