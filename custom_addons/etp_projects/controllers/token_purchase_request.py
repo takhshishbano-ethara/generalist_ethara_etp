@@ -18,6 +18,37 @@ _logger = logging.getLogger(__name__)
 REQUEST_MODEL = "etp.project.token.purchase.request"
 BUDGET_MODEL = "etp.project.aws.budget"
 ATTACHMENT_MODEL = "ir.attachment"
+PROJECT_MODEL = "project.project"
+
+# Role gate for initial-budget creation (pattern copied from
+# leviathan_extension): CTO/TPM may initiate for any project; a Project Lead
+# may initiate only for projects they lead.
+INITIAL_BUDGET_FULL_ACCESS_ROLE_XMLIDS = (
+    "api_auth_gateway.role_cto_technical",
+    "api_auth_gateway.role_tpm_technical",
+)
+
+INITIAL_BUDGET_PL_ROLE_XMLIDS = (
+    "api_auth_gateway.role_pl_technical",
+    "api_auth_gateway.role_pl_stem",
+    "api_auth_gateway.role_pl_non_stem",
+)
+
+
+def _get_role_ids(env, xmlids):
+    ids = []
+    for xmlid in xmlids:
+        rec = env.ref(xmlid, raise_if_not_found=False)
+        if rec:
+            ids.append(rec.id)
+    return ids
+
+
+def _user_has_role(env, xmlids):
+    role = env.user.user_role
+    if not role:
+        return False
+    return role.id in _get_role_ids(env, xmlids)
 
 
 def _read_json_body():
@@ -389,6 +420,102 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
             return return_Response(message="Something went wrong.", status=400, errors=[str(e)])
 
     @http.route(
+        "/api/v1/etp_projects/token_purchase/initial_budget",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_token
+    def initial_budget(self, **params):
+        try:
+            jdata = _read_json_body()
+            project_id = _coerce_int(jdata.get("project_id"), "project_id")
+            amount = _coerce_float(jdata.get("amount"), "amount")
+            model_name = (jdata.get("model_name") or "").strip()
+            description = (jdata.get("description") or "").strip()
+
+            if not (0 < amount <= 1_000_000):
+                return return_Response(
+                    message="'amount' must be greater than zero and at most 1,000,000.",
+                    status=400,
+                )
+            if not model_name:
+                return return_Response(message="'model_name' is required.", status=400)
+            if not description:
+                return return_Response(message="'description' is required.", status=400)
+
+            # Browse with the real env (not sudo) so the role gate runs against
+            # the real token user.
+            project = request.env[PROJECT_MODEL].browse(project_id)
+            if not project.exists():
+                return return_Response(message="Project not found.", status=404)
+
+            # Role gate: CTO/TPM → any project; PL → only projects they lead.
+            env = request.env
+            is_full_access = _user_has_role(env, INITIAL_BUDGET_FULL_ACCESS_ROLE_XMLIDS)
+            is_pl = _user_has_role(env, INITIAL_BUDGET_PL_ROLE_XMLIDS)
+            employee = env.user.employee_id
+            is_project_lead = (
+                is_pl
+                and employee
+                and employee in project.sudo().project_lead
+            )
+            if not (is_full_access or is_project_lead):
+                return return_Response(
+                    message="You are not allowed to create the initial budget for this project.",
+                    status=403, errors=[{"code": "not_project_lead"}],
+                )
+
+            # First-budget guard: the project must have no budget at all
+            # (active OR inactive).
+            Budget = request.env[BUDGET_MODEL].sudo()
+            if Budget.with_context(active_test=False).search_count(
+                [("project_id", "=", project_id)]
+            ):
+                return return_Response(
+                    message="This project already has a budget.",
+                    status=400, errors=[{"code": "budget_exists"}],
+                )
+
+            amount = round(amount, 2)
+            # Create budget + request + submit atomically. Without the
+            # savepoint, a failure in action_submit() (e.g. no approver
+            # recipients) leaves the budget/request committed — because the
+            # UserError is caught below and a normal Response is returned, so
+            # Odoo never rolls back the request transaction. That phantom budget
+            # then trips the first-budget guard on every retry (budget_exists).
+            # currency_id is left to the model default (company / INR).
+            with request.env.cr.savepoint():
+                budget = Budget.create({
+                    "project_id": project_id,
+                    "name": "%s Budget" % (project.sudo().name or ""),
+                    "budget_amount": amount,
+                    "project_budget": 0.0,
+                    "active": False,
+                })
+
+                uid, approver_ids, finance_ids = _gating_sets()
+                req = request.env[REQUEST_MODEL].create({
+                    "budget_id": budget.id,
+                    "model_name": model_name,
+                    "requested_amount": amount,
+                    "description": description,
+                })
+                req.action_submit()
+
+            return return_Response(
+                message="Initial budget request submitted.", status=200,
+                data={"data": {
+                    "request": _serialize_request(
+                        req.sudo(), uid, approver_ids, finance_ids),
+                    "budget_id": budget.id,
+                }},
+            )
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400)
+        except Exception as e:
+            _logger.exception("token_purchase.initial_budget failed")
+            return return_Response(message="Something went wrong.", status=400, errors=[str(e)])
+
+    @http.route(
         "/api/v1/etp_projects/token_purchase/submit",
         methods=["POST"], type="http", auth="none", csrf=False, cors="*",
     )
@@ -478,10 +605,18 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
                 )
 
             req._act_reject(request.env.user, reason=str(reason).strip() or None)
+            # Rejecting an initial-budget shell may cascade-delete this request
+            # along with its inactive shell budget; serialize defensively.
+            req = req.sudo()
+            if not req.exists():
+                return return_Response(
+                    message="Rejected.", status=200,
+                    data={"data": {"request": None}},
+                )
             return return_Response(
                 message="Rejected.", status=200,
                 data={"data": {"request": _serialize_request(
-                    req.sudo(), uid, approver_ids, finance_ids)}},
+                    req, uid, approver_ids, finance_ids)}},
             )
         except (UserError, ValidationError) as e:
             return return_Response(message=str(e), status=400)
