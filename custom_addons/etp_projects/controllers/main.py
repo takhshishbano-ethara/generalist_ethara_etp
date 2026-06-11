@@ -1,7 +1,7 @@
 import json
 import logging
 
-from odoo import http
+from odoo import fields, http
 from odoo.exceptions import UserError
 from odoo.http import request
 
@@ -87,7 +87,13 @@ class EtpProjectsAwsCostController(http.Controller):
             for budget in budgets:
                 try:
                     created, updated = budget._fetch_cost_one()
-                    budget._maybe_alert_thresholds()
+                    try:
+                        budget._maybe_alert_thresholds()
+                    except Exception:
+                        _logger.exception(
+                            "Threshold alert failed for budget id=%s name=%s; fetch succeeded.",
+                            budget.id, budget.name,
+                        )
                     success_count += 1
                     total_created += created
                     total_updated += updated
@@ -118,8 +124,21 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
+                        "tag_key": budget.tag_key or "",
+                        "tag_value": budget.tag_value or "",
                         "status": "error",
                         "error": str(e),
+                        "created": 0,
+                        "updated": 0,
+                        "budget_amount": float(budget.budget_amount or 0.0),
+                        "total_consumed": float(budget.total_consumed or 0.0),
+                        "remaining": float(budget.remaining or 0.0),
+                        "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
+                        "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                        "last_fetched_at": (
+                            budget.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S")
+                            if budget.last_fetched_at else ""
+                        ),
                     })
                 except Exception as e:
                     error_count += 1
@@ -132,10 +151,20 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
+                        "tag_key": budget.tag_key or "",
+                        "tag_value": budget.tag_value or "",
                         "status": "error",
                         "error": str(e),
+                        "created": 0,
+                        "updated": 0,
+                        "budget_amount": float(budget.budget_amount or 0.0),
+                        "total_consumed": float(budget.total_consumed or 0.0),
+                        "remaining": float(budget.remaining or 0.0),
+                        "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
+                        "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                        "last_fetched_at": fields.Datetime.to_string(budget.last_fetched_at) if budget.last_fetched_at else "",
                     })
-
+ 
             return return_Response(
                 message="AWS cost update completed.",
                 status=200,

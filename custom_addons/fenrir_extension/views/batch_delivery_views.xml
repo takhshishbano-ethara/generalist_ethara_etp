@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_fenrir_batch_delivery_list" model="ir.ui.view">
+        <field name="name">fenrir.batch.delivery.list</field>
+        <field name="model">fenrir.batch.delivery</field>
+        <field name="arch" type="xml">
+            <list string="Batch Deliveries">
+                <field name="name"/>
+                <field name="user_id"/>
+                <field name="job_count" string="# Tasks"/>
+                <field name="state" decoration-info="state == 'draft'" decoration-warning="state == 'confirmed'" decoration-success="state == 'delivered'" decoration-muted="state == 'cancelled'" widget="badge"/>
+                <field name="delivered_on"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_fenrir_batch_delivery_form" model="ir.ui.view">
+        <field name="name">fenrir.batch.delivery.form</field>
+        <field name="model">fenrir.batch.delivery</field>
+        <field name="arch" type="xml">
+            <form string="Batch Delivery">
+                <header>
+                    <button name="action_confirm" type="object" string="Confirm" class="oe_highlight" invisible="state != 'draft'"/>
+                    <button name="action_mark_delivered" type="object" string="Mark Delivered" class="oe_highlight" invisible="state != 'confirmed'"/>
+                    <button name="action_export_csv" type="object" string="Export CSV" invisible="state == 'cancelled'"/>
+                    <button name="action_reset_to_draft" type="object" string="Reset to Draft" invisible="state in ('draft', 'delivered')"/>
+                    <button name="action_cancel" type="object" string="Cancel" invisible="state in ('delivered', 'cancelled')"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,confirmed,delivered"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="user_id"/>
+                            <field name="job_count"/>
+                        </group>
+                        <group>
+                            <field name="delivered_on"/>
+                            <field name="csv_filename"/>
+                            <field name="csv_file" filename="csv_filename"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Tasks">
+                            <field name="job_ids" readonly="state != 'draft'">
+                                <list>
+                                    <field name="code"/>
+                                    <field name="title"/>
+                                    <field name="category_id"/>
+                                    <field name="subcategory"/>
+                                    <field name="status"/>
+                                    <field name="lead_user_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="CSV Columns">
+                            <field name="column_ids" widget="many2many_tags" options="{'no_create': True}"/>
+                        </page>
+                        <page string="Notes">
+                            <field name="notes"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_fenrir_batch_delivery_search" model="ir.ui.view">
+        <field name="name">fenrir.batch.delivery.search</field>
+        <field name="model">fenrir.batch.delivery</field>
+        <field name="arch" type="xml">
+            <search string="Batch Deliveries">
+                <field name="name"/>
+                <field name="user_id"/>
+                <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
+                <filter name="filter_confirmed" string="Confirmed" domain="[('state','=','confirmed')]"/>
+                <filter name="filter_delivered" string="Delivered" domain="[('state','=','delivered')]"/>
+                <filter name="filter_cancelled" string="Cancelled" domain="[('state','=','cancelled')]"/>
+                <separator/>
+                <filter name="filter_mine" string="My Batches" domain="[('user_id','=',uid)]"/>
+                <group>
+                    <filter name="group_state" string="Status" context="{'group_by': 'state'}"/>
+                    <filter name="group_user" string="Owner" context="{'group_by': 'user_id'}"/>
+                    <filter name="group_create_date" string="Created" context="{'group_by': 'create_date'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_fenrir_batch_delivery" model="ir.actions.act_window">
+        <field name="name">Batch Deliveries</field>
+        <field name="res_model">fenrir.batch.delivery</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_fenrir_batch_delivery_search"/>
+    </record>
+
+    <menuitem id="menu_fenrir_batch_delivery"
+              name="Batch Deliveries"
+              parent="fenrir.fenrir_root_menu"
+              action="action_fenrir_batch_delivery"
+              sequence="50"/>
+
+    <record id="view_fenrir_batch_delivery_add_wizard_form" model="ir.ui.view">
+        <field name="name">fenrir.batch.delivery.add.wizard.form</field>
+        <field name="model">fenrir.batch.delivery.add.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Add Tasks to Batch Delivery">
+                <group>
+                    <field name="mode" widget="radio"/>
+                    <field name="batch_id" invisible="mode != 'existing'" required="mode == 'existing'"/>
+                    <field name="name" invisible="mode != 'new'"/>
+                    <field name="notes" invisible="mode != 'new'"/>
+                </group>
+                <field name="job_ids" readonly="1">
+                    <list>
+                        <field name="code"/>
+                        <field name="title"/>
+                        <field name="status"/>
+                    </list>
+                </field>
+                <footer>
+                    <button name="action_apply" type="object" string="Apply" class="oe_highlight"/>
+                    <button special="cancel" string="Cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

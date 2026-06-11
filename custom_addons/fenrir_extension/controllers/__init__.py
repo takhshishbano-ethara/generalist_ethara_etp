@@ -4,3 +4,4 @@ from . import dashboard_overview
 from . import reference_data
 from . import logs
 from . import budget
+from . import batch_dashboard
