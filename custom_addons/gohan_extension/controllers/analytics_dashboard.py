@@ -1,5 +1,6 @@
 import calendar
 from datetime import datetime, timedelta
+from urllib.parse import urlparse
 
 from odoo import fields, http
 from odoo.http import request
@@ -10,6 +11,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 COMPLETED_STATES = ("done", "submitted")
+FAILED_STATES = ("failed", "discarded", "cancelled")
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
 HEATMAP_INTENSITY_LEVELS = 4
 LEADERBOARD_WINDOW_DAYS = 30
@@ -59,6 +61,182 @@ def _fmt_duration(seconds):
     total = int(round(seconds or 0))
     minutes, secs = divmod(total, 60)
     return f"{minutes}m {secs:02d}s"
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Shared widget / badge layer (Gohan pen design).
+#
+# Every enum field renders as a ``{key, label, color_token}`` badge. The
+# ``color_token`` is a SEMANTIC token the Flutter app maps to a colour — the
+# same vocabulary leviathan_extension uses (``primary/success/info/warn/
+# danger/muted``), NOT raw hex. Homed here because the Overview, Tasks and URLs
+# controllers all import from this module.
+# ─────────────────────────────────────────────────────────────────────────
+
+# gohan.job.state -> (Status badge label, color_token). Labels match the pen
+# Tasks "Status" column (granular per-stage, not grouped).
+STATE_BADGE = {
+    "not_assigned": ("Not Assigned", "muted"),
+    "draft": ("Draft", "muted"),
+    "extracting": ("Extracting", "info"),
+    "generating": ("Generating PRD", "warn"),
+    "scoring": ("Scoring", "primary"),
+    "done": ("Done", "success"),
+    "submitted": ("Submitted", "success"),
+    "failed": ("Failed", "danger"),
+    "discarded": ("Discarded", "danger"),
+    "cancelled": ("Cancelled", "danger"),
+}
+
+# gohan.job.qc_verdict -> (pen label, color_token). Pen relabels
+# fixes -> "Needs Review", not_shippable -> "Unshippable".
+QC_VERDICT_BADGE = {
+    "shippable": ("Shippable", "success"),
+    "fixes": ("Needs Review", "warn"),
+    "not_shippable": ("Unshippable", "danger"),
+    "pending": ("Pending", "muted"),
+}
+
+# 6-stage Task Progress funnel (Overview ProgressCard):
+# (key, label, member states, color_token). Mirrors the pen's six bars.
+STAGE_BUCKETS = (
+    ("draft", "Draft", ("not_assigned", "draft"), "muted"),
+    ("extracting", "Extracting", ("extracting",), "info"),
+    ("generating", "Generating PRD", ("generating",), "warn"),
+    ("scoring", "Scoring", ("scoring",), "primary"),
+    ("done", "Done", ("done", "submitted"), "success"),
+    ("failed", "Failed", ("failed", "discarded", "cancelled"), "danger"),
+)
+
+CATEGORY_COLOR_TOKENS = ("muted", "primary", "info", "warn", "success", "danger")
+
+# Team Size / Team Members breakdown labels. Decision: CTO-PL == project lead,
+# so pl -> "CTO"; qr -> "QL" (the pen's role labels).
+TEAM_ROLE_LABELS = (("tpm", "TPM"), ("pl", "CTO"), ("qr", "QL"), ("tasker", "Tasker"))
+
+
+def _week_start(d):
+    return d - timedelta(days=d.weekday())
+
+
+def _format_month_day(d):
+    return f"{d.strftime('%b')} {d.day}" if d else ""
+
+
+def _format_short_date(dt):
+    return f"{dt.strftime('%b')} {dt.day}" if dt else ""
+
+
+def _format_long_date(dt):
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year}" if dt else ""
+
+
+def _domain_from_url(raw):
+    if not raw:
+        return ""
+    try:
+        host = urlparse(raw).netloc or urlparse(raw).path
+    except Exception:
+        return raw
+    return (host or "").lstrip("www.")
+
+
+def _state_badge(state):
+    label, color = STATE_BADGE.get(
+        state or "", ((state or "").replace("_", " ").title() or "—", "muted")
+    )
+    return {"key": state or "", "label": label, "color_token": color}
+
+
+def _qc_badge(qc_verdict):
+    if not qc_verdict:
+        return {"key": "", "label": "—", "color_token": "muted"}
+    label, color = QC_VERDICT_BADGE.get(qc_verdict, (qc_verdict, "muted"))
+    return {"key": qc_verdict, "label": label, "color_token": color}
+
+
+def _score_band_token(score):
+    """Pen score chip colour band: >=80 lime, 60-79 yellow, <60 red."""
+    if not score:
+        return "muted"
+    if score >= 80:
+        return "success"
+    if score >= 60:
+        return "warn"
+    return "danger"
+
+
+def _grade_band_token(grade):
+    """Letter grade shares the score colour band (A/B good, C/D mid, else low)."""
+    letter = (grade or "").strip().upper()[:1]
+    if not letter:
+        return "muted"
+    if letter in ("A", "B"):
+        return "success"
+    if letter in ("C", "D"):
+        return "warn"
+    return "danger"
+
+
+def _source_badge(via_batch):
+    if via_batch:
+        return {"key": "bulk", "label": "Bulk CSV", "color_token": "info"}
+    return {"key": "single", "label": "Single", "color_token": "muted"}
+
+
+def _category_color_token(category_id):
+    if not category_id:
+        return "muted"
+    return CATEGORY_COLOR_TOKENS[category_id % len(CATEGORY_COLOR_TOKENS)]
+
+
+def _category_badge(category):
+    """``category`` is a gohan.category record (may be empty)."""
+    cid = category.id or 0
+    return {
+        "key": str(cid or ""),
+        "label": category.name or "",
+        "color_token": _category_color_token(cid),
+    }
+
+
+def _time_ago(when):
+    if not when:
+        return ""
+    seconds = (fields.Datetime.now() - when).total_seconds()
+    if seconds < 60:
+        return f"{int(seconds)}s ago"
+    minutes = seconds / 60
+    if minutes < 60:
+        return f"{int(minutes)}m ago"
+    hours = minutes / 60
+    if hours < 24:
+        return f"{int(hours)}h ago"
+    return f"{int(hours / 24)}d ago"
+
+
+def _classify_job_action(state):
+    return {
+        "submitted": "submitted",
+        "done": "completed",
+        "failed": "failed",
+        "discarded": "discarded",
+        "cancelled": "discarded",
+        "scoring": "qc_scoring",
+        "generating": "generation_complete",
+        "extracting": "scraping",
+        "draft": "created",
+        "not_assigned": "created",
+    }.get(state, "updated")
+
+
+def _team_breakdown_sub(role_counts):
+    parts = [
+        f"{role_counts.get(key, 0)} {label}"
+        for key, label in TEAM_ROLE_LABELS
+        if role_counts.get(key, 0)
+    ]
+    return " · ".join(parts) if parts else "No assigned roles"
 
 
 def _get_role_ids(env, xmlids):
@@ -819,85 +997,107 @@ def _kpi(key, label, value, sub_string="", pattern="", sign=""):
 
 
 def _build_kpi_v2(env, ctx):
+    """The pen Analytics KPI strip: 6 tiles —
+    Total Tasks · Avg Score · Avg Duration · Failed · Team Members · Open Blockers.
+
+    Reshaped from the old crowley spend/token tiles. Open Blockers is
+    empty-by-design (gohan.job has no blocker/retry source field; renders "—").
+    """
     Job = env["gohan.job"].sudo()
     scope = ctx["scope"]
+    rng = ctx["rng"]
 
-    jobs_count = Job.search_count(scope)
+    # Previous equal-length window immediately before the range, for deltas.
+    length = (rng["end"] - rng["start"]).days + 1
+    prev_end = rng["start"] - timedelta(days=1)
+    prev_start = prev_end - timedelta(days=length - 1)
+    prev_domain = [("user_id", "in", ctx["user_ids"])] + [
+        ("create_date", ">=", datetime.combine(prev_start, datetime.min.time())),
+        (
+            "create_date",
+            "<",
+            datetime.combine(prev_end, datetime.min.time()) + timedelta(days=1),
+        ),
+    ]
 
-    spend_rows = Job.formatted_read_group(scope, [], ["llm_qc_cost_usd:sum"])
-    total_spend = (
-        spend_rows[0]["llm_qc_cost_usd:sum"] if spend_rows else 0.0
-    ) or 0.0
-    avg_per_task = (total_spend / jobs_count) if jobs_count else 0.0
-
-    approved = Job.search_count(
-        scope + [("qc_verdict", "in", list(APPROVED_VERDICTS))]
-    )
-    reviewed = Job.search_count(
-        scope + [("qc_verdict", "in", list(DECIDED_VERDICTS))]
-    )
-    pass_rate = _pct1(approved, reviewed)
+    total_tasks = Job.search_count(scope)
+    prev_total = Job.search_count(prev_domain)
 
     score_rows = Job.formatted_read_group(
         scope + [("score", ">", 0)], [], ["__count", "score:avg"]
     )
     scored = (score_rows[0]["__count"] if score_rows else 0) or 0
     avg_score = (score_rows[0]["score:avg"] if score_rows else 0.0) or 0.0
+    prev_score_rows = Job.formatted_read_group(
+        prev_domain + [("score", ">", 0)], [], ["score:avg"]
+    )
+    prev_avg_score = (
+        prev_score_rows[0]["score:avg"] if prev_score_rows else 0.0
+    ) or 0.0
 
     dur_rows = Job.formatted_read_group(
         scope + [("duration_seconds", ">", 0)], [], ["duration_seconds:avg"]
     )
-    avg_wall = (dur_rows[0]["duration_seconds:avg"] if dur_rows else 0.0) or 0.0
+    avg_seconds = (dur_rows[0]["duration_seconds:avg"] if dur_rows else 0.0) or 0.0
+    prev_dur_rows = Job.formatted_read_group(
+        prev_domain + [("duration_seconds", ">", 0)], [], ["duration_seconds:avg"]
+    )
+    prev_avg_seconds = (
+        prev_dur_rows[0]["duration_seconds:avg"] if prev_dur_rows else 0.0
+    ) or 0.0
 
-    spend_has_data = total_spend > 0
+    failed = Job.search_count(scope + [("state", "in", list(FAILED_STATES))])
+    prev_failed = Job.search_count(
+        prev_domain + [("state", "in", list(FAILED_STATES))]
+    )
+
+    team = _build_team_overview_aligned(env, ctx["project"])
+    team_sub = _team_breakdown_sub(team["role_counts"])
+
+    total_item = _kpi(
+        "total_tasks", "Total Tasks", str(total_tasks),
+        sub_string="Pipeline tasks created",
+    )
+    total_item.update(_trend(total_tasks, prev_total, as_pct=True))
+
+    score_item = _kpi(
+        "avg_score", "Avg Score",
+        f"{round(avg_score)}" if avg_score else "—",
+        sub_string=(
+            f"Across {scored} scored tasks" if scored else "No scored tasks yet"
+        ),
+    )
+    score_item.update(_trend(round(avg_score), round(prev_avg_score)))
+
+    duration_item = _kpi(
+        "avg_duration", "Avg Duration",
+        _fmt_duration(avg_seconds) if avg_seconds else "—",
+        sub_string="Extraction → Scoring",
+    )
+    duration_item.update(
+        _trend(
+            round(avg_seconds), round(prev_avg_seconds),
+            lower_is_better=True, unit="s",
+        )
+    )
+
+    failed_item = _kpi(
+        "failed", "Failed", str(failed),
+        sub_string="Pipeline-stage failures",
+    )
+    failed_item.update(_trend(failed, prev_failed, lower_is_better=True))
+
     items = [
-        # Crowley keys kept for parity. Cost and per-task tokens are not tracked
-        # on gohan.job, so total_spend (empty until llm_qc_cost_usd is
-        # populated) and avg_tokens_per_task (no token accounting) carry empty
-        # values — the Flutter KPI strip renders an empty value as "—".
-        # total_spend self-heals to a real figure once cost is written.
+        total_item,
+        score_item,
+        duration_item,
+        failed_item,
         _kpi(
-            "total_spend",
-            "Total Spend",
-            _money(total_spend) if spend_has_data else "",
-            sub_string=(
-                f"Avg {_money(avg_per_task)}/job · {jobs_count} jobs"
-                if spend_has_data
-                else ""
-            ),
+            "team_members", "Team Members", str(team["total_team_size"]),
+            sub_string=team_sub,
         ),
-        _kpi(
-            "qc_pass_rate",
-            "QC Pass Rate",
-            f"{pass_rate}%",
-            sub_string=(
-                f"{approved} of {reviewed} reviewed" if reviewed else "No reviews yet"
-            ),
-            pattern="badge" if reviewed else "",
-            sign="+" if pass_rate >= PASS_RATE_GOOD else "-" if reviewed else "",
-        ),
-        _kpi("avg_tokens_per_task", "Avg Tokens / Task", "", sub_string=""),
-        _kpi(
-            "avg_wall_time",
-            "Avg Wall Time",
-            f"{round(avg_wall)}s",
-            sub_string=f"{round(avg_wall / 60.0, 1)} min per job",
-        ),
-        # gohan-specific additions (same KPI item shape).
-        _kpi(
-            "total_tasks",
-            "Total Tasks",
-            jobs_count,
-            sub_string="in selected range",
-        ),
-        _kpi(
-            "avg_quality_score",
-            "Avg Quality Score",
-            f"{round(avg_score, 1)}",
-            sub_string=(
-                f"across {scored} scored jobs" if scored else "No scored jobs yet"
-            ),
-        ),
+        # Open Blockers — empty by design (no blocker/retry source on gohan.job).
+        _kpi("open_blockers", "Open Blockers", "", sub_string=""),
     ]
     return {"count": len(items), "items": items}
 
@@ -1065,17 +1265,228 @@ def _build_daily_burn_rate(env, ctx):
     }
 
 
+LEADERBOARD_LOW_SCORE = 70
+
+
+def _trend(current, previous, lower_is_better=False, unit="", as_pct=False):
+    """Period-over-period trend fields for a KPI tile. Returns pattern/sign (the
+    arrow vocabulary the Flutter KPI card already reads) plus a numeric ``delta``
+    string and ``is_positive`` flag (bonus fields for the redesigned card)."""
+    diff = round(current - previous)
+    if diff == 0:
+        return {"pattern": "", "sign": "", "delta": "", "is_positive": True}
+    up = diff > 0
+    is_positive = (not up) if lower_is_better else up
+    if as_pct:
+        pct = _diff_pct(current, previous)
+        delta = f"{'+' if pct >= 0 else ''}{pct:g}%"
+    else:
+        delta = f"{'+' if up else '-'}{abs(diff)}{unit}"
+    return {
+        "pattern": "up" if up else "down",
+        "sign": "+" if up else "-",
+        "delta": delta,
+        "is_positive": is_positive,
+    }
+
+
+def _failed_day_counts(env, scope, win_start, win_end):
+    """Failed jobs per day. gohan.job has no failed_at, so the failure day is
+    approximated by write_date (when the job last changed ≈ when it failed)."""
+    start_dt = datetime.combine(win_start, datetime.min.time())
+    end_dt = datetime.combine(win_end, datetime.min.time()) + timedelta(days=1)
+    rows = env["gohan.job"].sudo().search_read(
+        scope
+        + [
+            ("state", "in", list(FAILED_STATES)),
+            ("write_date", ">=", start_dt),
+            ("write_date", "<", end_dt),
+        ],
+        ["write_date"],
+    )
+    counts = {}
+    for row in rows:
+        when = row.get("write_date")
+        if when:
+            day = when.date()
+            counts[day] = counts.get(day, 0) + 1
+    return counts
+
+
+def _build_completed_heatmap(env, ctx):
+    """Calendar heatmap: tasks completed per day over the range (pen)."""
+    rng = ctx["rng"]
+    user_domain = [("user_id", "in", ctx["user_ids"])]
+    counts = _completed_day_counts(env, user_domain, rng["start"], rng["end"])
+    max_count = max(counts.values()) if counts else 0
+    days = []
+    total = 0
+    cursor = rng["start"]
+    while cursor <= rng["end"]:
+        count = counts.get(cursor, 0)
+        total += count
+        days.append({
+            "date": cursor.isoformat(),
+            "day": cursor.day,
+            "weekday": cursor.weekday(),
+            "weekday_label": WEEKDAY_LABELS[cursor.weekday()],
+            "count": count,
+            "intensity": _intensity(count, max_count),
+        })
+        cursor += timedelta(days=1)
+    total_days = len(days)
+    active_days = sum(1 for d in days if d["count"] > 0)
+    return {
+        "label": "Tasks Completed",
+        "sub_string": f"Tasks completed per day · {_range_label(rng)}",
+        "window": {"start": rng["start"].isoformat(), "end": rng["end"].isoformat()},
+        "max_count": max_count,
+        "total_completed": total,
+        "days": days,
+        "summary": {
+            "total_tasks": total,
+            "avg_per_day": round(total / total_days, 2) if total_days else 0.0,
+            "active_days": active_days,
+            "total_days": total_days,
+        },
+    }
+
+
+def _build_qc_distribution(env, ctx):
+    """QC verdict donut (Shippable / Needs Review / Unshippable) over scored
+    tasks in range. Counts per verdict directly to avoid any selection-field
+    group-key ambiguity."""
+    Job = env["gohan.job"].sudo()
+    counts = {
+        key: Job.search_count(ctx["scope"] + [("qc_verdict", "=", key)])
+        for key in DECIDED_VERDICTS
+    }
+    total_scored = sum(counts.values())
+    verdicts = []
+    for key in DECIDED_VERDICTS:
+        label, token = QC_VERDICT_BADGE.get(key, (key, "muted"))
+        count = counts.get(key, 0)
+        verdicts.append({
+            "key": key,
+            "label": label,
+            "count": count,
+            "pct": _pct1(count, total_scored),
+            "color_token": token,
+        })
+    return {
+        "label": "QC Verdict Distribution",
+        "sub_string": f"All scored tasks · {total_scored} total",
+        "total_scored": total_scored,
+        "verdicts": verdicts,
+    }
+
+
+def _build_leaderboard(env, ctx):
+    """Per-tasker leaderboard ranked by task volume then avg score (pen). Low
+    scorers carry needs_attention for the "NEEDS ATTENTION" divider."""
+    Job = env["gohan.job"].sudo()
+    domain = [("user_id", "in", ctx["user_ids"])] + _range_domain(ctx["rng"])
+    count_rows = Job.formatted_read_group(domain, ["user_id"], ["__count"])
+    score_rows = Job.formatted_read_group(
+        domain + [("score", ">", 0)], ["user_id"], ["score:avg"]
+    )
+    task_count = {}
+    for row in count_rows:
+        user = row["user_id"]
+        if user:
+            task_count[user[0]] = row["__count"]
+    avg_score = {}
+    for row in score_rows:
+        user = row["user_id"]
+        if user:
+            avg_score[user[0]] = row["score:avg"] or 0.0
+    user_name = {
+        emp.user_id.id: emp.user_id.name
+        for emp in ctx["taskers"]
+        if emp.user_id
+    }
+
+    items = []
+    for uid, count in task_count.items():
+        score = round(avg_score.get(uid, 0.0))
+        name = user_name.get(uid) or ""
+        items.append({
+            "name": name,
+            "initials": _initials(name),
+            "task_count": count,
+            "score": score,
+            "avatar_color": _color(len(items)),
+            "needs_attention": bool(score) and score < LEADERBOARD_LOW_SCORE,
+        })
+    items.sort(key=lambda i: (-i["task_count"], -i["score"], i["name"]))
+    for rank, item in enumerate(items, start=1):
+        item["rank"] = rank
+    return {
+        "label": "Team Leaderboard",
+        "sub_string": f"{_range_label(ctx['rng'])} performance ranking",
+        "count": len(items),
+        "items": items,
+    }
+
+
+def _build_completion_timeline(env, ctx):
+    """Stacked Done/Failed daily bar chart over the range (pen)."""
+    rng = ctx["rng"]
+    user_domain = [("user_id", "in", ctx["user_ids"])]
+    done_counts = _completed_day_counts(env, user_domain, rng["start"], rng["end"])
+    failed_counts = _failed_day_counts(env, user_domain, rng["start"], rng["end"])
+    items = []
+    y_max = 0
+    cursor = rng["start"]
+    while cursor <= rng["end"]:
+        done = done_counts.get(cursor, 0)
+        failed = failed_counts.get(cursor, 0)
+        y_max = max(y_max, done + failed)
+        items.append({
+            "date": cursor.isoformat(),
+            "done_count": done,
+            "failed_count": failed,
+        })
+        cursor += timedelta(days=1)
+    return {
+        "label": "Task Completion Timeline",
+        "sub_string": f"Daily task volume by outcome · {_range_label(rng)}",
+        "y_max": y_max,
+        "items": items,
+        "legend": [
+            {"key": "done", "label": "Done", "color_token": "success"},
+            {"key": "failed", "label": "Failed", "color_token": "danger"},
+        ],
+    }
+
+
 def _build_analytics(env, ctx):
-    # Schema parity with crowley_extension / crowley_sourcing_extension: the
-    # same top-level keys so one frontend model fits all. `tasks_submitted_per_day`,
-    # `qc_verdict_mix` and `qc_verdicts_per_day` are sourcing-only sections,
-    # emitted here as always-blank ({}) keys.
+    """The pen Analytics tab widget set: 6 KPI tiles, a calendar heatmap, a QC
+    verdict donut, a per-tasker leaderboard and a Done/Failed timeline.
+
+    Gohan is internal/cost-free, so the crowley spend/burn keys
+    (``spend_by_category`` / ``qc_pass_rate_by_ql`` / ``daily_burn_rate``) — which
+    the pen does NOT show — are emitted as blank ({}) stubs for schema parity.
+    """
+    rng = ctx["rng"]
+    total_tasks = env["gohan.job"].sudo().search_count(ctx["scope"])
     return {
         "role": _user_role_tag(env) or "tasker",
+        "has_data": total_tasks > 0,
+        "range": rng["key"],
+        "date_range": {
+            "start": rng["start"].isoformat(),
+            "end": rng["end"].isoformat(),
+        },
         "kpi": _build_kpi_v2(env, ctx),
-        "spend_by_category": _build_spend_by_category(env, ctx),
-        "qc_pass_rate_by_ql": _build_pass_rate_by_ql(env, ctx),
-        "daily_burn_rate": _build_daily_burn_rate(env, ctx),
+        "tasks_completed_heatmap": _build_completed_heatmap(env, ctx),
+        "qc_verdict_distribution": _build_qc_distribution(env, ctx),
+        "leaderboard": _build_leaderboard(env, ctx),
+        "timeline": _build_completion_timeline(env, ctx),
+        # Parity stubs — gohan has no cost data; the pen shows no spend/burn.
+        "spend_by_category": {},
+        "qc_pass_rate_by_ql": {},
+        "daily_burn_rate": {},
         "tasks_submitted_per_day": {},
         "qc_verdict_mix": {},
         "qc_verdicts_per_day": {},

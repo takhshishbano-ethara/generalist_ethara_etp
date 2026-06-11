@@ -7,9 +7,16 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 from .analytics_dashboard import (
+    COMPLETED_STATES,
     _create_date_domain,
+    _domain_from_url,
+    _format_short_date,
+    _grade_band_token,
     _parse_date,
+    _qc_badge,
     _scope,
+    _score_band_token,
+    _state_badge,
     _user_role_tag,
 )
 
@@ -21,6 +28,19 @@ SORT_FIELDS = {
     "grade": "grade",
     "seq": "name",
 }
+
+# Self-describing columns for the pen Tasks table (8 columns). `type` tells the
+# Flutter table how to render each cell; `width` is a layout hint.
+TASK_VIEW_COLUMNS = [
+    {"key": "task", "label": "Task", "type": "composite", "width": "fill"},
+    {"key": "category", "label": "Category", "type": "string", "width": 150},
+    {"key": "status", "label": "Status", "type": "badge", "width": 130},
+    {"key": "score", "label": "Score", "type": "badge", "width": 80},
+    {"key": "grade", "label": "Grade", "type": "badge", "width": 70},
+    {"key": "qc_verdict", "label": "QC Verdict", "type": "badge", "width": 130},
+    {"key": "tasker", "label": "Tasker", "type": "string", "width": 150},
+    {"key": "created", "label": "Created", "type": "date", "width": 90},
+]
 
 
 def _coerce_int(value, default):
@@ -141,24 +161,50 @@ def _resolve_order(params):
     return f"{SORT_FIELDS[raw_sort]} {direction}, id desc", None
 
 
-def _serialize(job, verdict_labels, eq_labels):
+def _serialize(job):
+    """One Tasks-table row in the pen shape: a composite Task cell, badge
+    objects for Status/Score/Grade/QC Verdict, plus the raw fields the client
+    keeps for filter/sort. Score/Grade/QC Verdict are gated on completion — they
+    render "—" until the job reaches a done/submitted state (pen rule)."""
+    url = job.url or ""
+    seq = job.name or ""
+    bottom = " · ".join(p for p in [url or _domain_from_url(url), seq] if p)
+
+    is_done = job.state in COMPLETED_STATES
+    score = job.score if is_done else 0.0
+    grade = job.grade if is_done else ""
+    verdict = job.qc_verdict if is_done else ""
+
     return {
         "id": job.id,
-        "task_name": job.site_name or job.url or "",
-        "seq": job.name or "",
-        "url": job.url or "",
+        "task": {
+            "top": job.site_name or _domain_from_url(url) or seq or "",
+            "bottom": bottom,
+        },
         "category": job.category_id.name or "",
-        "score": job.score,
-        "grade": job.grade or "",
+        "status": _state_badge(job.state),
+        "score": {
+            "value": str(int(round(score))) if score else "—",
+            "color_token": _score_band_token(score),
+        },
+        "grade": {
+            "value": grade or "—",
+            "color_token": _grade_band_token(grade),
+        },
+        "qc_verdict": _qc_badge(verdict),
+        "tasker": job.user_id.name or "Unassigned",
+        "created": _format_short_date(job.create_date),
+        # Raw fields retained for client-side filtering / sorting.
+        "seq": seq,
+        "url": url,
         "state": job.state or "",
-        "qc_verdict": job.qc_verdict or "",
-        "qc_verdict_label": verdict_labels.get(job.qc_verdict, ""),
-        "tasker_name": job.user_id.name or "",
-        "created_date": job.create_date.isoformat() if job.create_date else None,
+        "score_value": job.score or 0.0,
+        "grade_value": job.grade or "",
+        "qc_verdict_key": job.qc_verdict or "",
+        "category_id": job.category_id.id or False,
         "eq_tier": job.eq_tier or "",
-        "eq_tier_label": eq_labels.get(job.eq_tier, ""),
         "added_by": job.create_uid.name or "",
-        "url_added": bool(job.url),
+        "created_at": job.create_date.isoformat() if job.create_date else None,
     }
 
 
@@ -200,23 +246,12 @@ class GohanTaskViewDashboardController(http.Controller):
         Job = env["gohan.job"].sudo()
         total = Job.search_count(domain)
         records = Job.search(domain, limit=limit, offset=offset, order=order)
-        verdict_labels = dict(Job._fields["qc_verdict"].selection)
-        eq_labels = dict(Job._fields["eq_tier"].selection)
-        tasks = [_serialize(job, verdict_labels, eq_labels) for job in records]
+        tasks = [_serialize(job) for job in records]
         total_pages = (total + limit - 1) // limit if total else 0
         data = {
-            "columns": [{"key": "seq", "label": "Seq.", "type": "string"},
-                        {"key": "task_name", "label": "Task", "type": "string"},
-                        {"key": "url", "label": "URL", "type": "string"},
-                        {"key": "category", "label": "Category", "type": "string"},
-                        {"key": "score", "label": "Score", "type": "string"},
-                        {"key": "state", "label": "Status", "type": "string"},
-                        {"key": "grade", "label": "Grade", "type": "string"},
-                        {"key": "qc_verdict", "label": "QC Verdict", "type": "string"},
-                        {"key": "tasker_name", "label": "Tasker", "type": "string"},
-                        {"key": "created_date", "label": "Created", "type": "string"}],
+            "role": _user_role_tag(env) or "tasker",
+            "columns": TASK_VIEW_COLUMNS,
             "rows": tasks,
-            # "tasks": tasks,
             "pagination": {
                 "total_records": total,
                 "page": page,

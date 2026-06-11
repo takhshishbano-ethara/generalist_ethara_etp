@@ -233,7 +233,7 @@ class EtpAssessmentCandidateController(http.Controller):
         )
 
     @http.route(
-        "/api/v1/etp_assessment_ext/assessments/<int:assessment_id>/candidates/<int:assignment_id>/detail",
+        "/api/v1/etp_assessment_ext/assessments/<int:assessment_id>/candidates/<int:employee_id>/detail",
         type="http",
         auth="none",
         methods=["GET"],
@@ -242,13 +242,13 @@ class EtpAssessmentCandidateController(http.Controller):
         save_session=False,
     )
     @validate_token
-    def get_candidate_detail(self, assessment_id, assignment_id, **kwargs):
+    def get_candidate_detail(self, assessment_id, employee_id, **kwargs):
         """Per-candidate deep view: their responses, question by question.
 
-        `assignment_id` is the `etp.assessment.evaluator` PK (i.e. the row
-        the candidate represents in the candidate list of an assessment).
-        Returns the candidate header, plus one entry per question they were
-        served, with score / state / per-dimension selected option.
+        `employee_id` is the `hr.employee` PK of the candidate. The
+        endpoint resolves the candidate's `etp.assessment.evaluator`
+        assignment within the given assessment, then returns its responses
+        in JSON-RPC envelope.
         """
         forbidden = require_assessment_user()
         if forbidden is not None:
@@ -256,20 +256,21 @@ class EtpAssessmentCandidateController(http.Controller):
 
         env = request.env
         Evaluator = env["etp.assessment.evaluator"].sudo()
-        assignment = Evaluator.browse(assignment_id)
-        if not assignment.exists():
+        assignment = Evaluator.search(
+            [
+                ("assessment_id", "=", assessment_id),
+                ("employee_id", "=", employee_id),
+            ],
+            limit=1,
+        )
+        if not assignment:
             return return_Response(
-                message="Candidate assignment not found", status=404,
-            )
-        if assignment.assessment_id.id != assessment_id:
-            return return_Response(
-                message="Candidate assignment does not belong to this assessment",
-                status=404,
+                message="Candidate not found in this assessment", status=404,
             )
 
         Response = env["etp.assessment.response"].sudo()
         responses = Response.search(
-            [("assessment_evaluator_id", "=", assignment_id)],
+            [("assessment_evaluator_id", "=", assignment.id)],
             order="id desc",
         )
 
