@@ -30,21 +30,6 @@ DEFAULT_TREND_WEEKS = 7
 MAX_TREND_WEEKS = 26
 RECENT_ACTIVITY_LIMIT = 8
 
-# The project.project whose connected backend is gohan.job is "this" Gohan
-# project (see gohan_extension/data/gohan_project_data.xml). Team Size defaults
-# to that project's own team — per-project, like the Analytics tab — instead of
-# every project org-wide when no explicit project_id is supplied.
-GOHAN_CONNECTED_TABLE = "gohan.job"
-
-
-def _gohan_projects(env):
-    """The Gohan project record(s): project.project linked to the gohan.job
-    backend. Used as the default Team Size scope so the KPI reflects the Gohan
-    project's own team rather than all projects in the system."""
-    return env["project.project"].sudo().search(
-        [("connected_table", "=", GOHAN_CONNECTED_TABLE)]
-    )
-
 
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
     return {
@@ -329,19 +314,14 @@ class GohanDashboardOverviewController(http.Controller):
         if project:
             tasker_user_ids = project.project_tasker.mapped("user_id").ids
             role_scope = role_domain + [("user_id", "in", tasker_user_ids)]
-            team_projects = project
         else:
             role_scope = role_domain
-            # Team Size is scoped to the Gohan project itself (per-project, like
-            # the Analytics tab), not the caller's full project set. Falls back
-            # to the role's scope_projects if the Gohan project is not found.
-            team_projects = _gohan_projects(env) or scope_projects
         date_domain = _create_date_domain(filters["start"], filters["end"])
         scope = role_scope + date_domain
 
         overview = {
             "role": role_tag,
-            "kpi": _build_overview_kpi(env, scope, role_scope, team_projects),
+            "kpi": _build_overview_kpi(env, scope, role_scope, project),
             "budget": {},
             "burn_rate": {},
             "accepted_per_day": {},
