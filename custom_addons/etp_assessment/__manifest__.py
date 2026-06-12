@@ -10,7 +10,7 @@ Includes a public portal for candidates to take assessments via email link.
     "author": "Ethara",
     "website": "https://www.ethara.com",
     "category": "Human Resources",
-    "version": "19.0.0.10",
+    "version": "19.0.0.15",
     "application": True,
     "depends": ["base", "web", "hr", "mail", "website"],
     "data": [

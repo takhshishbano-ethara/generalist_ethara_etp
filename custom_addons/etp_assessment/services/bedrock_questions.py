@@ -63,27 +63,13 @@ DEFAULT_SEED_PROMPT = (
 )
 
 
-def _bedrock_creds(env):
-    return (
-        _param(env, "etp_assessment.bedrock_inference_arn"),
-        _param(env, "etp_assessment.bedrock_region", "us-east-1"),
-        _param(env, "etp_assessment.bedrock_bearer_token"),
-    )
-
-
 def _call_bedrock(env, system_prompt, user_text, max_tokens=4000, temperature=0.4):
-    """Provider-dispatching LLM call (name kept for backward compatibility).
+    """LLM text call. Single provider: Vertex AI Gemini.
 
-    etp_assessment.llm_provider = "vertex" | "bedrock" (default) | "openrouter"
+    Name retained for backward compatibility with existing call sites.
     """
-    provider = (_param(env, "etp_assessment.llm_provider", "bedrock")
-                or "bedrock").strip().lower()
-    if provider == "vertex":
-        return _call_vertex(env, system_prompt, user_text,
-                            max_tokens=max_tokens, temperature=temperature)
-    if provider == "openrouter":
-        return _call_openrouter(env, system_prompt, user_text, max_tokens, temperature)
-    return _call_bedrock_converse(env, system_prompt, user_text, max_tokens, temperature)
+    return _call_vertex(env, system_prompt, user_text,
+                        max_tokens=max_tokens, temperature=temperature)
 
 
 def _vertex_creds(env):
@@ -95,23 +81,49 @@ def _vertex_creds(env):
     )
 
 
+def _vertex_bearer(env):
+    """OAuth bearer token for the Vertex (aiplatform) endpoint, if provided."""
+    return _param(env, "etp_assessment.vertex_access_token")
+
+
+def _gemini_request(env, model, suffix):
+    """Return (url, headers) for a Gemini call, auth-aware.
+
+    Two supported auth modes (we pick based on which credential is set):
+      - API key  -> Gemini Developer API (generativelanguage.googleapis.com)
+                    with header x-goog-api-key. This is what an API key is for.
+      - OAuth bearer (vertex_access_token) -> Vertex AI
+                    (LOCATION-aiplatform.googleapis.com /projects/.../locations)
+                    with Authorization: Bearer. Use this with a service-account
+                    / gcloud token.
+    Mixing an API key against the aiplatform endpoint returns 401/403, which is
+    the trap this function avoids.
+    """
+    project, location, _model, api_key = _vertex_creds(env)
+    bearer = _vertex_bearer(env)
+    if bearer:
+        host = (f"https://{location}-aiplatform.googleapis.com"
+                if location != "global" else "https://aiplatform.googleapis.com")
+        url = (f"{host}/v1/projects/{project}/locations/{location}"
+               f"/publishers/google/models/{model}:{suffix}")
+        return url, {"Content-Type": "application/json",
+                     "Authorization": f"Bearer {bearer}"}
+    if api_key:
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{model}:{suffix}")
+        return url, {"Content-Type": "application/json",
+                     "x-goog-api-key": api_key}
+    raise ValueError(
+        "Vertex/Gemini not configured. Set etp_assessment.vertex_api_key "
+        "(Gemini Developer API) OR etp_assessment.vertex_access_token + "
+        "vertex_project_id (Vertex AI OAuth) in System Parameters.")
+
+
 def _vertex_endpoint(env):
-    project, location, model, api_key = _vertex_creds(env)
-    if not project or not api_key:
-        raise ValueError(
-            "Vertex AI not configured. Set etp_assessment.vertex_project_id "
-            "and etp_assessment.vertex_api_key (plus vertex_location / "
-            "vertex_model) in Settings > Technical > System Parameters."
-        )
-    host = (
-        f"https://{location}-aiplatform.googleapis.com"
-        if location != "global" else "https://aiplatform.googleapis.com"
-    )
-    url = (
-        f"{host}/v1/projects/{project}/locations/{location}"
-        f"/publishers/google/models/{model}:generateContent"
-    )
-    return url, api_key
+    """Back-compat shim: (url, api_key) for the text model generateContent."""
+    _project, _loc, model, _key = _vertex_creds(env)
+    url, headers = _gemini_request(env, model, "generateContent")
+    return url, headers
 
 
 def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
@@ -123,7 +135,8 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
     """
     import httpx
 
-    url, api_key = _vertex_endpoint(env)
+    _project, _loc, model, _key = _vertex_creds(env)
+    url, headers = _gemini_request(env, model, "generateContent")
     parts = [{"text": user_text}]
     for img in (image_parts or []):
         if img.get("data"):
@@ -141,7 +154,6 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
             "temperature": temperature,
         },
     }
-    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
 
     _logger.info(
         "etp_assessment Vertex call: model=%s parts=%d (images=%d) max_tokens=%d",
@@ -162,85 +174,8 @@ def _call_vertex(env, system_prompt, user_text, max_tokens=4000,
         )
 
 
-def _call_openrouter(env, system_prompt, user_text, max_tokens=4000, temperature=0.4):
-    """OpenRouter chat-completions call (OpenAI-compatible schema).
-
-    System Parameters:
-      etp_assessment.openrouter_api_key  - sk-or-... key
-      etp_assessment.openrouter_model    - e.g. "google/gemini-3-pro" or
-                                           "anthropic/claude-sonnet-4.5"
-    """
-    import httpx
-
-    api_key = _param(env, "etp_assessment.openrouter_api_key")
-    model = _param(env, "etp_assessment.openrouter_model")
-    if not api_key or not model:
-        raise ValueError(
-            "OpenRouter not configured. Set etp_assessment.openrouter_api_key "
-            "and etp_assessment.openrouter_model in Settings > Technical > "
-            "System Parameters (or switch etp_assessment.llm_provider back "
-            "to 'bedrock')."
-        )
-
-    payload = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_text},
-        ],
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "HTTP-Referer": "https://www.ethara.com",
-        "X-Title": "ETP Assessment",
-    }
-
-    _logger.info("etp_assessment OpenRouter call: model=%s max_tokens=%d", model, max_tokens)
-    with httpx.Client(timeout=httpx.Timeout(connect=30, read=120, write=30, pool=30)) as client:
-        resp = client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            json=payload, headers=headers,
-        )
-    if resp.status_code != 200:
-        raise RuntimeError(f"OpenRouter error [{resp.status_code}]: {resp.text[:400]}")
-    data = resp.json()
-    try:
-        return data["choices"][0]["message"]["content"]
-    except (KeyError, IndexError, TypeError):
-        raise RuntimeError(
-            f"OpenRouter response missing content: {str(data)[:300]}"
-        )
-
-
-def _call_bedrock_converse(env, system_prompt, user_text, max_tokens=4000, temperature=0.4):
-    import httpx
-
-    arn, region, token = _bedrock_creds(env)
-    if not arn or not token:
-        raise ValueError(
-            "Bedrock not configured. Set etp_assessment.bedrock_inference_arn and "
-            "etp_assessment.bedrock_bearer_token in Settings > Technical > System Parameters."
-        )
-
-    model_id = urllib.parse.quote(arn, safe="")
-    endpoint = f"https://bedrock-runtime.{region}.amazonaws.com/model/{model_id}/converse"
-    payload = {
-        "system": [{"text": system_prompt}],
-        "messages": [{"role": "user", "content": [{"text": user_text}]}],
-        "inferenceConfig": {"maxTokens": max_tokens, "temperature": temperature},
-    }
-    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
-
-    _logger.info("etp_assessment Bedrock call: region=%s max_tokens=%d", region, max_tokens)
-    with httpx.Client(timeout=httpx.Timeout(connect=30, read=120, write=30, pool=30)) as client:
-        resp = client.post(endpoint, json=payload, headers=headers)
-    if resp.status_code != 200:
-        raise RuntimeError(f"Bedrock error [{resp.status_code}]: {resp.text[:400]}")
-    data = resp.json()
-    return data["output"]["message"]["content"][0]["text"]
+def _default_vertex_model(env):
+    return _vertex_creds(env)[2]
 
 
 def _extract_json_array(text):

@@ -340,6 +340,8 @@ class EtpAssessmentPromptQuestion(models.Model):
     )
     image_a = fields.Binary(string="Generated Image A", attachment=True)
     image_b = fields.Binary(string="Generated Image B", attachment=True)
+    image_a_url = fields.Char(string="Image A URL (S3)")
+    image_b_url = fields.Char(string="Image B URL (S3)")
     image_state = fields.Selection(
         [
             ("none", "Not Needed"),
@@ -364,13 +366,14 @@ class EtpAssessmentPromptQuestion(models.Model):
     )
 
     def action_generate_images(self):
-        """Generate the A/B images for image_comparison drafts via Bedrock.
+        """Generate the A/B images for image_comparison drafts via Vertex.
 
-        One image model call per image (2 per question) — unavoidable, image
-        APIs are single-prompt. Idempotent: already-generated drafts are
-        skipped; failed ones can be retried.
+        Each generated image is uploaded to S3 (when configured) and its URL
+        stored on the draft; otherwise the base64 is kept inline on the
+        record. Idempotent: already-generated drafts are skipped; failed ones
+        can be retried.
         """
-        from ..services import bedrock_images
+        from ..services import bedrock_images, s3_service
         todo = self.filtered(
             lambda r: r.question_type == "image_comparison"
             and r.state == "draft"
@@ -390,12 +393,19 @@ class EtpAssessmentPromptQuestion(models.Model):
                 img_b = bedrock_images.generate_image_b64(
                     self.env, rec.image_prompt_b
                 )
-                rec.write({
-                    "image_a": img_a,
-                    "image_b": img_b,
-                    "image_state": "generated",
-                    "image_error": False,
-                })
+                vals = {"image_state": "generated", "image_error": False}
+                # upload to S3 when configured, else keep inline binary.
+                # upload_image_pair is atomic: if B fails after A, it rolls
+                # back A so no orphan is left in the bucket.
+                if s3_service.is_configured(self.env):
+                    url_a, url_b = s3_service.upload_image_pair(
+                        self.env, img_a, img_b, key_hint=f"gen{rec.id}")
+                    vals["image_a_url"] = url_a
+                    vals["image_b_url"] = url_b
+                else:
+                    vals["image_a"] = img_a
+                    vals["image_b"] = img_b
+                rec.write(vals)
             except Exception as exc:
                 _logger.exception(
                     "Image generation failed for draft question %s", rec.id
@@ -418,9 +428,12 @@ class EtpAssessmentPromptQuestion(models.Model):
                 "description": "Generated from prompt: %s (skill: %s)" % (
                     rec.prompt_id.name, rec.skill or "-"),
             }
-            # carry generated images onto the bank question
+            # carry generated images onto the bank question (URL preferred)
             if rec.question_type == "image_comparison":
-                if rec.image_a and rec.image_b:
+                if rec.image_a_url and rec.image_b_url:
+                    vals["image_a_url"] = rec.image_a_url
+                    vals["image_b_url"] = rec.image_b_url
+                elif rec.image_a and rec.image_b:
                     vals["image_a"] = rec.image_a
                     vals["image_b"] = rec.image_b
                 elif rec.image_prompt_a or rec.image_prompt_b:

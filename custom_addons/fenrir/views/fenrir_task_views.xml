@@ -12,7 +12,7 @@
                 <field name="title"/>
                 <field name="reviewer_id" widget="many2one_avatar_user"/>
                 <field name="buyer_id" widget="many2one_avatar_user"/>
-                <field name="pricing" sum="Total"/>
+                <!-- <field name="pricing" sum="Total"/> -->
                 <field name="price_tier" optional="hide"/>
                 <field name="delivery_time"/>
                 <field name="seller_offer_count" string="Sellers"/>
@@ -80,7 +80,7 @@
                         </group>
                         <group string="Buyer &amp; Pricing" name="group_pricing">
                             <field name="buyer_id" widget="many2one_avatar_user"/>
-                            <field name="pricing" widget="float"/>
+                            <!-- <field name="pricing" widget="float"/> -->
                             <field name="price_tier"/>
                             <field name="delivery_time"/>
                             <field name="order_accepted_date"/>
@@ -97,24 +97,6 @@
                     <field name="recreation_notes" nolabel="1"
                            placeholder="How the original gig concept was adapted, what was fictionalized, confirmation that no proprietary assets were used..."/>
 
-                    <separator string="Generation Settings" name="sep_generation"/>
-                    <group>
-                        <group string="Environment">
-                            <field name="environment_type" readonly="1"/>
-                            <field name="environment_base_runtime_ids"
-                                   widget="many2many_tags"
-                                   options="{'no_create': True, 'no_create_edit': True, 'no_quick_create': True}"
-                                   placeholder="Pick one or more runtimes..."/>
-                            <field name="key_dependency_ids"
-                                   widget="many2many_tags"
-                                   readonly="1"
-                                   options="{'no_create': True, 'no_open': True}"/>
-                            <!-- Legacy free-text fields, hidden but kept for safety -->
-                            <field name="environment_base_runtime" invisible="1"/>
-                            <field name="key_dependencies" invisible="1"/>
-                        </group>
-                    </group>
-
                     <separator string="Overview" name="sep_overview"/>
                     <field name="overview" nolabel="1"
                            placeholder="Brief project overview..."/>
@@ -128,7 +110,7 @@
                            placeholder="Company name, location, contact..."/>
 
                     <separator string="Resources" name="sep_resources"/>
-                    <group>
+                    <!-- <group>
                         <label for="assets_url" string="Assets"/>
                         <div class="o_row">
                             <field name="assets_url" widget="url"
@@ -152,6 +134,21 @@
                             <field name="instruction_md_file"
                                    filename="instruction_md_filename"
                                    widget="binary" nolabel="1"/>
+                            <field name="instruction_md_filename" invisible="1"/>
+                        </div>
+                    </group> -->
+                    <group>
+                        <label for="assets_file" string="Project Requirements Document (PRD)"/>
+                        <div class="o_row">
+                            <field name="assets_file" filename="assets_filename"
+                                widget="binary" nolabel="1"/>
+                            <field name="assets_filename" invisible="1"/>
+                        </div>
+                        <label for="instruction_md_file" string="Instruction.md"/>
+                        <div class="o_row">
+                            <field name="instruction_md_file"
+                                filename="instruction_md_filename"
+                                widget="binary" nolabel="1"/>
                             <field name="instruction_md_filename" invisible="1"/>
                         </div>
                     </group>
@@ -261,7 +258,7 @@
                             <field name="is_generated" widget="boolean_toggle"
                                    readonly="1" optional="show"/>
                             <field name="license"/>
-                            <field name="source_url" optional="hide"
+                            <field name="source_url" optional="show"
                                    placeholder="https://..."/>
                             <field name="attachment" filename="file_name" string="File"
                                    invisible="s3_key"/>
@@ -315,7 +312,7 @@
                         </form>
                     </field>
 
-                    <separator string="Data" name="sep_data"/>
+                    <!-- <separator string="Data" name="sep_data"/>
                     <widget name="fenrir_attachment_uploader" default_folder="data"/>
                     <field name="data_attachment_ids" nolabel="1" mode="kanban,list"
                            context="{'default_folder': 'data'}">
@@ -369,7 +366,7 @@
                             <field name="notes"
                                    placeholder="Notes for license.json..."/>
                         </list>
-                    </field>
+                    </field> -->
 
                     <separator string="Seller Offers" name="sep_sellers"/>
                     <div class="mb-2" invisible="not id">
@@ -605,6 +602,118 @@
                     <field name="remarks" nolabel="1"
                            placeholder="Internal remarks..."/>
 
+                    <separator string="Generation Settings" name="sep_generation"/>
+                    <notebook>
+                        <page string="Environment Generation" name="page_auto_docker">
+                            <group>
+                                <group string="Environment">
+                                    <field name="environment_type" readonly="1"/>
+                                    <field name="environment_base_runtime_ids"
+                                           widget="many2many_tags"
+                                           options="{'no_create': True, 'no_create_edit': True, 'no_quick_create': True}"
+                                           placeholder="Pick one or more runtimes..."/>
+                                    <field name="key_dependency_ids"
+                                           widget="many2many_tags"
+                                           readonly="1"
+                                           options="{'no_create': True, 'no_open': True}"/>
+                                    <!-- Legacy free-text fields, hidden but kept for safety -->
+                                    <field name="environment_base_runtime" invisible="1"/>
+                                    <field name="key_dependencies" invisible="1"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Manual Upload" name="page_manual_upload">
+                            <group>
+                                <label for="dockerfile_attachment" string="Dockerfile"/>
+                                <div class="o_row">
+                                    <field name="dockerfile_attachment"
+                                           filename="dockerfile_filename"
+                                           widget="binary" nolabel="1"/>
+                                    <field name="dockerfile_filename"
+                                           placeholder="Dockerfile" nolabel="1"/>
+                                </div>
+                                <label for="dockerignore_attachment" string=".dockerignore"/>
+                                <div class="o_row">
+                                    <field name="dockerignore_attachment"
+                                           filename="dockerignore_filename"
+                                           widget="binary" nolabel="1"/>
+                                    <field name="dockerignore_filename"
+                                           placeholder=".dockerignore" nolabel="1"/>
+                                </div>
+                                <label for="nginx_conf_attachment" string="nginx.conf"/>
+                                <div class="o_row">
+                                    <field name="nginx_conf_attachment"
+                                           filename="nginx_conf_filename"
+                                           widget="binary" nolabel="1"/>
+                                    <field name="nginx_conf_filename"
+                                           placeholder="nginx.conf" nolabel="1"/>
+                                </div>
+                                <label for="entrypoint_sh_attachment" string="entrypoint.sh"/>
+                                <div class="o_row">
+                                    <field name="entrypoint_sh_attachment"
+                                           filename="entrypoint_sh_filename"
+                                           widget="binary" nolabel="1"/>
+                                    <field name="entrypoint_sh_filename"
+                                           placeholder="entrypoint.sh" nolabel="1"/>
+                                </div>
+                            </group>
+                        </page>
+                    </notebook>
+
+                    <!--
+                        Previous button-reveal UI (Create Dockerfile / Upload Environment Files
+                        with Hide buttons). Replaced by the tab notebook above.
+                        Kept (commented) per user request to preserve all code.
+                    <field name="show_environment_config" invisible="1"/>
+                    <field name="show_environment_uploads" invisible="1"/>
+                    <div class="o_row mb-2">
+                        <button name="action_show_environment_config" type="object"
+                                string="Create Dockerfile" class="btn btn-primary"
+                                invisible="show_environment_config"/>
+                        <button name="action_show_environment_uploads" type="object"
+                                string="Upload Environment Files" class="btn btn-secondary"
+                                invisible="show_environment_uploads"/>
+                    </div>
+                    <div class="o_row mb-1" invisible="not show_environment_config">
+                        <button name="action_hide_environment_config" type="object"
+                                string="Hide Environment Configuration"
+                                class="btn btn-link btn-sm" icon="fa-times"/>
+                    </div>
+                    <group invisible="not show_environment_config">
+                        <group string="Environment">
+                            <field name="environment_type" readonly="1"/>
+                            <field name="environment_base_runtime_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True, 'no_quick_create': True}"
+                                   placeholder="Pick one or more runtimes..."/>
+                            <field name="key_dependency_ids"
+                                   widget="many2many_tags"
+                                   readonly="1"
+                                   options="{'no_create': True, 'no_open': True}"/>
+                            <field name="environment_base_runtime" invisible="1"/>
+                            <field name="key_dependencies" invisible="1"/>
+                        </group>
+                    </group>
+                    <separator string="Environment Files" name="sep_environment_files"
+                               invisible="not show_environment_uploads"/>
+                    <div class="o_row mb-1" invisible="not show_environment_uploads">
+                        <button name="action_hide_environment_uploads" type="object"
+                                string="Hide Environment Files"
+                                class="btn btn-link btn-sm" icon="fa-times"/>
+                    </div>
+                    <field name="environment_attachment_ids" nolabel="1" colspan="2"
+                           invisible="not show_environment_uploads"
+                           context="{'default_folder': 'environment'}">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="file_name" required="1"
+                                   placeholder="Dockerfile, docker-compose.yml, nginx.conf, ..."/>
+                            <field name="attachment" widget="binary" filename="file_name"/>
+                            <field name="folder" invisible="1"/>
+                        </list>
+                    </field>
+                    -->
+
                     <separator string="Tests" name="sep_tests"/>
                     <group>
                         <label for="test_deliverables_attachment" string="test_deliverables.sh"/>
@@ -617,41 +726,7 @@
                         </div>
                     </group>
 
-                    <separator string="Environment" name="sep_environment"/>
-                    <group>
-                        <label for="dockerfile_attachment" string="Dockerfile"/>
-                        <div class="o_row">
-                            <field name="dockerfile_attachment"
-                                   filename="dockerfile_filename"
-                                   widget="binary" nolabel="1"/>
-                            <field name="dockerfile_filename"
-                                   placeholder="Dockerfile" nolabel="1"/>
-                        </div>
-                        <label for="dockerignore_attachment" string=".dockerignore"/>
-                        <div class="o_row">
-                            <field name="dockerignore_attachment"
-                                   filename="dockerignore_filename"
-                                   widget="binary" nolabel="1"/>
-                            <field name="dockerignore_filename"
-                                   placeholder=".dockerignore" nolabel="1"/>
-                        </div>
-                        <label for="nginx_conf_attachment" string="nginx.conf"/>
-                        <div class="o_row">
-                            <field name="nginx_conf_attachment"
-                                   filename="nginx_conf_filename"
-                                   widget="binary" nolabel="1"/>
-                            <field name="nginx_conf_filename"
-                                   placeholder="nginx.conf" nolabel="1"/>
-                        </div>
-                        <label for="entrypoint_sh_attachment" string="entrypoint.sh"/>
-                        <div class="o_row">
-                            <field name="entrypoint_sh_attachment"
-                                   filename="entrypoint_sh_filename"
-                                   widget="binary" nolabel="1"/>
-                            <field name="entrypoint_sh_filename"
-                                   placeholder="entrypoint.sh" nolabel="1"/>
-                        </div>
-                    </group>
+
 
                 </sheet>
                 <chatter/>

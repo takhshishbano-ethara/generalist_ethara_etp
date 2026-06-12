@@ -45,7 +45,7 @@ class FenrirTaskAttachment(models.Model):
         required=True,
         help="Target subfolder in the strict task export. "
              "Use 'Root' for files that belong at the top of the task tree "
-             "(e.g. task_metadata.json, licenses.json).",
+             "(e.g. task_metadata.json, license.json).",
     )
     is_generated = fields.Boolean(
         string="Auto-generated",
@@ -56,6 +56,7 @@ class FenrirTaskAttachment(models.Model):
     license = fields.Selection(
         selection=[
             ("self_created", "Self-created"),
+            ("public_domain", "Public Domain"),
             ("cc0", "CC0"),
             ("cc_by", "CC-BY"),
             ("cc_by_sa", "CC-BY-SA"),
@@ -98,6 +99,7 @@ class FenrirTaskAttachment(models.Model):
 
     _LICENSE_LABELS = {
         "self_created": "Self-created",
+        "public_domain": "Public Domain",
         "cc0": "CC0",
         "cc_by": "CC-BY",
         "cc_by_sa": "CC-BY-SA",

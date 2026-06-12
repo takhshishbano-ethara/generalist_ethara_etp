@@ -89,6 +89,27 @@ class EtpPromptController(http.Controller):
             rec.unlink()
         return {"removed": True}
 
+    # ------------------------------------------------------ bank JSON import
+    @http.route("/etp_assessment/bank/import_json", type="json", auth="user")
+    def import_bank_json(self, bank=None, category_id=None,
+                         category_name=None, generate_images=False):
+        """Import a research-team / generated question-bank JSON into the bank.
+
+        `bank` may be the JSON object or a JSON string. Returns the importer
+        summary (questions_created, objective_fields, subjective_fields,
+        skills_created, images_generated, warnings).
+        """
+        if not bank:
+            return {"error": "no bank payload"}
+        summary = request.env["etp.assessment.bank.import"].import_bank(
+            bank,
+            category_id=category_id or False,
+            category_name=category_name,
+            generate_images=bool(generate_images),
+            source_tag="json",
+        )
+        return summary
+
     # ----------------------------------------------- CALL 1: extract skills
     @http.route("/etp_assessment/prompt/extract_skills", type="json", auth="user")
     def extract_skills(self, prompt_id, source_text=None, title=None, category_id=None):
@@ -230,17 +251,21 @@ class EtpPromptController(http.Controller):
         request.env["ir.config_parameter"].sudo().set_param(key, value or "")
         return {"saved": True}
 
-    # ------------------------------------------------- bedrock config status
+    # ------------------------------------------------- vertex config status
     @http.route("/etp_assessment/prompt/config_status", type="json", auth="user")
     def config_status(self):
         """Lets the app show 'LLM ready' vs 'not configured' without a failed call."""
-        ICP = request.env["ir.config_parameter"].sudo()
-        arn = ICP.get_param("etp_assessment.bedrock_inference_arn", "")
-        token = ICP.get_param("etp_assessment.bedrock_bearer_token", "")
-        region = ICP.get_param("etp_assessment.bedrock_region", "")
+        from ..services import bedrock_questions as bq
+        from ..services import bedrock_images, s3_service
+        env = request.env
+        project = bq._param(env, "etp_assessment.vertex_project_id")
+        api_key = bq._param(env, "etp_assessment.vertex_api_key")
         return {
-            "configured": bool(arn and token),
-            "region": region or "us-east-1",
-            "has_arn": bool(arn),
-            "has_token": bool(token),
+            "provider": "vertex",
+            "configured": bool(project and api_key),
+            "model": bq._param(env, "etp_assessment.vertex_model", "gemini-3-pro"),
+            "location": bq._param(env, "etp_assessment.vertex_location", "us-central1"),
+            "text_configured": bool(project and api_key),
+            "image_configured": bedrock_images.is_configured(env),
+            "s3_configured": s3_service.is_configured(env),
         }

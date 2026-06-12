@@ -515,6 +515,47 @@ class EtpAssessment(models.Model):
                 # rmq_score_subjective already marked it failed
                 continue
 
+        # (3) RESCUE stale 'queued' responses — broker accepted the publish
+        # but no consumer scored it within the grace window (consumer down,
+        # or no broker setup at all). Score them inline so nothing gets stuck.
+        from datetime import timedelta
+        cutoff = fields.Datetime.now() - timedelta(minutes=5)
+        stuck = Resp.search([
+            ("llm_state", "=", "queued"),
+            ("needs_llm", "=", True),
+            ("write_date", "<", cutoff),
+        ], limit=10)
+        for resp in stuck:
+            _logger.warning(
+                "Rescuing stuck-queued response %s (no consumer scored it)",
+                resp.id)
+            try:
+                resp.rmq_score_subjective()
+            except Exception:
+                _logger.exception(
+                    "Cron rescue scoring failed for response %s", resp.id)
+                continue
+
+        # (4) BOUNDED RETRY of failed responses — a transient Vertex error
+        # (429/5xx) shouldn't leave a candidate pending forever. Retry up to
+        # the cap, then leave it failed for manual action (surfaced in UI).
+        MAX_ATTEMPTS = 3
+        failed = Resp.search([
+            ("llm_state", "=", "failed"),
+            ("needs_llm", "=", True),
+            ("llm_attempts", "<", MAX_ATTEMPTS),
+        ], limit=10)
+        for resp in failed:
+            _logger.info(
+                "Retrying failed subjective scoring for response %s "
+                "(attempt %s/%s)", resp.id, resp.llm_attempts + 1, MAX_ATTEMPTS)
+            try:
+                resp.rmq_score_subjective()
+            except Exception:
+                _logger.exception(
+                    "Cron retry scoring failed for response %s", resp.id)
+                continue
+
     def action_cancel(self):
         for rec in self:
             if rec.state in ("done", "cancelled"):
@@ -657,6 +698,52 @@ class EtpAssessmentEvaluator(models.Model):
     llm_scored_at = fields.Datetime(string="Subjective Scored At", readonly=True)
     llm_error = fields.Char(string="Subjective Error", readonly=True)
 
+    # ------------------------------------------------------------------
+    # Combined score % + PASS/FAIL against the org pass threshold.
+    # Threshold lives in System Parameter etp_assessment.pass_threshold
+    # (percent, default 70). Combines objective + subjective into one
+    # percentage; result is pending until all subjective scoring lands.
+    # ------------------------------------------------------------------
+    score_percent = fields.Float(
+        string="Score %", compute="_compute_result", store=True,
+        help="(objective + subjective earned) / (objective + subjective max) "
+             "× 100, across all submitted responses.")
+    pass_threshold = fields.Float(
+        string="Pass Threshold %", compute="_compute_result", store=True,
+        help="Org pass threshold from System Parameter "
+             "etp_assessment.pass_threshold (default 70).")
+    result = fields.Selection(
+        [("pending", "Pending"), ("pass", "Pass"), ("fail", "Fail")],
+        string="Result", compute="_compute_result", store=True, default="pending")
+
+    @api.depends("total_score", "max_possible_score",
+                 "llm_total_score", "llm_max_score", "subjective_pending",
+                 "state", "response_ids.llm_state")
+    def _compute_result(self):
+        threshold = self._get_pass_threshold()
+        for rec in self:
+            rec.pass_threshold = threshold
+            earned = (rec.total_score or 0) + (rec.llm_total_score or 0)
+            possible = (rec.max_possible_score or 0) + (rec.llm_max_score or 0)
+            rec.score_percent = round(
+                (earned / possible) * 100.0, 2) if possible else 0.0
+            # result is only meaningful once submitted AND no subjective work
+            # is still pending (so we never fail someone mid-scoring)
+            if rec.state != "submitted" or rec.subjective_pending:
+                rec.result = "pending"
+            else:
+                rec.result = "pass" if rec.score_percent >= threshold else "fail"
+
+    @api.model
+    def _get_pass_threshold(self):
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment.pass_threshold", "70")
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            val = 70.0
+        return val if 0 <= val <= 100 else 70.0
+
     @api.depends("response_ids.llm_score", "response_ids.llm_max_score",
                  "response_ids.llm_state")
     def _compute_llm_progress(self):
@@ -666,7 +753,8 @@ class EtpAssessmentEvaluator(models.Model):
             rec.llm_total_score = sum(scored.mapped("llm_score"))
             rec.llm_max_score = sum(scored.mapped("llm_max_score"))
             rec.subjective_pending = len(rec.response_ids.filtered(
-                lambda r: r.llm_state in ("pending", "queued")))
+                lambda r: r.needs_llm
+                and r.llm_state in ("pending", "queued", "failed")))
 
     def _compute_subjective_rollup(self):
         """Refresh the evaluator subjective state after a per-response score."""
@@ -793,7 +881,19 @@ class EtpAssessmentResponse(models.Model):
              "requires subjective grading.")
     llm_score = fields.Integer(string="Subjective Score", readonly=True, copy=False)
     llm_max_score = fields.Integer(string="Subjective Max", readonly=True, copy=False)
+    llm_passed = fields.Boolean(
+        string="Subjective Passed", readonly=True, copy=False,
+        help="True when the LLM's 0..1 score met the subjective threshold. "
+             "Pass = full subjective points for this question, Fail = 0.")
+    llm_raw_score = fields.Float(
+        string="Subjective Raw Score (0-1)", readonly=True, copy=False,
+        help="The LLM's raw 0..1 quality score for this justification, "
+             "before the pass/fail threshold is applied.")
     llm_feedback = fields.Text(string="Subjective Reasoning", readonly=True, copy=False)
+    llm_attempts = fields.Integer(
+        string="Subjective Scoring Attempts", default=0, copy=False,
+        help="Number of LLM scoring attempts; the cron stops auto-retrying "
+             "failed responses after the cap so a hard error doesn't loop.")
     llm_state = fields.Selection(
         [
             ("not_needed", "Not Needed"),
@@ -807,9 +907,22 @@ class EtpAssessmentResponse(models.Model):
         copy=False,
     )
     subjective_score = fields.Integer(
-        related="llm_score", string="Subjective Score ", readonly=True)
+        related="llm_score", string="Subjective Points", readonly=True)
+    subjective_result = fields.Selection(
+        [("pass", "Pass"), ("fail", "Fail")],
+        string="Subjective Result", compute="_compute_subjective_result",
+        store=True,
+        help="Per-question subjective verdict: PASS = full points, FAIL = 0.")
     subjective_reasoning = fields.Text(
         related="llm_feedback", string="Subjective Reasoning ", readonly=True)
+
+    @api.depends("llm_state", "llm_passed", "needs_llm")
+    def _compute_subjective_result(self):
+        for rec in self:
+            if rec.needs_llm and rec.llm_state == "scored":
+                rec.subjective_result = "pass" if rec.llm_passed else "fail"
+            else:
+                rec.subjective_result = False
 
     @api.depends("line_ids.selected_option_id", "justification",
                  "question_id")
@@ -821,22 +934,32 @@ class EtpAssessmentResponse(models.Model):
                 ("is_correct", "=", True),
             ]))
             rec.has_objective = has_obj
-            rec.needs_llm = bool((rec.justification or "").strip())
+            just = (rec.justification or "").strip()
+            # Auto-submit placeholders are NOT real answers — never LLM-score
+            # them. needs_llm is the single source of truth for the enqueue
+            # filters, so excluding the markers here defeats re-enqueue.
+            is_placeholder = just.startswith("[Auto-submitted")
+            rec.needs_llm = bool(just) and not is_placeholder
 
-    @api.depends("line_ids.selected_option_id")
+    @api.depends("line_ids.selected_option_id",
+                 "question_id.question_dimension_ids.option_line_ids.is_correct")
     def _compute_score(self):
         for rec in self:
             score = 0
-            max_score = len(rec.line_ids)
-            for line in rec.line_ids:
-                if not line.selected_option_id:
-                    continue
-                correct_opt = self.env["etp.assessment.question.dimension.option"].search([
-                    ("question_dimension_id.question_id", "=", rec.question_id.id),
-                    ("question_dimension_id.dimension_id", "=", line.dimension_id.id),
-                    ("is_correct", "=", True),
-                ], limit=1)
-                if correct_opt and line.selected_option_id.id == correct_opt.master_option_id.id:
+            Opt = self.env["etp.assessment.question.dimension.option"]
+            # max is over the QUESTION's objective dimensions (those with a
+            # defined correct option), NOT just the ones the candidate
+            # answered — skipping a dimension must not inflate the percentage.
+            objective_dims = rec.question_id.question_dimension_ids.filtered(
+                lambda qd: qd.option_line_ids.filtered("is_correct"))
+            max_score = len(objective_dims)
+            answered = {l.dimension_id.id: l.selected_option_id
+                        for l in rec.line_ids if l.selected_option_id}
+            for qd in objective_dims:
+                correct_opt = qd.option_line_ids.filtered("is_correct")[:1]
+                picked = answered.get(qd.dimension_id.id)
+                if (correct_opt and picked
+                        and picked.id == correct_opt.master_option_id.id):
                     score += 1
             rec.score = score
             rec.max_score = max_score
@@ -906,6 +1029,8 @@ class EtpAssessmentResponse(models.Model):
         if not (self.justification or "").strip():
             self.llm_state = "not_needed"
             return {"status": "skipped", "reason": "no justification"}
+        # count the attempt up-front so the bounded-retry cron can cap it
+        self.llm_attempts = (self.llm_attempts or 0) + 1
         try:
             result = bedrock_scoring.score_one_response(self.env, self)
         except Exception as exc:
@@ -913,15 +1038,52 @@ class EtpAssessmentResponse(models.Model):
             self.write({"llm_state": "failed",
                         "llm_feedback": ("ERROR: " + str(exc))[:1000]})
             raise
+        # The LLM returns a 0..1 quality score; WE apply the configurable
+        # subjective threshold to decide PASS/FAIL. PASS = full subjective
+        # points for this question, FAIL = 0. Both knobs live in Settings.
+        points = self._subjective_points()
+        score01 = float(result.get("score01") or 0.0)
+        threshold = self._subjective_pass_threshold()
+        passed = score01 >= threshold
         self.write({
-            "llm_score": result.get("score", 0),
-            "llm_max_score": result.get("max_score", 10),
+            "llm_passed": passed,
+            "llm_raw_score": score01,
+            "llm_score": points if passed else 0,
+            "llm_max_score": points,
             "llm_feedback": result.get("feedback", ""),
             "llm_state": "scored",
         })
         if self.assessment_evaluator_id:
             self.assessment_evaluator_id._compute_subjective_rollup()
-        return {"status": "scored", "score": result.get("score", 0)}
+        return {"status": "scored", "passed": passed}
+
+    @api.model
+    def _subjective_points(self):
+        """Points a subjective question is worth (full on PASS, 0 on FAIL)."""
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment.subjective_points", "10")
+        try:
+            val = int(float(raw))
+        except (TypeError, ValueError):
+            val = 10
+        return val if val > 0 else 10
+
+    @api.model
+    def _subjective_pass_threshold(self):
+        """0..1 cutoff: LLM score >= this => the subjective question PASSes.
+
+        Configurable in Settings (etp_assessment.subjective_pass_threshold,
+        default 0.7). Accepts either a 0..1 fraction or a 0..100 percent.
+        """
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment.subjective_pass_threshold", "0.7")
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return 0.7
+        if val > 1.0:          # entered as a percent (e.g. 70)
+            val = val / 100.0
+        return val if 0.0 <= val <= 1.0 else 0.7
 
     def _check_all_submitted(self):
         evaluator_assignment = self.assessment_evaluator_id

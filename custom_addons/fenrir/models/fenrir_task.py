@@ -57,12 +57,13 @@ class FenrirTask(models.Model):
              "validator stubs at submit (e.g. 'logo.svg').")
     environment_type = fields.Selection(
         selection=[
-            ("non_dev", "Non-development (setup.sh)"),
+            # ("non_dev", "Non-development (setup.sh)"),
             ("dev", "Development (Dockerfile)"),
         ],
+        default="dev",
         string="Environment Type",
-        compute="_compute_environment_type",
-        store=True,
+        # compute="_compute_environment_type",
+        # store=True,
         help="Derived from the task code prefix.")
     environment_base_runtime_ids = fields.Many2many(
         comodel_name="fenrir.environment.runtime",
@@ -100,16 +101,16 @@ class FenrirTask(models.Model):
     scope_of_work = fields.Text(string="Scope of Work")
     company_details = fields.Text(string="Company Details")
 
-    assets_url = fields.Char(string="Assets")
-    assets_file = fields.Binary(string="Assets File", attachment=True,
+    assets_url = fields.Char(string="Project Requirements Document (PRD)")
+    assets_file = fields.Binary(string="Project Requirements Document (PRD)", attachment=True,
                                 help="Optional file alternative to the assets URL.")
-    assets_filename = fields.Char(string="Assets Filename")
+    assets_filename = fields.Char(string="Project Requirements Document (PRD) Filename")
 
-    rubrics_url = fields.Char(string="Rubrics URL",
-                              help="External link to a rubric spec / doc")
-    rubrics_file = fields.Binary(string="Rubrics File", attachment=True,
-                                 help="Optional file alternative to the rubrics URL.")
-    rubrics_filename = fields.Char(string="Rubrics Filename")
+    # rubrics_url = fields.Char(string="Rubrics URL",
+    #                           help="External link to a rubric spec / doc")
+    # rubrics_file = fields.Binary(string="Rubrics File", attachment=True,
+    #                              help="Optional file alternative to the rubrics URL.")
+    # rubrics_filename = fields.Char(string="Rubrics Filename")
 
     instruction_md_url = fields.Char(string="Instruction.md")
     instruction_md_file = fields.Binary(
@@ -141,6 +142,33 @@ class FenrirTask(models.Model):
         string="Data",
         help="Data files uploaded for this task. Land under data/ in the "
              "Drive export and the S3 mirror.",
+    )
+
+    show_environment_config = fields.Boolean(
+        string="Show Environment Configuration",
+        default=False,
+        copy=False,
+        help="Toggled True by the 'Create Dockerfile' button. When True, "
+             "Environment Type / Base Runtime / Key Dependencies fields "
+             "are shown on the form.",
+    )
+    show_environment_uploads = fields.Boolean(
+        string="Show Environment File Uploads",
+        default=False,
+        copy=False,
+        help="Toggled True by the 'Upload Environment Files' button. When "
+             "True, an attachment list filtered to folder='environment' is "
+             "shown on the form.",
+    )
+    environment_attachment_ids = fields.One2many(
+        comodel_name="fenrir.task.attachment",
+        inverse_name="task_id",
+        domain=[("folder", "=", "environment")],
+        string="Environment Files",
+        help="Files uploaded via the 'Upload Environment Files' button. "
+             "Each lands under environment/ in the Drive export and S3 "
+             "mirror via the existing attachment_ids iteration in "
+             "_regenerate_task_package (no extra export-pipeline code needed).",
     )
 
     reviewer_id = fields.Many2one(
@@ -258,7 +286,7 @@ class FenrirTask(models.Model):
         })
         Attachment.create({
             "task_id": self.id,
-            "file_name": "licenses.json",
+            "file_name": "license.json",
             "folder": "root",
             "is_generated": True,
             "license": "self_created",
@@ -315,10 +343,20 @@ class FenrirTask(models.Model):
         string="Buyer",
         tracking=True,
     )
-    pricing = fields.Float(string="Pricing", tracking=True,
-                           help="Buyer-side pricing")
-    price_tier = fields.Char(string="Price Tier")
-    delivery_time = fields.Date(string="Delivery Time", tracking=True)
+    # pricing = fields.Float(string="Pricing", tracking=True,
+    #                        help="Buyer-side pricing")
+    price_tier = fields.Selection(
+        selection=[
+            ("0-50", "$0-$50"),
+            ("50-100", "$50-$100"),
+            ("100-200", "$100-$200"),
+            ("200+", "$200+"),
+        ],
+        string="Price Tier",
+        tracking=True,
+    )
+    # price_tier = fields.Char(string="Price Tier")
+    delivery_time = fields.Date(string="Expected Delivery Date", tracking=True)
     order_accepted_date = fields.Date(string="Order Accepted Date", tracking=True)
 
     seller_offer_ids = fields.One2many(
@@ -347,12 +385,12 @@ class FenrirTask(models.Model):
             rec.accepted_offer_count = len(
                 rec.seller_offer_ids.filtered(lambda o: o.accepted == "yes"))
 
-    @api.depends("code")
-    def _compute_environment_type(self):
-        dev_prefixes = ("GDV", "WD", "SD")
-        for rec in self:
-            prefix = (rec.code or "").split("-", 1)[0]
-            rec.environment_type = "dev" if prefix in dev_prefixes else "non_dev"
+    # @api.depends("code")
+    # def _compute_environment_type(self):
+    #     dev_prefixes = ("GDV", "WD", "SD")
+    #     for rec in self:
+    #         prefix = (rec.code or "").split("-", 1)[0]
+    #         rec.environment_type = "dev" if prefix in dev_prefixes else "non_dev"
 
     @api.depends("environment_base_runtime_ids",
                  "environment_base_runtime_ids.key_dependency_ids")
@@ -360,6 +398,30 @@ class FenrirTask(models.Model):
         for rec in self:
             rec.key_dependency_ids = (
                 rec.environment_base_runtime_ids.key_dependency_ids)
+
+    # Action methods for the previous button-reveal UI (Create Dockerfile /
+    # Upload Environment Files + Hide buttons). Replaced by the tab notebook
+    # in views/fenrir_task_views.xml. Kept (commented) per user request to
+    # preserve all code.
+    # def action_show_environment_config(self):
+    #     for rec in self:
+    #         rec.show_environment_config = True
+    #     return True
+    #
+    # def action_show_environment_uploads(self):
+    #     for rec in self:
+    #         rec.show_environment_uploads = True
+    #     return True
+    #
+    # def action_hide_environment_config(self):
+    #     for rec in self:
+    #         rec.show_environment_config = False
+    #     return True
+    #
+    # def action_hide_environment_uploads(self):
+    #     for rec in self:
+    #         rec.show_environment_uploads = False
+    #     return True
 
     def action_open_seller_offers(self):
         self.ensure_one()
@@ -449,10 +511,10 @@ class FenrirTask(models.Model):
                       ], indent=2).encode("utf-8"),
                       "application/json", GENERATED, None))
 
-        if self.rubrics_file:
-            name = _slug(self.rubrics_filename or "rubrics_source")
-            mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
-            files.append((name, base64.b64decode(self.rubrics_file), mime, UPLOADED, None))
+        # if self.rubrics_file:
+        #     name = _slug(self.rubrics_filename or "rubrics_source")
+        #     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+        #     files.append((name, base64.b64decode(self.rubrics_file), mime, UPLOADED, None))
 
         if self.assets_file:
             name = _slug(self.assets_filename or "assets")
@@ -476,7 +538,7 @@ class FenrirTask(models.Model):
                 rel = safe_name
                 if safe_name == "task_metadata.json":
                     wrote_task_metadata = True
-                elif safe_name == "licenses.json":
+                elif safe_name == "license.json":
                     wrote_licenses = True
             else:
                 rel = f"{folder}/{safe_name}"
@@ -494,7 +556,7 @@ class FenrirTask(models.Model):
                           json.dumps(gen.build_task_metadata(self), indent=2).encode("utf-8"),
                           "application/json", GENERATED, None))
         if not wrote_licenses:
-            files.append(("licenses.json",
+            files.append(("license.json",
                           json.dumps(self._build_license_doc(), indent=2).encode("utf-8"),
                           "application/json", GENERATED, None))
 
@@ -574,11 +636,11 @@ class FenrirTask(models.Model):
         return files
 
     def _build_license_doc(self):
-        """licenses.json — annotator-supplied INPUT assets only.
+        """license.json — annotator-supplied INPUT assets only.
 
         Per the requirements doc: lists files in instruction.md, data/, and
         resources/. Skips auto-generated artifacts (task_metadata.json,
-        licenses.json, environment/*, tests/*) and seller deliverables.
+        license.json, environment/*, tests/*) and seller deliverables.
         """
         self.ensure_one()
         assets = [{
@@ -601,14 +663,14 @@ class FenrirTask(models.Model):
                 "source_url": att.source_url or None,
                 "notes": att.notes or "",
             })
-        if self.rubrics_file:
-            assets.append({
-                "file_name": self.rubrics_filename or "rubrics_source",
-                "location": "root",
-                "license": "Self-created",
-                "source_url": self.rubrics_url or None,
-                "notes": "",
-            })
+        # if self.rubrics_file:
+        #     assets.append({
+        #         "file_name": self.rubrics_filename or "rubrics_source",
+        #         "location": "root",
+        #         "license": "Self-created",
+        #         "source_url": self.rubrics_url or None,
+        #         "notes": "",
+        #     })
         if self.assets_file:
             assets.append({
                 "file_name": self.assets_filename or "assets",
@@ -671,7 +733,7 @@ class FenrirTask(models.Model):
                 }
                 for s in offer.rubric_score_ids.sorted("rubric_sequence")
             ],
-            "rater_id": offer.write_uid.login or "",
+            "rater_id": f"rater_{offer.write_uid.id:03d}" if offer.write_uid else "",
             "rating_date": offer.write_date.date().isoformat() if offer.write_date else None,
         }
 
