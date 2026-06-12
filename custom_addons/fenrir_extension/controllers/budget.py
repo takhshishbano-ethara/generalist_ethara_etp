@@ -21,6 +21,13 @@ _logger = logging.getLogger(__name__)
 DEFAULT_BURN_GRAPH_DAYS = 30
 MAX_BURN_GRAPH_DAYS = 365
 
+FENRIR_JOB_MODEL = "fenrir.task"
+DELIVERED_BATCH_STATE = "delivered"
+BURN_BATCH_LIMIT = 200
+BURN_TASK_LIMIT = 200
+APPROVED_STATUSES = ("completed", "approved")
+REVIEWED_STATUSES = ("completed", "approved", "rejected", "cancelled")
+
 
 def _pct(part, whole):
     if not whole:
@@ -143,10 +150,75 @@ def _resolve_filters(params):
 
 
 def _scope_tasks(env, project_id):
-    # project_id is accepted for parity with crowley_extension's /budget/info
-    # contract but unused: fenrir.task has no project link.
     _tag, role_domain, _all_tasks = _scope(env)
     return env["fenrir.task"].sudo().search(role_domain)
+
+
+def _project_owns_fenrir_batches(env, project_id):
+    if not project_id:
+        return True
+    project = env["project.project"].sudo().browse(project_id)
+    table = (getattr(project, "connected_table", None) or "").strip()
+    return table == FENRIR_JOB_MODEL
+
+
+def _delivered_batch_count(env, project_id):
+    if not _project_owns_fenrir_batches(env, project_id):
+        return 0
+    return env["fenrir.batch.delivery"].sudo().search_count(
+        [("state", "=", DELIVERED_BATCH_STATE)]
+    )
+
+
+def _scoped_fenrir_batches(env, project_id):
+    if not _project_owns_fenrir_batches(env, project_id):
+        return env["fenrir.batch.delivery"].sudo().browse()
+    return env["fenrir.batch.delivery"].sudo().search([], limit=BURN_BATCH_LIMIT)
+
+
+def _approval_status(rate, reviewed):
+    if not reviewed:
+        return "pending"
+    if rate >= 80:
+        return "approved"
+    if rate >= 50:
+        return "partial"
+    return "rejected"
+
+
+def _serialize_burn_batch(batch, status_labels):
+    jobs = batch.job_ids
+    total_burn = sum(_task_cost(job) for job in jobs)
+    reviewed = sum(1 for job in jobs if job.status in REVIEWED_STATUSES)
+    approved = sum(1 for job in jobs if job.status in APPROVED_STATUSES)
+    rate = round((approved / reviewed) * 100) if reviewed else 0
+    tasks = [
+        {
+            "ref": job.code or "",
+            "category": job.category_id.name if job.category_id else "",
+            "status": status_labels.get(job.status, "") if job.status else "",
+            "burn": _round2(_task_cost(job)),
+        }
+        for job in jobs[:BURN_TASK_LIMIT]
+    ]
+    return {
+        "batch_id": batch.name or "",
+        "videos": batch.job_count,
+        "burn": _round2(total_burn),
+        "approval": {"rate": rate, "status": _approval_status(rate, reviewed)},
+        "feedback": batch.notes or "",
+        "tasks": tasks,
+    }
+
+
+def _build_burn_per_batch(env, project_id):
+    Task = env["fenrir.task"].sudo()
+    status_labels = dict(Task._fields["status"].selection)
+    batches = _scoped_fenrir_batches(env, project_id)
+    return {
+        "title": "Burn per batch",
+        "batches": [_serialize_burn_batch(b, status_labels) for b in batches],
+    }
 
 
 def _build_budget_kpi(env, project_id):
@@ -165,7 +237,7 @@ def _build_budget_kpi(env, project_id):
         runway_days = 0
 
     return {
-        "budget_count": 1 if cap else 0,
+        "budget_count": _delivered_batch_count(env, project_id),
         "total_budget": {
             "amount": _round2(cap),
             "percentage": 100.0 if cap else 0.0,
@@ -381,10 +453,7 @@ class FenrirBudgetController(http.Controller):
                 "aht_overview": aht_overview,
                 "daily_burn_graph": burn_graph,
                 "budget_timeline": [],
-                "burn_per_batch": {
-                    "title": "Burn per batch",
-                    "batches": [],
-                },
+                "burn_per_batch": _build_burn_per_batch(env, project_id),
                 "allocation_ledger": [],
             },
         )

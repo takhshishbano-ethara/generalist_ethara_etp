@@ -1,1 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_fenrir_batch_delivery_tasker,fenrir.batch.delivery tasker,model_fenrir_batch_delivery,fenrir.group_fenrir_tasker,1,1,1,0
+access_fenrir_batch_delivery_manager,fenrir.batch.delivery manager,model_fenrir_batch_delivery,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_batch_delivery_add_wizard_tasker,fenrir.batch.delivery.add.wizard tasker,model_fenrir_batch_delivery_add_wizard,fenrir.group_fenrir_tasker,1,1,1,0
+access_fenrir_batch_delivery_add_wizard_manager,fenrir.batch.delivery.add.wizard manager,model_fenrir_batch_delivery_add_wizard,fenrir.group_fenrir_manager,1,1,1,1
