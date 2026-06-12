@@ -157,6 +157,31 @@ def _gating_sets():
     return request.env.uid, approver_ids, finance_ids
 
 
+def _is_project_lead_of(env, project):
+    """True if the token user is a Project Lead AND leads `project`."""
+    if not project:
+        return False
+    employee = env.user.employee_id
+    return bool(
+        _user_has_role(env, INITIAL_BUDGET_PL_ROLE_XMLIDS)
+        and employee
+        and employee in project.sudo().project_lead
+    )
+
+
+def _can_view_request(env, req, uid, approver_ids, finance_ids):
+    """Who may read a single TPR via /token_purchase/get: its requester, any
+    approver/finance user, a full-access role (CTO/TPM), or the Project Lead of
+    the request's project. Anyone else is blocked — closes IDOR enumeration."""
+    if uid in approver_ids or uid in finance_ids:
+        return True
+    if req.requester_id and req.requester_id.id == uid:
+        return True
+    if _user_has_role(env, INITIAL_BUDGET_FULL_ACCESS_ROLE_XMLIDS):
+        return True
+    return _is_project_lead_of(env, req.project_id)
+
+
 def _attach_supporting_documents(req_id, documents):
     if not documents:
         return []
@@ -274,6 +299,12 @@ def _build_filter_domain(jdata, uid, approver_ids, finance_ids):
         domain.append(("requester_id", "=", uid))
     elif jdata.get("mine_only"):
         domain.append(("requester_id", "=", uid))
+    elif not state:
+        # Approvers' default queue shows submitted requests only — another
+        # user's unsubmitted draft is not actionable, and including it would
+        # make the list count disagree with the (draft-excluding) summary. An
+        # explicit `state` filter still lets the UI ask for drafts on purpose.
+        domain.append(("state", "!=", "draft"))
 
     return domain
 
@@ -343,6 +374,11 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
             if not req.exists():
                 return return_Response(message="Request not found.", status=404)
             uid, approver_ids, finance_ids = _gating_sets()
+            if not _can_view_request(request.env, req, uid, approver_ids, finance_ids):
+                return return_Response(
+                    message="You are not allowed to view this request.",
+                    status=403, errors=[{"code": "forbidden"}],
+                )
             payload = _serialize_request(req, uid, approver_ids, finance_ids)
             payload["activity"] = req._activity_entries()
             return return_Response(message="OK", status=200, data={"data": payload})
@@ -380,6 +416,20 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
             budget = request.env[BUDGET_MODEL].sudo().browse(budget_id)
             if not budget.exists():
                 return return_Response(message="Budget not found.", status=404)
+
+            # Authorization: only a full-access role (CTO/TPM) or the Project
+            # Lead of this budget's project may raise a top-up request against
+            # it. Mirrors the initial_budget gate and prevents creating a
+            # request against another team's budget by guessing its id.
+            env = request.env
+            if not (
+                _user_has_role(env, INITIAL_BUDGET_FULL_ACCESS_ROLE_XMLIDS)
+                or _is_project_lead_of(env, budget.project_id)
+            ):
+                return return_Response(
+                    message="You are not allowed to request a budget for this project.",
+                    status=403, errors=[{"code": "not_project_lead"}],
+                )
 
             uid, approver_ids, finance_ids = _gating_sets()
             req = request.env[REQUEST_MODEL].create({
@@ -524,11 +574,16 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
         try:
             jdata = _read_json_body()
             req_id = _coerce_int(jdata.get("id"), "id")
+            uid, approver_ids, finance_ids = _gating_sets()
             req = request.env[REQUEST_MODEL].browse(req_id)
             if not req.exists():
                 return return_Response(message="Request not found.", status=404)
+            if not req.requester_id or req.requester_id.id != uid:
+                return return_Response(
+                    message="Only the requester can submit this request.",
+                    status=403, errors=[{"code": "not_requester"}],
+                )
             req.action_submit()
-            uid, approver_ids, finance_ids = _gating_sets()
             return return_Response(
                 message="Submitted.", status=200,
                 data={"data": {"request": _serialize_request(
@@ -589,7 +644,7 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
         try:
             jdata = _read_json_body()
             req_id = _coerce_int(jdata.get("id"), "id")
-            reason = jdata.get("rejection_reason") or ""
+            reason = (jdata.get("rejection_reason") or "").strip()
 
             uid, approver_ids, finance_ids = _gating_sets()
             req = request.env[REQUEST_MODEL].browse(req_id)
@@ -604,7 +659,17 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
                     status=403, errors=[{"code": "not_approver"}],
                 )
 
-            req._act_reject(request.env.user, reason=str(reason).strip() or None)
+            # A rejection must carry a reason (the requester is notified with
+            # it). Enforced here at the API boundary ONLY — the model's
+            # _act_reject is also driven by the Odoo backend action_reject(),
+            # which passes no reason, so the model itself stays reason-optional.
+            if not reason:
+                return return_Response(
+                    message="A rejection reason is required.",
+                    status=400, errors=[{"code": "rejection_reason_required"}],
+                )
+
+            req._act_reject(request.env.user, reason=reason)
             # Rejecting an initial-budget shell may cascade-delete this request
             # along with its inactive shell budget; serialize defensively.
             req = req.sudo()
@@ -783,7 +848,7 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
             Model = request.env[REQUEST_MODEL].sudo()
             records = Model.search(domain)
 
-            total_count = len(records)
+            total_count = 0
             total_requested_amount = 0.0
             total_approved_amount = 0.0
             pending_amount = 0.0
@@ -793,16 +858,26 @@ class EtpTokenPurchaseRequestApiController(http.Controller):
             currency_symbol = ""
 
             for rec in records:
+                state = rec.state
+                # Drafts are unsubmitted (nothing committed). Keep them out of
+                # every total and bucket so the per-state buckets always
+                # reconcile to total_count / total_requested_amount.
+                if state == "draft":
+                    continue
+                total_count += 1
                 total_requested_amount += float(rec.requested_amount or 0.0)
                 if not currency and rec.currency_id:
                     currency = rec.currency_id.name or ""
                     currency_symbol = rec.currency_id.symbol or ""
-                state = rec.state
                 if state == "pending":
                     pending_count += 1
                     pending_amount += float(rec.requested_amount or 0.0)
                 elif state == "approved":
+                    # A granted-but-not-yet-completed request already carries its
+                    # approved_amount; count it toward "Total Approved" so the KPI
+                    # updates the moment the CTO approves — not only on completion.
                     approved_count += 1
+                    total_approved_amount += float(rec.approved_amount or 0.0)
                 elif state == "completed":
                     completed_count += 1
                     total_approved_amount += float(rec.approved_amount or 0.0)

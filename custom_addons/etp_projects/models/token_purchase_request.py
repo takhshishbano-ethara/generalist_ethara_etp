@@ -433,10 +433,19 @@ class EtpProjectTokenPurchaseRequest(models.Model):
         budget_vals = {
             "project_budget": round(balance_before_val + amount_val, 2),
         }
+        # Completion is the only event that moves the cap (budget_amount —
+        # what every screen's Remaining / Util% / Runway derive from).
         # Initial budget goes live on the first completion: a shell budget
-        # created via the initial-budget route is inactive until approved+done.
+        # created via the initial-budget route is inactive until approved+done,
+        # and its pre-seeded cap (the *requested* amount) is corrected to the
+        # amount actually granted. Top-ups add to the live cap.
         if not self.budget_id.active:
             budget_vals["active"] = True
+            budget_vals["budget_amount"] = amount_val
+        else:
+            budget_vals["budget_amount"] = round(
+                (self.budget_id.budget_amount or 0.0) + amount_val, 2
+            )
         self.budget_id.sudo().write(budget_vals)
         completer_label = completed_by_user.name if completed_by_user else _("Finance link (anonymous)")
         self.budget_id.message_post(

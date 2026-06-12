@@ -309,8 +309,12 @@ class EtpProjectsAwsCostController(http.Controller):
                     )
                 domain.append(('project_id', 'in', project_ids))
 
+            # active_test=False so 'include_inactive' is honoured — the default
+            # context silently re-filters archived rows even when the
+            # ('active','=',True) clause is omitted from the domain.
             Budget = request.env[BUDGET_MODEL].sudo()
-            budgets = Budget.search(domain, order='project_id, name')
+            budgets = Budget.with_context(active_test=False).search(
+                domain, order='project_id, name')
 
             records = []
             for budget in budgets:
