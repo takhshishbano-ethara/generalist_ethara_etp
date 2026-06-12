@@ -326,6 +326,19 @@ def _build_burn_per_batch(env, project_id):
     }
 
 
+def _resolve_last_fetched_at(env, project_id, include_inactive):
+    domain = []
+    if not include_inactive:
+        domain.append(("active", "=", True))
+    if project_id:
+        domain.append(("project_id", "=", project_id))
+    budgets = env["etp.project.aws.budget"].sudo().search(domain)
+    if not budgets:
+        return ""
+    ts = max((b.last_fetched_at for b in budgets if b.last_fetched_at), default=None)
+    return ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
     gen_scope = _gen_scope(env, filters)
     return {
@@ -337,6 +350,7 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
         "budget_timeline": {},
         "burn_per_batch": _build_burn_per_batch(env, project_id),
         "allocation_ledger": {},
+        "last_fetched_at": _resolve_last_fetched_at(env, project_id, include_inactive),
     }
 
 

@@ -466,6 +466,8 @@ class CrowleySourcingBudgetController(http.Controller):
             service_costs, _service_total = _build_service_costs(env, budgets, filters)
             aht_overview = _build_aht_overview(env, filters)
             burn_graph = _build_daily_burn_graph(env, budgets, filters)
+            _last_ts = max((b.last_fetched_at for b in budgets if b.last_fetched_at), default=None) if budgets else None
+            last_fetched_at = _last_ts.strftime("%Y-%m-%d %H:%M:%S") if _last_ts else ""
         except Exception as e:
             _logger.exception("crowley_sourcing_ext_budget_info failed")
             return return_Response(
@@ -501,7 +503,7 @@ class CrowleySourcingBudgetController(http.Controller):
                     ),
                 "burn_per_batch": _build_burn_per_batch(env, project_id),
                 "allocation_ledger": env["etp.project.token.purchase.request"]
-                    .sudo()._get_allocation_ledger_for_project(project_id)
-
+                    .sudo()._get_allocation_ledger_for_project(project_id),
+                "last_fetched_at": last_fetched_at,
             },
         )

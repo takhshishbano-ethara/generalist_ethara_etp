@@ -26,6 +26,26 @@ CATEGORY_COLOR_TOKENS = ("primary", "violet", "success", "info", "warn")
 RECENT_ACTIVITY_LIMIT = 8
 
 
+def _resolve_project(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    try:
+        project_id = int(raw)
+    except (TypeError, ValueError):
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project = env["project.project"].sudo().browse(project_id)
+    if not project.exists():
+        return None, return_Response(
+            message=f"Project {project_id} was not found.",
+            status=404,
+        )
+    return project, None
+
+
 def _kpi_item(key, label, value, sub_string="", pattern="", sign=""):
     return {
         "key": key,
@@ -154,7 +174,7 @@ def _scope_projects_for_team(env):
     ])
 
 
-def _compute_kpi(env, task_scope):
+def _compute_kpi(env, task_scope, project=None):
     Task = env["fenrir.task"].sudo()
 
     total_tasks = Task.search_count(task_scope)
@@ -189,9 +209,49 @@ def _compute_kpi(env, task_scope):
         + [("status", "in", list(DONE_STATES)), ("write_date", ">=", today_start)]
     )
 
-    team_total, team_sub_string = _team_members_from_projects(
-        _scope_projects_for_team(env)
-    )
+    if project:
+        pl_employees = project.mapped("project_lead")
+        qr_employees = project.mapped("project_qc_reviewer")
+        tasker_employees = project.mapped("project_tasker")
+        aire_employees = project.mapped("project_aire")
+        swe_employees = project.mapped("project_swe")
+        tpm_employees = pl_employees.mapped("task_forge_tpm_id")
+        team_employees = (
+            pl_employees
+            | qr_employees
+            | tasker_employees
+            | aire_employees
+            | swe_employees
+            | tpm_employees
+        )
+        team_total = len(team_employees)
+        breakdown_parts = [
+            f"{c} {label}"
+            for c, label in (
+                (len(tpm_employees), "TPM"),
+                (len(pl_employees), "PL"),
+                (len(qr_employees), "QR"),
+                (len(tasker_employees), "Tasker"),
+                (len(aire_employees), "AIRE"),
+                (len(swe_employees), "SWE"),
+            )
+            if c
+        ]
+        team_sub_string = (
+            " · ".join(breakdown_parts) if breakdown_parts else "No assigned roles"
+        )
+    else:
+        owner_rows = Task.read_group(
+            task_scope,
+            fields=["lead_user_id"],
+            groupby=["lead_user_id"],
+            lazy=False,
+        )
+        owner_ids = [
+            row["lead_user_id"][0] for row in owner_rows if row.get("lead_user_id")
+        ]
+        team_total = len(owner_ids)
+        team_sub_string = ""
 
     items = [
         _kpi_item(
@@ -519,12 +579,16 @@ class FenrirDashboardOverviewController(http.Controller):
             return err
 
         env = request.env
+        project, project_err = _resolve_project(env, params)
+        if project_err is not None:
+            return project_err
         role_tag, base_scope, _tasks = _role_scope(env)
         task_scope = base_scope + date_domain
         view = VIEW_BY_ROLE.get(role_tag, "tasker")
 
         kpi_by_key = {
-            item["key"]: item for item in _compute_kpi(env, task_scope)["items"]
+            item["key"]: item
+            for item in _compute_kpi(env, task_scope, project=project)["items"]
         }
         kpi_items = [
             kpi_by_key[key]

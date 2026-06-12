@@ -223,6 +223,19 @@ def _build_daily_burn_graph(env, filters):
     }
 
 
+def _resolve_last_fetched_at(env, project_id, include_inactive):
+    domain = []
+    if not include_inactive:
+        domain.append(("active", "=", True))
+    if project_id:
+        domain.append(("project_id", "=", project_id))
+    budgets = env["etp.project.aws.budget"].sudo().search(domain)
+    if not budgets:
+        return ""
+    ts = max((b.last_fetched_at for b in budgets if b.last_fetched_at), default=None)
+    return ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
     kpi = _build_budget_kpi(env, project_id, include_inactive)
     service_costs = _build_service_costs(env, filters)
@@ -247,6 +260,7 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
         "budget_timeline": [],
         "burn_per_batch": _build_burn_per_batch(env, project_id),
         "allocation_ledger": [],
+        "last_fetched_at": _resolve_last_fetched_at(env, project_id, include_inactive),
     }
 
 

@@ -338,6 +338,13 @@ def _build_daily_burn_graph(env, budgets, filters):
     }
 
 
+def _max_last_fetched_at(budgets):
+    if not budgets:
+        return ""
+    ts = max((b.last_fetched_at for b in budgets if b.last_fetched_at), default=None)
+    return ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
     kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
     service_costs, _service_total = _build_service_costs(env, budgets, filters)
@@ -391,6 +398,7 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
         },
         "allocation_ledger": env["etp.project.token.purchase.request"]
             .sudo()._get_allocation_ledger_for_project(project_id),
+        "last_fetched_at": _max_last_fetched_at(budgets),
     }
 
 

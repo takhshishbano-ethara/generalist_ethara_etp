@@ -1051,8 +1051,32 @@ def _build_kpi_v2(env, ctx):
         prev_domain + [("state", "in", list(FAILED_STATES))]
     )
 
-    team = _build_team_overview_aligned(env, ctx["project"])
-    team_sub = _team_breakdown_sub(team["role_counts"])
+    project = ctx["project"]
+    pl_employees = project.mapped("project_lead")
+    qr_employees = project.mapped("project_qc_reviewer")
+    tasker_employees = project.mapped("project_tasker")
+    aire_employees = project.mapped("project_aire")
+    swe_employees = project.mapped("project_swe")
+    tpm_employees = pl_employees.mapped("task_forge_tpm_id")
+    team_employees = (
+        pl_employees
+        | qr_employees
+        | tasker_employees
+        | aire_employees
+        | swe_employees
+        | tpm_employees
+    )
+    team_total = len(team_employees)
+    team_sub_string = _team_breakdown_sub(
+        {
+            "tpm": len(tpm_employees),
+            "pl": len(pl_employees),
+            "qr": len(qr_employees),
+            "tasker": len(tasker_employees),
+            "aire": len(aire_employees),
+            "swe": len(swe_employees),
+        }
+    )
 
     total_item = _kpi(
         "total_tasks", "Total Tasks", str(total_tasks),
@@ -1093,8 +1117,8 @@ def _build_kpi_v2(env, ctx):
         duration_item,
         failed_item,
         _kpi(
-            "team_members", "Team Members", str(team["total_team_size"]),
-            sub_string=team_sub,
+            "team_members", "Team Members", str(team_total),
+            sub_string=team_sub_string,
         ),
         # Open Blockers — empty by design (no blocker/retry source on gohan.job).
         _kpi("open_blockers", "Open Blockers", "", sub_string=""),

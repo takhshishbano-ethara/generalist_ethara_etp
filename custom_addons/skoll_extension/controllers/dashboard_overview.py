@@ -25,6 +25,26 @@ from .analytics_dashboard import (
 
 _logger = logging.getLogger(__name__)
 
+def _resolve_project(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    try:
+        project_id = int(raw)
+    except (TypeError, ValueError):
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project = env["project.project"].sudo().browse(project_id)
+    if not project.exists():
+        return None, return_Response(
+            message=f"Project {project_id} was not found.",
+            status=404,
+        )
+    return project, None
+
+
 IN_FLIGHT_STATES = ()
 FAILED_STATES = ("failed",)
 DONE_STATES = ("passed",)
@@ -223,7 +243,7 @@ def _scope_projects_for_team(env):
     ])
 
 
-def _compute_kpi(env, task_scope, gen_scope):
+def _compute_kpi(env, task_scope, gen_scope, project=None):
     Task = env["skoll.skoll"].sudo()
     Generation = env["skoll.generation"].sudo()
 
@@ -243,9 +263,49 @@ def _compute_kpi(env, task_scope, gen_scope):
     approved, reviewed = _approved_reviewed(env, task_scope)
     approval_rate = _pct(approved, reviewed) if reviewed else 0.0
 
-    team_total, team_sub_string = _team_members_from_projects(
-        _scope_projects_for_team(env)
-    )
+    if project:
+        pl_employees = project.mapped("project_lead")
+        qr_employees = project.mapped("project_qc_reviewer")
+        tasker_employees = project.mapped("project_tasker")
+        aire_employees = project.mapped("project_aire")
+        swe_employees = project.mapped("project_swe")
+        tpm_employees = pl_employees.mapped("task_forge_tpm_id")
+        team_employees = (
+            pl_employees
+            | qr_employees
+            | tasker_employees
+            | aire_employees
+            | swe_employees
+            | tpm_employees
+        )
+        team_total = len(team_employees)
+        breakdown_parts = [
+            f"{c} {label}"
+            for c, label in (
+                (len(tpm_employees), "TPM"),
+                (len(pl_employees), "PL"),
+                (len(qr_employees), "QR"),
+                (len(tasker_employees), "Tasker"),
+                (len(aire_employees), "AIRE"),
+                (len(swe_employees), "SWE"),
+            )
+            if c
+        ]
+        team_sub_string = (
+            " · ".join(breakdown_parts) if breakdown_parts else "No assigned roles"
+        )
+    else:
+        owner_rows = Task.read_group(
+            task_scope,
+            fields=["employee_id"],
+            groupby=["employee_id"],
+            lazy=False,
+        )
+        employee_ids = [
+            row["employee_id"][0] for row in owner_rows if row.get("employee_id")
+        ]
+        team_total = len(employee_ids)
+        team_sub_string = ""
 
     today_from, today_to, today_date = _today_bounds(env)
     yesterday_date = today_date - timedelta(days=1)
@@ -606,6 +666,9 @@ class SkollDashboardOverviewController(http.Controller):
                 status=403,
                 errors=["User has no Skoll role"],
             )
+        project, project_error = _resolve_project(env, kwargs)
+        if project_error is not None:
+            return project_error
         try:
             role_tag, task_domain, _personas = _role_scope(env)
             date_dom = _date_filter_domain(kwargs)
@@ -620,7 +683,7 @@ class SkollDashboardOverviewController(http.Controller):
             weeks = _resolve_trend_weeks(kwargs)
             overview = {
                 "role": role_tag,
-                "kpi": _compute_kpi(env, task_scope, gen_scope),
+                "kpi": _compute_kpi(env, task_scope, gen_scope, project=project),
                 "task_progress": _compute_task_progress(env, task_scope),
                 "approved_per_week": _compute_approved_per_week(env, task_scope, weeks),
                 "recent_activity": _compute_recent_activity(env, task_scope),

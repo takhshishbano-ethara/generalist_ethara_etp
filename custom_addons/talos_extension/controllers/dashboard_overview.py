@@ -18,6 +18,25 @@ from .analytics_dashboard import (
     _user_role_tag,
 )
 
+def _resolve_project(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    try:
+        project_id = int(raw)
+    except (TypeError, ValueError):
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project = env["project.project"].sudo().browse(project_id)
+    if not project.exists():
+        return None, return_Response(
+            message=f"Project {project_id} was not found.",
+            status=404,
+        )
+    return project, None
+
 BUDGET_PARAM = "talos.budget_tokens"
 DEFAULT_TREND_WEEKS = 6
 MAX_TREND_WEEKS = 26
@@ -143,7 +162,7 @@ def _sum_tokens_for(env, gen_scope):
     return sum(_total_tokens(r) for r in records)
 
 
-def _compute_kpi(env, gen_scope):
+def _compute_kpi(env, gen_scope, project=None):
     Talos = env["talos.talos"].sudo()
 
     total_tasks = Talos.search_count(gen_scope)
@@ -177,17 +196,44 @@ def _compute_kpi(env, gen_scope):
     reviewed = approved + rejected
     approval_rate = _pct(approved, reviewed)
 
-    owner_rows = Talos.read_group(
-        gen_scope, fields=["user_id"], groupby=["user_id"], lazy=False
-    )
-    owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
-    members = env["res.users"].sudo().browse(owner_ids)
-    pl_role_ids = _get_role_ids(env, PL_ROLE_XMLIDS)
-    manager_count = 0
-    if pl_role_ids:
-        manager_count = len(
-            [u for u in members if u.user_role and u.user_role.id in pl_role_ids]
+    if project:
+        pl_employees = project.mapped("project_lead")
+        qr_employees = project.mapped("project_qc_reviewer")
+        tasker_employees = project.mapped("project_tasker")
+        aire_employees = project.mapped("project_aire")
+        swe_employees = project.mapped("project_swe")
+        tpm_employees = pl_employees.mapped("task_forge_tpm_id")
+        team_employees = (
+            pl_employees
+            | qr_employees
+            | tasker_employees
+            | aire_employees
+            | swe_employees
+            | tpm_employees
         )
+        members_total = len(team_employees)
+        breakdown_parts = [
+            f"{c} {label}"
+            for c, label in (
+                (len(tpm_employees), "TPM"),
+                (len(pl_employees), "PL"),
+                (len(qr_employees), "QR"),
+                (len(tasker_employees), "Tasker"),
+                (len(aire_employees), "AIRE"),
+                (len(swe_employees), "SWE"),
+            )
+            if c
+        ]
+        members_sub_string = (
+            " · ".join(breakdown_parts) if breakdown_parts else "No assigned roles"
+        )
+    else:
+        owner_rows = Talos.read_group(
+            gen_scope, fields=["user_id"], groupby=["user_id"], lazy=False
+        )
+        owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
+        members_total = len(owner_ids)
+        members_sub_string = ""
 
     today_start, today_end = _today_bounds(env)
     yesterday_start = today_start - timedelta(days=1)
@@ -261,10 +307,8 @@ def _compute_kpi(env, gen_scope):
         _kpi_item(
             "team_members",
             "Team Members",
-            len(members),
-            sub_string=(
-                f"{manager_count} managers · {len(members) - manager_count} users"
-            ),
+            members_total,
+            sub_string=members_sub_string,
         ),
         _kpi_item(
             "approved_today",
@@ -669,6 +713,9 @@ class TalosDashboardOverviewController(http.Controller):
         weeks, error = _resolve_trend_weeks(params)
         if error is not None:
             return error
+        project, error = _resolve_project(env, params)
+        if error is not None:
+            return error
 
         role_tag, gen_domain, _projects = _role_scope(env)
         gen_scope = gen_domain + date_domain
@@ -679,7 +726,7 @@ class TalosDashboardOverviewController(http.Controller):
             data={
                 "overview": {
                     "role": role_tag or "tasker",
-                    "kpi": _compute_kpi(env, gen_scope),
+                    "kpi": _compute_kpi(env, gen_scope, project=project),
                     "task_progress": _compute_task_progress(env, gen_scope),
                     "approved_per_week": _compute_approved_per_week(
                         env, gen_domain, weeks

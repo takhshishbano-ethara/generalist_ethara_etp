@@ -10,7 +10,6 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 
 from .analytics_dashboard import (
     STAGE_BUCKETS,
-    _build_team_overview_aligned,
     _classify_job_action,
     _create_date_domain,
     _initials,
@@ -75,7 +74,7 @@ def _resolve_project(env, params):
     return project, None
 
 
-def _build_overview_kpi(env, scope, role_scope, projects):
+def _build_overview_kpi(env, scope, role_scope, project=None):
     """The pen's universal 4 KPI cards — identical for every role:
     Total Tasks Done · Total URLs Added · AVG Quality Score · Team Size.
 
@@ -100,8 +99,39 @@ def _build_overview_kpi(env, scope, role_scope, projects):
     scored = (score_rows[0]["__count"] if score_rows else 0) or 0
     avg_score = (score_rows[0]["score:avg"] if score_rows else 0.0) or 0.0
 
-    team = _build_team_overview_aligned(env, projects)
-    team_sub = _team_breakdown_sub(team["role_counts"])
+    if project:
+        pl_employees = project.mapped("project_lead")
+        qr_employees = project.mapped("project_qc_reviewer")
+        tasker_employees = project.mapped("project_tasker")
+        aire_employees = project.mapped("project_aire")
+        swe_employees = project.mapped("project_swe")
+        tpm_employees = pl_employees.mapped("task_forge_tpm_id")
+        team_employees = (
+            pl_employees
+            | qr_employees
+            | tasker_employees
+            | aire_employees
+            | swe_employees
+            | tpm_employees
+        )
+        team_total = len(team_employees)
+        team_sub_string = _team_breakdown_sub(
+            {
+                "tpm": len(tpm_employees),
+                "pl": len(pl_employees),
+                "qr": len(qr_employees),
+                "tasker": len(tasker_employees),
+                "aire": len(aire_employees),
+                "swe": len(swe_employees),
+            }
+        )
+    else:
+        owner_rows = Job.read_group(
+            scope, fields=["user_id"], groupby=["user_id"], lazy=False
+        )
+        owner_ids = [row["user_id"][0] for row in owner_rows if row.get("user_id")]
+        team_total = len(owner_ids)
+        team_sub_string = ""
 
     items = [
         _kpi_item(
@@ -127,8 +157,8 @@ def _build_overview_kpi(env, scope, role_scope, projects):
         _kpi_item(
             "team_size",
             "Team Size",
-            team["total_team_size"],
-            sub_string=team_sub,
+            team_total,
+            sub_string=team_sub_string,
         ),
     ]
     return {"count": str(len(items)), "items": items}
@@ -284,16 +314,14 @@ class GohanDashboardOverviewController(http.Controller):
         if project:
             tasker_user_ids = project.project_tasker.mapped("user_id").ids
             role_scope = role_domain + [("user_id", "in", tasker_user_ids)]
-            team_projects = project
         else:
             role_scope = role_domain
-            team_projects = scope_projects
         date_domain = _create_date_domain(filters["start"], filters["end"])
         scope = role_scope + date_domain
 
         overview = {
             "role": role_tag,
-            "kpi": _build_overview_kpi(env, scope, role_scope, team_projects),
+            "kpi": _build_overview_kpi(env, scope, role_scope, project),
             "budget": {},
             "burn_rate": {},
             "accepted_per_day": {},
