@@ -37,10 +37,16 @@
                     Approval from any one of the configured approvers is sufficient.
                     Please open the request in Odoo to review and Approve or Reject it.
                 </p>
+<!--                <div style="text-align:center;margin:24px 0;">-->
+<!--                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"-->
+<!--                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">-->
+<!--                        Open Request in Odoo-->
+<!--                    </a>-->
+<!--                </div>-->
                 <div style="text-align:center;margin:24px 0;">
-                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"
+                    <a href="https://web.ethara.ai/login"
                        style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
-                        Open Request in Odoo
+                        Open Request in Dashboard
                     </a>
                 </div>
                 <p style="font-size:12px;color:#999;margin-top:24px;">
@@ -92,10 +98,16 @@
                     <li>Module / Cost Center</li>
                     <li>Supporting Document</li>
                 </ul>
+<!--                <div style="text-align:center;margin:24px 0;">-->
+<!--                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"-->
+<!--                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">-->
+<!--                        Open Request in Odoo-->
+<!--                    </a>-->
+<!--                </div>-->
                 <div style="text-align:center;margin:24px 0;">
-                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"
+                    <a href="https://web.ethara.ai/login"
                        style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
-                        Open Request in Odoo
+                        Open Request in Dashboard
                     </a>
                 </div>
                 <p style="font-size:12px;color:#777;margin:0 0 8px 0;text-align:center;">

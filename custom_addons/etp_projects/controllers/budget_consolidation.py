@@ -12,8 +12,8 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 
 from .dashboard import (
     BUDGET_MODEL,
+    COST_LINE_MODEL,
     NO_MODEL_LABEL,
-    REQUEST_MODEL,
     _budget_domain,
     _coerce_float,
     _coerce_id_list,
@@ -101,39 +101,27 @@ class EtpProjectsBudgetConsolidationController(http.Controller):
                 if pct >= threshold_pct:
                     needs_attention_count += 1
 
-            tpr_alloc_by_project = defaultdict(lambda: defaultdict(float))
-            if project_rows:
-                TPR = request.env[REQUEST_MODEL].sudo()
-                tpr_domain = [
-                    ("state", "=", "completed"),
-                    ("project_id", "in", list(project_rows.keys())),
-                ]
-                for r in TPR.search(tpr_domain):
-                    model = r.model_name or NO_MODEL_LABEL
-                    tpr_alloc_by_project[r.project_id.id][model] += float(
-                        r.approved_amount or 0.0
-                    )
-
-            per_project_model_spend = {}
+            per_project_model_spend = {pid: {} for pid in project_rows.keys()}
             model_totals = defaultdict(float)
-            for pid, row in project_rows.items():
-                proj_spend = row["spend"]
-                allocs = tpr_alloc_by_project.get(pid, {})
-                alloc_total = sum(allocs.values())
-                attr = {}
-                if proj_spend <= 0:
-                    per_project_model_spend[pid] = attr
-                    continue
-                if alloc_total > 0:
-                    for model, alloc in allocs.items():
-                        share = alloc / alloc_total
-                        amt = proj_spend * share
-                        attr[model] = amt
-                        model_totals[model] += amt
-                else:
-                    attr[NO_MODEL_LABEL] = proj_spend
-                    model_totals[NO_MODEL_LABEL] += proj_spend
-                per_project_model_spend[pid] = attr
+            if project_rows:
+                CostLine = request.env[COST_LINE_MODEL].sudo()
+                cost_domain = [("project_id", "in", list(project_rows.keys()))]
+                if not include_inactive:
+                    cost_domain.append(("budget_id.active", "=", True))
+                cost_groups = CostLine._read_group(
+                    cost_domain,
+                    groupby=["project_id", "service_name"],
+                    aggregates=["amount_inr:sum"],
+                )
+                for project_rec, service, amt in cost_groups:
+                    pid = project_rec.id
+                    svc = service or NO_MODEL_LABEL
+                    amount = float(amt or 0.0)
+                    if not amount:
+                        continue
+                    bucket = per_project_model_spend.setdefault(pid, {})
+                    bucket[svc] = bucket.get(svc, 0.0) + amount
+                    model_totals[svc] += amount
 
             top_model = None
             if model_totals:
