@@ -34,14 +34,15 @@
     <!-- Tab → endpoint mappings. These feed the Flutter project detail
          `tab_list` (built in api_map_ids order, which follows the model's
          `_order = sequence, id`). They are pure config-as-code, so this block is
-         noupdate="0" (the default): an upgrade keeps the 6 tabs and their order
+         noupdate="0" (the default): an upgrade keeps the 7 tabs and their order
          authoritative. The order below matches the pen design:
-             Overview · Team · Tasks · URLs Added · Analytics · Logs.
+             Overview · Team · Tasks · URLs Added · Budget · Analytics · Logs.
 
          Two rules every value MUST obey:
            1. table_name normalizes (lowercase, strip spaces/underscores) to a
               key the Flutter tab switch knows: overview / team / tasks /
-              urlsadded / analytics / logs. An unknown name renders a blank tab.
+              urlsadded / budget / analytics / logs. An unknown name renders a
+              blank tab.
            2. api_prefix is relative to BASE_URL (which already ends in `/api/`),
               so it starts at `/v1/...` (NOT `/api/v1`, which would 404), and
               ends with `?project_id=` so the app can append the project id and
@@ -90,6 +91,20 @@
             <field name="table_name">URLs Added</field>
             <field name="field_name">urls</field>
             <field name="api_prefix">/v1/vegeta_ext/urls_added?project_id=</field>
+        </record>
+
+        <!-- Budget tab. "Budget" normalizes to the app's BudgetTab, which
+             renders the leviathan-style budget payload (kpi / service_costs /
+             budget_timeline / burn_per_batch / allocation_ledger /
+             daily_burn_graph) served by /v1/vegeta_ext/budget/info. The
+             Flutter screen hides this tab from QC/QL/Tasker roles; the
+             endpoint itself is role-gated server-side as well. -->
+        <record id="api_map_vegeta_budget" model="etp.external.project.api.map">
+            <field name="project_id" ref="project_vegeta_internal"/>
+            <field name="sequence">45</field>
+            <field name="table_name">Budget</field>
+            <field name="field_name">budget</field>
+            <field name="api_prefix">/v1/vegeta_ext/budget/info?project_id=</field>
         </record>
 
         <record id="api_map_vegeta_analytics" model="etp.external.project.api.map">
