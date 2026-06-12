@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields
+from odoo import models, fields, api
 
 
 class EtpAssessmentQuestion(models.Model):
@@ -55,3 +55,42 @@ class EtpAssessmentQuestion(models.Model):
     )
 
     video_url = fields.Char(string="Video URL")
+
+    # ------------------------------------------------------------------
+    # Imported / generated answer-key + rubric (from the research-team
+    # question-bank JSON, output-schema.json). Objective field answers are
+    # stored as is_correct flags on dimension options; subjective field
+    # rubrics (checklist / constraints / pass_condition) are stored here as
+    # JSON and fed to the LLM scorer.
+    # ------------------------------------------------------------------
+    grading_json = fields.Text(
+        string="Grading (raw)",
+        help="Verbatim grading object from the imported question bank "
+             "(per-field objective answer or subjective rubric). For PL "
+             "spot-check + audit.")
+    subjective_rubric_json = fields.Text(
+        string="Subjective Rubric (JSON)",
+        help="List of subjective field rubrics: "
+             "[{key,label,checklist[],constraints[],pass_condition}]. "
+             "Fed to the LLM when grading this question's justification.")
+    meta_json = fields.Text(
+        string="Meta (JSON)",
+        help="scenario_type / answer_pattern / difficulty / trap from "
+             "the imported bank.")
+    difficulty = fields.Selection(
+        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
+        string="Difficulty")
+    has_subjective = fields.Boolean(
+        string="Has Subjective Field", compute="_compute_has_subjective",
+        store=True)
+    source_ref = fields.Char(
+        string="Source Ref",
+        help="Origin of this question: 'json:<project>#<id>' on import, "
+             "'gen:<prompt>' on LLM generation.")
+
+    @api.depends("subjective_rubric_json")
+    def _compute_has_subjective(self):
+        for rec in self:
+            rec.has_subjective = bool(
+                (rec.subjective_rubric_json or "").strip()
+                and rec.subjective_rubric_json.strip() not in ("[]", "{}"))

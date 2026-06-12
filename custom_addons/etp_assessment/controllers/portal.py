@@ -48,7 +48,8 @@ class EtpAssessmentPortal(http.Controller):
                 ("state", "=", "draft"),
             ], limit=1)
             if draft:
-                draft.write({"state": "submitted"})
+                # placeholder auto-fill: never LLM-score the placeholder text
+                draft.write({"state": "submitted", "llm_state": "not_needed"})
             else:
                 Response.create({
                     "assessment_id": evaluator.assessment_id.id,
@@ -57,6 +58,7 @@ class EtpAssessmentPortal(http.Controller):
                     "question_id": q_id,
                     "justification": "[Auto-submitted: time expired]",
                     "state": "submitted",
+                    "llm_state": "not_needed",
                 })
 
         evaluator.write({"state": "submitted", "is_locked": True})
@@ -371,7 +373,7 @@ class EtpAssessmentPortal(http.Controller):
                 ("state", "=", "draft"),
             ], limit=1)
             if draft:
-                draft.write({"state": "submitted"})
+                draft.write({"state": "submitted", "llm_state": "not_needed"})
             else:
                 Response.create({
                     "assessment_id": evaluator.assessment_id.id,
@@ -380,6 +382,7 @@ class EtpAssessmentPortal(http.Controller):
                     "question_id": q_id,
                     "justification": f"[Auto-submitted: VIOLATION - {reason}]",
                     "state": "submitted",
+                    "llm_state": "not_needed",
                 })
 
         evaluator.write({"state": "submitted", "is_locked": True})

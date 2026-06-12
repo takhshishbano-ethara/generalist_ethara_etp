@@ -1,50 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!--
-      LLM configuration placeholders (noupdate: module upgrades will NEVER
-      overwrite values pasted here — safe to fill on stage/prod).
+      LLM configuration (noupdate: module upgrades will NEVER overwrite
+      values pasted here — safe to fill on stage/prod).
 
       Settings > Technical > Parameters > System Parameters, filter "etp_assessment."
 
+      SINGLE PROVIDER: Vertex AI Gemini — one model for question generation,
+      image generation, AND multimodal scoring.
+
       CREDENTIALS (replace PLACEHOLDER_* with real values; any value still
       containing "PLACEHOLDER" is treated as unset by the services):
-        etp_assessment.bedrock_inference_arn   - Bedrock inference profile ARN
-        etp_assessment.bedrock_region          - e.g. us-east-1
-        etp_assessment.bedrock_bearer_token    - Bedrock API bearer token
-        etp_assessment.bedrock_image_model_id  - e.g. amazon.nova-canvas-v1:0
-                                                 (empty/placeholder = image gen off)
+        etp_assessment.vertex_project_id    - GCP project id
+        etp_assessment.vertex_api_key       - Vertex API key
+        etp_assessment.vertex_location      - region (default us-central1)
+        etp_assessment.vertex_model         - text/scoring model (gemini)
+        etp_assessment.vertex_image_model   - image model (imagen)
 
-      SYSTEM PROMPTS (seeded with the working defaults; the research team
-      edits these in place — changes apply on the next LLM call, no deploy):
-        etp_assessment.skills_system_prompt
-        etp_assessment.questions_system_prompt
+      SYSTEM PROMPTS (seeded with working defaults; research team edits in
+      place — changes apply on the next LLM call, no deploy):
+        etp_assessment.seed_system_prompt
         etp_assessment.scoring_system_prompt
     -->
     <data noupdate="1">
-        <record id="param_bedrock_inference_arn" model="ir.config_parameter">
-            <field name="key">etp_assessment.bedrock_inference_arn</field>
-            <field name="value">PLACEHOLDER_INFERENCE_ARN</field>
-        </record>
-        <record id="param_bedrock_region" model="ir.config_parameter">
-            <field name="key">etp_assessment.bedrock_region</field>
-            <field name="value">us-east-1</field>
-        </record>
-        <record id="param_bedrock_bearer_token" model="ir.config_parameter">
-            <field name="key">etp_assessment.bedrock_bearer_token</field>
-            <field name="value">PLACEHOLDER_BEARER_TOKEN</field>
-        </record>
-        <record id="param_bedrock_image_model_id" model="ir.config_parameter">
-            <field name="key">etp_assessment.bedrock_image_model_id</field>
-            <field name="value">PLACEHOLDER_IMAGE_MODEL_ID</field>
-        </record>
-
-        <!-- Provider switch: "vertex" (TARGET — single Gemini model from
-             Vertex AI for generation AND multimodal scoring), "bedrock",
-             or "openrouter". -->
-        <record id="param_llm_provider" model="ir.config_parameter">
-            <field name="key">etp_assessment.llm_provider</field>
-            <field name="value">vertex</field>
-        </record>
         <record id="param_vertex_project_id" model="ir.config_parameter">
             <field name="key">etp_assessment.vertex_project_id</field>
             <field name="value">PLACEHOLDER_VERTEX_PROJECT_ID</field>
@@ -57,38 +35,84 @@
             <field name="key">etp_assessment.vertex_model</field>
             <field name="value">gemini-3-pro</field>
         </record>
+        <record id="param_vertex_image_model" model="ir.config_parameter">
+            <field name="key">etp_assessment.vertex_image_model</field>
+            <field name="value">imagen-4.0-generate-001</field>
+        </record>
         <record id="param_vertex_api_key" model="ir.config_parameter">
             <field name="key">etp_assessment.vertex_api_key</field>
             <field name="value">PLACEHOLDER_VERTEX_API_KEY</field>
         </record>
-        <record id="param_openrouter_api_key" model="ir.config_parameter">
-            <field name="key">etp_assessment.openrouter_api_key</field>
-            <field name="value">PLACEHOLDER_OPENROUTER_API_KEY</field>
-        </record>
-        <record id="param_openrouter_model" model="ir.config_parameter">
-            <field name="key">etp_assessment.openrouter_model</field>
-            <field name="value">google/gemini-3-pro</field>
+        <!-- OAuth bearer token for the Vertex AI (aiplatform) endpoint. Set
+             this INSTEAD of vertex_api_key when using a service-account /
+             gcloud token. API key -> generativelanguage endpoint; bearer ->
+             aiplatform endpoint. Do not set both. -->
+        <record id="param_vertex_access_token" model="ir.config_parameter">
+            <field name="key">etp_assessment.vertex_access_token</field>
+            <field name="value">PLACEHOLDER_VERTEX_ACCESS_TOKEN</field>
         </record>
 
-        <record id="param_skills_system_prompt" model="ir.config_parameter">
-            <field name="key">etp_assessment.skills_system_prompt</field>
-            <field name="value">You are an expert assessment designer. Given a project's SOP or instruction text, identify the distinct SKILLS a candidate must be tested on to work on this project. Return ONLY a JSON array, no prose. Each item: {"skill": "&lt;short skill name&gt;", "reason": "&lt;one line why it matters&gt;", "suggested_max": &lt;int 3-10&gt;}. Extract 4-10 skills.</field>
+        <!-- Pass/fail threshold (percent). A candidate passes when their
+             combined objective+subjective score % >= this. Default 70. -->
+        <record id="param_pass_threshold" model="ir.config_parameter">
+            <field name="key">etp_assessment.pass_threshold</field>
+            <field name="value">70</field>
         </record>
-        <!-- SEED prompt: the research-team flow. ONE call: SOP + golden
-             example question -> full question set. This is the primary
-             generation prompt; skills/questions prompts below remain for
-             the legacy two-stage mode. -->
+        <!-- Points a SUBJECTIVE question is worth. The LLM returns a 0..1
+             score; if it meets the subjective threshold the question PASSES
+             and awards these points, otherwise FAIL awards 0. Default 10. -->
+        <record id="param_subjective_points" model="ir.config_parameter">
+            <field name="key">etp_assessment.subjective_points</field>
+            <field name="value">10</field>
+        </record>
+        <!-- Per-question subjective PASS cutoff (0..1). The LLM's 0..1 score
+             >= this => PASS. Accepts a fraction (0.7) or percent (70).
+             Independent of the overall assessment pass_threshold. Default 0.7. -->
+        <record id="param_subjective_pass_threshold" model="ir.config_parameter">
+            <field name="key">etp_assessment.subjective_pass_threshold</field>
+            <field name="value">0.7</field>
+        </record>
+
+        <!-- S3 for generated question media (placeholder = off, images kept
+             inline on the record until configured). -->
+        <record id="param_s3_bucket" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_bucket</field>
+            <field name="value">PLACEHOLDER_S3_BUCKET</field>
+        </record>
+        <record id="param_s3_region" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_region</field>
+            <field name="value">us-east-1</field>
+        </record>
+        <record id="param_s3_access_key_id" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_access_key_id</field>
+            <field name="value">PLACEHOLDER_S3_ACCESS_KEY_ID</field>
+        </record>
+        <record id="param_s3_secret_key" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_secret_key</field>
+            <field name="value">PLACEHOLDER_S3_SECRET_KEY</field>
+        </record>
+        <record id="param_s3_folder" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_folder</field>
+            <field name="value">etp_assessment</field>
+        </record>
+        <record id="param_s3_cdn_url" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_cdn_url</field>
+            <field name="value"></field>
+        </record>
+        <!-- Max attempts per S3 put_object before giving up (exponential
+             backoff between tries). Default 3. -->
+        <record id="param_s3_max_retries" model="ir.config_parameter">
+            <field name="key">etp_assessment.s3_max_retries</field>
+            <field name="value">3</field>
+        </record>
+
         <record id="param_seed_system_prompt" model="ir.config_parameter">
             <field name="key">etp_assessment.seed_system_prompt</field>
             <field name="value">You are an expert assessment author. You will receive a project SOP and ONE golden example question that demonstrates the desired style, depth and format. Generate a set of assessment questions grounded in the SOP, matching the golden example's quality and shape. Return ONLY a JSON array, no prose. Each item: {"title": "&lt;short question title&gt;", "prompt": "&lt;the full question text&gt;", "type": "text"}. For visual-evaluation content you may emit "type": "image_comparison" items; those MUST additionally include "image_prompt_a": "&lt;text-to-image prompt for response A&gt;" and "image_prompt_b": "&lt;text-to-image prompt for response B, a deliberately different/flawed variant of A&gt;". Make questions concrete, project-relevant, and non-trivial.</field>
         </record>
-        <record id="param_questions_system_prompt" model="ir.config_parameter">
-            <field name="key">etp_assessment.questions_system_prompt</field>
-            <field name="value">You are an expert assessment author. Generate assessment questions for the given list of SKILLS, grounded in the provided project text. For each skill produce exactly the requested number of questions. Return ONLY a JSON array, no prose. Each item: {"skill": "&lt;skill name exactly as given&gt;", "title": "&lt;short question title&gt;", "prompt": "&lt;the full question text&gt;", "type": "text"}. For visual-evaluation skills you may instead emit "type": "image_comparison" items; those MUST additionally include "image_prompt_a": "&lt;text-to-image prompt for response A&gt;" and "image_prompt_b": "&lt;text-to-image prompt for response B, a deliberately different/flawed variant of A&gt;". Make questions concrete, project-relevant, and non-trivial.</field>
-        </record>
         <record id="param_scoring_system_prompt" model="ir.config_parameter">
             <field name="key">etp_assessment.scoring_system_prompt</field>
-            <field name="value">You are an expert assessment grader. You will receive a JSON payload describing one candidate's submitted assessment: for each question you get the question prompt, its type, the rating dimensions with the option the candidate selected and the correct option (when defined), and the candidate's written justification. Grade the QUALITY of the candidate's reasoning and correctness. Return ONLY a JSON array, no prose. One item per question, exactly: {"question_id": &lt;int, echo back unchanged&gt;, "score": &lt;int 0-10&gt;, "max_score": 10, "feedback": "&lt;2-3 sentence rationale for the score&gt;"}. Score every question in the payload - do not skip any.</field>
+            <field name="value">You are an expert assessment grader. You will receive a JSON payload describing ONE candidate answer: the question prompt, its type, the rating dimensions with the option the candidate selected and the correct option (when defined), the candidate's written justification, an optional rubric (checklist + constraints + pass_condition), and any reference images. Score how well the justification meets the bar on a 0.0 to 1.0 scale (1.0 = fully meets the rubric's pass_condition, or with no rubric demonstrates correct reasoning aligned with the answer key; 0.0 = does not at all). Return ONLY a JSON object, no prose, exactly: {"score": &lt;float 0.0-1.0&gt;, "feedback": "&lt;2-3 sentence rationale&gt;"}.</field>
         </record>
     </data>
 </odoo>
