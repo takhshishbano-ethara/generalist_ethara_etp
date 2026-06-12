@@ -170,7 +170,8 @@ def _cost_line_domain(budgets, filters):
 
 def _build_budget_kpi(env, project_id, include_inactive):
     Budget = env["etp.project.aws.budget"].sudo()
-    budgets = Budget.search(_budget_domain(project_id, include_inactive))
+    budgets = Budget.with_context(active_test=False).search(
+        _budget_domain(project_id, include_inactive))
 
     total_budget = sum(b.budget_amount or 0.0 for b in budgets)
     total_consumed = sum(b.total_consumed or 0.0 for b in budgets)
