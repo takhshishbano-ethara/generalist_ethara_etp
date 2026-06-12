@@ -508,7 +508,7 @@ class EtpProjectTokenPurchaseRequest(models.Model):
             if not cl.period:
                 continue
             daily_consumption[cl.period] = (
-                daily_consumption.get(cl.period, 0.0) + (cl.amount_inr or 0.0)
+                daily_consumption.get(cl.period, 0.0) + (cl.amount_source or 0.0)
             )
 
         daily_topups = {}

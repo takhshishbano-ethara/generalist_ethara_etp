@@ -42,7 +42,7 @@ class EtpProjectAwsBudget(models.Model):
     )
     currency_id = fields.Many2one(
         "res.currency",
-        default=lambda s: s.env.ref("base.INR", raise_if_not_found=False)
+        default=lambda s: s.env.ref("base.USD", raise_if_not_found=False)
         or s.env.company.currency_id,
     )
     usd_currency_id = fields.Many2one(
@@ -90,11 +90,11 @@ class EtpProjectAwsBudget(models.Model):
         for rec in self:
             rec.usd_currency_id = usd or rec.currency_id
 
-    @api.depends("cost_line_ids.amount_inr", "cost_line_ids.period", "budget_amount")
+    @api.depends("cost_line_ids.amount_source", "cost_line_ids.period", "budget_amount")
     def _compute_totals(self):
         for rec in self:
             rec.cost_line_count = len(rec.cost_line_ids)
-            rec.total_consumed = sum(rec.cost_line_ids.mapped("amount_inr"))
+            rec.total_consumed = sum(rec.cost_line_ids.mapped("amount_source"))
             rec.remaining = (rec.budget_amount or 0.0) - rec.total_consumed
             if rec.budget_amount:
                 rec.percent_consumed = (rec.total_consumed / rec.budget_amount) * 100.0
@@ -104,7 +104,7 @@ class EtpProjectAwsBudget(models.Model):
             if periods:
                 latest = max(periods)
                 latest_total = sum(
-                    rec.cost_line_ids.filtered(lambda l: l.period == latest).mapped("amount_inr")
+                    rec.cost_line_ids.filtered(lambda l: l.period == latest).mapped("amount_source")
                 )
                 days_in_month = calendar.monthrange(latest.year, latest.month)[1]
                 rec.daily_burn_rate = latest_total / days_in_month if days_in_month else 0.0
@@ -139,7 +139,7 @@ class EtpProjectAwsBudget(models.Model):
         latest = max(periods)
         window_start = latest - timedelta(days=window_days - 1)
         window_total = sum(
-            (l.amount_inr or 0.0)
+            (l.amount_source or 0.0)
             for l in self.cost_line_ids
             if l.period and window_start <= l.period <= latest
         )

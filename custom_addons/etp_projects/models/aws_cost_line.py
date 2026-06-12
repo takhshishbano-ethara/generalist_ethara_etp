@@ -27,12 +27,12 @@ class EtpProjectAwsCostLine(models.Model):
     amount_source = fields.Monetary(currency_field="currency_id", string="Cost (USD)")
     inr_currency_id = fields.Many2one(
         "res.currency",
-        default=lambda s: s.env.ref("base.INR", raise_if_not_found=False)
+        default=lambda s: s.env.ref("base.USD", raise_if_not_found=False)
         or s.env.company.currency_id,
     )
     amount_inr = fields.Monetary(
         currency_field="inr_currency_id", compute="_compute_inr", store=True,
-        string="Cost (INR)",
+        string="Cost (USD)",
     )
 
     _uniq_line = models.Constraint(
@@ -45,14 +45,7 @@ class EtpProjectAwsCostLine(models.Model):
         for rec in self:
             rec.period_label = rec.period.strftime("%Y-%m") if rec.period else ""
 
-    @api.depends("amount_source", "currency_id", "period")
+    @api.depends("amount_source")
     def _compute_inr(self):
-        inr = self.env.ref("base.INR", raise_if_not_found=False)
         for rec in self:
-            if inr and rec.currency_id and rec.currency_id.id != inr.id and rec.amount_source:
-                rec.amount_inr = rec.currency_id._convert(
-                    rec.amount_source, inr, self.env.company,
-                    rec.period or fields.Date.today(),
-                )
-            else:
-                rec.amount_inr = rec.amount_source
+            rec.amount_inr = rec.amount_source

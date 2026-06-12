@@ -89,7 +89,7 @@
                                     <field name="service_name"/>
                                     <field name="amount_source" widget="monetary" sum="USD"/>
                                     <field name="currency_id" column_invisible="True"/>
-                                    <field name="amount_inr" widget="monetary" sum="INR"/>
+                                    <field name="amount_inr" widget="monetary" sum="USD"/>
                                     <field name="inr_currency_id" column_invisible="True"/>
                                 </list>
                             </field>
@@ -166,7 +166,7 @@
                 <field name="service_name"/>
                 <field name="amount_source" widget="monetary" sum="USD"/>
                 <field name="currency_id" column_invisible="True"/>
-                <field name="amount_inr" widget="monetary" sum="INR"/>
+                <field name="amount_inr" widget="monetary" sum="USD"/>
                 <field name="inr_currency_id" column_invisible="True"/>
             </list>
         </field>

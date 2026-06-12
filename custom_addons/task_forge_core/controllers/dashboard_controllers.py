@@ -6,6 +6,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from datetime import datetime, date, timedelta
 import json
 
+# Backend (connected_table) state semantics — kept in sync with main_dashboard.py.
+ACTIVE_STATES = ('extracting', 'extracted', 'generating', 'generated', 'scoring', 'scored', 'qc_running')
+DONE_STATES = ('done', 'submitted')
+BLOCKER_OVERDUE_DAYS = 3
+
 
 class TaskForgeDashboardController(http.Controller):
 
@@ -88,20 +93,34 @@ class TaskForgeDashboardController(http.Controller):
                 return return_Response(message="PL role required", status=403)
 
             Project = request.env['project.project'].sudo()
-            TaskLog = request.env['task.forge.log'].sudo()
             Blocker = request.env['task.forge.blocker'].sudo()
 
+            overdue_threshold = datetime.now() - timedelta(days=BLOCKER_OVERDUE_DAYS)
             projects = Project.search(Project._task_forge_live_domain())
             data = []
 
             for proj in projects:
-                tasks = TaskLog.search([('project_id', '=', proj.id)])
-                completed = len(tasks.filtered(lambda t: t.state == 'completed'))
-                blockers = Blocker.search_count([('project_id', '=', proj.id), ('state', 'in', ['pending', 'ack'])])
-                overdue = len(tasks.filtered(lambda t: t.state == 'overdue'))
-                total = len(tasks)
+                completed = pending = overdue = total = 0
 
-                # Health status
+                backend_name = (getattr(proj, 'connected_table', None) or '').strip()
+                if backend_name and backend_name in request.env:
+                    backend = request.env[backend_name].sudo()
+                    if 'state' in backend._fields:
+                        completed = backend.search_count([('state', 'in', list(DONE_STATES))])
+                        pending = backend.search_count([('state', 'in', list(ACTIVE_STATES))])
+                        overdue = backend.search_count([
+                            ('state', 'in', list(ACTIVE_STATES)),
+                            ('create_date', '<=', overdue_threshold),
+                        ])
+                        total = backend.search_count([])
+                    else:
+                        total = backend.search_count([])
+
+                blockers = Blocker.search_count([
+                    ('project_id', '=', proj.id),
+                    ('state', 'in', ['pending', 'ack']),
+                ])
+
                 if blockers > 5 or overdue > 3:
                     health = 'at_risk'
                 elif blockers > 2 or overdue > 1:
@@ -114,7 +133,7 @@ class TaskForgeDashboardController(http.Controller):
                     'project_name': proj.name,
                     'total_tasks': total,
                     'completed': completed,
-                    'pending': total - completed,
+                    'pending': pending,
                     'blockers': blockers,
                     'overdue': overdue,
                     'health': health,

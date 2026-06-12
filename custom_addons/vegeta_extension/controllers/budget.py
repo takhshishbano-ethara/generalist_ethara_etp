@@ -203,7 +203,7 @@ def _build_service_costs(env, budgets, filters):
     totals = {}
     grand_total = 0.0
     for line in lines:
-        amount = line.amount_inr or 0.0
+        amount = line.amount_source or 0.0
         if not amount:
             continue
         grand_total += amount

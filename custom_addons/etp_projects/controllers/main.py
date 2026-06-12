@@ -482,7 +482,7 @@ class EtpProjectsAwsCostController(http.Controller):
             ws.write(2, 2, 'Projects', f_kpi_label)
             ws.write_number(2, 3, len(project_set), f_kpi_value)
             ws.write(2, 4, 'Currency', f_kpi_label)
-            ws.write(2, 5, currency_label or 'INR', f_kpi_value_text)
+            ws.write(2, 5, 'USD', f_kpi_value_text)
 
             ws.write(3, 0, 'Total Budget', f_kpi_label)
             ws.write_number(3, 1, total_budget, f_kpi_value)
@@ -506,7 +506,7 @@ class EtpProjectsAwsCostController(http.Controller):
                 ws.write_number(row, 0, idx, f_int)
                 ws.write(row, 1, b.name or "", f_text)
                 ws.write(row, 2, b.project_id.name if b.project_id else "", f_text)
-                ws.write(row, 3, (b.currency_id.name if b.currency_id else "") or "", f_text)
+                ws.write(row, 3, 'USD', f_text)
                 ws.write_number(row, 4, float(b.project_budget or 0.0), f_money)
                 ws.write_number(row, 5, float(b.budget_amount or 0.0), f_money)
                 ws.write_number(row, 6, float(b.total_consumed or 0.0), f_money)
@@ -544,9 +544,9 @@ class EtpProjectsAwsCostController(http.Controller):
             ws2 = wb.add_worksheet('Service Spend')
             s_headers = [
                 '#', 'Project', 'Budget Seq', 'Service',
-                'Total Cost (USD)', 'Total Cost (INR)', '% of Budget',
+                'Total Cost (USD)', '% of Budget',
             ]
-            s_widths = [5, 28, 22, 36, 18, 18, 14]
+            s_widths = [5, 28, 22, 36, 18, 14]
             for i, w in enumerate(s_widths):
                 ws2.set_column(i, i, w)
 
@@ -555,7 +555,6 @@ class EtpProjectsAwsCostController(http.Controller):
 
             service_rows = []
             service_grand_usd = 0.0
-            service_grand_inr = 0.0
             for b in budgets:
                 project_name = b.project_id.name if b.project_id else ""
                 budget_seq = b.name or ""
@@ -563,36 +562,33 @@ class EtpProjectsAwsCostController(http.Controller):
                 per_service = {}
                 for line in b.cost_line_ids:
                     svc = (line.service_name or "Unknown").strip() or "Unknown"
-                    agg = per_service.setdefault(svc, {'usd': 0.0, 'inr': 0.0})
+                    agg = per_service.setdefault(svc, {'usd': 0.0})
                     agg['usd'] += float(line.amount_source or 0.0)
-                    agg['inr'] += float(line.amount_inr or 0.0)
                 for svc, agg in per_service.items():
-                    pct = (agg['inr'] / budget_amount_b * 100.0) if budget_amount_b else 0.0
+                    pct = (agg['usd'] / budget_amount_b * 100.0) if budget_amount_b else 0.0
                     service_rows.append({
                         'project': project_name,
                         'budget_seq': budget_seq,
                         'service': svc,
                         'usd': agg['usd'],
-                        'inr': agg['inr'],
                         'pct': pct,
                     })
                     service_grand_usd += agg['usd']
-                    service_grand_inr += agg['inr']
 
-            service_rows.sort(key=lambda r: (r['project'], r['budget_seq'], -r['inr']))
+            service_rows.sort(key=lambda r: (r['project'], r['budget_seq'], -r['usd']))
 
             top_service_label = ''
             top_service_spend = 0.0
             if service_rows:
-                top = max(service_rows, key=lambda r: r['inr'])
+                top = max(service_rows, key=lambda r: r['usd'])
                 top_service_label = top['service']
-                top_service_spend = top['inr']
+                top_service_spend = top['usd']
 
             ws2.write(2, 0, 'Total Services', f_kpi_label)
             ws2.write_number(2, 1, len({(r['budget_seq'], r['service']) for r in service_rows}), f_kpi_value)
             ws2.write(2, 2, 'Top Service', f_kpi_label)
             ws2.merge_range(2, 3, 2, 4, top_service_label or '—', f_kpi_value_text)
-            ws2.write(2, 5, 'Top Spend (INR)', f_kpi_label)
+            ws2.write(2, 5, 'Top Spend (USD)', f_kpi_label)
             ws2.write_number(2, 6, round(top_service_spend, 2), f_kpi_value)
 
             s_header_row = 4
@@ -608,15 +604,13 @@ class EtpProjectsAwsCostController(http.Controller):
                 ws2.write(row, 2, r['budget_seq'], f_text)
                 ws2.write(row, 3, r['service'], f_text)
                 ws2.write_number(row, 4, round(r['usd'], 6), f_money)
-                ws2.write_number(row, 5, round(r['inr'], 2), f_money)
-                ws2.write_number(row, 6, round(r['pct'], 2), f_pct)
+                ws2.write_number(row, 5, round(r['pct'], 2), f_pct)
 
             if service_rows:
                 s_total_row = s_data_start + len(service_rows)
                 ws2.merge_range(s_total_row, 0, s_total_row, 3, 'Grand Total', f_total_label)
                 ws2.write_number(s_total_row, 4, round(service_grand_usd, 6), f_total_money)
-                ws2.write_number(s_total_row, 5, round(service_grand_inr, 2), f_total_money)
-                ws2.write(s_total_row, 6, '', f_total_label)
+                ws2.write(s_total_row, 5, '', f_total_label)
                 ws2.autofilter(s_header_row, 0, s_data_start + len(service_rows) - 1, len(s_headers) - 1)
                 ws2.freeze_panes(s_header_row + 1, 3)
 
