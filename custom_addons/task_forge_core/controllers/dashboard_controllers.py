@@ -99,22 +99,41 @@ class TaskForgeDashboardController(http.Controller):
             projects = Project.search(Project._task_forge_live_domain())
             data = []
 
+            # Backend status field varies: crowley/vegeta/leviathan/gohan use
+            # `state`, skoll uses `qc_status`, fenrir uses `status`, talos uses
+            # `task_status`. Resolve per-backend so pending/overdue aren't zeroed.
+            STATUS_FIELDS = ('state', 'qc_status', 'status', 'task_status')
+
             for proj in projects:
                 completed = pending = overdue = total = 0
+                aht_min = 0.0
+                quality_pct = 0.0
 
                 backend_name = (getattr(proj, 'connected_table', None) or '').strip()
                 if backend_name and backend_name in request.env:
                     backend = request.env[backend_name].sudo()
-                    if 'state' in backend._fields:
-                        completed = backend.search_count([('state', 'in', list(DONE_STATES))])
-                        pending = backend.search_count([('state', 'in', list(ACTIVE_STATES))])
-                        overdue = backend.search_count([
-                            ('state', 'in', list(ACTIVE_STATES)),
-                            ('create_date', '<=', overdue_threshold),
-                        ])
-                        total = backend.search_count([])
+
+                    if hasattr(backend, 'get_performance_metrics'):
+                        metrics = backend.get_performance_metrics() or {}
+                        total = metrics.get('total_task_count') or 0
+                        completed = metrics.get('task_done') or 0
+                        aht_min = metrics.get('avg_handling_time_minutes') or 0.0
+                        quality_pct = metrics.get('approval_percentage') or 0.0
                     else:
                         total = backend.search_count([])
+
+                    status_field = next(
+                        (f for f in STATUS_FIELDS if f in backend._fields),
+                        None,
+                    )
+                    if status_field:
+                        pending = backend.search_count([
+                            (status_field, 'in', list(ACTIVE_STATES)),
+                        ])
+                        overdue = backend.search_count([
+                            (status_field, 'in', list(ACTIVE_STATES)),
+                            ('create_date', '<=', overdue_threshold),
+                        ])
 
                 blockers = Blocker.search_count([
                     ('project_id', '=', proj.id),
@@ -136,6 +155,8 @@ class TaskForgeDashboardController(http.Controller):
                     'pending': pending,
                     'blockers': blockers,
                     'overdue': overdue,
+                    'aht_min': aht_min,
+                    'quality_percent': quality_pct,
                     'health': health,
                 })
 

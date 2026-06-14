@@ -1,6 +1,12 @@
 from odoo import api, fields, models
 
 
+SOURCE_SELECTION = [
+    ("aws", "AWS"),
+    ("openrouter", "OpenRouter"),
+]
+
+
 class EtpProjectAwsCostLine(models.Model):
     _name = "etp.project.aws.cost.line"
     _description = "Project AWS Cost Line"
@@ -18,6 +24,11 @@ class EtpProjectAwsCostLine(models.Model):
     period = fields.Date(required=True, index=True)
     period_label = fields.Char(compute="_compute_period_label", store=True)
     service_name = fields.Char(required=True, index=True)
+    source = fields.Selection(
+        SOURCE_SELECTION, default="aws", required=True, index=True,
+        help="Origin of this cost line. AWS rows come from Cost Explorer, "
+             "OpenRouter rows come from the OpenRouter activity API.",
+    )
 
     currency_id = fields.Many2one(
         "res.currency",
@@ -45,7 +56,7 @@ class EtpProjectAwsCostLine(models.Model):
         for rec in self:
             rec.period_label = rec.period.strftime("%Y-%m") if rec.period else ""
 
-    @api.depends("amount_source")
+    @api.depends("amount_source", "currency_id", "period")
     def _compute_inr(self):
         for rec in self:
             rec.amount_inr = rec.amount_source

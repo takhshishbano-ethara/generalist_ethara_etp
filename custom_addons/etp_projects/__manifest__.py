@@ -23,7 +23,7 @@ Adds an Internal/External classification to projects.
         'views/token_purchase_request_views.xml',
         'views/res_config_settings_views.xml',
     ],
-    'external_dependencies': {'python': ['boto3', 'xlsxwriter']},
+    'external_dependencies': {'python': ['boto3']},
     'installable': True,
     'application': False,
     'license': 'LGPL-3',

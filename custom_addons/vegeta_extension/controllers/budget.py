@@ -435,6 +435,17 @@ def _max_last_fetched_at(budgets):
     return ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
 
 
+def _latest_fetch_log(env, budgets):
+    if not budgets:
+        return None
+    log = env["etp.project.aws.cost.fetch.log"].sudo().search(
+        [("budget_id", "in", budgets.ids)],
+        order="fetched_at desc, id desc",
+        limit=1,
+    )
+    return log.to_api_dict() if log else None
+
+
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
     kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
     service_costs, _service_total = _build_service_costs(env, budgets, filters)
@@ -467,6 +478,7 @@ def _build_budget_info_payload(env, project_id, include_inactive, filters):
         "allocation_ledger": env["etp.project.token.purchase.request"]
             .sudo()._get_allocation_ledger_for_project(project_id),
         "last_fetched_at": _max_last_fetched_at(budgets),
+        "last_fetch_log": _latest_fetch_log(env, budgets),
     }
 
 
@@ -553,7 +565,7 @@ class VegetaBudgetController(http.Controller):
         fetched_count = 0
         for budget in budgets_to_fetch:
             try:
-                budget._fetch_cost_one()
+                budget._fetch_cost_one(source='api_vegeta')
                 budget._maybe_alert_thresholds()
                 fetched_count += 1
             except Exception as e:

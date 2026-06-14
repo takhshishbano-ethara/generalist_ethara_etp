@@ -77,6 +77,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "error_count": 0,
                         "total_created": 0,
                         "total_updated": 0,
+                        "total_api_hits": 0,
+                        "total_api_hit_cost_usd": 0.0,
                         "results": [],
                     }},
                 )
@@ -86,10 +88,22 @@ class EtpProjectsAwsCostController(http.Controller):
             error_count = 0
             total_created = 0
             total_updated = 0
+            total_api_hits = 0
+            total_api_hit_cost_usd = 0.0
 
             for budget in budgets:
+                latest_log = request.env['etp.project.aws.cost.fetch.log'].sudo().search(
+                    [('budget_id', '=', budget.id)],
+                    order='fetched_at desc, id desc', limit=1,
+                )
                 try:
-                    created, updated = budget._fetch_cost_one()
+                    fetch_result = budget._fetch_cost_one(source='api_update_all')
+                    created = int(fetch_result.get('created', 0))
+                    updated = int(fetch_result.get('updated', 0))
+                    api_hit_count = int(fetch_result.get('api_hit_count', 0))
+                    api_hit_cost_usd = round(
+                        float(fetch_result.get('api_hit_cost_usd', 0.0)), 4,
+                    )
                     try:
                         budget._maybe_alert_thresholds()
                     except Exception:
@@ -100,6 +114,8 @@ class EtpProjectsAwsCostController(http.Controller):
                     success_count += 1
                     total_created += created
                     total_updated += updated
+                    total_api_hits += api_hit_count
+                    total_api_hit_cost_usd += api_hit_cost_usd
                     results.append({
                         "budget_id": budget.id,
                         "budget_name": budget.name or "",
@@ -110,6 +126,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "status": "success",
                         "created": created,
                         "updated": updated,
+                        "api_hit_count": api_hit_count,
+                        "api_hit_cost_usd": api_hit_cost_usd,
                         "budget_amount": float(budget.budget_amount or 0.0),
                         "total_consumed": float(budget.total_consumed or 0.0),
                         "remaining": float(budget.remaining or 0.0),
@@ -122,6 +140,18 @@ class EtpProjectsAwsCostController(http.Controller):
                     })
                 except UserError as e:
                     error_count += 1
+                    new_log = request.env['etp.project.aws.cost.fetch.log'].sudo().search(
+                        [('budget_id', '=', budget.id)],
+                        order='fetched_at desc, id desc', limit=1,
+                    )
+                    if new_log and new_log != latest_log:
+                        api_hit_count = int(new_log.api_hit_count or 0)
+                        api_hit_cost_usd = round(float(new_log.api_hit_cost_usd or 0.0), 4)
+                    else:
+                        api_hit_count = 0
+                        api_hit_cost_usd = 0.0
+                    total_api_hits += api_hit_count
+                    total_api_hit_cost_usd += api_hit_cost_usd
                     results.append({
                         "budget_id": budget.id,
                         "budget_name": budget.name or "",
@@ -133,6 +163,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "error": str(e),
                         "created": 0,
                         "updated": 0,
+                        "api_hit_count": api_hit_count,
+                        "api_hit_cost_usd": api_hit_cost_usd,
                         "budget_amount": float(budget.budget_amount or 0.0),
                         "total_consumed": float(budget.total_consumed or 0.0),
                         "remaining": float(budget.remaining or 0.0),
@@ -149,6 +181,18 @@ class EtpProjectsAwsCostController(http.Controller):
                         "AWS cost fetch failed for budget id=%s name=%s",
                         budget.id, budget.name,
                     )
+                    new_log = request.env['etp.project.aws.cost.fetch.log'].sudo().search(
+                        [('budget_id', '=', budget.id)],
+                        order='fetched_at desc, id desc', limit=1,
+                    )
+                    if new_log and new_log != latest_log:
+                        api_hit_count = int(new_log.api_hit_count or 0)
+                        api_hit_cost_usd = round(float(new_log.api_hit_cost_usd or 0.0), 4)
+                    else:
+                        api_hit_count = 0
+                        api_hit_cost_usd = 0.0
+                    total_api_hits += api_hit_count
+                    total_api_hit_cost_usd += api_hit_cost_usd
                     results.append({
                         "budget_id": budget.id,
                         "budget_name": budget.name or "",
@@ -160,6 +204,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "error": str(e),
                         "created": 0,
                         "updated": 0,
+                        "api_hit_count": api_hit_count,
+                        "api_hit_cost_usd": api_hit_cost_usd,
                         "budget_amount": float(budget.budget_amount or 0.0),
                         "total_consumed": float(budget.total_consumed or 0.0),
                         "remaining": float(budget.remaining or 0.0),
@@ -177,6 +223,8 @@ class EtpProjectsAwsCostController(http.Controller):
                     "error_count": error_count,
                     "total_created": total_created,
                     "total_updated": total_updated,
+                    "total_api_hits": total_api_hits,
+                    "total_api_hit_cost_usd": round(total_api_hit_cost_usd, 4),
                     "results": results,
                 }},
             )
@@ -464,7 +512,6 @@ class EtpProjectsAwsCostController(http.Controller):
             total_consumed = 0.0
             total_remaining = 0.0
             project_set = set()
-            currency_label = ""
 
             for b in budgets:
                 total_budget += float(b.budget_amount or 0.0)
@@ -472,8 +519,6 @@ class EtpProjectsAwsCostController(http.Controller):
                 total_remaining += float(b.remaining or 0.0)
                 if b.project_id:
                     project_set.add(b.project_id.id)
-                if not currency_label and b.currency_id:
-                    currency_label = b.currency_id.name or ""
 
             overall_pct = (total_consumed / total_budget * 100.0) if total_budget else 0.0
 
@@ -653,6 +698,112 @@ class EtpProjectsAwsCostController(http.Controller):
             )
         except Exception as e:
             _logger.exception("export_aws_budgets failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
+    @http.route(
+        '/api/v1/etp_projects/aws_cost/history',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def aws_cost_fetch_history(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            domain = []
+
+            budget_ids = jdata.get('budget_ids') or []
+            project_ids = jdata.get('project_ids') or []
+            if budget_ids:
+                if not isinstance(budget_ids, list) or not all(isinstance(x, int) for x in budget_ids):
+                    return return_Response(
+                        message="'budget_ids' must be a list of integers.",
+                        status=400,
+                    )
+                domain.append(('budget_id', 'in', budget_ids))
+            if project_ids:
+                if not isinstance(project_ids, list) or not all(isinstance(x, int) for x in project_ids):
+                    return return_Response(
+                        message="'project_ids' must be a list of integers.",
+                        status=400,
+                    )
+                domain.append(('project_id', 'in', project_ids))
+
+            start_date = jdata.get('start_date')
+            end_date = jdata.get('end_date')
+            if start_date:
+                if not isinstance(start_date, str):
+                    return return_Response(
+                        message="'start_date' must be a 'YYYY-MM-DD' string.",
+                        status=400,
+                    )
+                domain.append(('fetched_at', '>=', start_date + ' 00:00:00'))
+            if end_date:
+                if not isinstance(end_date, str):
+                    return return_Response(
+                        message="'end_date' must be a 'YYYY-MM-DD' string.",
+                        status=400,
+                    )
+                domain.append(('fetched_at', '<=', end_date + ' 23:59:59'))
+
+            status_filter = jdata.get('status')
+            if status_filter:
+                if status_filter not in ('success', 'error'):
+                    return return_Response(
+                        message="'status' must be 'success' or 'error'.",
+                        status=400,
+                    )
+                domain.append(('status', '=', status_filter))
+
+            sources = jdata.get('sources') or []
+            if sources:
+                if not isinstance(sources, list) or not all(isinstance(x, str) for x in sources):
+                    return return_Response(
+                        message="'sources' must be a list of strings.",
+                        status=400,
+                    )
+                domain.append(('source', 'in', sources))
+
+            try:
+                limit = int(jdata.get('limit') or 50)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'limit' must be an integer.",
+                    status=400,
+                )
+            try:
+                offset = int(jdata.get('offset') or 0)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'offset' must be an integer.",
+                    status=400,
+                )
+            limit = max(1, min(limit, 500))
+            offset = max(0, offset)
+
+            FetchLog = request.env['etp.project.aws.cost.fetch.log'].sudo()
+            total = FetchLog.search_count(domain)
+            logs = FetchLog.search(
+                domain, limit=limit, offset=offset, order='fetched_at desc, id desc',
+            )
+
+            records = [log.to_api_dict() for log in logs]
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "records": records,
+                }},
+            )
+        except Exception as e:
+            _logger.exception("aws_cost_fetch_history failed")
             return return_Response(
                 message="Something went wrong.",
                 status=400,

@@ -3,5 +3,6 @@ access_etp_external_project_api_map_user,etp.external.project.api.map.user,model
 access_etp_external_project_api_map_manager,etp.external.project.api.map.manager,model_etp_external_project_api_map,,1,1,1,1
 access_etp_project_aws_budget,etp.project.aws.budget,model_etp_project_aws_budget,,1,1,1,1
 access_etp_project_aws_cost_line,etp.project.aws.cost.line,model_etp_project_aws_cost_line,,1,1,1,1
+access_etp_project_aws_cost_fetch_log,etp.project.aws.cost.fetch.log,model_etp_project_aws_cost_fetch_log,,1,1,1,1
 access_etp_project_token_purchase_request_user,etp.project.token.purchase.request.user,model_etp_project_token_purchase_request,base.group_user,1,1,1,0
 access_etp_project_token_purchase_request_manager,etp.project.token.purchase.request.manager,model_etp_project_token_purchase_request,etp_user_roles.group_tpm,1,1,1,1
