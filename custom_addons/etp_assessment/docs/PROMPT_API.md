@@ -129,7 +129,7 @@ result:
    "question_type": "text", "state": "draft", "approved_question_id": false}
 ]}
 ```
-Group by `skill` in the UI. May take 10-60s (one Bedrock call). Re-calling clears
+Group by `skill` in the UI. May take 10-60s (one Vertex Gemini call). Re-calling clears
 previous *draft* questions and regenerates (approved/denied are kept).
 
 ### 10. Approve / deny ONE question
@@ -170,12 +170,19 @@ params: `{"which": "skills" | "questions", "value": "<text>"}` -> `{"saved": tru
 - **All endpoints require the Manager group** (`etp_assessment.group_assessment_manager`).
   A user without it gets an Access Error. Confirm the API user has it.
 - **Generation is synchronous** — the HTTP request to `generate` stays open for the full
-  Bedrock round-trip. Use a generous client timeout (90s) and a loading state. There is
+  Vertex round-trip. Use a generous client timeout (90s) and a loading state. There is
   no websocket/streaming; render the returned list with your own stagger if you want the
   "appearing" effect.
 - **Re-generating** is allowed; it drops prior *draft* questions only.
 - **question_type** enum: `text | coding | image_comparison | image_text | video`.
-- **Bedrock config** lives in System Parameters (`etp_assessment.bedrock_inference_arn`,
-  `etp_assessment.bedrock_bearer_token`, `etp_assessment.bedrock_region`). If unset,
-  `config_status.configured` is false and `extract_skills`/`generate` return an error with
-  message "Bedrock not configured…".
+- **Vertex AI config** lives in System Parameters: `etp_assessment.vertex_project_id`,
+  `etp_assessment.vertex_location` (default `us-central1`),
+  `etp_assessment.vertex_model` (default `gemini-3-pro`), and EITHER
+  `etp_assessment.vertex_api_key` (Gemini Developer API key — `AIza…`) OR
+  `etp_assessment.vertex_access_token` (Vertex AI OAuth bearer, ~1h lifetime).
+  If both are unset, `config_status.configured` is false and `extract_skills` /
+  `generate` return an error with message "Vertex/Gemini not configured…".
+  Never paste an `AIza` key into the access_token slot — that yields a 401
+  UNAUTHENTICATED from `aiplatform.googleapis.com`. Image generation (Imagen)
+  is Vertex-AI-only, so it requires the OAuth bearer path; with api-key-only,
+  clear `etp_assessment.vertex_image_model` to disable image gen cleanly.

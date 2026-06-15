@@ -18,8 +18,8 @@ logging.disable(logging.CRITICAL)
 
 env = env  # noqa  (provided by odoo shell)
 from odoo.addons.etp_assessment.services import (
-    bedrock_questions as bq,
-    bedrock_images as bi,
+    vertex_questions as bq,
+    vertex_images as bi,
     s3_service as s3,
 )
 

@@ -51,6 +51,8 @@ RABBITMQ_USERNAME = os.getenv("RABBITMQ_USERNAME", "guest")
 RABBITMQ_PASSWORD = os.getenv("RABBITMQ_PASSWORD", "guest")
 RABBITMQ_VHOST = os.getenv("RABBITMQ_VHOST", "/")
 QUEUE_SCORE = os.getenv("ETP_SCORE_QUEUE", "etp_assessment_score")
+DLX_EXCHANGE = os.getenv("ETP_SCORE_DLX", "etp_assessment_score.dlx")
+DLQ_QUEUE = os.getenv("ETP_SCORE_DLQ", "etp_assessment_score.dead")
 
 MAX_RETRIES = int(os.getenv("CONSUMER_MAX_RETRIES", "5"))
 WORKER_THREADS = int(os.getenv("CONSUMER_WORKERS", "5"))
@@ -141,45 +143,57 @@ def _republish(connection, body, retry_count):
 
 def _process(connection, channel, delivery_tag, properties, body):
     retry_count = _retry_count(properties)
-    response_id = None
+    evaluator_id = None
     start = time.time()
     try:
         msg = json.loads(body)
-        response_id = msg.get("response_id")
-        _logger.info("SCORE response_id=%s (attempt %d/%d)",
-                     response_id, retry_count + 1, MAX_RETRIES)
-        if not response_id:
-            _logger.error("Missing response_id: %s", body)
+        # Per-evaluator batched scoring: one message = one candidate. The
+        # Odoo-side action_llm_score() then internally bundles all that
+        # candidate's needs_llm responses into ONE Vertex call.
+        # Back-compat: accept legacy {"response_id": ...} messages still in
+        # the queue from before the per-evaluator migration.
+        evaluator_id = msg.get("evaluator_id")
+        legacy_response_id = msg.get("response_id")
+        if evaluator_id:
+            _logger.info("SCORE evaluator_id=%s (attempt %d/%d)",
+                         evaluator_id, retry_count + 1, MAX_RETRIES)
+            _call_odoo("etp.assessment.evaluator", "action_llm_score",
+                       [evaluator_id])
+            _logger.info("SCORE done evaluator_id=%s (%.1fs)",
+                         evaluator_id, time.time() - start)
+        elif legacy_response_id:
+            _logger.info("SCORE legacy response_id=%s (attempt %d/%d)",
+                         legacy_response_id, retry_count + 1, MAX_RETRIES)
+            _call_odoo("etp.assessment.response", "rmq_score_subjective",
+                       [legacy_response_id])
+            _logger.info("SCORE done legacy response_id=%s (%.1fs)",
+                         legacy_response_id, time.time() - start)
+        else:
+            _logger.error("Missing evaluator_id and response_id: %s", body)
             connection.add_callback_threadsafe(
                 functools.partial(_ack, channel, delivery_tag))
             return
-
-        _call_odoo("etp.assessment.response", "rmq_score_subjective",
-                   [response_id])
-
-        _logger.info("SCORE done response_id=%s (%.1fs)",
-                     response_id, time.time() - start)
         connection.add_callback_threadsafe(
             functools.partial(_ack, channel, delivery_tag))
 
     except Exception as e:
-        _logger.error("SCORE failed response_id=%s (attempt %d/%d): %s",
-                      response_id or "?", retry_count + 1, MAX_RETRIES, e)
+        ident = evaluator_id or "?"
+        _logger.error("SCORE failed id=%s (attempt %d/%d): %s",
+                      ident, retry_count + 1, MAX_RETRIES, e)
         connection.add_callback_threadsafe(
             functools.partial(_ack, channel, delivery_tag))
 
         if _is_permanent(e):
-            _logger.warning("SCORE DROPPED response_id=%s (permanent): %s",
-                            response_id or "?", e)
+            _logger.warning("SCORE DROPPED id=%s (permanent): %s", ident, e)
         elif retry_count + 1 < MAX_RETRIES:
             delay = _retry_delay(retry_count)
-            _logger.info("Re-queue response_id=%s in %ds", response_id, delay)
+            _logger.info("Re-queue id=%s in %ds", ident, delay)
             time.sleep(delay)
             connection.add_callback_threadsafe(
                 functools.partial(_republish, connection, body, retry_count))
         else:
-            _logger.error("SCORE PERMANENTLY FAILED response_id=%s after %d",
-                          response_id or "?", MAX_RETRIES)
+            _logger.error("SCORE PERMANENTLY FAILED id=%s after %d retries",
+                          ident, MAX_RETRIES)
 
 
 def main():
@@ -191,7 +205,23 @@ def main():
         blocked_connection_timeout=300)
     connection = pika.BlockingConnection(params)
     channel = connection.channel()
-    channel.queue_declare(queue=QUEUE_SCORE, durable=True)
+    # Topology declare MUST mirror the publisher exactly. The publisher
+    # creates the main queue with x-dead-letter-exchange wired to a DLX
+    # so failed messages land in the DLQ. If the consumer redeclares the
+    # same queue without these args, RabbitMQ rejects with 406
+    # PRECONDITION_FAILED — split-brain crashes the consumer at startup.
+    channel.exchange_declare(
+        exchange=DLX_EXCHANGE, exchange_type="direct", durable=True)
+    channel.queue_declare(queue=DLQ_QUEUE, durable=True)
+    channel.queue_bind(
+        queue=DLQ_QUEUE, exchange=DLX_EXCHANGE, routing_key=DLQ_QUEUE)
+    channel.queue_declare(
+        queue=QUEUE_SCORE, durable=True,
+        arguments={
+            "x-dead-letter-exchange": DLX_EXCHANGE,
+            "x-dead-letter-routing-key": DLQ_QUEUE,
+        },
+    )
     channel.basic_qos(prefetch_count=WORKER_THREADS)
 
     def on_message(ch, method, properties, body):

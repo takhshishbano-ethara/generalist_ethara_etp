@@ -1,11 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Bedrock question-generation service for etp_assessment.
+"""Vertex AI Gemini question-generation service for etp_assessment.
 
-Reuses the bearer-token + inference-ARN Converse pattern proven in leviathan.
-Reads credentials from System Parameters:
-  etp_assessment.bedrock_inference_arn
-  etp_assessment.bedrock_region
-  etp_assessment.bedrock_bearer_token
+Single-provider stack: Vertex AI Gemini for text, Imagen for images.
+Reads credentials from System Parameters (anything containing PLACEHOLDER
+is treated as unset by `_param`):
+
+  etp_assessment.vertex_project_id
+  etp_assessment.vertex_location      (default us-central1)
+  etp_assessment.vertex_model         (default gemini-3-pro)
+  etp_assessment.vertex_api_key       (Gemini Developer API key — `AIza...`)
+  etp_assessment.vertex_access_token  (Vertex AI OAuth Bearer; expires ~1h)
+
+Auth routing (see `_gemini_request`): bearer wins when both are set and
+goes to `aiplatform.googleapis.com`; api_key goes to
+`generativelanguage.googleapis.com`. Mixing them on the wrong endpoint
+returns 401/403 — never paste an `AIza` key into the access_token slot.
 """
 import json
 import logging
@@ -46,6 +55,33 @@ def _param(env, key, default=""):
     return val
 
 
+def _load_bundled_prompt(filename):
+    """Read a markdown prompt from the module's prompts/ folder.
+
+    Returns the file contents on success, '' on any failure. Used as the
+    second tier of prompt resolution: System Parameter wins, then this
+    bundled default, then the terse inline DEFAULT_* constants.
+
+    Allowing the research team to ship full-length markdown prompts as
+    files alongside the code keeps the Python source readable AND lets
+    the prompt evolve in version control without touching the inline
+    constants (which exist only as a last-ditch fallback).
+    """
+    import os
+    try:
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "prompts", filename,
+        )
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except Exception as exc:
+        _logger.warning(
+            "etp_assessment: could not load bundled prompt %s: %s",
+            filename, exc)
+        return ""
+
+
 DEFAULT_SEED_PROMPT = (
     "You are an expert assessment author. You will receive a project SOP and "
     "ONE golden example question that demonstrates the desired style, depth "
@@ -63,15 +99,6 @@ DEFAULT_SEED_PROMPT = (
 )
 
 
-def _call_bedrock(env, system_prompt, user_text, max_tokens=4000, temperature=0.4):
-    """LLM text call. Single provider: Vertex AI Gemini.
-
-    Name retained for backward compatibility with existing call sites.
-    """
-    return _call_vertex(env, system_prompt, user_text,
-                        max_tokens=max_tokens, temperature=temperature)
-
-
 def _vertex_creds(env):
     return (
         _param(env, "etp_assessment.vertex_project_id"),
@@ -81,23 +108,110 @@ def _vertex_creds(env):
     )
 
 
+def _minted_bearer(env):
+    """Sign a JWT from the uploaded service-account JSON and exchange it for
+    a fresh Vertex AI OAuth access token. Caches the token in System
+    Parameters until 5 minutes before its declared expiry. Returns '' when
+    no service-account JSON is configured.
+    """
+    import time
+    ICP = env["ir.config_parameter"].sudo()
+    sa_json = ICP.get_param(
+        "etp_assessment.vertex_service_account_json", "") or ""
+    if not sa_json or "PLACEHOLDER" in sa_json:
+        return ""
+    cached = ICP.get_param("etp_assessment.vertex_minted_token", "") or ""
+    expires_at = int(
+        ICP.get_param("etp_assessment.vertex_minted_token_expires", "0") or 0
+    )
+    if cached and time.time() < expires_at - 300:
+        return cached
+    try:
+        import jwt as _jwt
+    except ImportError as exc:
+        raise RuntimeError(
+            "Service Account JSON support needs PyJWT installed "
+            "(`pip install PyJWT[crypto]`). %s" % exc)
+    import httpx
+    sa = json.loads(sa_json)
+    now = int(time.time())
+    claim = {
+        "iss": sa["client_email"],
+        "scope": "https://www.googleapis.com/auth/cloud-platform",
+        "aud": sa["token_uri"],
+        "iat": now,
+        "exp": now + 3600,
+    }
+    assertion = _jwt.encode(claim, sa["private_key"], algorithm="RS256")
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(
+            sa["token_uri"],
+            data={
+                "grant_type": "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "assertion": assertion,
+            },
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(
+            "Service account token exchange failed [%s]: %s"
+            % (resp.status_code, resp.text[:400]))
+    data = resp.json()
+    token = data["access_token"]
+    expires_in = int(data.get("expires_in", 3600))
+    ICP.set_param("etp_assessment.vertex_minted_token", token)
+    ICP.set_param(
+        "etp_assessment.vertex_minted_token_expires", str(now + expires_in))
+    # SA JSON declares the GCP project; backfill so the aiplatform URL
+    # builder doesn't need a separate System Parameter when the user only
+    # uploaded the JSON.
+    if not ICP.get_param("etp_assessment.vertex_project_id") and \
+            sa.get("project_id"):
+        ICP.set_param(
+            "etp_assessment.vertex_project_id", sa["project_id"])
+    _logger.info(
+        "etp_assessment minted Vertex bearer for %s (expires in %ss)",
+        sa.get("client_email") or "?", expires_in)
+    return token
+
+
 def _vertex_bearer(env):
-    """OAuth bearer token for the Vertex (aiplatform) endpoint, if provided."""
-    return _param(env, "etp_assessment.vertex_access_token")
+    """OAuth bearer for the Vertex (aiplatform) endpoint.
+
+    Order: explicit `vertex_access_token` System Parameter wins (manual
+    paste, useful for ad-hoc testing). Otherwise fall through to a minted
+    bearer from the uploaded service-account JSON.
+    """
+    direct = _param(env, "etp_assessment.vertex_access_token")
+    if direct:
+        return direct
+    return _minted_bearer(env)
 
 
 def _gemini_request(env, model, suffix):
     """Return (url, headers) for a Gemini call, auth-aware.
 
-    Two supported auth modes (we pick based on which credential is set):
-      - API key  -> Gemini Developer API (generativelanguage.googleapis.com)
-                    with header x-goog-api-key. This is what an API key is for.
-      - OAuth bearer (vertex_access_token) -> Vertex AI
-                    (LOCATION-aiplatform.googleapis.com /projects/.../locations)
-                    with Authorization: Bearer. Use this with a service-account
-                    / gcloud token.
-    Mixing an API key against the aiplatform endpoint returns 401/403, which is
-    the trap this function avoids.
+    Three supported auth modes, picked by what is set and (for api_key) by
+    key prefix:
+      - "AQ." api_key -> Vertex AI Express Mode
+            host: aiplatform.googleapis.com (global, no project/location)
+            path: /v1/publishers/google/models/{model}:{suffix}
+            header: x-goog-api-key
+            This is the key bound to your GCP account on Google's side; no
+            project_id, no IAM, no token refresh. Same path serves Gemini
+            text/multimodal AND Imagen.
+      - "AIza" api_key -> Gemini Developer API
+            host: generativelanguage.googleapis.com
+            path: /v1beta/models/{model}:{suffix}
+            header: x-goog-api-key
+            Text/multimodal only — does NOT serve Imagen.
+      - vertex_access_token (OAuth bearer) -> Vertex AI service-account path
+            host: {location}-aiplatform.googleapis.com
+            path: /v1/projects/{project}/locations/{location}/publishers/google/models/{model}:{suffix}
+            header: Authorization: Bearer
+            Requires vertex_project_id. Token expires ~1h.
+
+    Pasting the wrong key shape against the wrong endpoint returns 401/403,
+    which is the trap this function avoids.
     """
     project, location, _model, api_key = _vertex_creds(env)
     bearer = _vertex_bearer(env)
@@ -109,14 +223,19 @@ def _gemini_request(env, model, suffix):
         return url, {"Content-Type": "application/json",
                      "Authorization": f"Bearer {bearer}"}
     if api_key:
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{model}:{suffix}")
+        if api_key.startswith("AQ."):
+            url = (f"https://aiplatform.googleapis.com/v1/publishers/google/"
+                   f"models/{model}:{suffix}")
+        else:
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{model}:{suffix}")
         return url, {"Content-Type": "application/json",
                      "x-goog-api-key": api_key}
     raise ValueError(
         "Vertex/Gemini not configured. Set etp_assessment.vertex_api_key "
-        "(Gemini Developer API) OR etp_assessment.vertex_access_token + "
-        "vertex_project_id (Vertex AI OAuth) in System Parameters.")
+        "(AIza... for Gemini Developer API, or AQ.... for Vertex AI Express "
+        "Mode) OR etp_assessment.vertex_access_token + vertex_project_id "
+        "(Vertex AI OAuth) in System Parameters.")
 
 
 def _vertex_endpoint(env):
@@ -199,7 +318,7 @@ def _extract_json_array(text):
 
 def extract_skills(env, source_text, system_prompt=None):
     sp = system_prompt or DEFAULT_SKILLS_PROMPT
-    raw = _call_bedrock(env, sp, source_text, max_tokens=2000, temperature=0.3)
+    raw = _call_vertex(env, sp, source_text, max_tokens=2000, temperature=0.3)
     items = _extract_json_array(raw)
     out = []
     for it in items:
@@ -233,7 +352,7 @@ def generate_questions_from_seed(env, sop_text, golden_example,
         f"{count_line}"
         f"Generate the questions now as one JSON array."
     )
-    raw = _call_bedrock(env, sp, user, max_tokens=max_tokens, temperature=0.5)
+    raw = _call_vertex(env, sp, user, max_tokens=max_tokens, temperature=0.5)
     items = _extract_json_array(raw)
     out = []
     for it in items:
@@ -255,7 +374,7 @@ def generate_questions_from_seed(env, sop_text, golden_example,
 
 
 def generate_questions(env, source_text, skills, system_prompt=None, max_tokens=8000):
-    """Generate questions for ALL skills in ONE Bedrock call (minimize calls).
+    """Generate questions for ALL skills in ONE Vertex AI Gemini call (minimize calls).
 
     `skills` is a list of {"name": str, "max_questions": int}.
     Returns a flat list of {"skill","title","prompt","type"}.
@@ -270,7 +389,7 @@ def generate_questions(env, source_text, skills, system_prompt=None, max_tokens=
         f"SKILLS AND HOW MANY QUESTIONS EACH:\n{skill_lines}\n\n"
         f"Generate all questions now, grouped by skill, as one JSON array."
     )
-    raw = _call_bedrock(env, sp, user, max_tokens=max_tokens, temperature=0.5)
+    raw = _call_vertex(env, sp, user, max_tokens=max_tokens, temperature=0.5)
     items = _extract_json_array(raw)
     out = []
     per_skill = {}
@@ -291,7 +410,7 @@ def generate_questions(env, source_text, skills, system_prompt=None, max_tokens=
                     ("text", "coding", "image_comparison", "image_text", "video")
                     else "text",
             # image_comparison questions carry the two text-to-image prompts;
-            # bedrock_images.py turns them into actual images on demand.
+            # vertex_images.py turns them into actual images on demand.
             "image_prompt_a": str(it.get("image_prompt_a", ""))[:1024],
             "image_prompt_b": str(it.get("image_prompt_b", ""))[:1024],
         })

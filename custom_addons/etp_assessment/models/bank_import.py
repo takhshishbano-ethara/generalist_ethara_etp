@@ -276,9 +276,9 @@ class EtpAssessmentBankImport(models.AbstractModel):
 
     def _maybe_generate_images(self, question, media, warnings):
         """Generate A/B images from placeholders, upload to S3, set URLs."""
-        from ..services import bedrock_images, s3_service
+        from ..services import vertex_images, s3_service
         env = self.env
-        if not bedrock_images.is_configured(env):
+        if not vertex_images.is_configured(env):
             warnings.append(f"{question.name}: image gen skipped (not configured)")
             return 0
         if not s3_service.is_configured(env):
@@ -295,7 +295,7 @@ class EtpAssessmentBankImport(models.AbstractModel):
             if not placeholder:
                 continue
             try:
-                b64 = bedrock_images.generate_image_b64(env, placeholder)
+                b64 = vertex_images.generate_image_b64(env, placeholder)
             except Exception as exc:
                 warnings.append(f"{question.name}: image gen failed ({exc})")
                 continue

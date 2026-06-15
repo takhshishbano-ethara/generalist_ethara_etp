@@ -17,10 +17,12 @@
         etp_assessment.vertex_model         - text/scoring model (gemini)
         etp_assessment.vertex_image_model   - image model (imagen)
 
-      SYSTEM PROMPTS (seeded with working defaults; research team edits in
-      place — changes apply on the next LLM call, no deploy):
-        etp_assessment.seed_system_prompt
-        etp_assessment.scoring_system_prompt
+      SYSTEM PROMPTS: the bundled prompts/seed_master.md and
+      prompts/scoring_master.md files are the canonical defaults. The
+      System Parameters `etp_assessment.seed_system_prompt` and
+      `etp_assessment.scoring_system_prompt` are LIVE OVERRIDES — fill
+      them via Settings → ETP Assessment → System Prompts (file upload)
+      when you want a custom prompt. Empty = use the bundled .md file.
     -->
     <data noupdate="1">
         <record id="param_vertex_project_id" model="ir.config_parameter">
@@ -106,13 +108,5 @@
             <field name="value">3</field>
         </record>
 
-        <record id="param_seed_system_prompt" model="ir.config_parameter">
-            <field name="key">etp_assessment.seed_system_prompt</field>
-            <field name="value">You are an expert assessment author. You will receive a project SOP and ONE golden example question that demonstrates the desired style, depth and format. Generate a set of assessment questions grounded in the SOP, matching the golden example's quality and shape. Return ONLY a JSON array, no prose. Each item: {"title": "&lt;short question title&gt;", "prompt": "&lt;the full question text&gt;", "type": "text"}. For visual-evaluation content you may emit "type": "image_comparison" items; those MUST additionally include "image_prompt_a": "&lt;text-to-image prompt for response A&gt;" and "image_prompt_b": "&lt;text-to-image prompt for response B, a deliberately different/flawed variant of A&gt;". Make questions concrete, project-relevant, and non-trivial.</field>
-        </record>
-        <record id="param_scoring_system_prompt" model="ir.config_parameter">
-            <field name="key">etp_assessment.scoring_system_prompt</field>
-            <field name="value">You are an expert assessment grader. You will receive a JSON payload describing ONE candidate answer: the question prompt, its type, the rating dimensions with the option the candidate selected and the correct option (when defined), the candidate's written justification, an optional rubric (checklist + constraints + pass_condition), and any reference images. Score how well the justification meets the bar on a 0.0 to 1.0 scale (1.0 = fully meets the rubric's pass_condition, or with no rubric demonstrates correct reasoning aligned with the answer key; 0.0 = does not at all). Return ONLY a JSON object, no prose, exactly: {"score": &lt;float 0.0-1.0&gt;, "feedback": "&lt;2-3 sentence rationale&gt;"}.</field>
-        </record>
     </data>
 </odoo>
