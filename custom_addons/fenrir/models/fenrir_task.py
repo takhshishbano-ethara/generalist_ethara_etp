@@ -541,15 +541,6 @@ class FenrirTask(models.Model):
                           self._build_instruction_md(include_remarks=True).encode("utf-8"),
                           "text/markdown", GENERATED, None))
 
-        files.append(("rubrics.json",
-                      json.dumps([
-                          {"sequence": r.sequence,
-                           "name": r.name or "",
-                           "description": r.description or ""}
-                          for r in self.rubric_ids.sorted("sequence")
-                      ], indent=2).encode("utf-8"),
-                      "application/json", GENERATED, None))
-
         # if self.rubrics_file:
         #     name = _slug(self.rubrics_filename or "rubrics_source")
         #     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
@@ -715,7 +706,7 @@ class FenrirTask(models.Model):
                 "file_name": self.assets_filename or "assets",
                 "location": "resources/",
                 "license": "Self-created",
-                "source_url": self.assets_url or None,
+                "source_url": None,
                 "notes": "",
             })
         return {"task_id": self.code, "assets": assets}

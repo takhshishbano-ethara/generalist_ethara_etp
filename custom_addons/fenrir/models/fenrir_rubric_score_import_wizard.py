@@ -104,7 +104,7 @@ class FenrirRubricScoreImportWizard(models.TransientModel):
             rating = score.rating
             if rating_raw:
                 try:
-                    rating = float(rating_raw.replace(",", "."))
+                    rating = int(round(float(rating_raw.replace(",", "."))))
                 except ValueError:
                     skipped_bad_rating.append(f"{name} ('{rating_raw}')")
                     continue

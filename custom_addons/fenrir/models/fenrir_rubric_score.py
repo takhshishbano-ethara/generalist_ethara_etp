@@ -37,7 +37,7 @@ class FenrirRubricScore(models.Model):
     rubric_sequence = fields.Integer(related="rubric_id.sequence",
                                      store=True, readonly=True)
 
-    rating = fields.Float(string="Rating")
+    rating = fields.Integer(string="Rating")
     justification = fields.Text(string="Justification")
 
     _sql_constraints = [

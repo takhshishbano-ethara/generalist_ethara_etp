@@ -162,7 +162,7 @@ class FenrirSellerOffer(models.Model):
         inverse_name="seller_offer_id",
         string="Rubric Scores",
     )
-    overall_rating = fields.Float(string="Overall Rating", tracking=True)
+    overall_rating = fields.Integer(string="Overall Rating", tracking=True)
     overall_justification = fields.Text(string="Overall Justification")
 
     notes = fields.Text(string="Internal Notes")
