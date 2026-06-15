@@ -327,8 +327,8 @@ def render(vid, info):
               'VOLUME ["/srv/app"]']
         return "\n".join(L).rstrip() + "\n"
 
-    L += ["COPY entrypoint.sh /entrypoint.sh",
-          "RUN chmod +x /entrypoint.sh", "",
+    L += ["COPY setup.sh /setup.sh",
+          "RUN chmod +x /setup.sh", "",
           'VOLUME ["/srv/app"]']
 
     if role == "static-server":
@@ -341,6 +341,6 @@ def render(vid, info):
 
     if not profile["run_as_root"]:
         L += ["USER appuser", ""]
-    L += ['ENTRYPOINT ["/entrypoint.sh"]',
+    L += ['ENTRYPOINT ["/setup.sh"]',
           f'CMD ["{cmd}"]']
     return "\n".join(L).rstrip() + "\n"

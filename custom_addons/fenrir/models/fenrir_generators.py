@@ -7,7 +7,7 @@ produce the structured outputs described in the requirements doc:
     ├── task_metadata.json        ← _build_task_metadata
     ├── license.json             ← (existing _build_license_doc on the task)
     ├── environment/
-    │   └── setup.sh OR Dockerfile (+ entrypoint.sh, nginx.conf)
+    │   └── Dockerfile (+ setup.sh, nginx.conf)
     │                             ← _build_environment_files
     ├── tests/
     │   └── test_deliverables.sh|py
@@ -66,8 +66,8 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY {test_filename} /opt/tests/{test_filename}
 RUN chmod +x /opt/tests/{test_filename}
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY setup.sh /setup.sh
+RUN chmod +x /setup.sh
 
 VOLUME ["{mount_path}"]
 
@@ -76,7 +76,7 @@ EXPOSE 80
 HEALTHCHECK --interval=15s --timeout=3s --start-period=5s --retries=2 \\
     CMD curl -f http://localhost:80/ || exit 1
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/setup.sh"]
 CMD ["serve"]
 """
 
@@ -152,14 +152,14 @@ WORKDIR /srv/app
 COPY {test_filename} /opt/tests/{test_filename}
 RUN chmod +x /opt/tests/{test_filename}
 
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+COPY setup.sh /setup.sh
+RUN chmod +x /setup.sh
 
 VOLUME ["{mount_path}"]
 
 EXPOSE 8000
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/setup.sh"]
 CMD ["serve"]
 """
 
@@ -363,7 +363,7 @@ def build_environment_files(task):
     Auto mode (no manual slots set) generates one Dockerfile per
     selected runtime via lib/dockerfile_builder.py. Single runtime →
     "Dockerfile"; multiple → "Dockerfile.<variant_id>" per runtime.
-    entrypoint.sh + nginx.conf are emitted from the static templates.
+    setup.sh + nginx.conf are emitted from the static templates.
     Falls back to the legacy static Dockerfile when no runtimes are
     picked so submit-time generation never fails.
     """
@@ -402,7 +402,7 @@ def build_environment_files(task):
             mount_path=mount_path,
         )))
 
-    files.append(("entrypoint.sh", ENTRYPOINT_STATIC_TEMPLATE.format(
+    files.append(("setup.sh", ENTRYPOINT_STATIC_TEMPLATE.format(
         mount_path=mount_path,
         test_filename=test_filename,
     )))
