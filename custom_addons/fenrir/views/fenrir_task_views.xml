@@ -653,13 +653,13 @@
                                     <field name="nginx_conf_filename"
                                            placeholder="nginx.conf" nolabel="1"/>
                                 </div>
-                                <label for="entrypoint_sh_attachment" string="start.sh"/>
+                                <label for="entrypoint_sh_attachment" string="setup.sh"/>
                                 <div class="o_row">
                                     <field name="entrypoint_sh_attachment"
                                            filename="entrypoint_sh_filename"
                                            widget="binary" nolabel="1"/>
                                     <field name="entrypoint_sh_filename"
-                                           placeholder="start.sh" nolabel="1"/>
+                                           placeholder="setup.sh" nolabel="1"/>
                                 </div>
                             </group>
                         </page>

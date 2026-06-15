@@ -368,8 +368,8 @@ class FenrirTask(models.Model):
     dockerignore_filename = fields.Char(default=".dockerignore")
     nginx_conf_attachment = fields.Binary(string="nginx.conf", attachment=True)
     nginx_conf_filename = fields.Char(default="nginx.conf")
-    entrypoint_sh_attachment = fields.Binary(string="start.sh", attachment=True)
-    entrypoint_sh_filename = fields.Char(default="start.sh")
+    entrypoint_sh_attachment = fields.Binary(string="setup.sh", attachment=True)
+    entrypoint_sh_filename = fields.Char(default="setup.sh")
 
     test_deliverables_attachment = fields.Binary(
         string="test_deliverables.sh", attachment=True)
@@ -726,7 +726,7 @@ class FenrirTask(models.Model):
             (self.dockerfile_attachment, self.dockerfile_filename, "Dockerfile"),
             (self.dockerignore_attachment, self.dockerignore_filename, ".dockerignore"),
             (self.nginx_conf_attachment, self.nginx_conf_filename, "nginx.conf"),
-            (self.entrypoint_sh_attachment, self.entrypoint_sh_filename, "start.sh"),
+            (self.entrypoint_sh_attachment, self.entrypoint_sh_filename, "setup.sh"),
         ])
 
     def _test_files(self):
