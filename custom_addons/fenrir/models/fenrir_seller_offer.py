@@ -114,7 +114,10 @@ class FenrirSellerOffer(models.Model):
         tracking=True,
     )
     accepted_delivery = fields.Selection(
-        selection=YES_NO_SELECTION + [("refunded", "Cancelled & Refunded")],
+        selection=YES_NO_SELECTION + [
+            ("refunded", "Cancelled & Refunded"),
+            ("pending_overdue", "Pending (Overdue)"),
+        ],
         string="Accepted Delivery",
         default="no",
         tracking=True,

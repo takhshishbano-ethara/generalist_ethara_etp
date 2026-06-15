@@ -208,6 +208,32 @@ class FenrirTask(models.Model):
                 f"https://drive.google.com/drive/folders/{rec.drive_folder_id}"
                 if rec.drive_folder_id else False)
 
+    def read(self, fields=None, load="_classic_read"):
+        # Defensive: if a Selection field has a stored value that is no
+        # longer in its selection list (schema changed after data was
+        # written), substitute the field's default so the web client does
+        # not crash in SelectionField.template (orphan value → undefined
+        # lookup → "Cannot read properties of undefined (reading '1')").
+        result = super().read(fields=fields, load=load)
+        sel_fields = []
+        for name, field in self._fields.items():
+            if field.type != "selection":
+                continue
+            if fields and name not in fields:
+                continue
+            try:
+                valid = {opt[0] for opt in field._description_selection(self.env)}
+            except Exception:
+                continue
+            default = field.default(self) if callable(field.default) else (field.default or False)
+            sel_fields.append((name, valid, default))
+        for rec in result:
+            for name, valid, default in sel_fields:
+                value = rec.get(name)
+                if value and value not in valid:
+                    rec[name] = default
+        return result
+
     def action_approve_task(self):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
             raise UserError("Only managers can approve tasks.")
@@ -215,6 +241,17 @@ class FenrirTask(models.Model):
         for rec in self:
             drive.upload_task(rec)
             rec.status = "completed"
+
+    def action_reapprove_task(self):
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise UserError("Only managers can re-approve tasks.")
+        drive = self.env["fenrir.drive.service"]
+        for rec in self:
+            drive.upload_task(rec)
+            rec.message_post(
+                body="Task re-approved — files regenerated and overwritten "
+                     "in Google Drive."
+            )
 
     def action_reject_task(self):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
@@ -331,8 +368,8 @@ class FenrirTask(models.Model):
     dockerignore_filename = fields.Char(default=".dockerignore")
     nginx_conf_attachment = fields.Binary(string="nginx.conf", attachment=True)
     nginx_conf_filename = fields.Char(default="nginx.conf")
-    entrypoint_sh_attachment = fields.Binary(string="entrypoint.sh", attachment=True)
-    entrypoint_sh_filename = fields.Char(default="entrypoint.sh")
+    entrypoint_sh_attachment = fields.Binary(string="start.sh", attachment=True)
+    entrypoint_sh_filename = fields.Char(default="start.sh")
 
     test_deliverables_attachment = fields.Binary(
         string="test_deliverables.sh", attachment=True)
@@ -347,11 +384,13 @@ class FenrirTask(models.Model):
     #                        help="Buyer-side pricing")
     price_tier = fields.Selection(
         selection=[
-            ("0-50", "$0-$50"),
-            ("50-100", "$50-$100"),
-            ("100-200", "$100-$200"),
-            ("200+", "$200+"),
+            ("0-50", "0-50"),
+            ("50-100", "50-100"),
+            ("100-150", "100-150"),
+            ("150-200", "150-200"),
+            ("200+", "200+"),
         ],
+        default="0-50",
         string="Price Tier",
         tracking=True,
     )
@@ -687,7 +726,7 @@ class FenrirTask(models.Model):
             (self.dockerfile_attachment, self.dockerfile_filename, "Dockerfile"),
             (self.dockerignore_attachment, self.dockerignore_filename, ".dockerignore"),
             (self.nginx_conf_attachment, self.nginx_conf_filename, "nginx.conf"),
-            (self.entrypoint_sh_attachment, self.entrypoint_sh_filename, "entrypoint.sh"),
+            (self.entrypoint_sh_attachment, self.entrypoint_sh_filename, "start.sh"),
         ])
 
     def _test_files(self):

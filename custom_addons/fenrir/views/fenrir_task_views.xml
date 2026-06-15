@@ -46,6 +46,11 @@
                             string="Reject" class="btn-danger"
                             groups="fenrir.group_fenrir_manager"
                             invisible="not id or status != 'pending_review'"/>
+                    <button name="action_reapprove_task" type="object"
+                            string="Re-approve" class="btn-warning"
+                            groups="fenrir.group_fenrir_manager"
+                            invisible="not id or status not in ('approved', 'completed')"
+                            confirm="Re-approve will regenerate and overwrite this task's files in Google Drive. Continue?"/>
                     <field name="status" widget="statusbar"
                            statusbar_visible="draft,pending_review,completed"/>
                 </header>
@@ -648,13 +653,13 @@
                                     <field name="nginx_conf_filename"
                                            placeholder="nginx.conf" nolabel="1"/>
                                 </div>
-                                <label for="entrypoint_sh_attachment" string="entrypoint.sh"/>
+                                <label for="entrypoint_sh_attachment" string="start.sh"/>
                                 <div class="o_row">
                                     <field name="entrypoint_sh_attachment"
                                            filename="entrypoint_sh_filename"
                                            widget="binary" nolabel="1"/>
                                     <field name="entrypoint_sh_filename"
-                                           placeholder="entrypoint.sh" nolabel="1"/>
+                                           placeholder="start.sh" nolabel="1"/>
                                 </div>
                             </group>
                         </page>
