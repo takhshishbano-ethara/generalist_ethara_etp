@@ -108,10 +108,12 @@ Suggested routes (manager role), base `/api/v1/etp_assessment_ext`:
 
 Config status (lets the app show "ready / not configured" without a
 failing call): use `_param` from
-`odoo.addons.etp_assessment.services.bedrock_questions` — it treats the
-seeded `PLACEHOLDER_*` values as unset. Check provider
-(`etp_assessment.llm_provider`: `bedrock` default / `openrouter`), the
-matching cred params, and `bedrock_images.is_configured(env)` for images.
+`odoo.addons.etp_assessment.services.vertex_questions` — it treats the
+seeded `PLACEHOLDER_*` values as unset. Single provider — Google Vertex
+AI (Gemini for text + scoring, Imagen for images). Check that EITHER
+`etp_assessment.vertex_api_key` OR `etp_assessment.vertex_access_token`
+is set (the latter additionally requires `vertex_project_id`), and
+`vertex_images.is_configured(env)` for images.
 
 All generation endpoints return clean 400s while creds are placeholders
 (the services raise ValueError/RuntimeError with readable messages —
@@ -121,16 +123,27 @@ catch and map, don't let them 500).
 
 System Parameters under `etp_assessment.*`, pre-seeded (noupdate) with
 `PLACEHOLDER_*` values; anything containing "PLACEHOLDER" counts as
-unset:
+unset. Single provider — Google Vertex AI (Gemini for text + scoring,
+Imagen for images).
 
 | Key | Purpose |
 |---|---|
-| `bedrock_inference_arn` / `bedrock_region` / `bedrock_bearer_token` | text model via Bedrock |
-| `bedrock_image_model_id` | image generation (placeholder = off) |
-| `llm_provider` | `bedrock` (default) or `openrouter` |
-| `openrouter_api_key` / `openrouter_model` | text model via OpenRouter |
+| `vertex_project_id` / `vertex_location` (default `us-central1`) | Vertex AI project + region |
+| `vertex_model` (default `gemini-3-pro`) | text + scoring model id |
+| `vertex_api_key` | Gemini Developer API key (`AIza…`) — preferred for text |
+| `vertex_access_token` | Vertex AI OAuth bearer (~1h lifetime) — required for Imagen |
+| `vertex_image_model` (default `imagen-4.0-generate-001`) | image generation; clear to disable |
 | `seed_system_prompt` / `scoring_system_prompt` | the two live prompts (research team pastes here; applied next call, no deploy) |
 | `skills_system_prompt` / `questions_system_prompt` | legacy two-stage mode only |
+
+Auth routing: provide EITHER `vertex_api_key` (routes to
+`generativelanguage.googleapis.com`) OR `vertex_access_token` (routes to
+`aiplatform.googleapis.com`, requires `vertex_project_id`). Never paste
+an `AIza` key into the access_token slot — that yields a 401
+UNAUTHENTICATED. Imagen is Vertex-AI-only, so image generation needs the
+OAuth bearer path; with api-key-only, clear `vertex_image_model` to
+disable image gen and let approved drafts carry the image prompts in
+their description instead.
 
 ## 6. Client note
 

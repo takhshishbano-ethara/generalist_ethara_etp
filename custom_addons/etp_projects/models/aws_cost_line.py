@@ -1,6 +1,12 @@
 from odoo import api, fields, models
 
 
+SOURCE_SELECTION = [
+    ("aws", "AWS"),
+    ("openrouter", "OpenRouter"),
+]
+
+
 class EtpProjectAwsCostLine(models.Model):
     _name = "etp.project.aws.cost.line"
     _description = "Project AWS Cost Line"
@@ -18,6 +24,11 @@ class EtpProjectAwsCostLine(models.Model):
     period = fields.Date(required=True, index=True)
     period_label = fields.Char(compute="_compute_period_label", store=True)
     service_name = fields.Char(required=True, index=True)
+    source = fields.Selection(
+        SOURCE_SELECTION, default="aws", required=True, index=True,
+        help="Origin of this cost line. AWS rows come from Cost Explorer, "
+             "OpenRouter rows come from the OpenRouter activity API.",
+    )
 
     currency_id = fields.Many2one(
         "res.currency",
@@ -27,12 +38,12 @@ class EtpProjectAwsCostLine(models.Model):
     amount_source = fields.Monetary(currency_field="currency_id", string="Cost (USD)")
     inr_currency_id = fields.Many2one(
         "res.currency",
-        default=lambda s: s.env.ref("base.INR", raise_if_not_found=False)
+        default=lambda s: s.env.ref("base.USD", raise_if_not_found=False)
         or s.env.company.currency_id,
     )
     amount_inr = fields.Monetary(
         currency_field="inr_currency_id", compute="_compute_inr", store=True,
-        string="Cost (INR)",
+        string="Cost (USD)",
     )
 
     _uniq_line = models.Constraint(
@@ -47,12 +58,5 @@ class EtpProjectAwsCostLine(models.Model):
 
     @api.depends("amount_source", "currency_id", "period")
     def _compute_inr(self):
-        inr = self.env.ref("base.INR", raise_if_not_found=False)
         for rec in self:
-            if inr and rec.currency_id and rec.currency_id.id != inr.id and rec.amount_source:
-                rec.amount_inr = rec.currency_id._convert(
-                    rec.amount_source, inr, self.env.company,
-                    rec.period or fields.Date.today(),
-                )
-            else:
-                rec.amount_inr = rec.amount_source
+            rec.amount_inr = rec.amount_source

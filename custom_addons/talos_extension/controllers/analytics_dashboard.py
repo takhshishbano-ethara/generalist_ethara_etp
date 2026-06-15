@@ -64,9 +64,17 @@ TOKEN_FIELDS = (
     "kimi_eval_input_tokens", "kimi_eval_output_tokens",
 )
 
+TOKEN_TO_DOLLAR_RATE = 240000.0
+
 
 def _total_tokens(rec):
     return sum(int(getattr(rec, f, 0) or 0) for f in TOKEN_FIELDS)
+
+
+def _tokens_to_cost(tokens):
+    if not tokens:
+        return 0.0
+    return float(tokens) / TOKEN_TO_DOLLAR_RATE
 
 
 def _pct(part, whole):
@@ -306,12 +314,13 @@ def _sum_tokens_for_domain(env, domain):
 
 def _build_avg_cost(env, scope, filters):
     domain = scope + _create_date_domain(filters["start"], filters["end"])
-    counted, total = _sum_tokens_for_domain(env, domain)
-    average = (total / counted) if counted else 0.0
+    counted, total_tokens = _sum_tokens_for_domain(env, domain)
+    total_cost = _tokens_to_cost(total_tokens)
+    average = (total_cost / counted) if counted else 0.0
     return {
         "tasks_with_cost": counted,
         "average_cost": round(average, 6),
-        "total_cost": round(total, 6),
+        "total_cost": round(total_cost, 6),
     }
 
 
@@ -816,7 +825,8 @@ def _build_kpi_v2(env, ctx):
 
     tasks_count = Talos.search_count(scope)
 
-    total_spend, _turn_count = _sum_turn_tokens(env, attempt_scope)
+    total_spend_tokens, _turn_count = _sum_turn_tokens(env, attempt_scope)
+    total_spend = _tokens_to_cost(total_spend_tokens)
     avg_per_task = (total_spend / tasks_count) if tasks_count else 0.0
 
     approved = Talos.search_count(scope + [("qc_status", "=", "passed")])
@@ -871,7 +881,7 @@ def _build_spend_by_category(env, ctx):
         key = rec.task_type
         if not key:
             continue
-        amount_by_cat[key] = amount_by_cat.get(key, 0.0) + float(_total_tokens(rec))
+        amount_by_cat[key] = amount_by_cat.get(key, 0.0) + _tokens_to_cost(_total_tokens(rec))
     amount_by_cat = {k: round(v, 4) for k, v in amount_by_cat.items()}
     total = round(sum(amount_by_cat.values()), 4)
 
@@ -956,7 +966,7 @@ def _build_daily_burn_rate(env, ctx):
             continue
         ql_id = ql_of_user.get(rec.user_id.id, UNASSIGNED_QL)
         ql_ids.add(ql_id)
-        cost = float(_total_tokens(rec))
+        cost = _tokens_to_cost(_total_tokens(rec))
         per_day.setdefault(day, {})
         per_day[day][ql_id] = per_day[day].get(ql_id, 0.0) + cost
         per_ql_total[ql_id] = per_ql_total.get(ql_id, 0.0) + cost

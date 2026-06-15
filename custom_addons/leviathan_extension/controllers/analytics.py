@@ -41,7 +41,7 @@ STAGE_BUCKETS = (
     ("scraping", "Scraping", ("extracting",), "info"),
     ("generated", "Generated", ("extracted", "generating", "generated"), "warn"),
     ("in_review", "In Review", ("scoring", "scored", "qc_running"), "primary"),
-    ("submitted", "Submitted", ("done", "submitted"), "success"),
+    ("submitted", "Submitted & Done", ("done", "submitted"), "success"),
     ("flagged", "Flagged", ("failed", "discarded", "cancelled"), "danger"),
 )
 
@@ -506,9 +506,9 @@ def _build_overview_kpi(env, scope, project_id):
         ),
         _kpi_item(
             "submitted",
-            "Submitted",
+            "Submitted & Done",
             f"{int(submitted_pct)}%",
-            sub_string=f"{submitted_count} of {total} submitted",
+            sub_string=f"{submitted_count} of {total} submitted & done",
             pattern="up" if submitted_pct >= 50 else "down",
             sign="+" if submitted_pct >= 50 else "-",
         ),

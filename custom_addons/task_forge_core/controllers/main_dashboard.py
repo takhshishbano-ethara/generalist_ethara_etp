@@ -110,6 +110,29 @@ def _backend_quality_field(backend):
     return None
 
 
+# Backends disagree on status field + terminal "completed" values:
+#   aurora-style backends: `state` in ('done', 'submitted')
+#   skoll.skoll:           `qc_status` in ('passed',)
+#   fenrir.task:           `status` in ('completed', 'approved')
+#   talos.talos:           `task_status` in ('Submitted',)
+# Probed in priority order so the bare `state in DONE_STATES` domain
+# doesn't crash on backends like skoll that never had a `state` column.
+_DONE_BY_STATUS_FIELD = (
+    ('state', ('done', 'submitted')),
+    ('qc_status', ('passed',)),
+    ('status', ('completed', 'approved')),
+    ('task_status', ('Submitted',)),
+)
+
+
+def _backend_done_domain(backend):
+    """Return completed-task domain leaves for `backend`, or None if no status field."""
+    for name, values in _DONE_BY_STATUS_FIELD:
+        if name in backend._fields:
+            return [(name, 'in', list(values))]
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -736,9 +759,11 @@ class MainDashboardController(http.Controller):
                 limit=limit,
             )
 
-            # Per-project metrics — one set of backend queries per project
-            # (we can't bulk across projects because each may point at a
-            # different backend model).
+            # Backend status field varies: crowley/vegeta/leviathan/gohan use
+            # `state`, skoll uses `qc_status`, fenrir uses `status`, talos uses
+            # `task_status`. Resolve per-backend so pending/overdue aren't zeroed.
+            STATUS_FIELDS = ('state', 'qc_status', 'status', 'task_status')
+
             metrics_by_proj = {}
             for proj in projects:
                 backend_name = proj.connected_table
@@ -746,46 +771,29 @@ class MainDashboardController(http.Controller):
                     metrics_by_proj[proj.id] = (0, 0, 0, 0.0, 0.0)
                     continue
                 backend = request.env[backend_name].sudo()
-                has_state = 'state' in backend._fields
-                has_duration = 'duration_seconds' in backend._fields
-                quality_field = _backend_quality_field(backend)
 
-                # Completed rows in window: count + sum(seconds) + avg(quality).
-                comp_fields = []
-                if has_duration:
-                    comp_fields.append('duration_seconds:sum')
-                if quality_field:
-                    comp_fields.append(f'{quality_field}:avg')
-                comp_domain = [
-                    ('create_date', '>=', dt_from),
-                    ('create_date', '<=', dt_to),
-                ]
-                if has_state:
-                    comp_domain.append(('state', 'in', list(DONE_STATES)))
-
-                if comp_fields:
-                    comp_rows = backend.read_group(
-                        domain=comp_domain,
-                        fields=comp_fields,
-                        groupby=[],
-                        lazy=False,
-                    )
-                    summary = comp_rows[0] if comp_rows else {}
-                    completed_cnt = summary.get('__count') or 0
-                    total_secs = summary.get('duration_seconds') if has_duration else 0
-                    avg_quality_val = summary.get(quality_field) if quality_field else 0
+                if hasattr(backend, 'get_performance_metrics'):
+                    perf = backend.get_performance_metrics() or {}
+                    completed_cnt = perf.get('task_done') or 0
+                    aht_measured = perf.get('aht_measured_count') or 0
+                    avg_secs = perf.get('avg_handling_time_seconds') or 0.0
+                    total_mins = (avg_secs * aht_measured) / 60.0
+                    avg_quality_val = perf.get('approval_percentage') or 0
                 else:
-                    completed_cnt = backend.search_count(comp_domain)
-                    total_secs = 0
+                    completed_cnt = 0
+                    total_mins = 0.0
                     avg_quality_val = 0
 
-                # Pending = active states (no date filter — current backlog).
-                if has_state:
+                status_field = next(
+                    (f for f in STATUS_FIELDS if f in backend._fields),
+                    None,
+                )
+                if status_field:
                     pending_cnt = backend.search_count([
-                        ('state', 'in', list(ACTIVE_STATES)),
+                        (status_field, 'in', list(ACTIVE_STATES)),
                     ])
                     overdue_cnt = backend.search_count([
-                        ('state', 'in', list(ACTIVE_STATES)),
+                        (status_field, 'in', list(ACTIVE_STATES)),
                         ('create_date', '<=', overdue_threshold),
                     ])
                 else:
@@ -796,8 +804,8 @@ class MainDashboardController(http.Controller):
                     completed_cnt,
                     pending_cnt,
                     overdue_cnt,
-                    (total_secs or 0) / 60.0,    # minutes
-                    avg_quality_val or 0,
+                    total_mins,
+                    avg_quality_val,
                 )
 
             items = []
@@ -1007,12 +1015,16 @@ class MainDashboardController(http.Controller):
                 comp_fields = ['user_id']
                 if has_duration:
                     comp_fields.append('duration_seconds:sum')
-                completed_rows = backend.read_group(
-                    domain=bd + [('state', 'in', list(DONE_STATES))],
-                    fields=comp_fields,
-                    groupby=['user_id'],
-                    lazy=False,
-                )
+                done_leaves = _backend_done_domain(backend)
+                if done_leaves is None:
+                    completed_rows = []
+                else:
+                    completed_rows = backend.read_group(
+                        domain=bd + done_leaves,
+                        fields=comp_fields,
+                        groupby=['user_id'],
+                        lazy=False,
+                    )
 
                 for r in total_rows:
                     uid = r.get('user_id')
@@ -1097,7 +1109,9 @@ class MainDashboardController(http.Controller):
                         ('create_date', '<=', dt_to),
                     ]
                     total += backend.search_count(bd)
-                    comp += backend.search_count(bd + [('state', 'in', list(DONE_STATES))])
+                    done_leaves = _backend_done_domain(backend)
+                    if done_leaves is not None:
+                        comp += backend.search_count(bd + done_leaves)
                 pct = round((comp / total * 100) if total else 0.0, 1)
                 pl_rows.append({
                     'user_id': info['user_id'],

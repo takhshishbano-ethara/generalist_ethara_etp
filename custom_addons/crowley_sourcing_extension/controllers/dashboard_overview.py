@@ -217,7 +217,7 @@ def _compute_kpi(env, gen_scope, projects):
         ),
         _kpi_item(
             "tasks_done_qc",
-            "Tasks Done & QC Done",
+            "Tasks Done",
             done,
             sub_string=f"{qc_done} QC'd · {total_tasks} total",
         ),

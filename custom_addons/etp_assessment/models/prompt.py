@@ -188,29 +188,35 @@ class EtpAssessmentPrompt(models.Model):
     # ---- editable system prompts (Leviathan pattern) ----
     @api.model
     def _get_seed_system_prompt(self):
-        from ..services.bedrock_questions import DEFAULT_SEED_PROMPT
-        return self.env["ir.config_parameter"].sudo().get_param(
-            "etp_assessment.seed_system_prompt", "") or DEFAULT_SEED_PROMPT
+        from ..services.vertex_questions import (
+            DEFAULT_SEED_PROMPT, _load_bundled_prompt,
+        )
+        p = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_assessment.seed_system_prompt", "") or ""
+        if p.strip():
+            return p
+        bundled = _load_bundled_prompt("seed_master.md")
+        return bundled if bundled.strip() else DEFAULT_SEED_PROMPT
 
     @api.model
     def _get_skills_system_prompt(self):
-        from ..services.bedrock_questions import DEFAULT_SKILLS_PROMPT
+        from ..services.vertex_questions import DEFAULT_SKILLS_PROMPT
         return self.env["ir.config_parameter"].sudo().get_param(
             "etp_assessment.skills_system_prompt", "") or DEFAULT_SKILLS_PROMPT
 
     @api.model
     def _get_questions_system_prompt(self):
-        from ..services.bedrock_questions import DEFAULT_QUESTIONS_PROMPT
+        from ..services.vertex_questions import DEFAULT_QUESTIONS_PROMPT
         return self.env["ir.config_parameter"].sudo().get_param(
             "etp_assessment.questions_system_prompt", "") or DEFAULT_QUESTIONS_PROMPT
 
     # ---- RPC entry points used by the Prompt UI ----
     def action_extract_skills(self):
         """Call the LLM, replace skills, return them for progressive render."""
-        from ..services import bedrock_questions
+        from ..services import vertex_questions
         self.ensure_one()
         self.skill_ids.unlink()
-        skills = bedrock_questions.extract_skills(
+        skills = vertex_questions.extract_skills(
             self.env, self._compiled_source_text(), self._get_skills_system_prompt()
         )
         seq = 10
@@ -232,13 +238,13 @@ class EtpAssessmentPrompt(models.Model):
         return created
 
     def action_generate_questions(self):
-        """Generate draft questions. ONE Bedrock/LLM text call either way.
+        """Generate draft questions. ONE Vertex AI Gemini call either way.
 
         seed mode (default, research-team flow): SOP + golden example ->
         questions directly, no skills stage.
         skills mode (legacy): uses previously extracted skills.
         """
-        from ..services import bedrock_questions
+        from ..services import vertex_questions
         self.ensure_one()
         # clear previous drafts (keep approved/denied history? -> drop drafts only)
         self.question_ids.filtered(lambda q: q.state == "draft").unlink()
@@ -249,7 +255,7 @@ class EtpAssessmentPrompt(models.Model):
                     "Seed mode needs a Golden Example Question — paste one "
                     "exemplary question that shows the desired style and depth."
                 )
-            qs = bedrock_questions.generate_questions_from_seed(
+            qs = vertex_questions.generate_questions_from_seed(
                 self.env,
                 self._compiled_source_text(),
                 self.golden_example,
@@ -261,7 +267,7 @@ class EtpAssessmentPrompt(models.Model):
                 {"name": s.name, "max_questions": s.max_questions}
                 for s in self.skill_ids
             ]
-            qs = bedrock_questions.generate_questions(
+            qs = vertex_questions.generate_questions(
                 self.env, self._compiled_source_text(), skills,
                 self._get_questions_system_prompt(),
             )
@@ -329,7 +335,7 @@ class EtpAssessmentPromptQuestion(models.Model):
         default="text",
     )
     # --- image_comparison support: LLM emits two text-to-image prompts,
-    # bedrock_images turns them into actual images before/at approval ---
+    # vertex_images turns them into actual images before/at approval ---
     image_prompt_a = fields.Text(
         string="Image Prompt A",
         help="Text-to-image prompt for Response A (image_comparison only).",
@@ -373,7 +379,7 @@ class EtpAssessmentPromptQuestion(models.Model):
         record. Idempotent: already-generated drafts are skipped; failed ones
         can be retried.
         """
-        from ..services import bedrock_images, s3_service
+        from ..services import vertex_images, s3_service
         todo = self.filtered(
             lambda r: r.question_type == "image_comparison"
             and r.state == "draft"
@@ -387,10 +393,10 @@ class EtpAssessmentPromptQuestion(models.Model):
                 })
                 continue
             try:
-                img_a = bedrock_images.generate_image_b64(
+                img_a = vertex_images.generate_image_b64(
                     self.env, rec.image_prompt_a
                 )
-                img_b = bedrock_images.generate_image_b64(
+                img_b = vertex_images.generate_image_b64(
                     self.env, rec.image_prompt_b
                 )
                 vals = {"image_state": "generated", "image_error": False}

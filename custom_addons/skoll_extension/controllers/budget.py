@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import logging
-from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, timedelta
 
-from odoo import fields, http
+from odoo import http
 from odoo.http import request
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
@@ -12,21 +11,12 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .analytics_dashboard import (
-    UNCATEGORIZED_LABEL,
-    _money,
-    _parse_date,
-    _pct1,
-    _scope,
-    _user_role_tag,
-)
+from .analytics_dashboard import _scope, _user_role_tag
 
 _logger = logging.getLogger(__name__)
 
-DEFAULT_GRAPH_DAYS = 30
-MIN_GRAPH_DAYS = 1
-MAX_GRAPH_DAYS = 365
-DEFAULT_TARGET_AHT_MINUTES = 0.0
+DEFAULT_BURN_GRAPH_DAYS = 30
+MAX_BURN_GRAPH_DAYS = 365
 
 # Burn-per-batch batches collect rows of this backend model via `job_ids`. A
 # project "owns" these batches only when its `connected_table` points here.
@@ -42,189 +32,334 @@ BURN_BATCH_LIMIT = 200
 BURN_TASK_LIMIT = 200
 
 
-def _resolve_filters(params):
-    start = _parse_date(params.get("start_date"))
-    end = _parse_date(params.get("end_date"))
-    try:
-        graph_days = int(params.get("graph_days") or DEFAULT_GRAPH_DAYS)
-    except (TypeError, ValueError):
-        graph_days = DEFAULT_GRAPH_DAYS
-    graph_days = max(MIN_GRAPH_DAYS, min(graph_days, MAX_GRAPH_DAYS))
-    try:
-        target_aht = float(params.get("target_aht_minutes") or DEFAULT_TARGET_AHT_MINUTES)
-    except (TypeError, ValueError):
-        target_aht = DEFAULT_TARGET_AHT_MINUTES
-    include_inactive = str(params.get("include_inactive") or "").lower() in {"1", "true", "yes"}
-    try:
-        project_id_raw = params.get("project_id")
-        project_id = int(project_id_raw) if project_id_raw not in (None, "") else None
-    except (TypeError, ValueError):
-        project_id = None
-    return {
-        "project_id": project_id,
-        "include_inactive": include_inactive,
-        "start_date": start.isoformat() if start else None,
-        "end_date": end.isoformat() if end else None,
-        "graph_days": graph_days,
-        "target_aht_minutes": target_aht,
-    }
-
-
-def _budget_amount(env):
-    try:
-        raw = env["ir.config_parameter"].sudo().get_param("skoll.budget_usd")
-        return float(raw) if raw else 0.0
-    except (TypeError, ValueError):
+def _pct(part, whole):
+    if not whole:
         return 0.0
+    return round((part / whole) * 100.0, 2)
 
 
-def _gen_date_domain(filters):
-    dom = []
-    start = _parse_date(filters.get("start_date"))
-    end = _parse_date(filters.get("end_date"))
-    if start:
-        dom.append(("create_date", ">=", datetime.combine(start, time.min)))
-    if end:
-        dom.append(("create_date", "<=", datetime.combine(end, time.max)))
-    return dom
+def _round2(value):
+    return round(float(value or 0.0), 2)
 
 
-def _gen_scope(env, filters):
-    _tag, task_domain, _personas = _scope(env)
-    out = []
-    for leaf in task_domain:
-        if isinstance(leaf, (list, tuple)) and len(leaf) == 3:
-            f, op, v = leaf
-            out.append((f"task_id.{f}", op, v))
-        else:
-            out.append(leaf)
-    out += _gen_date_domain(filters)
-    return out
+def _parse_date(raw, label):
+    try:
+        return datetime.strptime(raw, "%Y-%m-%d").date(), None
+    except ValueError:
+        return None, return_Response(
+            message=f"Invalid {label} '{raw}'. Expected YYYY-MM-DD.",
+            status=400,
+        )
 
 
-def _build_kpi(env, gen_scope, filters, project_id):
-    Generation = env["skoll.generation"].sudo()
-    budget = _budget_amount(env)
+def _parse_positive_int(raw, label, default, maximum):
+    if not raw:
+        return default, None
+    if not str(raw).isdigit():
+        return None, return_Response(
+            message=f"Invalid {label} '{raw}'. Expected a positive integer.",
+            status=400,
+        )
+    value = int(raw)
+    if value <= 0:
+        return None, return_Response(
+            message=f"{label} must be greater than zero.",
+            status=400,
+        )
+    if value > maximum:
+        return None, return_Response(
+            message=f"{label} must be <= {maximum}.",
+            status=400,
+        )
+    return value, None
 
-    cost_rows = Generation.read_group(gen_scope, ["total_cost:sum"], [])
-    total_consumed = float((cost_rows[0]["total_cost"] if cost_rows else 0.0) or 0.0)
-    remaining = max(0.0, budget - total_consumed)
 
-    graph_days = filters["graph_days"]
-    window_from = fields.Date.context_today(env.user) - timedelta(days=graph_days - 1)
-    window_scope = [
-        leaf for leaf in gen_scope if not (isinstance(leaf, (list, tuple)) and len(leaf) == 3 and leaf[0] == "create_date")
-    ]
-    window_scope += [
-        ("create_date", ">=", datetime.combine(window_from, time.min)),
-    ]
-    window_rows = Generation.read_group(window_scope, ["total_cost:sum"], [])
-    window_spend = float((window_rows[0]["total_cost"] if window_rows else 0.0) or 0.0)
-    daily_burn = window_spend / graph_days if graph_days else 0.0
-    runway_days = (remaining / daily_burn) if daily_burn > 0 else 0.0
+def _parse_positive_float(raw, label):
+    if not raw:
+        return None, None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None, return_Response(
+            message=f"Invalid {label} '{raw}'. Expected a number.",
+            status=400,
+        )
+    if value <= 0:
+        return None, return_Response(
+            message=f"{label} must be greater than zero.",
+            status=400,
+        )
+    return value, None
 
-    pct = _pct1(total_consumed, budget) if budget else 0.0
+
+def _resolve_project_id(env, params):
+    raw = (params.get("project_id") or "").strip()
+    if not raw:
+        return None, None
+    if not raw.isdigit():
+        return None, return_Response(
+            message=f"Invalid project_id '{raw}'. Expected an integer.",
+            status=400,
+        )
+    project_id = int(raw)
+    if not env["project.project"].sudo().browse(project_id).exists():
+        return None, return_Response(
+            message=f"Project '{project_id}' not found.",
+            status=404,
+        )
+    return project_id, None
+
+
+def _resolve_filters(params):
+    raw_start = (params.get("start_date") or "").strip()
+    raw_end = (params.get("end_date") or "").strip()
+    start = end = None
+    if raw_start:
+        start, error = _parse_date(raw_start, "start_date")
+        if error is not None:
+            return None, error
+    if raw_end:
+        end, error = _parse_date(raw_end, "end_date")
+        if error is not None:
+            return None, error
+    if start and end and start > end:
+        return None, return_Response(
+            message="Invalid date range: start_date must be on or before end_date.",
+            status=400,
+        )
+
+    days, error = _parse_positive_int(
+        (params.get("graph_days") or "").strip(),
+        "graph_days",
+        DEFAULT_BURN_GRAPH_DAYS,
+        MAX_BURN_GRAPH_DAYS,
+    )
+    if error is not None:
+        return None, error
+
+    target_aht, error = _parse_positive_float(
+        (params.get("target_aht_minutes") or "").strip(),
+        "target_aht_minutes",
+    )
+    if error is not None:
+        return None, error
+
+    return {
+        "start": start,
+        "end": end,
+        "graph_days": days,
+        "target_aht": target_aht,
+    }, None
+
+
+def _budget_domain(project_id, include_inactive):
+    domain = []
+    if not include_inactive:
+        domain.append(("active", "=", True))
+    if project_id:
+        domain.append(("project_id", "=", project_id))
+    return domain
+
+
+def _cost_line_domain(budgets, filters):
+    domain = [("budget_id", "in", budgets.ids)]
+    if filters["start"]:
+        domain.append(("period", ">=", filters["start"].replace(day=1)))
+    if filters["end"]:
+        domain.append(("period", "<=", filters["end"]))
+    return domain
+
+
+def _build_budget_kpi(env, project_id, include_inactive):
+    Budget = env["etp.project.aws.budget"].sudo()
+    budgets = Budget.search(_budget_domain(project_id, include_inactive))
+
+    total_budget = sum(b.budget_amount or 0.0 for b in budgets)
+    total_consumed = sum(b.total_consumed or 0.0 for b in budgets)
+    total_remaining = sum(b.remaining or 0.0 for b in budgets)
+    daily_burn = sum(b.daily_burn_rate or 0.0 for b in budgets)
+
+    runway_days = None
+    if daily_burn > 0 and total_remaining > 0:
+        runway_days = int(total_remaining // daily_burn)
+    elif daily_burn > 0 and total_remaining <= 0:
+        runway_days = 0
 
     return {
         "budget_count": _delivered_batch_count(env, project_id),
-        "total_budget": {"amount": round(budget, 2), "percentage": 100.0 if budget else 0.0},
-        "total_consumed": {"amount": round(total_consumed, 2), "percentage": pct},
-        "total_remaining": {
-            "amount": round(remaining, 2),
-            "percentage": round(100.0 - pct, 1) if budget else 0.0,
+        "total_budget": {
+            "amount": _round2(total_budget),
+            "percentage": 100.0 if total_budget else 0.0,
         },
-        "daily_burn_rate": round(daily_burn, 2),
-        "runway_days": round(runway_days, 1),
-    }
+        "total_consumed": {
+            "amount": _round2(total_consumed),
+            "percentage": _pct(total_consumed, total_budget),
+        },
+        "total_remaining": {
+            "amount": _round2(total_remaining),
+            "percentage": _pct(total_remaining, total_budget),
+        },
+        "daily_burn_rate": {
+            "amount": _round2(daily_burn),
+            "percentage": _pct(daily_burn, total_budget),
+        },
+        "runway_days": runway_days,
+    }, budgets
 
 
-def _build_service_costs(env, gen_scope):
-    Generation = env["skoll.generation"].sudo()
-    rows = Generation.read_group(
-        gen_scope, ["model_arn", "total_cost:sum"], ["model_arn"]
-    )
-    services = []
-    total = 0.0
-    for row in rows:
-        amount = float(row.get("total_cost") or 0.0)
-        total += amount
-        services.append({"service_name": row.get("model_arn") or "Unknown", "amount": round(amount, 2)})
-    for s in services:
-        s["percentage"] = _pct1(s["amount"], total)
-    services.sort(key=lambda s: s["amount"], reverse=True)
-    return {"total_amount": round(total, 2), "services": services}
+def _build_service_costs(env, budgets, filters):
+    if not budgets:
+        return {"total_amount": 0.0, "services": []}
 
+    Line = env["etp.project.aws.cost.line"].sudo()
+    lines = Line.search(_cost_line_domain(budgets, filters))
 
-def _build_aht_overview(env, gen_scope, target_aht_minutes):
-    Generation = env["skoll.generation"].sudo()
-    rows = Generation.search_read(gen_scope, ["duration_s"])
-    count = 0
-    total_seconds = 0.0
-    for row in rows:
-        d = float(row.get("duration_s") or 0.0)
-        if d > 0:
-            count += 1
-            total_seconds += d
-    total_minutes = total_seconds / 60.0
-    avg_minutes = (total_minutes / count) if count else 0.0
-    if target_aht_minutes > 0:
-        if avg_minutes <= target_aht_minutes:
-            indicator = "ok"
-        else:
-            indicator = "over"
-    else:
-        indicator = "unset"
-    return {
-        "aht_measured_count": count,
-        "aht_total_minutes": round(total_minutes, 2),
-        "aht_average_minutes": round(avg_minutes, 2),
-        "target_aht_minutes": target_aht_minutes,
-        "target_indicator": indicator,
-    }
-
-
-def _build_daily_burn_graph(env, gen_scope, filters):
-    Generation = env["skoll.generation"].sudo()
-    graph_days = filters["graph_days"]
-    today = fields.Date.context_today(env.user)
-    window_from = today - timedelta(days=graph_days - 1)
-    window_scope = [
-        leaf for leaf in gen_scope if not (isinstance(leaf, (list, tuple)) and len(leaf) == 3 and leaf[0] == "create_date")
-    ]
-    window_scope += [
-        ("create_date", ">=", datetime.combine(window_from, time.min)),
-        ("create_date", "<=", datetime.combine(today, time.max)),
-    ]
-    rows = Generation.search_read(window_scope, ["create_date", "total_cost"])
-    per_day = defaultdict(float)
-    for row in rows:
-        cd = row.get("create_date")
-        if not cd:
+    totals = {}
+    grand_total = 0.0
+    for line in lines:
+        amount = line.amount_inr or 0.0
+        if not amount:
             continue
-        if isinstance(cd, str):
-            try:
-                cd = fields.Datetime.from_string(cd)
-            except Exception:
-                continue
-        per_day[cd.date().isoformat()] += float(row.get("total_cost") or 0.0)
+        grand_total += amount
+        key = line.service_name or "Unknown"
+        totals[key] = totals.get(key, 0.0) + amount
+
+    breakdown = [
+        {
+            "service_name": name,
+            "amount": _round2(amount),
+            "percentage": _pct(amount, grand_total),
+        }
+        for name, amount in sorted(totals.items(), key=lambda item: -item[1])
+    ]
+    return {
+        "total_amount": _round2(grand_total),
+        "services": breakdown,
+    }
+
+
+def _aht_generation_domain(env, filters):
+    _tag, task_domain, _personas = _scope(env)
+    domain = []
+    for leaf in task_domain:
+        if isinstance(leaf, (list, tuple)) and len(leaf) == 3:
+            f, op, v = leaf
+            domain.append((f"task_id.{f}", op, v))
+        else:
+            domain.append(leaf)
+    domain.append(("duration_s", ">", 0))
+    if filters["start"]:
+        domain.append((
+            "create_date",
+            ">=",
+            datetime.combine(filters["start"], datetime.min.time()),
+        ))
+    if filters["end"]:
+        domain.append((
+            "create_date",
+            "<",
+            datetime.combine(filters["end"], datetime.min.time()) + timedelta(days=1),
+        ))
+    return domain
+
+
+def _build_aht_overview(env, filters):
+    Gen = env["skoll.generation"].sudo()
+    domain = _aht_generation_domain(env, filters)
+
+    measured = Gen.search_count(domain)
+    rows = Gen.read_group(domain, fields=["duration_s:sum"], groupby=[])
+    total_seconds = (rows[0].get("duration_s") if rows else 0.0) or 0.0
+    total_minutes = total_seconds / 60.0
+
+    avg_rows = Gen.read_group(domain, fields=["duration_s:avg"], groupby=[])
+    avg_seconds = (avg_rows[0].get("duration_s") if avg_rows else 0.0) or 0.0
+    avg_minutes = avg_seconds / 60.0
+
+    target = filters["target_aht"]
+    target_indicator = "no_target"
+    if target:
+        if not measured:
+            target_indicator = "no_data"
+        elif avg_minutes <= target:
+            target_indicator = "on_target"
+        else:
+            target_indicator = "above_target"
+
+    return {
+        "aht_measured_count": measured,
+        "aht_total_minutes": _round2(total_minutes),
+        "aht_average_minutes": _round2(avg_minutes),
+        "target_aht_minutes": _round2(target) if target else None,
+        "target_indicator": target_indicator,
+    }
+
+
+def _build_daily_burn_graph(env, budgets, filters):
+    today = date.today()
+    end = filters["end"] or today
+    if filters["start"]:
+        start = filters["start"]
+    else:
+        start = end - timedelta(days=filters["graph_days"] - 1)
 
     series = []
-    total = 0.0
-    peak_day = {"date": None, "amount": 0.0}
-    for offset in range(graph_days):
-        d = window_from + timedelta(days=offset)
-        amount = round(per_day.get(d.isoformat(), 0.0), 4)
-        total += amount
-        if amount > peak_day["amount"]:
-            peak_day = {"date": d.isoformat(), "amount": amount}
-        series.append({"date": d.isoformat(), "amount": amount})
+    if not budgets:
+        cursor = start
+        while cursor <= end:
+            series.append({"date": cursor.isoformat(), "amount": 0.0})
+            cursor += timedelta(days=1)
+        return {
+            "window": {"start": start.isoformat(), "end": end.isoformat()},
+            "total_amount": 0.0,
+            "average_per_day": 0.0,
+            "peak_day": None,
+            "series": series,
+        }
 
-    avg = (total / graph_days) if graph_days else 0.0
+    window_start_dt = datetime.combine(start, datetime.min.time())
+    window_end_dt = datetime.combine(end, datetime.max.time())
+    daily_by_date = {}
+    seen_tables = set()
+    for project in budgets.mapped("project_id"):
+        table = (getattr(project, "connected_table", None) or "").strip()
+        if not table or table in seen_tables:
+            continue
+        seen_tables.add(table)
+        if table not in env:
+            continue
+        Model = env[table].sudo()
+        if not hasattr(Model, "get_daily_burn_timeseries"):
+            continue
+        rows = Model.get_daily_burn_timeseries(window_start_dt, window_end_dt) or []
+        for iso_date, cost in rows:
+            try:
+                day = date.fromisoformat(iso_date)
+            except (TypeError, ValueError):
+                continue
+            if not (start <= day <= end):
+                continue
+            amount = float(cost or 0.0)
+            if amount <= 0:
+                continue
+            daily_by_date[day] = daily_by_date.get(day, 0.0) + amount
+
+    cursor = start
+    while cursor <= end:
+        amount = daily_by_date.get(cursor, 0.0)
+        series.append({"date": cursor.isoformat(), "amount": _round2(amount)})
+        cursor += timedelta(days=1)
+
+    total = sum(point["amount"] for point in series)
+    peak = max(series, key=lambda p: p["amount"]) if series else None
+    if peak and peak["amount"] == 0.0:
+        peak = None
+    average = total / len(series) if series else 0.0
     return {
-        "window": {"start": window_from.isoformat(), "end": today.isoformat()},
-        "total_amount": round(total, 4),
-        "average_per_day": round(avg, 4),
-        "peak_day": peak_day,
+        "window": {"start": start.isoformat(), "end": end.isoformat()},
+        "total_amount": _round2(total),
+        "average_per_day": _round2(average),
+        "peak_day": peak,
         "series": series,
     }
 
@@ -244,7 +379,6 @@ def _project_owns_batches(env, project_id):
 
 
 def _delivered_batch_count(env, project_id):
-    """Total batches delivered for this project."""
     if not _project_owns_batches(env, project_id):
         return 0
     return env["skoll.batch.delivery"].sudo().search_count(
@@ -271,7 +405,6 @@ def _approval_status(rate, reviewed):
 
 
 def _cost_by_task(env, tasks):
-    """Sum skoll.generation.total_cost per skoll.skoll task (one read_group)."""
     if not tasks:
         return {}
     rows = env["skoll.generation"].sudo().read_group(
@@ -296,14 +429,14 @@ def _serialize_burn_batch(batch, type_labels, status_labels, cost_by_task):
             "ref": t.task_id or "",
             "category": type_labels.get(t.task_type, "") if t.task_type else "",
             "status": status_labels.get(t.qc_status, "") if t.qc_status else "",
-            "burn": round(cost_by_task.get(t.id, 0.0), 2),
+            "burn": _round2(cost_by_task.get(t.id, 0.0)),
         }
         for t in tasks_recs[:BURN_TASK_LIMIT]
     ]
     return {
         "batch_id": batch.name or "",
         "videos": batch.job_count,
-        "burn": round(total_burn, 2),
+        "burn": _round2(total_burn),
         "approval": {"rate": rate, "status": _approval_status(rate, reviewed)},
         "feedback": batch.notes or "",
         "tasks": tasks,
@@ -326,31 +459,57 @@ def _build_burn_per_batch(env, project_id):
     }
 
 
-def _resolve_last_fetched_at(env, project_id, include_inactive):
-    domain = []
-    if not include_inactive:
-        domain.append(("active", "=", True))
-    if project_id:
-        domain.append(("project_id", "=", project_id))
-    budgets = env["etp.project.aws.budget"].sudo().search(domain)
+def _max_last_fetched_at(budgets):
     if not budgets:
         return ""
     ts = max((b.last_fetched_at for b in budgets if b.last_fetched_at), default=None)
     return ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
 
 
+def _latest_fetch_log(env, budgets):
+    if not budgets:
+        return None
+    log = env["etp.project.aws.cost.fetch.log"].sudo().search(
+        [("budget_id", "in", budgets.ids)],
+        order="fetched_at desc, id desc",
+        limit=1,
+    )
+    return log.to_api_dict() if log else None
+
+
 def _build_budget_info_payload(env, project_id, include_inactive, filters):
-    gen_scope = _gen_scope(env, filters)
+    kpi, budgets = _build_budget_kpi(env, project_id, include_inactive)
+    service_costs = _build_service_costs(env, budgets, filters)
+    aht_overview = _build_aht_overview(env, filters)
+    burn_graph = _build_daily_burn_graph(env, budgets, filters)
+
     return {
-        "filters": filters,
-        "kpi": _build_kpi(env, gen_scope, filters, project_id),
-        "service_costs": _build_service_costs(env, gen_scope),
-        "aht_overview": _build_aht_overview(env, gen_scope, filters["target_aht_minutes"]),
-        "daily_burn_graph": _build_daily_burn_graph(env, gen_scope, filters),
-        "budget_timeline": {},
+        "filters": {
+            "project_id": project_id,
+            "include_inactive": include_inactive,
+            "start_date": filters["start"].isoformat() if filters["start"] else None,
+            "end_date": filters["end"].isoformat() if filters["end"] else None,
+            "graph_days": filters["graph_days"],
+            "target_aht_minutes": (
+                _round2(filters["target_aht"]) if filters["target_aht"] else None
+            ),
+        },
+        "kpi": kpi,
+        "service_costs": service_costs,
+        "aht_overview": aht_overview,
+        "daily_burn_graph": burn_graph,
+        "budget_timeline": env["etp.project.token.purchase.request"]
+            .sudo()._get_budget_timeline_for_project(
+                project_id,
+                start=filters["start"],
+                end=filters["end"],
+                graph_days=filters["graph_days"],
+            ),
         "burn_per_batch": _build_burn_per_batch(env, project_id),
-        "allocation_ledger": {},
-        "last_fetched_at": _resolve_last_fetched_at(env, project_id, include_inactive),
+        "allocation_ledger": env["etp.project.token.purchase.request"]
+            .sudo()._get_allocation_ledger_for_project(project_id),
+        "last_fetched_at": _max_last_fetched_at(budgets),
+        "last_fetch_log": _latest_fetch_log(env, budgets),
     }
 
 
@@ -368,23 +527,35 @@ class SkollBudgetController(http.Controller):
         env = request.env
         if _user_role_tag(env) is None:
             return return_Response(
-                message="Forbidden",
+                message="You are not allowed to access Skoll budget.",
                 status=403,
-                errors=["User has no Skoll role"],
             )
+
+        params = request.params or {}
+
+        project_id, error = _resolve_project_id(env, params)
+        if error is not None:
+            return error
+
+        filters, error = _resolve_filters(params)
+        if error is not None:
+            return error
+
+        include_inactive = (params.get("include_inactive") or "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
         try:
-            filters = _resolve_filters(kwargs)
-            payload = _build_budget_info_payload(
-                env, filters["project_id"], filters["include_inactive"], filters
-            )
-        except Exception as exc:
-            _logger.exception("Skoll budget_info failed")
+            data = _build_budget_info_payload(env, project_id, include_inactive, filters)
+        except Exception as e:
+            _logger.exception("skoll_ext_budget_info failed")
             return return_Response(
-                message="Internal Server Error",
-                status=500,
-                errors=[str(exc)],
+                message="Failed to build budget info.",
+                status=400,
+                errors=[str(e)],
             )
-        return return_Response(message="OK", status=200, data=payload)
+
+        return return_Response(message="OK", status=200, data=data)
 
     @http.route(
         "/api/v1/skoll_ext/budget/fetch",
@@ -399,25 +570,63 @@ class SkollBudgetController(http.Controller):
         env = request.env
         if _user_role_tag(env) is None:
             return return_Response(
-                message="Forbidden",
+                message="You are not allowed to access Skoll budget.",
                 status=403,
-                errors=["User has no Skoll role"],
             )
+
+        params = request.params or {}
+
+        project_id, error = _resolve_project_id(env, params)
+        if error is not None:
+            return error
+
+        filters, error = _resolve_filters(params)
+        if error is not None:
+            return error
+
+        include_inactive = (params.get("include_inactive") or "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
+        Budget = env["etp.project.aws.budget"].sudo()
+        budgets_to_fetch = Budget.search(_budget_domain(project_id, include_inactive))
+
+        fetch_errors = []
+        fetched_count = 0
+        for budget in budgets_to_fetch:
+            try:
+                budget._fetch_cost_one(source="api_skoll")
+                budget._maybe_alert_thresholds()
+                fetched_count += 1
+            except Exception as e:
+                _logger.exception(
+                    "skoll_ext_budget_fetch: budget %s failed", budget.id,
+                )
+                fetch_errors.append({
+                    "budget_id": budget.id,
+                    "name": budget.name,
+                    "error": str(e),
+                })
+
         try:
-            filters = _resolve_filters(kwargs)
-            payload = _build_budget_info_payload(
-                env, filters["project_id"], filters["include_inactive"], filters
-            )
-            payload["fetch_summary"] = {
-                "budgets_total": 0,
-                "budgets_fetched": 0,
-                "errors": [],
-            }
-        except Exception as exc:
-            _logger.exception("Skoll budget_fetch failed")
+            data = _build_budget_info_payload(env, project_id, include_inactive, filters)
+        except Exception as e:
+            _logger.exception("skoll_ext_budget_fetch failed")
             return return_Response(
-                message="Internal Server Error",
-                status=500,
-                errors=[str(exc)],
+                message="Failed to build budget info after fetch.",
+                status=400,
+                errors=[str(e)],
             )
-        return return_Response(message="OK", status=200, data=payload)
+
+        data["fetch_summary"] = {
+            "budgets_total": len(budgets_to_fetch),
+            "budgets_fetched": fetched_count,
+            "errors": fetch_errors,
+        }
+
+        return return_Response(
+            message="OK" if not fetch_errors else "Fetched with errors",
+            status=200,
+            errors=fetch_errors or None,
+            data=data,
+        )

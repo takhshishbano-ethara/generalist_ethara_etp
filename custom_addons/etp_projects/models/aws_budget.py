@@ -2,10 +2,16 @@ import calendar
 import logging
 from datetime import date, timedelta
 
+import requests
 from dateutil.relativedelta import relativedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+OPENROUTER_SERVICE_NAME = "OpenRouter"
+OPENROUTER_ACTIVITY_URL = "https://openrouter.ai/api/v1/activity"
+
+AWS_CE_COST_PER_REQUEST_USD = 0.01
 
 _logger = logging.getLogger(__name__)
 
@@ -42,7 +48,7 @@ class EtpProjectAwsBudget(models.Model):
     )
     currency_id = fields.Many2one(
         "res.currency",
-        default=lambda s: s.env.ref("base.INR", raise_if_not_found=False)
+        default=lambda s: s.env.ref("base.USD", raise_if_not_found=False)
         or s.env.company.currency_id,
     )
     usd_currency_id = fields.Many2one(
@@ -57,9 +63,29 @@ class EtpProjectAwsBudget(models.Model):
     tag_key = fields.Char(string="Tag Key", help="AWS cost-allocation tag key, e.g. 'team'.")
     tag_value = fields.Char(string="Tag Value", help="AWS cost-allocation tag value, e.g. 'alpha'.")
 
+    openrouter_enabled = fields.Boolean(
+        string="Fetch OpenRouter Costs", default=False,
+        help="When enabled, OpenRouter activity is fetched alongside AWS Cost Explorer.",
+    )
+    openrouter_api_key = fields.Char(
+        string="OpenRouter API Key",
+        help="Management API key (NOT a regular inference key). "
+             "Create at openrouter.ai/settings/keys.",
+    )
+    last_openrouter_fetched_at = fields.Datetime(
+        readonly=True, string="Last OpenRouter Fetch",
+    )
+
     last_fetched_at = fields.Datetime(readonly=True, tracking=True)
     cost_line_ids = fields.One2many("etp.project.aws.cost.line", "budget_id")
     cost_line_count = fields.Integer(compute="_compute_totals", store=False)
+    fetch_log_ids = fields.One2many(
+        "etp.project.aws.cost.fetch.log", "budget_id",
+        string="Fetch History",
+    )
+    fetch_log_count = fields.Integer(
+        compute="_compute_fetch_log_count", store=False, string="Fetch Log Entries",
+    )
 
     total_consumed = fields.Monetary(
         currency_field="currency_id", compute="_compute_totals", store=False,
@@ -90,11 +116,11 @@ class EtpProjectAwsBudget(models.Model):
         for rec in self:
             rec.usd_currency_id = usd or rec.currency_id
 
-    @api.depends("cost_line_ids.amount_inr", "cost_line_ids.period", "budget_amount")
+    @api.depends("cost_line_ids.amount_source", "cost_line_ids.period", "budget_amount")
     def _compute_totals(self):
         for rec in self:
             rec.cost_line_count = len(rec.cost_line_ids)
-            rec.total_consumed = sum(rec.cost_line_ids.mapped("amount_inr"))
+            rec.total_consumed = sum(rec.cost_line_ids.mapped("amount_source"))
             rec.remaining = (rec.budget_amount or 0.0) - rec.total_consumed
             if rec.budget_amount:
                 rec.percent_consumed = (rec.total_consumed / rec.budget_amount) * 100.0
@@ -104,7 +130,7 @@ class EtpProjectAwsBudget(models.Model):
             if periods:
                 latest = max(periods)
                 latest_total = sum(
-                    rec.cost_line_ids.filtered(lambda l: l.period == latest).mapped("amount_inr")
+                    rec.cost_line_ids.filtered(lambda l: l.period == latest).mapped("amount_source")
                 )
                 days_in_month = calendar.monthrange(latest.year, latest.month)[1]
                 rec.daily_burn_rate = latest_total / days_in_month if days_in_month else 0.0
@@ -139,7 +165,7 @@ class EtpProjectAwsBudget(models.Model):
         latest = max(periods)
         window_start = latest - timedelta(days=window_days - 1)
         window_total = sum(
-            (l.amount_inr or 0.0)
+            (l.amount_source or 0.0)
             for l in self.cost_line_ids
             if l.period and window_start <= l.period <= latest
         )
@@ -172,7 +198,9 @@ class EtpProjectAwsBudget(models.Model):
         notif_type = "success"
         for rec in self:
             try:
-                created, updated = rec._fetch_cost_one()
+                result = rec._fetch_cost_one(source="manual_button")
+                created = result.get("created", 0)
+                updated = result.get("updated", 0)
                 messages.append(
                     "%s [%s=%s]: +%s new, %s updated"
                     % (rec.name, rec.tag_key or "?", rec.tag_value or "?", created, updated)
@@ -192,68 +220,267 @@ class EtpProjectAwsBudget(models.Model):
             },
         }
 
-    def _fetch_cost_one(self):
+    def action_fetch_openrouter(self):
+        messages = []
+        notif_type = "success"
+        for rec in self:
+            if not rec.openrouter_enabled:
+                messages.append("%s: OpenRouter not enabled" % rec.name)
+                notif_type = "warning"
+                continue
+            try:
+                created, updated = rec._fetch_openrouter_cost_one()
+                messages.append(
+                    "%s [OpenRouter]: +%s new, %s updated"
+                    % (rec.name, created, updated)
+                )
+                rec._maybe_alert_thresholds()
+            except UserError as e:
+                messages.append("%s ERROR: %s" % (rec.name, e))
+                notif_type = "warning"
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": notif_type,
+                "title": _("OpenRouter cost fetch"),
+                "message": "\n".join(messages) or _("No records."),
+                "sticky": True,
+            },
+        }
+
+    def _fetch_openrouter_cost_one(self):
         self.ensure_one()
-        if not (self.aws_access_key_id and self.aws_secret_access_key and self.aws_region):
-            raise UserError(_("Set AWS Access Key ID, Secret, and Region first."))
-        if not (self.tag_key and self.tag_value):
-            raise UserError(_("Set Tag Key and Tag Value first."))
+        if not self.openrouter_api_key:
+            raise UserError(_(
+                "OpenRouter API Key required. Use a Management API key "
+                "(not a regular inference key) — see openrouter.ai/settings/keys."
+            ))
         try:
-            import boto3
-        except ImportError:
-            raise UserError(_("Python package 'boto3' is not installed."))
-        end = date.today().replace(day=1)
-        start = end - relativedelta(months=self.fetch_months or 6)
-        client = boto3.client(
-            "ce",
-            aws_access_key_id=self.aws_access_key_id,
-            aws_secret_access_key=self.aws_secret_access_key,
-            region_name=self.aws_region,
-        )
-        try:
-            resp = client.get_cost_and_usage(
-                TimePeriod={
-                    "Start": start.strftime("%Y-%m-%d"),
-                    "End": end.strftime("%Y-%m-%d"),
-                },
-                Granularity="MONTHLY",
-                Metrics=["UnblendedCost"],
-                Filter={"Tags": {"Key": self.tag_key, "Values": [self.tag_value]}},
-                GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+            resp = requests.get(
+                OPENROUTER_ACTIVITY_URL,
+                headers={"Authorization": f"Bearer {self.openrouter_api_key}"},
+                timeout=60,
             )
-        except Exception as e:
-            raise UserError(_("AWS Cost Explorer failed: %s") % e)
+        except requests.RequestException as e:
+            raise UserError(_("OpenRouter request failed: %s") % e)
+        if resp.status_code in (401, 403):
+            raise UserError(_(
+                "OpenRouter returned HTTP %(s)s. The /activity endpoint requires a "
+                "Management API key, not a regular inference key. "
+                "Create one at openrouter.ai/settings/keys."
+            ) % {"s": resp.status_code})
+        if resp.status_code != 200:
+            raise UserError(
+                _("OpenRouter returned HTTP %(s)s: %(t)s")
+                % {"s": resp.status_code, "t": resp.text[:300]}
+            )
+        try:
+            payload = resp.json()
+        except ValueError:
+            raise UserError(_("OpenRouter returned non-JSON response."))
+        rows_raw = payload.get("data") if isinstance(payload, dict) else payload
+        if not isinstance(rows_raw, list):
+            raise UserError(_("OpenRouter returned unexpected response shape."))
+
+        by_month = {}
+        for r in rows_raw:
+            day_str = (r.get("date") or "")[:10]
+            if not day_str:
+                continue
+            try:
+                day = fields.Date.from_string(day_str)
+            except (TypeError, ValueError):
+                continue
+            month_start = day.replace(day=1)
+            by_month[month_start] = by_month.get(month_start, 0.0) + float(r.get("usage") or 0.0)
+
         Line = self.env["etp.project.aws.cost.line"]
         created = updated = 0
-        for result in resp.get("ResultsByTime", []):
-            period = fields.Date.from_string(result["TimePeriod"]["Start"])
-            for group in result.get("Groups", []):
-                service_name = (group["Keys"][0] if group.get("Keys") else "").strip() or "Unknown"
-                amount = float(group["Metrics"]["UnblendedCost"]["Amount"])
-                if amount == 0.0:
-                    continue
-                existing = Line.search(
-                    [
-                        ("budget_id", "=", self.id),
-                        ("period", "=", period),
-                        ("service_name", "=", service_name),
-                    ],
-                    limit=1,
-                )
-                vals = {
-                    "budget_id": self.id,
-                    "period": period,
-                    "service_name": service_name,
-                    "amount_source": amount,
-                }
-                if existing:
-                    existing.write(vals)
-                    updated += 1
-                else:
-                    Line.create(vals)
-                    created += 1
-        self.last_fetched_at = fields.Datetime.now()
+        for period, amount in by_month.items():
+            if amount == 0.0:
+                continue
+            existing = Line.search(
+                [
+                    ("budget_id", "=", self.id),
+                    ("period", "=", period),
+                    ("service_name", "=", OPENROUTER_SERVICE_NAME),
+                ],
+                limit=1,
+            )
+            vals = {
+                "budget_id": self.id,
+                "period": period,
+                "service_name": OPENROUTER_SERVICE_NAME,
+                "amount_source": amount,
+                "source": "openrouter",
+            }
+            if existing:
+                existing.write(vals)
+                updated += 1
+            else:
+                Line.create(vals)
+                created += 1
+        self.last_openrouter_fetched_at = fields.Datetime.now()
+        self.invalidate_recordset(
+            ["cost_line_ids", "total_consumed", "remaining",
+             "percent_consumed", "daily_burn_rate"]
+        )
         return created, updated
+
+    def _fetch_log_snapshot_base(self, source):
+        self.ensure_one()
+        return {
+            "budget_id": self.id,
+            "triggered_by_id": self.env.uid or False,
+            "source": source or "other",
+            "tag_key": self.tag_key or "",
+            "tag_value": self.tag_value or "",
+            "fetch_months": self.fetch_months or 0,
+            "budget_amount": self.budget_amount or 0.0,
+        }
+
+    def _create_fetch_log(self, vals):
+        return self.env["etp.project.aws.cost.fetch.log"].sudo().create(vals)
+
+    def _fetch_cost_one(self, source="other"):
+        self.ensure_one()
+        snapshot = self._fetch_log_snapshot_base(source)
+        api_hit_count = 0
+        api_hit_cost_usd = 0.0
+        try:
+            if not (self.aws_access_key_id and self.aws_secret_access_key and self.aws_region):
+                raise UserError(_("Set AWS Access Key ID, Secret, and Region first."))
+            if not (self.tag_key and self.tag_value):
+                raise UserError(_("Set Tag Key and Tag Value first."))
+            try:
+                import boto3
+            except ImportError:
+                raise UserError(_("Python package 'boto3' is not installed."))
+            end = date.today().replace(day=1)
+            start = end - relativedelta(months=self.fetch_months or 6)
+            client = boto3.client(
+                "ce",
+                aws_access_key_id=self.aws_access_key_id,
+                aws_secret_access_key=self.aws_secret_access_key,
+                region_name=self.aws_region,
+            )
+            try:
+                api_hit_count += 1
+                api_hit_cost_usd = round(
+                    api_hit_count * AWS_CE_COST_PER_REQUEST_USD, 4,
+                )
+                resp = client.get_cost_and_usage(
+                    TimePeriod={
+                        "Start": start.strftime("%Y-%m-%d"),
+                        "End": end.strftime("%Y-%m-%d"),
+                    },
+                    Granularity="MONTHLY",
+                    Metrics=["UnblendedCost"],
+                    Filter={"Tags": {"Key": self.tag_key, "Values": [self.tag_value]}},
+                    GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
+                )
+            except Exception as e:
+                raise UserError(_("AWS Cost Explorer failed: %s") % e)
+            Line = self.env["etp.project.aws.cost.line"]
+            created = updated = 0
+            for result in resp.get("ResultsByTime", []):
+                period = fields.Date.from_string(result["TimePeriod"]["Start"])
+                for group in result.get("Groups", []):
+                    service_name = (group["Keys"][0] if group.get("Keys") else "").strip() or "Unknown"
+                    amount = float(group["Metrics"]["UnblendedCost"]["Amount"])
+                    if amount == 0.0:
+                        continue
+                    existing = Line.search(
+                        [
+                            ("budget_id", "=", self.id),
+                            ("period", "=", period),
+                            ("service_name", "=", service_name),
+                        ],
+                        limit=1,
+                    )
+                    vals = {
+                        "budget_id": self.id,
+                        "period": period,
+                        "service_name": service_name,
+                        "amount_source": amount,
+                    }
+                    if existing:
+                        existing.write(vals)
+                        updated += 1
+                    else:
+                        Line.create(vals)
+                        created += 1
+            self.last_fetched_at = fields.Datetime.now()
+            self.invalidate_recordset(
+                ["cost_line_ids", "total_consumed", "remaining",
+                 "percent_consumed", "daily_burn_rate"]
+            )
+            if self.openrouter_enabled and self.openrouter_api_key:
+                try:
+                    or_created, or_updated = self._fetch_openrouter_cost_one()
+                    created += or_created
+                    updated += or_updated
+                except UserError as ore:
+                    _logger.warning(
+                        "OpenRouter fetch failed for budget %s: %s", self.id, ore,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Unexpected OpenRouter error for budget %s", self.id,
+                    )
+            self._create_fetch_log({
+                **snapshot,
+                "status": "success",
+                "created_count": created,
+                "updated_count": updated,
+                "api_hit_count": api_hit_count,
+                "api_hit_cost_usd": api_hit_cost_usd,
+                "total_consumed": float(self.total_consumed or 0.0),
+                "remaining": float(self.remaining or 0.0),
+                "percent_consumed": float(self.percent_consumed or 0.0),
+                "daily_burn_rate": float(self.daily_burn_rate or 0.0),
+            })
+            return {
+                "created": created,
+                "updated": updated,
+                "api_hit_count": api_hit_count,
+                "api_hit_cost_usd": api_hit_cost_usd,
+            }
+        except UserError as ue:
+            self._create_fetch_log({
+                **snapshot,
+                "status": "error",
+                "error_message": str(ue),
+                "api_hit_count": api_hit_count,
+                "api_hit_cost_usd": api_hit_cost_usd,
+                "total_consumed": float(self.total_consumed or 0.0),
+                "remaining": float(self.remaining or 0.0),
+                "percent_consumed": float(self.percent_consumed or 0.0),
+                "daily_burn_rate": float(self.daily_burn_rate or 0.0),
+            })
+            raise
+        except Exception as exc:
+            _logger.exception(
+                "Unexpected error in _fetch_cost_one for budget %s", self.id,
+            )
+            self._create_fetch_log({
+                **snapshot,
+                "status": "error",
+                "error_message": str(exc),
+                "api_hit_count": api_hit_count,
+                "api_hit_cost_usd": api_hit_cost_usd,
+                "total_consumed": float(self.total_consumed or 0.0),
+                "remaining": float(self.remaining or 0.0),
+                "percent_consumed": float(self.percent_consumed or 0.0),
+                "daily_burn_rate": float(self.daily_burn_rate or 0.0),
+            })
+            raise
+
+    @api.depends("fetch_log_ids")
+    def _compute_fetch_log_count(self):
+        for rec in self:
+            rec.fetch_log_count = len(rec.fetch_log_ids)
 
     def _maybe_alert_thresholds(self):
         self.ensure_one()

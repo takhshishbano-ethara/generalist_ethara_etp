@@ -644,11 +644,11 @@ class DashboardController(http.Controller):
                 total = done = aht_time = 0
                 if backend_name and backend_name in request.env:
                     backend = request.env[backend_name].sudo()
-                    if hasattr(backend, 'get_project_totals'):
-                        m = backend.get_project_totals() or {}
-                        total = m.get('total', 0) or 0
-                        done = m.get('done', 0) or 0
-                        aht_time = m.get('aht_minutes', 0) or 0
+                    if hasattr(backend, 'get_performance_metrics'):
+                        m = backend.get_performance_metrics() or {}
+                        total = m.get('total_task_count', 0) or 0
+                        done = m.get('task_done', 0) or 0
+                        aht_time = m.get('aht_measured_count', 0) or 0
                 percentage = (done / total * 100) if total > 0 else 0.0
 
                 pl_names = ', '.join(p.project_lead.mapped('name')) if p.project_lead else ''

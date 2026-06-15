@@ -111,7 +111,7 @@ class EtpProjectsBudgetConsolidationController(http.Controller):
                 cost_groups = CostLine._read_group(
                     cost_domain,
                     groupby=["project_id", "service_name"],
-                    aggregates=["amount_inr:sum"],
+                    aggregates=["amount_source:sum"],
                 )
                 for project_rec, service, amt in cost_groups:
                     pid = project_rec.id

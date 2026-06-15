@@ -13,6 +13,7 @@ from .analytics_dashboard import (
     TALOS_USER_ROLE_XMLIDS,
     _get_role_ids,
     _scope as _role_scope,
+    _tokens_to_cost,
     _total_tokens,
     _user_has_role,
     _user_role_tag,
@@ -180,8 +181,8 @@ def _compute_kpi(env, gen_scope, project=None):
         gen_scope + [("task_status", "in", list(DONE_STATES))]
     )
 
-    spent = round(_sum_tokens_for(env, gen_scope), 2)
-    budget = _budget_tokens(env)
+    spent = round(_tokens_to_cost(_sum_tokens_for(env, gen_scope)), 2)
+    budget = round(_tokens_to_cost(_budget_tokens(env)), 2)
     if budget > 0:
         burned_sub = (
             f"of ${budget:,.2f} budget · ${max(budget - spent, 0.0):,.2f} remaining"
@@ -588,7 +589,7 @@ def _compute_burned_amount_chart(env, gen_scope):
         items.append({
             "seq": index,
             "code": rec.task_id or "",
-            "cost": round(float(tokens), 4),
+            "cost": round(_tokens_to_cost(tokens), 4),
             "tokens": tokens,
             "duration_seconds": 0,
             "model": "",

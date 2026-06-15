@@ -20,7 +20,7 @@ _logger = logging.getLogger(__name__)
 
 
 def _img_creds(env):
-    from .bedrock_questions import _param
+    from .vertex_questions import _param
     return (
         _param(env, "etp_assessment.vertex_project_id"),
         _param(env, "etp_assessment.vertex_location", "us-central1"),
@@ -31,7 +31,7 @@ def _img_creds(env):
 
 
 def _bearer(env):
-    from .bedrock_questions import _param
+    from .vertex_questions import _param
     return _param(env, "etp_assessment.vertex_access_token")
 
 
@@ -59,7 +59,7 @@ def generate_image_b64(env, prompt, width=1024, height=1024):
     # auth-aware endpoint (same logic as the text model): API key -> Gemini
     # Developer API; OAuth bearer -> Vertex aiplatform. Mixing key + aiplatform
     # is the 401/403 trap we avoid.
-    from .bedrock_questions import _gemini_request
+    from .vertex_questions import _gemini_request
     url, headers = _gemini_request(env, model, "predict")
     payload = {
         "instances": [{"prompt": prompt[:1024]}],

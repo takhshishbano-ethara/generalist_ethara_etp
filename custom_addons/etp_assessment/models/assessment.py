@@ -132,8 +132,8 @@ class EtpAssessment(models.Model):
         string="Auto LLM-Score on Submit",
         default=False,
         help="When enabled, each candidate's responses are scored by the LLM "
-             "automatically as soon as they submit (one Bedrock call per "
-             "candidate). Keep disabled until Bedrock credentials are proven.",
+             "automatically as soon as they submit (one Vertex Gemini call "
+             "per candidate). Keep disabled until Vertex credentials are proven.",
     )
 
     total_questions_available = fields.Integer(
@@ -488,6 +488,19 @@ class EtpAssessment(models.Model):
              time, or manual trigger with no consumer running) directly,
              in small batches, so local dev works without RabbitMQ.
         """
+        # Single-flight guard: only one transaction drains scoring at a time.
+        # Without this, a manual call overlapping the scheduled cron tick (or
+        # two cron workers in multi-process mode) both pick up the same pending
+        # rows, BOTH pay the Vertex round-trip, then one transaction loses on
+        # UPDATE with `could not serialize access due to concurrent update`.
+        # Advisory-xact lock auto-releases at commit/rollback (zero leak risk).
+        # The integer key (arbitrary but stable) is the shared rendezvous.
+        self.env.cr.execute("SELECT pg_try_advisory_xact_lock(%s)", (827193,))
+        if not self.env.cr.fetchone()[0]:
+            _logger.info(
+                "etp_assessment LLM auto-score: another worker holds the "
+                "drain lock; skipping this tick")
+            return
         Resp = self.env["etp.assessment.response"]
 
         # (1) enqueue auto-score assessments still waiting
@@ -501,19 +514,61 @@ class EtpAssessment(models.Model):
                 lambda r: r.needs_llm and r.llm_state in ("not_needed", "pending")
             )._enqueue_subjective_scoring()
 
-        # (2) drain pending responses inline (the broker-less path)
+        # (2) drain pending responses inline — BATCHED PER EVALUATOR.
+        # Group up to ~50 pending responses across all evaluators and make
+        # ONE Vertex call per evaluator (5-20x cheaper than the legacy
+        # per-response sweep). On batch failure for an evaluator, fall back
+        # to per-response for THAT evaluator only so one bad item can't
+        # poison the rest.
+        from ..services import vertex_scoring
         pending = Resp.search([
             ("llm_state", "=", "pending"),
             ("needs_llm", "=", True),
-        ], limit=10)
+        ], limit=50)
+        by_eval = {}
         for resp in pending:
-            try:
-                resp.rmq_score_subjective()
-            except Exception:
-                _logger.exception(
-                    "Cron subjective scoring failed for response %s", resp.id)
-                # rmq_score_subjective already marked it failed
+            by_eval.setdefault(resp.assessment_evaluator_id.id, []).append(resp)
+        for eval_id, resp_list in by_eval.items():
+            if not eval_id:
                 continue
+            ev = self.env["etp.assessment.evaluator"].browse(eval_id)
+            if not ev.exists():
+                continue
+            try:
+                results = vertex_scoring.score_evaluator(self.env, ev)
+                points = resp_list[0]._subjective_points()
+                threshold = resp_list[0]._subjective_pass_threshold()
+                for resp in resp_list:
+                    if resp.id not in results:
+                        continue
+                    r = results[resp.id]
+                    passed = r["score01"] >= threshold
+                    resp.write({
+                        "llm_state": "scored",
+                        "llm_raw_score": r["score01"],
+                        "llm_feedback": r["feedback"],
+                        "llm_score": points if passed else 0,
+                        "llm_max_score": points,
+                        "llm_passed": passed,
+                        "llm_attempts": resp.llm_attempts + 1,
+                        "llm_gate": r.get("gate", "none"),
+                        "llm_verdict_consistency": r.get(
+                            "verdict_consistency", "not_applicable"),
+                        "llm_flags": r.get("flags", ""),
+                    })
+                ev._compute_subjective_rollup()
+            except Exception as exc:
+                _logger.warning(
+                    "Batched cron scoring failed for evaluator %s (%s); "
+                    "falling back to per-response", ev.id, exc)
+                for resp in resp_list:
+                    try:
+                        resp.rmq_score_subjective()
+                    except Exception:
+                        _logger.exception(
+                            "Per-response fallback also failed for %s",
+                            resp.id)
+                        continue
 
         # (3) RESCUE stale 'queued' responses — broker accepted the publish
         # but no consumer scored it within the grace window (consumer down,
@@ -591,9 +646,46 @@ class EtpAssessment(models.Model):
             emp = assignment.employee_id
             recipient_email = emp.work_email or emp.private_email or (emp.user_id.email if emp.user_id else False)
             if not recipient_email:
+                # Render and save the mail.mail anyway so the admin can find
+                # the body (with the candidate's unique link button) under
+                # Technical→Emails, instead of the previous silent skip that
+                # left no trace. State=cancel + failure_reason explains why
+                # it didn't send AND surfaces the URL for one-click copy.
+                # auto_delete=False keeps the row past the cron purge.
+                base = self.env["ir.config_parameter"].sudo().get_param(
+                    "web.base.url", "") or ""
+                portal_link = (
+                    f"{base}/assessment/{assignment.access_token}"
+                    if base else f"/assessment/{assignment.access_token}"
+                )
+                try:
+                    mail_id = template.send_mail(
+                        assignment.id,
+                        force_send=False,
+                        email_values={
+                            "email_to": False,
+                            "auto_delete": False,
+                        },
+                    )
+                    if mail_id:
+                        self.env["mail.mail"].browse(mail_id).write({
+                            "state": "cancel",
+                            "failure_reason": (
+                                f"No email on candidate {emp.name!r} "
+                                f"(work_email/private_email/user email all "
+                                f"empty). Open the Body tab to use the link "
+                                f"button, or send it manually: {portal_link}"
+                            ),
+                        })
+                except Exception as exc:
+                    _logger.error(
+                        "Could not render fallback mail for %r: %s",
+                        emp.name, exc,
+                    )
                 _logger.warning(
-                    "Skipping email for candidate '%s' - no email found (work_email, private_email, user email all empty).",
-                    emp.name
+                    "No email for candidate '%s' — saved mail.mail in "
+                    "'cancel' state. Link: %s",
+                    emp.name, portal_link,
                 )
                 continue
             try:
@@ -775,11 +867,18 @@ class EtpAssessmentEvaluator(models.Model):
                 rec.llm_state = "pending"
 
     def action_llm_score(self):
-        """Trigger subjective (LLM) scoring for this candidate's responses.
+        """Score this candidate's responses in ONE Vertex call (batched).
 
-        Enqueues ONE RabbitMQ task PER justification-bearing response.
-        Idempotent and re-runnable; re-queues pending/failed responses.
+        Bundles every needs_llm response into a single multimodal call and
+        parses a JSON array back — typically 5-20x cheaper than the legacy
+        per-response loop because the system prompt, auth + connection
+        overhead are paid once instead of N times.
+
+        Falls back to the per-response enqueue path on batch failure (so a
+        malformed batch or one bad response can't poison the candidate's
+        whole score).
         """
+        from ..services import vertex_scoring
         for rec in self:
             if rec.state != "submitted":
                 raise UserError(
@@ -790,7 +889,38 @@ class EtpAssessmentEvaluator(models.Model):
             todo = rec.response_ids.filtered(
                 lambda r: r.needs_llm and r.llm_state in
                 ("not_needed", "pending", "queued", "failed"))
-            todo._enqueue_subjective_scoring()
+            if not todo:
+                rec._compute_subjective_rollup()
+                continue
+            try:
+                results = vertex_scoring.score_evaluator(self.env, rec)
+            except Exception as exc:
+                _logger.warning(
+                    "Batched scoring failed for evaluator %s (%s); falling "
+                    "back to per-response enqueue path", rec.id, exc)
+                todo._enqueue_subjective_scoring()
+                rec._compute_subjective_rollup()
+                continue
+            points = todo[:1]._subjective_points()
+            threshold = todo[:1]._subjective_pass_threshold()
+            for resp in todo:
+                if resp.id not in results:
+                    continue
+                r = results[resp.id]
+                passed = r["score01"] >= threshold
+                resp.write({
+                    "llm_state": "scored",
+                    "llm_raw_score": r["score01"],
+                    "llm_feedback": r["feedback"],
+                    "llm_score": points if passed else 0,
+                    "llm_max_score": points,
+                    "llm_passed": passed,
+                    "llm_attempts": resp.llm_attempts + 1,
+                    "llm_gate": r.get("gate", "none"),
+                    "llm_verdict_consistency": r.get(
+                        "verdict_consistency", "not_applicable"),
+                    "llm_flags": r.get("flags", ""),
+                })
             rec._compute_subjective_rollup()
         return True
 
@@ -906,6 +1036,34 @@ class EtpAssessmentResponse(models.Model):
         string="Subjective State",
         copy=False,
     )
+    llm_gate = fields.Selection(
+        [
+            ("none", "None"),
+            ("empty_answer", "Empty Answer"),
+            ("placeholder_answer", "Placeholder Answer"),
+            ("off_topic", "Off Topic"),
+            ("wrong_item", "Wrong Item"),
+            ("injection_attempt", "Injection Attempt"),
+        ],
+        default="none", string="Subjective Gate", readonly=True, copy=False,
+        help="If non-'none', the answer was rejected at intake — score forced "
+             "to 0. injection_attempt also raises an integrity_alert flag.")
+    llm_verdict_consistency = fields.Selection(
+        [
+            ("match", "Match"),
+            ("contradiction", "Contradiction"),
+            ("indeterminate", "Indeterminate"),
+            ("not_applicable", "Not Applicable"),
+        ],
+        default="not_applicable", string="Verdict Consistency",
+        readonly=True, copy=False,
+        help="Did the candidate's committed conclusion agree with the answer "
+             "key? Drives the verdict_contradiction (0.25 cap) and "
+             "verdict_indeterminate (0.40 cap) scoring caps.")
+    llm_flags = fields.Char(
+        string="Subjective Flags", readonly=True, copy=False,
+        help="Comma-separated flags from the grader: non_english, "
+             "integrity_alert, possible_key_error, possible_rubric_leak.")
     subjective_score = fields.Integer(
         related="llm_score", string="Subjective Points", readonly=True)
     subjective_result = fields.Selection(
@@ -990,33 +1148,58 @@ class EtpAssessmentResponse(models.Model):
     # SUBJECTIVE (LLM) scoring — per question, RabbitMQ-driven
     # ------------------------------------------------------------------
     def _enqueue_subjective_scoring(self):
-        """Publish a per-question scoring task to RabbitMQ.
+        """Publish ONE batched-scoring task per CANDIDATE (evaluator).
+
+        Groups self by assessment_evaluator_id and publishes one queue task
+        per unique evaluator; the consumer worker then calls
+        evaluator.action_llm_score() which batches all that candidate's
+        needs_llm responses into a single Vertex call.
+
+        This is the burst-protection design: 500 concurrent submits create
+        ≤500 queue messages, and the consumer's worker count caps in-flight
+        Vertex calls (so 10 workers = max 10 LLM calls at a time, no API
+        rate-limit blow-out).
 
         Honors the assessment's llm_auto_score flag for the on-submit path
         (manual/bulk triggers bypass the flag). Falls back to inline state
         'pending' (cron drainer picks it up) when the broker is unreachable.
         """
+        eligible_by_eval = {}
         for rec in self:
             if not (rec.justification or "").strip():
                 rec.llm_state = "not_needed"
                 continue
             if self.env.context.get("autoscore") and \
                     not rec.assessment_id.llm_auto_score:
-                # auto path but assessment opted out — leave as pending,
-                # the PL triggers it manually later
                 rec.llm_state = "pending"
                 continue
-            rec.llm_state = "queued"
-            try:
-                from ..services import rabbitmq_service
-                rabbitmq_service.publish_score_task(rec.id)
-            except Exception as exc:
-                # broker down (e.g. local dev) — drop to pending so the
-                # cron drainer / manual button can score it
-                _logger.warning(
-                    "Score task publish failed for response %s, "
-                    "falling back to pending: %s", rec.id, exc)
+            eval_id = rec.assessment_evaluator_id.id
+            if not eval_id:
                 rec.llm_state = "pending"
+                continue
+            eligible_by_eval.setdefault(eval_id, self.browse([]))
+            eligible_by_eval[eval_id] |= rec
+
+        if not eligible_by_eval:
+            return
+
+        try:
+            from ..services import rabbitmq_service
+        except Exception:
+            rabbitmq_service = None
+
+        for eval_id, resps in eligible_by_eval.items():
+            resps.write({"llm_state": "queued"})
+            if rabbitmq_service is None:
+                resps.write({"llm_state": "pending"})
+                continue
+            try:
+                rabbitmq_service.publish_evaluator_score_task(eval_id)
+            except Exception as exc:
+                _logger.warning(
+                    "Score task publish failed for evaluator %s, "
+                    "falling back to pending: %s", eval_id, exc)
+                resps.write({"llm_state": "pending"})
 
     def rmq_score_subjective(self):
         """Entry point called by the RabbitMQ consumer (per response).
@@ -1025,14 +1208,14 @@ class EtpAssessmentResponse(models.Model):
         re-runnable. Returns a small status dict for the consumer log.
         """
         self.ensure_one()
-        from ..services import bedrock_scoring
+        from ..services import vertex_scoring
         if not (self.justification or "").strip():
             self.llm_state = "not_needed"
             return {"status": "skipped", "reason": "no justification"}
         # count the attempt up-front so the bounded-retry cron can cap it
         self.llm_attempts = (self.llm_attempts or 0) + 1
         try:
-            result = bedrock_scoring.score_one_response(self.env, self)
+            result = vertex_scoring.score_one_response(self.env, self)
         except Exception as exc:
             _logger.exception("Subjective scoring failed for response %s", self.id)
             self.write({"llm_state": "failed",

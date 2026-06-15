@@ -542,19 +542,19 @@
                         <div>
                             <h6 class="text-center mb-2">Response A</h6>
                             <t t-if="question.image_a">
-                                <img t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Response A"/>
+                                <img referrerpolicy="no-referrer" t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Response A"/>
                             </t>
                             <t t-elif="question.image_a_url">
-                                <img t-att-src="question.image_a_url" alt="Response A"/>
+                                <img referrerpolicy="no-referrer" t-att-src="question.image_a_url" alt="Response A"/>
                             </t>
                         </div>
                         <div>
                             <h6 class="text-center mb-2">Response B</h6>
                             <t t-if="question.image_b">
-                                <img t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_b'" alt="Response B"/>
+                                <img referrerpolicy="no-referrer" t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_b'" alt="Response B"/>
                             </t>
                             <t t-elif="question.image_b_url">
-                                <img t-att-src="question.image_b_url" alt="Response B"/>
+                                <img referrerpolicy="no-referrer" t-att-src="question.image_b_url" alt="Response B"/>
                             </t>
                         </div>
                     </div>
@@ -564,10 +564,10 @@
                 <t t-if="question.question_type == 'image_text'">
                     <div class="mb-4 text-center">
                         <t t-if="question.image_a">
-                            <img t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
+                            <img referrerpolicy="no-referrer" t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
                         </t>
                         <t t-elif="question.image_a_url">
-                            <img t-att-src="question.image_a_url" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
+                            <img referrerpolicy="no-referrer" t-att-src="question.image_a_url" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
                         </t>
                     </div>
                 </t>

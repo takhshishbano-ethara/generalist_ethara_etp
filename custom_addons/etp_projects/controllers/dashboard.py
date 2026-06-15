@@ -103,25 +103,17 @@ def _health(percent_consumed, thresholds=DEFAULT_HEALTH_THRESHOLDS):
 
 
 def _portfolio_currency(budgets):
-    cur = None
-    for b in budgets:
-        if b.currency_id:
-            cur = b.currency_id
-            break
-    if cur:
-        return {"currency": cur.name or "", "currency_symbol": cur.symbol or ""}
-    inr = request.env.ref("base.INR", raise_if_not_found=False)
-    if inr:
-        return {"currency": inr.name or "INR", "currency_symbol": inr.symbol or "\u20b9"}
-    return {"currency": "INR", "currency_symbol": "\u20b9"}
+    usd = request.env.ref("base.USD", raise_if_not_found=False)
+    if usd:
+        return {"currency": usd.name or "USD", "currency_symbol": usd.symbol or "$"}
+    return {"currency": "USD", "currency_symbol": "$"}
 
 
 def _currency_of(budget):
-    cur = budget.currency_id
-    return {
-        "currency": cur.name if cur else "",
-        "currency_symbol": cur.symbol if cur else "",
-    }
+    usd = request.env.ref("base.USD", raise_if_not_found=False)
+    if usd:
+        return {"currency": usd.name or "USD", "currency_symbol": usd.symbol or "$"}
+    return {"currency": "USD", "currency_symbol": "$"}
 
 
 def _project_pair(budget):
@@ -264,7 +256,7 @@ class EtpProjectsDashboardController(http.Controller):
                 if not period:
                     continue
                 dim = calendar.monthrange(period.year, period.month)[1]
-                amt = float(cl.amount_inr or 0.0)
+                amt = float(cl.amount_source or 0.0)
                 daily = amt / dim if dim else 0.0
                 for i in range(dim):
                     d = period + timedelta(days=i)
@@ -353,7 +345,7 @@ class EtpProjectsDashboardController(http.Controller):
                 if not period:
                     continue
                 dim = calendar.monthrange(period.year, period.month)[1]
-                amt = float(cl.amount_inr or 0.0)
+                amt = float(cl.amount_source or 0.0)
                 daily = amt / dim if dim else 0.0
                 svc = cl.service_name or "Other"
                 for i in range(dim):

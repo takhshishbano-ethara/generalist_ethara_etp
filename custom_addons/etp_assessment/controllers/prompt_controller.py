@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """JSON API for the LLM Question Bank generator.
 
-All routes: type="json", auth="user". The client must first authenticate via
+All routes: type="jsonrpc", auth="user". The client must first authenticate via
 POST /web/session/authenticate and carry the session_id cookie. Every request
 body is the standard Odoo JSON-RPC envelope:
 
@@ -19,7 +19,7 @@ from odoo.http import request
 class EtpPromptController(http.Controller):
 
     # ---------------------------------------------------------------- create
-    @http.route("/etp_assessment/prompt/create", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/create", type="jsonrpc", auth="user")
     def create_prompt(self, title=None, source_text=None, category_id=None):
         rec = request.env["etp.assessment.prompt"].create({
             "name": title or "New Prompt",
@@ -29,7 +29,7 @@ class EtpPromptController(http.Controller):
         return rec.to_dict()
 
     # ------------------------------------------------------------------ list
-    @http.route("/etp_assessment/prompt/list", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/list", type="jsonrpc", auth="user")
     def list_prompts(self, limit=50, offset=0):
         """Landing list of prompt sessions (newest first), no children."""
         recs = request.env["etp.assessment.prompt"].search(
@@ -41,7 +41,7 @@ class EtpPromptController(http.Controller):
         }
 
     # ------------------------------------------------------------------- get
-    @http.route("/etp_assessment/prompt/get", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/get", type="jsonrpc", auth="user")
     def get_prompt(self, prompt_id):
         """Full prompt incl. skills + questions — for resume/reload."""
         rec = request.env["etp.assessment.prompt"].browse(prompt_id).exists()
@@ -50,7 +50,7 @@ class EtpPromptController(http.Controller):
         return rec.to_dict()
 
     # ---------------------------------------------------------------- delete
-    @http.route("/etp_assessment/prompt/delete", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/delete", type="jsonrpc", auth="user")
     def delete_prompt(self, prompt_id):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id).exists()
         if rec:
@@ -58,7 +58,7 @@ class EtpPromptController(http.Controller):
         return {"deleted": True}
 
     # ---------------------------------------------------------------- update
-    @http.route("/etp_assessment/prompt/update", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/update", type="jsonrpc", auth="user")
     def update_prompt(self, prompt_id, title=None, source_text=None, category_id=None):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id)
         vals = {}
@@ -73,7 +73,7 @@ class EtpPromptController(http.Controller):
         return rec.to_dict(include_children=False)
 
     # ------------------------------------------------------ resource upload
-    @http.route("/etp_assessment/prompt/upload_resource", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/upload_resource", type="jsonrpc", auth="user")
     def upload_resource(self, prompt_id, filename, file_b64):
         rec = request.env["etp.assessment.prompt.resource"].create({
             "prompt_id": prompt_id,
@@ -82,7 +82,7 @@ class EtpPromptController(http.Controller):
         })
         return rec.to_dict()
 
-    @http.route("/etp_assessment/prompt/remove_resource", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/remove_resource", type="jsonrpc", auth="user")
     def remove_resource(self, resource_id):
         rec = request.env["etp.assessment.prompt.resource"].browse(resource_id).exists()
         if rec:
@@ -90,7 +90,7 @@ class EtpPromptController(http.Controller):
         return {"removed": True}
 
     # ------------------------------------------------------ bank JSON import
-    @http.route("/etp_assessment/bank/import_json", type="json", auth="user")
+    @http.route("/etp_assessment/bank/import_json", type="jsonrpc", auth="user")
     def import_bank_json(self, bank=None, category_id=None,
                          category_name=None, generate_images=False):
         """Import a research-team / generated question-bank JSON into the bank.
@@ -111,7 +111,7 @@ class EtpPromptController(http.Controller):
         return summary
 
     # ----------------------------------------------- CALL 1: extract skills
-    @http.route("/etp_assessment/prompt/extract_skills", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/extract_skills", type="jsonrpc", auth="user")
     def extract_skills(self, prompt_id, source_text=None, title=None, category_id=None):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id)
         vals = {}
@@ -127,7 +127,7 @@ class EtpPromptController(http.Controller):
         return {"skills": skills, "state": rec.state}
 
     # ------------------------------------------------------------ save skills
-    @http.route("/etp_assessment/prompt/save_skills", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/save_skills", type="jsonrpc", auth="user")
     def save_skills(self, skills):
         """Persist edited max_questions (and optional name) before generation."""
         Skill = request.env["etp.assessment.prompt.skill"]
@@ -140,7 +140,7 @@ class EtpPromptController(http.Controller):
         return {"saved": True}
 
     # ------------------------------------------------- generation (seed)
-    @http.route("/etp_assessment/prompt/generate", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/generate", type="jsonrpc", auth="user")
     def generate(self, prompt_id, title=None, notes=None, golden_example=None,
                  max_questions=None, category_id=None):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id)
@@ -161,7 +161,7 @@ class EtpPromptController(http.Controller):
         return {"questions": questions, "state": rec.state}
 
     # -------------------------------------------- image generation (drafts)
-    @http.route("/etp_assessment/prompt/generate_images", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/generate_images", type="jsonrpc", auth="user")
     def generate_images(self, prompt_id, question_ids=None):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id)
         drafts = rec.question_ids
@@ -175,7 +175,7 @@ class EtpPromptController(http.Controller):
         ]}
 
     # --------------------------------------------------- approve / deny one
-    @http.route("/etp_assessment/prompt/decision", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/decision", type="jsonrpc", auth="user")
     def decision(self, question_id, approve):
         q = request.env["etp.assessment.prompt.question"].browse(question_id)
         if approve:
@@ -189,7 +189,7 @@ class EtpPromptController(http.Controller):
         }
 
     # ----------------------------------------------- bulk approve / deny
-    @http.route("/etp_assessment/prompt/decision_bulk", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/decision_bulk", type="jsonrpc", auth="user")
     def decision_bulk(self, question_ids=None, approve=True, prompt_id=None, skill=None):
         """Approve/deny many at once.
 
@@ -221,17 +221,17 @@ class EtpPromptController(http.Controller):
         }
 
     # ------------------------------------------------------------ categories
-    @http.route("/etp_assessment/prompt/categories", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/categories", type="jsonrpc", auth="user")
     def categories(self):
         return request.env["etp.assessment.category"].search_read(
             [], ["id", "name"], order="name")
 
     # -------------------------------------------------------- system prompts
-    @http.route("/etp_assessment/prompt/system_prompts", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/system_prompts", type="jsonrpc", auth="user")
     def get_system_prompts(self):
         """The two live prompts: seed (generation) + scoring."""
         Prompt = request.env["etp.assessment.prompt"]
-        from odoo.addons.etp_assessment.services.bedrock_scoring import (
+        from odoo.addons.etp_assessment.services.vertex_scoring import (
             _get_scoring_prompt,
         )
         return {
@@ -242,7 +242,7 @@ class EtpPromptController(http.Controller):
             "questions": Prompt._get_questions_system_prompt(),
         }
 
-    @http.route("/etp_assessment/prompt/save_system_prompt", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/save_system_prompt", type="jsonrpc", auth="user")
     def save_system_prompt(self, which, value):
         allowed = {"seed", "scoring", "skills", "questions"}
         if which not in allowed:
@@ -252,11 +252,11 @@ class EtpPromptController(http.Controller):
         return {"saved": True}
 
     # ------------------------------------------------- vertex config status
-    @http.route("/etp_assessment/prompt/config_status", type="json", auth="user")
+    @http.route("/etp_assessment/prompt/config_status", type="jsonrpc", auth="user")
     def config_status(self):
         """Lets the app show 'LLM ready' vs 'not configured' without a failed call."""
-        from ..services import bedrock_questions as bq
-        from ..services import bedrock_images, s3_service
+        from ..services import vertex_questions as bq
+        from ..services import vertex_images, s3_service
         env = request.env
         project = bq._param(env, "etp_assessment.vertex_project_id")
         api_key = bq._param(env, "etp_assessment.vertex_api_key")
@@ -266,6 +266,6 @@ class EtpPromptController(http.Controller):
             "model": bq._param(env, "etp_assessment.vertex_model", "gemini-3-pro"),
             "location": bq._param(env, "etp_assessment.vertex_location", "us-central1"),
             "text_configured": bool(project and api_key),
-            "image_configured": bedrock_images.is_configured(env),
+            "image_configured": vertex_images.is_configured(env),
             "s3_configured": s3_service.is_configured(env),
         }
