@@ -90,16 +90,21 @@ class ResConfigSettings(models.TransientModel):
             raise UserError(
                 "Service account JSON must be a UTF-8 text file (%s)." % exc
             )
-        self.etp_assessment_vertex_service_account_json = text
-        self.etp_assessment_vertex_service_account_filename = (
-            self.vertex_sa_upload_filename or "service-account.json"
-        )
+        fname = self.vertex_sa_upload_filename or "service-account.json"
+        # Persist immediately to ir.config_parameter so the value survives
+        # even if res.config.settings.execute() never runs (page refresh,
+        # CSRF expiry, proxy timeout). The Char-via-config_parameter wrapper
+        # only persists on Save; this set_param commits during the onchange
+        # RPC itself.
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("etp_assessment.vertex_service_account_json", text)
+        ICP.set_param("etp_assessment.vertex_service_account_filename", fname)
         # Wipe any cached minted token so the next LLM call re-mints from the
         # newly-uploaded SA — old credentials must not leak across uploads.
-        self.env["ir.config_parameter"].sudo().set_param(
-            "etp_assessment.vertex_minted_token", "")
-        self.env["ir.config_parameter"].sudo().set_param(
-            "etp_assessment.vertex_minted_token_expires", "")
+        ICP.set_param("etp_assessment.vertex_minted_token", "")
+        ICP.set_param("etp_assessment.vertex_minted_token_expires", "")
+        self.etp_assessment_vertex_service_account_json = text
+        self.etp_assessment_vertex_service_account_filename = fname
 
     etp_assessment_pass_threshold = fields.Integer(
         string="Pass Threshold (%)",

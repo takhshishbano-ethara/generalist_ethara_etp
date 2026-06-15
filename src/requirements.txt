@@ -74,7 +74,6 @@ jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.23.0
 jsonschema-specifications==2023.12.1
-jwt==1.4.0
 kiwisolver==1.4.9
 kubernetes==35.0.0
 langchain==0.3.27
@@ -138,7 +137,7 @@ pydantic==2.12.4
 pydantic_core==2.41.5
 pyee==13.0.1
 Pygments==2.18.0
-PyJWT==2.11.0
+PyJWT[crypto]==2.11.0
 PyMuPDF==1.26.1
 pyOpenSSL==24.1.0
 pyparsing==3.2.3
