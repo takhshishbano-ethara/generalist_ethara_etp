@@ -512,3 +512,141 @@ class EtpAssessmentCandidateController(http.Controller):
                 "candidate_ids": assessment.evaluator_ids.ids,
             },
         )
+
+    @http.route(
+        "/api/v1/etp_assessment_ext/candidates/<int:employee_id>/history",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def candidate_history(self, employee_id, **kwargs):
+        """All-time assessment history for one candidate (SCR-099).
+
+        Returns:
+          {
+            "employee": {
+              "id": N,
+              "name": "...",
+              "code": "EMP-NNN",
+              "department": "...",
+              "last_assessment_at": "YYYY-MM-DD",
+            },
+            "stats": {
+              "assessments_taken": N,
+              "avg_score": float,         # 0..100
+              "pass_rate": float,         # 0..100
+              "last_attempt": "YYYY-MM-DD" | null,
+            },
+            "rows": [
+              {
+                "assignment_id": N,
+                "assessment_id": N,
+                "code": "ASM-NNNN",
+                "name": "...",
+                "date": "YYYY-MM-DD",
+                "score": float | null,     # 0..100
+                "passed": bool | null,     # null = in progress
+                "state": "pending|in_progress|submitted",
+              }
+            ]
+          }
+        """
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        employee = (
+            request.env["hr.employee"].sudo().browse(employee_id)
+        )
+        if not employee.exists():
+            return return_Response(message="Candidate not found.", status=404)
+
+        assignments = (
+            request.env["etp.assessment.evaluator"]
+            .sudo()
+            .search(
+                [("employee_id", "=", employee.id)],
+                order="id desc",
+            )
+        )
+
+        PASS_THRESHOLD = 70.0
+        rows = []
+        scores = []
+        passes = 0
+        graded = 0
+        last_date = None
+
+        for asg in assignments:
+            a = asg.assessment_id
+            total_score = asg.total_score or 0
+            max_score = asg.max_possible_score or 0
+            score_pct = (
+                round((total_score / max_score) * 100.0, 2)
+                if max_score else None
+            )
+            passed = (
+                (score_pct is not None and score_pct >= PASS_THRESHOLD)
+                if asg.state == "submitted" else None
+            )
+            attempt_dt = asg.write_date or asg.create_date
+            attempt_date = (
+                attempt_dt.strftime("%Y-%m-%d") if attempt_dt else None
+            )
+            if attempt_date and (last_date is None or attempt_date > last_date):
+                last_date = attempt_date
+
+            if asg.state == "submitted" and score_pct is not None:
+                scores.append(score_pct)
+                graded += 1
+                if passed:
+                    passes += 1
+
+            rows.append({
+                "assignment_id": asg.id,
+                "assessment_id": a.id,
+                "code": a.name or f"ASM-{a.id:04d}",
+                "name": a.name or "",
+                "date": attempt_date,
+                "score": score_pct,
+                "passed": passed,
+                "state": asg.state,
+            })
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "employee": {
+                    "id": employee.id,
+                    "name": employee.name or "",
+                    "code": (
+                        employee.barcode
+                        or getattr(employee, "identification_id", "")
+                        or f"EMP-{employee.id:04d}"
+                    ),
+                    "department": (
+                        employee.department_id.name
+                        if employee.department_id else ""
+                    ),
+                    "job_title": employee.job_title or "",
+                    "last_assessment_at": last_date,
+                },
+                "stats": {
+                    "assessments_taken": len(rows),
+                    "avg_score": (
+                        round(sum(scores) / len(scores), 2) if scores else 0.0
+                    ),
+                    "pass_rate": (
+                        round((passes / graded) * 100.0, 2)
+                        if graded else 0.0
+                    ),
+                    "last_attempt": last_date,
+                },
+                "rows": rows,
+            },
+        )

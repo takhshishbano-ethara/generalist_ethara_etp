@@ -31,6 +31,8 @@ class TaskForgeLeaveController(http.Controller):
         'to_date': {'type': 'date', 'required': True},
         'reason': {'type': 'string', 'required': True},
         'holiday_status_id': {'type': 'int', 'required': False},
+        'attachment': {'type': 'string', 'required': False},
+        'attachment_filename': {'type': 'string', 'required': False},
     })
     def apply_leave(self, **kwargs):
         try:
@@ -172,6 +174,22 @@ class TaskForgeLeaveController(http.Controller):
                     'x_reason': reason,
                 })
 
+                attachment_b64 = jdata.get('attachment')
+                if attachment_b64:
+                    attachment_filename = jdata.get('attachment_filename') or 'attachment'
+                    if leave_type_rec.requires_medical_certificate:
+                        new_leave.write({
+                            'medical_certificate': attachment_b64,
+                            'medical_certificate_filename': attachment_filename,
+                        })
+                    else:
+                        request.env['ir.attachment'].sudo().create({
+                            'name': attachment_filename,
+                            'datas': attachment_b64,
+                            'res_model': 'hr.leave',
+                            'res_id': new_leave.id,
+                        })
+
                 return return_Response(
                     message="Leave request submitted successfully",
                     status=200,
@@ -217,7 +235,7 @@ class TaskForgeLeaveController(http.Controller):
 
             status_param = kwargs.get('status')
             if status_param == 'Pending':
-                domain.append(('state', '=', 'confirm'))
+                domain.append(('state', 'in', ['confirm', 'validate1']))
             elif status_param == 'Approved':
                 domain.append(('state', '=', 'validate'))
             elif status_param == 'Rejected':
@@ -282,9 +300,20 @@ class TaskForgeLeaveController(http.Controller):
                     status=403
                 )
 
+            comment = (jdata.get('comment') or '').strip()
+
             leave.action_approve()
 
-            # Notify the employee
+            if comment:
+                leave.sudo().write({'x_approval_comment': comment})
+                try:
+                    leave.message_post(
+                        body='Approved by %s with comment: %s' % (approver_employee.name, comment),
+                        subtype_xmlid='mail.mt_note',
+                    )
+                except Exception:
+                    pass
+
             request.env['kubera.notification'].sudo().create({
                 'title': 'Leave Approved',
                 'message': f'Your leave from {leave.date_from} to {leave.date_to} has been approved.',
@@ -344,10 +373,23 @@ class TaskForgeLeaveController(http.Controller):
                     status=403
                 )
 
+            comment = (jdata.get('comment') or '').strip()
+
             leave.action_refuse()
 
-            if not leave.first_approver_id:
-                leave.sudo().write({'first_approver_id': approver_employee.id})
+            write_vals = {'x_rejected_by_id': approver_employee.id}
+            if comment:
+                write_vals['x_rejection_reason'] = comment
+            leave.sudo().write(write_vals)
+
+            if comment:
+                try:
+                    leave.message_post(
+                        body='Rejected by %s with reason: %s' % (approver_employee.name, comment),
+                        subtype_xmlid='mail.mt_note',
+                    )
+                except Exception:
+                    pass
 
             request.env['kubera.notification'].sudo().create({
                 'title': 'Leave Rejected',
@@ -474,6 +516,70 @@ class TaskForgeLeaveController(http.Controller):
             'validate': 'Approved',
             'refuse': 'Rejected',
         }
+        if not leave:
+            return {}
+
+        status = state_map.get(leave.state, leave.state)
+        is_approved = leave.state == 'validate'
+        is_rejected = leave.state == 'refuse'
+
+        attachments = []
+        if leave.medical_certificate:
+            attachments.append({
+                'id': leave.id,
+                'name': leave.medical_certificate_filename or 'medical_certificate',
+                'type': 'medical_certificate',
+                'url': '/web/content/hr.leave/%s/medical_certificate?download=true' % leave.id,
+            })
+        try:
+            general_atts = request.env['ir.attachment'].sudo().search([
+                ('res_model', '=', 'hr.leave'),
+                ('res_id', '=', leave.id),
+                ('res_field', '!=', 'medical_certificate'),
+            ])
+            for att in general_atts:
+                attachments.append({
+                    'id': att.id,
+                    'name': att.name or '',
+                    'type': 'attachment',
+                    'url': '/web/content/%s?download=true' % att.id,
+                })
+        except Exception:
+            pass
+
+        approver_chain = []
+        if leave.first_approver_id and leave.state in ('validate1', 'validate'):
+            approver_chain.append({
+                'employee_id': leave.first_approver_id.id,
+                'name': leave.first_approver_id.name or '',
+                'action': 'approved',
+            })
+        rejected_by = getattr(leave, 'x_rejected_by_id', False)
+        if rejected_by:
+            approver_chain.append({
+                'employee_id': rejected_by.id,
+                'name': rejected_by.name or '',
+                'action': 'rejected',
+            })
+
+        balance = None
+        try:
+            if leave.holiday_status_id and leave.employee_id:
+                target_date = leave.request_date_from or fields.Date.today()
+                alloc_data = leave.holiday_status_id.get_allocation_data(leave.employee_id, target_date)
+                emp_alloc = alloc_data.get(leave.employee_id, [])
+                max_leaves = 0
+                remaining = 0
+                for _name, data, *_rest in emp_alloc:
+                    max_leaves += data.get('max_leaves', 0)
+                    remaining += data.get('virtual_remaining_leaves', 0)
+                balance = {'max_leaves': max_leaves, 'remaining_leaves': remaining}
+        except Exception:
+            balance = None
+
+        approval_comment = getattr(leave, 'x_approval_comment', '') or ''
+        rejection_reason = getattr(leave, 'x_rejection_reason', '') or ''
+
         return {
             'id': leave.id if leave.id else 0,
             'employee_id': leave.employee_id.id if leave.employee_id.id else 0,
@@ -482,14 +588,26 @@ class TaskForgeLeaveController(http.Controller):
             'from_date': str(leave.date_from) if leave.date_from else '',
             'to_date': str(leave.date_to) if leave.date_to else '',
             'qc_id': leave.employee_id.task_forge_qr_id.id if leave.employee_id.task_forge_qr_id else 0,
-            'qc_name': leave.employee_id.task_forge_qr_id.name if leave.employee_id.task_forge_qr_id else 0,
+            'qc_name': leave.employee_id.task_forge_qr_id.name if leave.employee_id.task_forge_qr_id else "",
             'pl_id': leave.employee_id.task_forge_pl_id.id if leave.employee_id.task_forge_pl_id else 0,
             'pl_name': leave.employee_id.task_forge_pl_id.name if leave.employee_id.task_forge_pl_id and leave.employee_id.task_forge_pl_id.name else "",
             'reason': leave.x_reason or leave.name or '',
-            'status': state_map.get(leave.state, leave.state),
+            'status': status,
             'is_paid': leave.is_paid,
-            'approved_by_name': leave.first_approver_id.name if leave.first_approver_id else '',
+            'approved_by_name': leave.first_approver_id.name if (leave.first_approver_id and leave.state in ('validate1', 'validate')) else '',
             'created_at': leave.create_date.isoformat() if leave.create_date else '',
+            'request_date_from': str(leave.request_date_from) if leave.request_date_from else '',
+            'request_date_to': str(leave.request_date_to) if leave.request_date_to else '',
+            'total_days': leave.number_of_days or 0,
+            'leave_type_id': leave.holiday_status_id.id if leave.holiday_status_id else 0,
+            'leave_type': leave.holiday_status_id.name if leave.holiday_status_id else '',
+            'leave_type_code': leave.holiday_status_id.ethara_leave_code if leave.holiday_status_id and leave.holiday_status_id.ethara_leave_code else '',
+            'attachments': attachments,
+            'approver_chain': approver_chain,
+            'rejected_by_name': rejected_by.name if (is_rejected and rejected_by) else '',
+            'approval_comment': approval_comment if is_approved else '',
+            'rejection_reason': rejection_reason if is_rejected else '',
+            'balance': balance,
         }
 
     @http.route('/api/v2/taskforge/today_leaves_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')

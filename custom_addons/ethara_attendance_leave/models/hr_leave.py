@@ -37,6 +37,19 @@ class HrLeave(models.Model):
         default=0,
         help='Additional weekend days added due to the sandwich rule.')
 
+    x_approval_comment = fields.Char(
+        string='Approval Comment',
+        help='Optional comment provided by the approver when approving the leave.')
+
+    x_rejected_by_id = fields.Many2one(
+        'hr.employee',
+        string='Rejected By',
+        help='Employee who rejected the leave request. Kept separate from first_approver_id which marks the approving manager.')
+
+    x_rejection_reason = fields.Char(
+        string='Rejection Reason',
+        help='Optional reason provided by the approver when rejecting the leave.')
+
     def _get_leaves_on_public_holiday(self):
         """Skip 'not supposed to work' error for employees missing a resource calendar."""
         problem_leaves = super()._get_leaves_on_public_holiday()

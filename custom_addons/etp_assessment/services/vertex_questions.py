@@ -128,10 +128,14 @@ def _minted_bearer(env):
         return cached
     try:
         import jwt as _jwt
+        if not hasattr(_jwt, "encode"):
+            raise ImportError(
+                "Wrong 'jwt' package installed (no 'encode' attr). "
+                "Two PyPI packages collide on the name `jwt`; we need PyJWT. "
+                "Fix: pip uninstall jwt -y && pip install 'PyJWT[crypto]'")
     except ImportError as exc:
         raise RuntimeError(
-            "Service Account JSON support needs PyJWT installed "
-            "(`pip install PyJWT[crypto]`). %s" % exc)
+            "Service Account JSON support needs PyJWT installed. %s" % exc)
     import httpx
     sa = json.loads(sa_json)
     now = int(time.time())
@@ -232,10 +236,15 @@ def _gemini_request(env, model, suffix):
         return url, {"Content-Type": "application/json",
                      "x-goog-api-key": api_key}
     raise ValueError(
-        "Vertex/Gemini not configured. Set etp_assessment.vertex_api_key "
-        "(AIza... for Gemini Developer API, or AQ.... for Vertex AI Express "
-        "Mode) OR etp_assessment.vertex_access_token + vertex_project_id "
-        "(Vertex AI OAuth) in System Parameters.")
+        "Vertex/Gemini not configured. Provide ONE of: "
+        "(1) etp_assessment.vertex_api_key (AIza... for Gemini Developer API, "
+        "or AQ... for Vertex AI Express Mode); "
+        "(2) etp_assessment.vertex_access_token + vertex_project_id "
+        "(static OAuth bearer); "
+        "(3) upload a service-account JSON in Settings — the module mints "
+        "and auto-refreshes bearers from it. "
+        "Configure in Settings > ETP Assessment, or directly in "
+        "System Parameters.")
 
 
 def _vertex_endpoint(env):

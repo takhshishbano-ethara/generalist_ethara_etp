@@ -292,3 +292,63 @@ class EtpAssessmentDashboardOverviewController(http.Controller):
                 "blocks": blocks,
             },
         )
+
+    @http.route(
+        "/api/v1/etp_assessment_ext/dashboard/kpis",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def etp_assessment_ext_dashboard_kpis(self, **kwargs):
+        """Top-strip KPIs for the Assessments listing screen (SCR-090).
+
+        Returns the four headline counters plus average completion %:
+            {
+                "total":               <int>,
+                "live":                <int>,   # state = in_progress
+                "drafts":              <int>,   # state = draft
+                "total_candidates":    <int>,   # distinct evaluator rows
+                "avg_completion_pct":  <float>  # mean of per-assessment completion %
+            }
+        """
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        env = request.env
+        Assessment = env["etp.assessment"].sudo()
+        Evaluator = env["etp.assessment.evaluator"].sudo()
+
+        total = Assessment.search_count([])
+        live = Assessment.search_count([("state", "=", "in_progress")])
+        drafts = Assessment.search_count([("state", "=", "draft")])
+        total_candidates = Evaluator.search_count([])
+
+        completion_values = []
+        for a in Assessment.search([]):
+            ev_total = len(a.assessment_evaluator_ids)
+            ev_done = sum(
+                1 for ev in a.assessment_evaluator_ids
+                if ev.state == "submitted"
+            )
+            completion_values.append(pct(ev_done, ev_total))
+        avg_completion_pct = (
+            round(sum(completion_values) / len(completion_values), 2)
+            if completion_values else 0.0
+        )
+
+        return return_Response(
+            message="OK",
+            status=200,
+            data={
+                "total": total,
+                "live": live,
+                "drafts": drafts,
+                "total_candidates": total_candidates,
+                "avg_completion_pct": avg_completion_pct,
+            },
+        )

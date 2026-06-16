@@ -1130,7 +1130,7 @@ class EtpAssessmentResponse(models.Model):
                 raise UserError(
                     "This assessment is already locked. Cannot modify responses."
                 )
-            if not rec.line_ids:
+            if not rec.line_ids and rec.question_id.question_type != "subjective":
                 raise UserError(
                     "Please answer at least one dimension before submitting."
                 )

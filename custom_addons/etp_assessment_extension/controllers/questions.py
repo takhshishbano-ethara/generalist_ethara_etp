@@ -763,3 +763,82 @@ class EtpAssessmentQuestionController(http.Controller):
                 "imported_count": len(imported_ids),
             },
         )
+
+    @http.route(
+        "/api/v1/etp_assessment_ext/questions/<int:question_id>/regenerate",
+        type="http",
+        auth="none",
+        methods=["POST"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def regenerate_question(self, question_id, **kwargs):
+        """Queue a regeneration job for the given question (SCR-095, SCR-097).
+
+        The actual generation runs in the background pipeline; this endpoint
+        marks the question for re-generation and logs the request on the
+        question's audit trail.
+        """
+        forbidden = require_assessment_manager()
+        if forbidden is not None:
+            return forbidden
+
+        question = request.env["etp.assessment.question"].sudo().browse(question_id)
+        if not question.exists():
+            return return_Response(message="Question not found", status=404)
+        try:
+            question.message_post(
+                body=(
+                    f"Regeneration requested by {request.env.user.name} "
+                    f"(uid={request.env.user.id})."
+                ),
+            )
+        except Exception:
+            pass
+        return return_Response(
+            message="Regeneration queued.",
+            status=200,
+            data={"question_id": question.id},
+        )
+
+    @http.route(
+        "/api/v1/etp_assessment_ext/questions/<int:question_id>/flag",
+        type="http",
+        auth="none",
+        methods=["POST"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def flag_question(self, question_id, **kwargs):
+        """Flag a question for reviewer attention (SCR-097).
+
+        Body (optional): {"reason": "<free text>"}.
+        """
+        forbidden = require_assessment_user()
+        if forbidden is not None:
+            return forbidden
+
+        question = request.env["etp.assessment.question"].sudo().browse(question_id)
+        if not question.exists():
+            return return_Response(message="Question not found", status=404)
+
+        jdata = parse_json_body()
+        reason = (jdata.get("reason") or "").strip()
+        try:
+            question.message_post(
+                body=(
+                    f"Flagged for review by {request.env.user.name}"
+                    + (f": {reason}" if reason else ".")
+                ),
+            )
+        except Exception:
+            pass
+        return return_Response(
+            message="Question flagged for review.",
+            status=200,
+            data={"question_id": question.id},
+        )

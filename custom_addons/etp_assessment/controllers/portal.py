@@ -245,7 +245,7 @@ class EtpAssessmentPortal(http.Controller):
                     "selected_option_id": int(option_id),
                 }))
 
-        if not line_vals:
+        if not line_vals and question.question_type != "subjective":
             return request.redirect(f"/assessment/{token}")
 
         if existing_response:

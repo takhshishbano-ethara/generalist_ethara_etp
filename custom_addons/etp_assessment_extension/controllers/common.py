@@ -195,7 +195,6 @@ def jsonrpc_response(result, request_id=None):
         json.dumps(payload, default=str),
         headers=[
             ("Content-Type", "application/json; charset=utf-8"),
-            ("Access-Control-Allow-Origin", "*"),
             ("Cache-Control", "no-store"),
         ],
     )
@@ -221,7 +220,6 @@ def jsonrpc_error(code, message, request_id=None, http_status=400):
         status=http_status,
         headers=[
             ("Content-Type", "application/json; charset=utf-8"),
-            ("Access-Control-Allow-Origin", "*"),
             ("Cache-Control", "no-store"),
         ],
     )
