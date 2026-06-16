@@ -90,10 +90,28 @@ def _serialize(record):
     return {
         "id": record.id,
         "name": record.name,
+        "aws_budget_id": record.aws_budget_id.id or None,
+        "aws_budget_name": record.aws_budget_id.display_name or None,
         "project_id": record.project_id.id or None,
         "project_name": record.project_id.display_name or None,
         "status": record.status,
         "iteration": record.iteration,
+        "start_date": record.start_date.isoformat() if record.start_date else None,
+        "delivery_date": record.delivery_date.isoformat() if record.delivery_date else None,
+        "models": [
+            {
+                "model": line.ai_model_id.name or None,
+                "per_task_cost": line.per_task_cost,
+                "line_total": line.line_total,
+            }
+            for line in record.line_ids
+        ],
+        "total_tasks": record.total_tasks,
+        "total_budget": record.total_budget,
+        "rnd_budget": record.rnd_budget,
+        "budget_difference": record.budget_difference,
+        "budget_difference_pct": record.budget_difference_pct,
+        "budget_status": record.budget_status,
         "links": {key: getattr(record, key) or None for key in LINK_FIELDS},
         "s3_links": [_serialize_s3_link(s) for s in record.s3_link_ids],
         "feedback_count": record.feedback_count,

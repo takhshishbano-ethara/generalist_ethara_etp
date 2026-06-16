@@ -11,11 +11,13 @@
         "mail",
         "project",
         "api_auth_gateway",
+        "etp_projects",
     ],
     "data": [
         "security/security.xml",
         "security/ir.model.access.csv",
         "data/client_deliverable_data.xml",
+        "data/ai_model_data.xml",
         "views/client_deliverable_views.xml",
     ],
     "installable": True,

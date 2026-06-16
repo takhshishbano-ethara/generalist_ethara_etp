@@ -16,6 +16,9 @@ STATUS_SELECTION = [
 # Columns produced by `action_export_csv` (feedback log export).
 CSV_FEEDBACK_HEADERS = ["Date", "Author", "Comment", "File"]
 
+# A budget difference within this percentage is considered acceptable.
+BUDGET_TOLERANCE_PCT = 30.0
+
 
 class ClientDeliverable(models.Model):
     """One deliverable record per project.
@@ -39,18 +42,80 @@ class ClientDeliverable(models.Model):
         copy=False,
         default=lambda self: _("New"),
     )
+    aws_budget_id = fields.Many2one(
+        "etp.project.aws.budget",
+        string="Project AWS Budget",
+        ondelete="set null",
+        index=True,
+        tracking=True,
+    )
     project_id = fields.Many2one(
         "project.project",
         string="Project",
-        ondelete="cascade",
+        related="aws_budget_id.project_id",
+        store=True,
+        readonly=True,
         index=True,
-        tracking=True,
     )
     user_id = fields.Many2one(
         "res.users",
         string="Owner",
         default=lambda self: self.env.user,
         required=True,
+    )
+    currency_id = fields.Many2one(
+        "res.currency",
+        string="Currency",
+        default=lambda s: s.env.ref("base.USD", raise_if_not_found=False)
+        or s.env.company.currency_id,
+    )
+
+    # --- Batch details ---
+    line_ids = fields.One2many(
+        "client.deliverable.line",
+        "deliverable_id",
+        string="Models",
+    )
+    start_date = fields.Date(string="Start Date")
+    delivery_date = fields.Date(string="Delivery Date")
+
+    # --- Budget ---
+    total_tasks = fields.Integer(
+        string="Total Tasks",
+        help="Number of tasks for this batch (drives each line's total).",
+    )
+    total_budget = fields.Monetary(
+        string="Total Budget",
+        currency_field="currency_id",
+        help="Our estimated total budget for this batch.",
+    )
+    rnd_budget = fields.Monetary(
+        string="R&D Budget",
+        currency_field="currency_id",
+        compute="_compute_rnd_budget",
+        store=True,
+        readonly=True,
+        help="Sum of all model line totals (Total Tasks × Per Task Cost).",
+    )
+    budget_difference = fields.Monetary(
+        string="Budget Difference",
+        currency_field="currency_id",
+        compute="_compute_difference",
+        store=True,
+        help="R&D Budget − Total Budget.",
+    )
+    budget_difference_pct = fields.Float(
+        string="Difference %",
+        compute="_compute_difference",
+        store=True,
+    )
+    budget_status = fields.Selection(
+        [("ok", "Within tolerance"), ("over", "Over tolerance")],
+        string="Budget Check",
+        compute="_compute_difference",
+        store=True,
+        help="Within tolerance when the difference is at most %d%%."
+        % BUDGET_TOLERANCE_PCT,
     )
 
     status = fields.Selection(
@@ -107,6 +172,23 @@ class ClientDeliverable(models.Model):
     def _compute_feedback_count(self):
         for record in self:
             record.feedback_count = len(record.feedback_ids)
+
+    @api.depends("line_ids.line_total")
+    def _compute_rnd_budget(self):
+        for record in self:
+            record.rnd_budget = sum(record.line_ids.mapped("line_total"))
+
+    @api.depends("total_budget", "rnd_budget")
+    def _compute_difference(self):
+        for record in self:
+            diff = (record.total_budget or 0.0) - (record.rnd_budget or 0.0)
+            record.budget_difference = diff
+            # Percentage measured against our total budget when available,
+            # otherwise against the R&D budget.
+            base = record.total_budget or record.rnd_budget or 0.0
+            pct = (abs(diff) / base * 100.0) if base else 0.0
+            record.budget_difference_pct = pct
+            record.budget_status = "ok" if pct <= BUDGET_TOLERANCE_PCT else "over"
 
     @api.model_create_multi
     def create(self, vals_list):
