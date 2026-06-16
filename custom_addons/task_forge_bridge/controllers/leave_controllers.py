@@ -31,6 +31,8 @@ class TaskForgeLeaveController(http.Controller):
         'to_date': {'type': 'date', 'required': True},
         'reason': {'type': 'string', 'required': True},
         'holiday_status_id': {'type': 'int', 'required': False},
+        'attachment': {'type': 'string', 'required': False},
+        'attachment_filename': {'type': 'string', 'required': False},
     })
     def apply_leave(self, **kwargs):
         try:
@@ -171,6 +173,22 @@ class TaskForgeLeaveController(http.Controller):
                     'name': reason,
                     'x_reason': reason,
                 })
+
+                attachment_b64 = jdata.get('attachment')
+                if attachment_b64:
+                    attachment_filename = jdata.get('attachment_filename') or 'attachment'
+                    if leave_type_rec.requires_medical_certificate:
+                        new_leave.write({
+                            'medical_certificate': attachment_b64,
+                            'medical_certificate_filename': attachment_filename,
+                        })
+                    else:
+                        request.env['ir.attachment'].sudo().create({
+                            'name': attachment_filename,
+                            'datas': attachment_b64,
+                            'res_model': 'hr.leave',
+                            'res_id': new_leave.id,
+                        })
 
                 return return_Response(
                     message="Leave request submitted successfully",

@@ -14,6 +14,10 @@ def _slug(name):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", name or "").strip("_") or "file"
 
 
+def _norm_filename(name):
+    return _slug(name).lower()
+
+
 class FenrirTaskAttachment(models.Model):
     _name = "fenrir.task.attachment"
     _description = "Fenrir Task Attachment"
@@ -174,8 +178,11 @@ class FenrirTaskAttachment(models.Model):
     def _compute_s3_key(self):
         """Derive the S3 object key matching the eventual task export layout."""
         self.ensure_one()
-        safe_name = _slug(self.file_name or f"attachment_{self.id}")
+        raw_name = self.file_name or f"attachment_{self.id}"
         folder = self.folder or "resources"
+        safe_name = (_slug(raw_name)
+                     if folder in ("environment", "tests")
+                     else _norm_filename(raw_name))
         rel_path = safe_name if folder == "root" else f"{folder}/{safe_name}"
 
         config = self.env["fenrir.drive.config"].sudo().get_singleton()

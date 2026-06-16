@@ -41,7 +41,7 @@
                             <group>
                                 <field name="prompt" nolabel="1" placeholder="Enter the prompt text..."/>
                             </group>
-                            <group invisible="question_type not in ('text', 'image_text')">
+                            <group invisible="question_type not in ('text', 'image_text', 'subjective')">
                                 <field name="description" placeholder="Additional description or context"/>
                             </group>
                         </page>
@@ -74,7 +74,7 @@
                                 <field name="video_url" placeholder="https://youtube.com/... or video URL"/>
                             </group>
                         </page>
-                        <page string="Dimensions">
+                        <page string="Dimensions" invisible="question_type == 'subjective'">
                             <field name="question_dimension_ids">
                                 <list>
                                     <field name="sequence" widget="handle"/>

@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_client_deliverable_list" model="ir.ui.view">
+        <field name="name">client.deliverable.list</field>
+        <field name="model">client.deliverable</field>
+        <field name="arch" type="xml">
+            <list string="Client Deliverables">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="status" decoration-info="status == 'draft'" decoration-warning="status in ('commented','rework')" decoration-success="status == 'approved'"/>
+                <field name="iteration"/>
+                <field name="feedback_count"/>
+                <field name="user_id"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_client_deliverable_form" model="ir.ui.view">
+        <field name="name">client.deliverable.form</field>
+        <field name="model">client.deliverable</field>
+        <field name="arch" type="xml">
+            <form string="Client Deliverable">
+                <header>
+                    <field name="status" widget="statusbar" statusbar_visible="draft,delivered,commented,rework,approved" options="{'clickable': '1'}"/>
+                    <button name="action_export_csv" type="object" string="Export Feedback CSV"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Deliverable">
+                            <field name="project_id"/>
+                            <field name="user_id"/>
+                            <field name="iteration"/>
+                        </group>
+                        <group string="Meta">
+                            <field name="feedback_count"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <group string="Provided Links (editable from frontend via API)">
+                        <field name="git_repo_url" widget="url" placeholder="https://github.com/owner/repo"/>
+                        <field name="excel_sheet_url" widget="url" placeholder="https://docs.google.com/spreadsheets/..."/>
+                        <field name="gdrive_url" widget="url" placeholder="https://drive.google.com/drive/folders/..."/>
+                        <separator string="S3 File Links" colspan="2"/>
+                        <field name="s3_link_ids" nolabel="1" colspan="2">
+                            <list editable="bottom">
+                                <field name="name"/>
+                                <field name="url" widget="url"/>
+                            </list>
+                        </field>
+                    </group>
+                    <notebook>
+                        <page string="Client Feedback" name="feedback">
+                            <field name="feedback_ids">
+                                <list editable="bottom">
+                                    <field name="feedback_date"/>
+                                    <field name="author_name" readonly="1" optional="show"/>
+                                    <field name="comment"/>
+                                    <field name="upload_filename" column_invisible="1"/>
+                                    <field name="upload_file" widget="binary" filename="upload_filename" string="Upload"/>
+                                    <field name="file_name" readonly="1" optional="show"/>
+                                    <field name="file_url" widget="url" readonly="1" string="File Link"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Iteration Logs" name="iteration_logs">
+                            <field name="iteration_log_ids" readonly="1">
+                                <list>
+                                    <field name="create_date" string="When"/>
+                                    <field name="iteration"/>
+                                    <field name="from_status"/>
+                                    <field name="to_status"/>
+                                    <field name="user_id"/>
+                                    <field name="note" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="notes"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_client_deliverable_search" model="ir.ui.view">
+        <field name="name">client.deliverable.search</field>
+        <field name="model">client.deliverable</field>
+        <field name="arch" type="xml">
+            <search string="Client Deliverables">
+                <field name="name"/>
+                <field name="project_id"/>
+                <separator/>
+                <filter string="My Deliverables" name="filter_mine" domain="[('user_id', '=', uid)]"/>
+                <filter string="In Rework" name="filter_rework" domain="[('status', '=', 'rework')]"/>
+                <filter string="Approved" name="filter_approved" domain="[('status', '=', 'approved')]"/>
+                <group>
+                    <filter string="Project" name="group_project" context="{'group_by': 'project_id'}"/>
+                    <filter string="Status" name="group_status" context="{'group_by': 'status'}"/>
+                    <filter string="Owner" name="group_user" context="{'group_by': 'user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_client_deliverable" model="ir.actions.act_window">
+        <field name="name">Client Deliverables</field>
+        <field name="res_model">client.deliverable</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_client_deliverable_search"/>
+    </record>
+
+    <menuitem id="menu_client_deliverables_root"
+              name="Client Deliverables"
+              sequence="60"/>
+    <menuitem id="menu_client_deliverable"
+              name="Deliverables"
+              parent="menu_client_deliverables_root"
+              action="action_client_deliverable"
+              sequence="10"/>
+</odoo>

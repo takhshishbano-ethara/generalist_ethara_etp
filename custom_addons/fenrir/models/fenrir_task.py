@@ -14,6 +14,10 @@ def _slug(name):
     return re.sub(r"[^A-Za-z0-9_.-]+", "_", name or "").strip("_") or "file"
 
 
+def _norm_filename(name):
+    return _slug(name).lower()
+
+
 class FenrirTask(models.Model):
     _name = "fenrir.task"
     _description = "Fenrir Task / Project Record"
@@ -547,7 +551,7 @@ class FenrirTask(models.Model):
         #     files.append((name, base64.b64decode(self.rubrics_file), mime, UPLOADED, None))
 
         if self.assets_file:
-            name = _slug(self.assets_filename or "assets")
+            name = _norm_filename(self.assets_filename or "assets")
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
             files.append((f"resources/{name}",
                           base64.b64decode(self.assets_file), mime, UPLOADED, None))
@@ -561,7 +565,10 @@ class FenrirTask(models.Model):
             if not att.has_content():
                 continue
             file_bytes = att._fetch_bytes()
-            safe_name = _slug(att.file_name or f"attachment_{att.id}")
+            raw_name = att.file_name or f"attachment_{att.id}"
+            safe_name = (_slug(raw_name)
+                         if (att.folder or "resources") in ("environment", "tests")
+                         else _norm_filename(raw_name))
             folder = att.folder or "resources"
             mime = mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
             if folder == "root":
@@ -643,7 +650,7 @@ class FenrirTask(models.Model):
                 if not att.datas:
                     continue
                 content = base64.b64decode(att.datas)
-                safe_name = _slug(att.name or f"deliverable_{att.id}")
+                safe_name = _norm_filename(att.name or f"deliverable_{att.id}")
                 mime = att.mimetype or mimetypes.guess_type(safe_name)[0] \
                     or "application/octet-stream"
                 files.append((f"{seller_dir}/deliverables/{safe_name}",
@@ -656,7 +663,7 @@ class FenrirTask(models.Model):
             for deliv in offer.deliverable_file_ids:
                 if not deliv.s3_key:
                     continue
-                safe_name = _slug(deliv.file_name or f"deliverable_{deliv.id}")
+                safe_name = _norm_filename(deliv.file_name or f"deliverable_{deliv.id}")
                 mime = (deliv.mime_type
                         or mimetypes.guess_type(safe_name)[0]
                         or "application/octet-stream")
@@ -687,7 +694,7 @@ class FenrirTask(models.Model):
                 continue
             location = "root" if att.folder == "root" else f"{att.folder or 'resources'}/"
             assets.append({
-                "file_name": att.file_name or f"attachment_{att.id}",
+                "file_name": _norm_filename(att.file_name or f"attachment_{att.id}"),
                 "location": location,
                 "license": att.license_label(),
                 "source_url": att.source_url or None,
@@ -703,7 +710,7 @@ class FenrirTask(models.Model):
         #     })
         if self.assets_file:
             assets.append({
-                "file_name": self.assets_filename or "assets",
+                "file_name": _norm_filename(self.assets_filename or "assets"),
                 "location": "resources/",
                 "license": "Self-created",
                 "source_url": None,
