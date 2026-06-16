@@ -147,6 +147,34 @@ class SkollSkoll(models.Model):
         }
 
     @api.model
+    def get_list_metrics(self):
+        """Lightweight subset of :meth:`get_performance_metrics` for the
+        project-list endpoint: only the total / done / aht-measured counts it
+        actually displays. Skips the QC and cost aggregation the list throws
+        away. ``aht_measured_count`` keeps the same skoll.generation join as the
+        full method; when scope is unrestricted we count generations directly
+        instead of loading every skoll task id first."""
+        domain = self._performance_scope_domain()
+        Skoll = self.sudo()
+        Gen = self.env["skoll.generation"].sudo()
+
+        total_task_count = Skoll.search_count(domain)
+        task_done = Skoll.search_count(domain + [("qc_status", "in", list(DONE_STATES))])
+
+        if domain:
+            task_ids = Skoll.search(domain).ids
+            gen_aht_domain = [("task_id", "in", task_ids), ("duration_s", ">", 0)]
+        else:
+            gen_aht_domain = [("duration_s", ">", 0)]
+        aht_measured_count = Gen.search_count(gen_aht_domain)
+
+        return {
+            "total_task_count": total_task_count,
+            "task_done": task_done,
+            "aht_measured_count": aht_measured_count,
+        }
+
+    @api.model
     def get_tasks_completed_timeseries(self, dt_from, dt_to):
         domain = [
             ("qc_status", "in", list(DONE_STATES)),

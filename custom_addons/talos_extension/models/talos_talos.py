@@ -139,6 +139,22 @@ class TalosTalos(models.Model):
         }
 
     @api.model
+    def get_list_metrics(self):
+        """Lightweight subset of :meth:`get_performance_metrics` for the
+        project-list endpoint: only the total / done / aht-measured counts it
+        actually displays. Crucially this avoids the full ``search([])`` +
+        per-row token summation that ``get_performance_metrics`` does for cost,
+        which the list never uses. ``aht_measured_count`` is 0 here, matching
+        the full method (talos records carry no handling-time)."""
+        domain = self._performance_scope_domain()
+        Talos = self.sudo()
+        return {
+            "total_task_count": Talos.search_count(domain),
+            "task_done": Talos.search_count(domain + [("task_status", "in", list(DONE_STATES))]),
+            "aht_measured_count": 0,
+        }
+
+    @api.model
     def get_tasks_completed_timeseries(self, dt_from, dt_to):
         domain = [
             ("task_status", "in", list(DONE_STATES)),

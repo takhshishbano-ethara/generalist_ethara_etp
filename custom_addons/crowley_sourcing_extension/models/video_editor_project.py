@@ -132,6 +132,20 @@ class VideoEditorProject(models.Model):
         }
 
     @api.model
+    def get_list_metrics(self):
+        """Lightweight subset of :meth:`get_performance_metrics` for the
+        project-list endpoint: only the total / done / aht-measured counts it
+        actually displays. Skips the QC and cost aggregation the list throws
+        away, so it costs 3 ``search_count`` queries instead of 8+."""
+        domain = self._performance_scope_domain()
+        Gen = self.sudo()
+        return {
+            "total_task_count": Gen.search_count(domain),
+            "task_done": Gen.search_count(domain + [("state", "in", list(DONE_STATES))]),
+            "aht_measured_count": Gen.search_count(domain + [("duration_seconds", ">", 0)]),
+        }
+
+    @api.model
     def get_tasks_completed_timeseries(self, dt_from, dt_to):
         domain = [
             ("state", "in", list(DONE_STATES)),

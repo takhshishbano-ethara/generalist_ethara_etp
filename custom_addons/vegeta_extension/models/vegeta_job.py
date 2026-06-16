@@ -167,6 +167,20 @@ class VegetaJob(models.Model):
         }
 
     @api.model
+    def get_list_metrics(self):
+        """Lightweight subset of :meth:`get_performance_metrics` for the
+        project-list endpoint: only the total / done / aht-measured counts it
+        actually displays. Skips the QC aggregation the list throws away, so it
+        costs 3 ``search_count`` queries instead of 6 + a ``_read_group``."""
+        domain = self._performance_scope_domain()
+        Job = self.sudo()
+        return {
+            "total_task_count": Job.search_count(domain),
+            "task_done": Job.search_count(domain + [("state", "in", list(DONE_STATES))]),
+            "aht_measured_count": Job.search_count(domain + [("duration_seconds", ">", 0)]),
+        }
+
+    @api.model
     def get_tasks_completed_timeseries(self, dt_from, dt_to):
         domain = [
             ("state", "in", list(DONE_STATES)),

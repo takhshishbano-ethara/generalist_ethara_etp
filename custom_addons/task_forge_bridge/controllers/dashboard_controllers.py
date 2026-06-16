@@ -628,6 +628,20 @@ class DashboardController(http.Controller):
                 offset = 0
             projects = request.env['project.project'].sudo().search(domain, order='id desc', limit=limit, offset=offset)
             project_data = []
+
+            # Batch the open-blocker counts for the whole page in one query
+            # instead of one search_count per project (the old N+1).
+            blocker_counts = {}
+            if projects:
+                for grp in request.env['task.forge.blocker'].sudo()._read_group(
+                    [('state', 'not in', ['no_issue', 'resolved']),
+                     ('project_id', 'in', projects.ids)],
+                    ['project_id'], ['__count'],
+                ):
+                    project_rec, count = grp
+                    if project_rec:
+                        blocker_counts[project_rec.id] = count
+
             # TaskLog = request.env['task.forge.log'].sudo()  # replaced by per-project backend lookup
             for p in projects:
                 all_member_ids = set(
@@ -644,8 +658,13 @@ class DashboardController(http.Controller):
                 total = done = aht_time = 0
                 if backend_name and backend_name in request.env:
                     backend = request.env[backend_name].sudo()
-                    if hasattr(backend, 'get_performance_metrics'):
-                        m = backend.get_performance_metrics() or {}
+                    # Prefer the lightweight list metrics (total/done/aht only);
+                    # fall back to the full dashboard metrics for any backend
+                    # that hasn't defined the slim variant.
+                    metrics_fn = getattr(backend, 'get_list_metrics', None) or \
+                        getattr(backend, 'get_performance_metrics', None)
+                    if metrics_fn:
+                        m = metrics_fn() or {}
                         total = m.get('total_task_count', 0) or 0
                         done = m.get('task_done', 0) or 0
                         aht_time = m.get('aht_measured_count', 0) or 0
@@ -665,7 +684,7 @@ class DashboardController(http.Controller):
                     'team_count': len(all_member_ids),
                     'pl_name': pl_names,
                     'qr_name': qr_names,
-                    'blockers': request.env['task.forge.blocker'].sudo().search_count([('state', 'not in', ['no_issue', 'resolved']), ('project_id', '=', p.id)]),
+                    'blockers': blocker_counts.get(p.id, 0),
                     'category': safe_get_value(p, 'project_category', 'str'),
                     'type': safe_get_value(p, 'project_type', 'str'),
                     'date_start': safe_get_value(p, 'date_start', 'date'),

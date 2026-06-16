@@ -93,6 +93,23 @@ class FenrirTask(models.Model):
         }
 
     @api.model
+    def get_list_metrics(self):
+        """Lightweight subset of :meth:`get_performance_metrics` for the
+        project-list endpoint: only the total / done / aht-measured counts it
+        actually displays. Skips the QC aggregation and the per-task cost loop
+        the list throws away, so it costs 3 ``search_count`` queries instead of
+        5 + a full-table Python loop."""
+        domain = self._performance_scope_domain()
+        Task = self.sudo()
+        return {
+            "total_task_count": Task.search_count(domain),
+            "task_done": Task.search_count(domain + [("status", "in", list(DONE_STATES))]),
+            "aht_measured_count": Task.search_count(
+                domain + [("estimated_completion_time_hours", ">", 0)]
+            ),
+        }
+
+    @api.model
     def get_tasks_completed_timeseries(self, dt_from, dt_to):
         domain = [
             ("status", "in", list(DONE_STATES)),
