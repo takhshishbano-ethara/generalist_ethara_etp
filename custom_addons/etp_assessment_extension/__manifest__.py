@@ -39,6 +39,7 @@
     ],
     "data": [
         "security/ir.model.access.csv",
+        "data/override_sequence.xml",
     ],
     "installable": True,
     "application": False,

@@ -1,1 +1,3 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_etp_assessment_override_evaluator,etp.assessment.override.evaluator,model_etp_assessment_override,etp_assessment.group_assessment_evaluator,1,0,1,0
+access_etp_assessment_override_manager,etp.assessment.override.manager,model_etp_assessment_override,etp_assessment.group_assessment_manager,1,1,1,1
