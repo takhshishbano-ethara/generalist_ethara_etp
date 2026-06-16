@@ -331,6 +331,7 @@ class EtpAssessmentPromptQuestion(models.Model):
             ("image_comparison", "Image Comparison"),
             ("image_text", "Image + Text"),
             ("video", "Video"),
+            ("subjective", "Subjective"),
         ],
         default="text",
     )

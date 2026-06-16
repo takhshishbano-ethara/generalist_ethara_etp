@@ -529,8 +529,7 @@
                     <p class="mb-0" style="white-space: pre-wrap;"><t t-esc="question.prompt"/></p>
                 </div>
 
-                <!-- Description (for text and image_text types) -->
-                <t t-if="question.description and question.question_type in ('text', 'image_text')">
+                <t t-if="question.description and question.question_type in ('text', 'image_text', 'subjective')">
                     <div class="mb-4">
                         <p style="white-space: pre-wrap;"><t t-esc="question.description"/></p>
                     </div>
@@ -598,8 +597,7 @@
             <form t-attf-action="/assessment/#{token}/submit" method="post">
                 <input type="hidden" name="question_id" t-att-value="question.id"/>
 
-                <!-- Dimensions -->
-                <div class="assessment-card">
+                <div t-if="question.question_type != 'subjective'" class="assessment-card">
                     <h5 class="mb-3">Rate each dimension</h5>
                     <div class="dimensions-grid">
                         <t t-foreach="dimensions" t-as="dim">
@@ -622,9 +620,16 @@
                     </div>
                 </div>
 
-                <!-- Justification -->
                 <t t-set="justification_optional" t-value="question.question_type == 'image_comparison' and not assessment.require_justification_image_comparison"/>
-                <t t-if="not justification_optional">
+                <t t-if="question.question_type == 'subjective'">
+                    <div class="assessment-card">
+                        <h5 class="mb-3">Your Answer <span style="color: #dc3545;">*</span></h5>
+                        <textarea name="justification" class="form-control" rows="8" required="required"
+                                  placeholder="Type your answer here..." minlength="10"></textarea>
+                        <small class="text-muted">Required — minimum 10 characters.</small>
+                    </div>
+                </t>
+                <t t-elif="not justification_optional">
                     <div class="assessment-card">
                         <h5 class="mb-3">Justification <span style="color: #dc3545;">*</span></h5>
                         <textarea name="justification" class="form-control" rows="4" required="required"

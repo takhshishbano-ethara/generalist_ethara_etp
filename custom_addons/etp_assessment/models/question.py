@@ -16,6 +16,7 @@ class EtpAssessmentQuestion(models.Model):
             ("coding", "Coding"),
             ("image_text", "Image + Text"),
             ("video", "Video"),
+            ("subjective", "Subjective"),
         ],
         string="Question Type",
         required=True,
