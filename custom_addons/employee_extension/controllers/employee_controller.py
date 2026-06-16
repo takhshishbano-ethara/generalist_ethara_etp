@@ -837,15 +837,35 @@ class EmployeeController(http.Controller):
             if kwargs.get('exclude_me') in [1, '1']:
                 domain.append(('employee_id', 'not in', [employee.id]))
 
+            status_filter = kwargs.get('status')
+            status_map = {'offline': 'Offline', 'active': 'Active', 'idle': 'Idle'}
+            target_status = status_map.get(status_filter) if status_filter else None
+
             page = int(kwargs.get('page')) if kwargs.get('page') else 1
             limit = int(kwargs.get('limit')) if kwargs.get('limit') else 10
             offset = (page - 1) * limit
-            total_count = request.env['hr.employee'].sudo().search_count(domain)
-            if not kwargs.get('page'):
-                limit = total_count
-                offset = 0
 
-            employees = Employee.search(domain, limit=limit, offset=offset)
+            if target_status:
+                # current_status depends on real-time attendance + active task, which can't be
+                # pushed into the search domain — filter Python-side before paging so counts are correct.
+                all_employees = Employee.search(domain)
+                filtered_employees = [
+                    emp for emp in all_employees
+                    if self.get_employee_current_status(emp)[0] == target_status
+                ]
+                total_count = len(filtered_employees)
+                if not kwargs.get('page'):
+                    limit = total_count or 1
+                    offset = 0
+                employees = filtered_employees[offset:offset + limit]
+            else:
+                total_count = request.env['hr.employee'].sudo().search_count(domain)
+                if not kwargs.get('page'):
+                    limit = total_count or 1
+                    offset = 0
+                employees = Employee.search(domain, limit=limit, offset=offset)
+
+            total_pages = (total_count + limit - 1) // limit if limit else 0
             data = []
             today = date.today()
             start_this_week = today - timedelta(days=today.weekday())
@@ -905,15 +925,7 @@ class EmployeeController(http.Controller):
                     'total_task_count': total_task_count,
                     'task_reviewed_count': task_reviewed_count,
                 }
-                if kwargs.get('status'):
-                    if kwargs.get('status') == 'offline' and current_status == 'Offline':
-                        data.append(vals)
-                    elif kwargs.get('status') == 'active' and current_status == 'Active':
-                        data.append(vals)
-                    elif kwargs.get('status') == 'idle' and current_status == 'Idle':
-                        data.append(vals)
-                else:
-                    data.append(vals)
+                data.append(vals)
 
             active_projects = request.env['project.project'].sudo().search(request.env['project.project']._task_forge_live_domain())
             assigned_ids = set()
@@ -946,6 +958,9 @@ class EmployeeController(http.Controller):
                     'total_record_count': total_count,
                     'data': data,
                     "total": len(data),
+                    'page': page,
+                    'limit': limit,
+                    'total_pages': total_pages,
                     "on_bench": on_bench_count,
                     'pl_count': pl_count,
                     'qr_count': qr_count,
