@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="privilege_client_deliverables" model="res.groups.privilege">
+            <field name="name">Client Deliverables</field>
+        </record>
+
+        <record id="group_client_deliverable_user" model="res.groups">
+            <field name="name">Client Deliverable / Client</field>
+            <field name="privilege_id" ref="privilege_client_deliverables"/>
+            <field name="comment">Can view their own deliverables and post feedback.</field>
+        </record>
+
+        <record id="group_client_deliverable_manager" model="res.groups">
+            <field name="name">Client Deliverable / Manager</field>
+            <field name="privilege_id" ref="privilege_client_deliverables"/>
+            <field name="implied_ids" eval="[(4, ref('group_client_deliverable_user'))]"/>
+            <field name="user_ids" eval="[(4, ref('base.user_admin'))]"/>
+            <field name="comment">Full access: manage deliverables and update the provided links.</field>
+        </record>
+
+        <record id="rule_client_deliverable_manager_all" model="ir.rule">
+            <field name="name">Client Deliverable: managers see all</field>
+            <field name="model_id" ref="model_client_deliverable"/>
+            <field name="groups" eval="[(4, ref('group_client_deliverable_manager'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+    </data>
+</odoo>
