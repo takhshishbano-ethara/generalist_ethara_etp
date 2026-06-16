@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_employee_role_import_wizard_hr,employee.role.import.wizard hr_user,model_employee_role_import_wizard,hr.group_hr_user,1,1,1,1
+access_employee_role_import_wizard_hr_manager,employee.role.import.wizard hr_manager,model_employee_role_import_wizard,hr.group_hr_manager,1,1,1,1
+access_employee_role_import_line_hr,employee.role.import.line hr_user,model_employee_role_import_line,hr.group_hr_user,1,1,1,1
+access_employee_role_import_line_hr_manager,employee.role.import.line hr_manager,model_employee_role_import_line,hr.group_hr_manager,1,1,1,1

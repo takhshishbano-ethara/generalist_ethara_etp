@@ -1,0 +1,126 @@
+.o_employee_role_import_wizard .oe_title h1 {
+    margin-bottom: 4px;
+}
+
+.o_employee_role_import_wizard .o_field_text textarea {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        "Liberation Mono", "Courier New", monospace;
+    font-size: 12px;
+    min-height: 320px;
+}
+
+.o_employee_role_import_wizard .o_erp_summary {
+    margin-top: 4px;
+}
+
+.o_employee_role_import_wizard .o_erp_pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    border: 1px solid transparent;
+    white-space: nowrap;
+}
+
+.o_employee_role_import_wizard .o_erp_pill_ready {
+    background: #e7f5ec;
+    color: #146c43;
+    border-color: #c8e6d4;
+}
+
+.o_employee_role_import_wizard .o_erp_pill_exists {
+    background: #fff4e0;
+    color: #8a5a00;
+    border-color: #ffe1a8;
+}
+
+.o_employee_role_import_wizard .o_erp_pill_issue {
+    background: #fdecec;
+    color: #b32020;
+    border-color: #f6c7c7;
+}
+
+.o_employee_role_import_wizard .o_erp_pill .o_field_widget {
+    color: inherit;
+    font-weight: 700;
+}
+
+.o_employee_role_import_wizard .o_field_one2many .o_list_renderer {
+    font-size: 13px;
+}
+
+.o_employee_role_import_wizard .o_field_one2many .o_list_renderer thead th {
+    font-weight: 600;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.o_employee_role_import_wizard .o_field_one2many .o_list_view {
+    overflow-x: auto;
+}
+
+.o_employee_role_import_wizard .alert {
+    border-radius: 6px;
+    line-height: 1.4;
+}
+
+.o_imported_employees_list .o_list_renderer thead th {
+    font-weight: 600;
+    text-transform: none;
+    white-space: nowrap;
+}
+
+.o_imported_employees_list .o_list_renderer tbody td {
+    vertical-align: middle;
+}
+
+.o_imported_employees_list .o_data_row .o_field_badge {
+    font-size: 11px;
+    letter-spacing: 0.02em;
+}
+
+/* ── Responsive: tablet ─────────────────────────────────────────── */
+@media (max-width: 992px) {
+    .o_employee_role_import_wizard .oe_title h1 {
+        font-size: 1.25rem;
+    }
+    .o_employee_role_import_wizard .o_field_text textarea {
+        min-height: 220px;
+    }
+    .o_employee_role_import_wizard .alert {
+        padding: 0.75rem;
+        font-size: 0.875rem;
+    }
+    .o_employee_role_import_wizard .alert .fa-2x {
+        font-size: 1.25em;
+    }
+}
+
+/* ── Responsive: phone ──────────────────────────────────────────── */
+@media (max-width: 576px) {
+    .o_employee_role_import_wizard .o_erp_summary {
+        gap: 6px;
+    }
+    .o_employee_role_import_wizard .o_erp_pill {
+        font-size: 11px;
+        padding: 3px 8px;
+    }
+    .o_employee_role_import_wizard .alert {
+        padding: 0.625rem;
+        font-size: 0.8125rem;
+    }
+    .o_employee_role_import_wizard .o_field_one2many .o_list_renderer {
+        font-size: 12px;
+    }
+    .o_employee_role_import_wizard .oe_title p {
+        font-size: 0.8125rem;
+    }
+    /* Stack the file picker + role group on phones */
+    .o_employee_role_import_wizard .o_inner_group {
+        display: block;
+    }
+}

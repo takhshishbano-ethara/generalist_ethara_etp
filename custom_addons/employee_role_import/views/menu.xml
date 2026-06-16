@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_employee_role_import_root"
+              name="Employee Role Import"
+              parent="hr.menu_hr_root"
+              sequence="90"/>
+
+    <menuitem id="menu_employee_role_import_wizard"
+              name="Import with Role"
+              parent="menu_employee_role_import_root"
+              action="action_employee_role_import_wizard"
+              sequence="10"/>
+
+    <menuitem id="menu_imported_employees"
+              name="Imported Employees"
+              parent="menu_employee_role_import_root"
+              action="action_imported_employees"
+              sequence="20"/>
+
+</odoo>

@@ -1,0 +1,276 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_employee_role_import_wizard_form" model="ir.ui.view">
+        <field name="name">employee.role.import.wizard.form</field>
+        <field name="model">employee.role.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Employees with Role"
+                  class="o_employee_role_import_wizard">
+                <header>
+                    <button name="action_import"
+                            string="Import"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state == 'done'"/>
+                    <button name="action_download_template"
+                            string="Download CSV Template"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state == 'done'"/>
+                    <button name="action_view_imported_employees"
+                            string="View Imported Employees"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state != 'done' or import_count + update_count == 0"/>
+                    <button name="action_view_imported_users"
+                            string="View Imported Users"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state != 'done' or import_count + update_count == 0"/>
+                    <button name="action_reset"
+                            string="Import Another File"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state != 'done'"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title" invisible="state == 'done'">
+                        <h1>Bulk Import Employees</h1>
+                        <p class="text-muted">
+                            Upload a CSV file with the columns
+                            <code>name</code>, <code>employee_id</code>, <code>email</code>
+                            and pick a role to assign to every employee in this batch.
+                        </p>
+                    </div>
+
+                    <group invisible="state == 'done'">
+                        <group string="File">
+                            <field name="csv_file"
+                                   filename="csv_filename"
+                                   required="state == 'draft'"/>
+                            <field name="csv_filename" invisible="1"/>
+                        </group>
+                        <group string="Role Assignment">
+                            <label for="role"/>
+                            <div class="d-flex flex-wrap align-items-center gap-2">
+                                <field name="role" string="Default Role" nolabel="1"/>
+                                <button name="action_apply_default_role"
+                                        string="Apply to empty"
+                                        type="object"
+                                        class="btn btn-link btn-sm"
+                                        invisible="not role or not line_ids"/>
+                                <button name="action_apply_default_role_all"
+                                        string="Apply to all"
+                                        type="object"
+                                        class="btn btn-link btn-sm"
+                                        invisible="not role or not line_ids"/>
+                            </div>
+                            <field name="create_user"/>
+                            <field name="default_password"
+                                   password="True"
+                                   invisible="not create_user"/>
+                        </group>
+                    </group>
+
+                    <group string="Result" invisible="state != 'done'">
+                        <group>
+                            <field name="import_count"/>
+                            <field name="update_count"/>
+                        </group>
+                        <group>
+                            <field name="error_count"/>
+                        </group>
+                    </group>
+
+                    <div class="alert alert-success d-flex align-items-center mb-2 p-3"
+                         role="alert"
+                         invisible="state == 'done' or not line_ids">
+                        <i class="fa fa-arrow-up fa-2x me-3"/>
+                        <div>
+                            <strong>Ready to import.</strong>
+                            Review the rows below, then click the
+                            <strong>Import</strong> button at the top of this window
+                            (or hit Save — both will run the import and create the users).
+                        </div>
+                    </div>
+
+                    <notebook>
+                        <page string="Preview Rows"
+                              name="preview"
+                              invisible="not line_ids">
+                            <div class="o_erp_summary d-flex flex-wrap gap-2 mb-2"
+                                 invisible="not line_ids">
+                                <span class="o_erp_pill o_erp_pill_ready">
+                                    <i class="fa fa-check-circle me-1"/>
+                                    <field name="ready_row_count" nolabel="1" readonly="1" class="d-inline"/>
+                                    ready
+                                </span>
+                                <span class="o_erp_pill o_erp_pill_exists"
+                                      invisible="existing_row_count == 0">
+                                    <i class="fa fa-exclamation-triangle me-1"/>
+                                    <field name="existing_row_count" nolabel="1" readonly="1" class="d-inline"/>
+                                    already exist
+                                </span>
+                                <span class="o_erp_pill o_erp_pill_issue"
+                                      invisible="issue_row_count == 0">
+                                    <i class="fa fa-times-circle me-1"/>
+                                    <field name="issue_row_count" nolabel="1" readonly="1" class="d-inline"/>
+                                    need fixing
+                                </span>
+                            </div>
+                            <div class="alert alert-danger d-flex align-items-start mb-2"
+                                 role="alert"
+                                 invisible="issue_row_count == 0">
+                                <i class="fa fa-times-circle me-2 mt-1"/>
+                                <div>
+                                    <strong>
+                                        <field name="issue_row_count" nolabel="1" readonly="1" class="d-inline"/>
+                                        row(s) have validation issues
+                                    </strong>
+                                    (highlighted in red below). Fix the missing/invalid name, email
+                                    or role before importing - those rows will be reported as errors.
+                                </div>
+                            </div>
+                            <div class="alert alert-info d-flex align-items-start mb-2"
+                                 role="alert"
+                                 invisible="existing_row_count == 0">
+                                <i class="fa fa-info-circle me-2 mt-1"/>
+                                <div>
+                                    <field name="existing_row_count" nolabel="1" readonly="1" class="d-inline"/>
+                                    row(s) match an existing employee (by Employee ID or Email)
+                                    and will be <strong>updated</strong> in place
+                                    (name, email, employee code, role, reports-to).
+                                    Archived rows are reactivated; a login user is created if missing.
+                                    No duplicate employees are created.
+                                </div>
+                            </div>
+                            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+                                <div class="text-muted small">
+                                    Edit any cell directly. Sort by clicking column headers.
+                                    Select multiple rows and use multi-edit to bulk-assign a role.
+                                </div>
+                                <button name="action_open_lines_search"
+                                        string="Search &amp; Filter"
+                                        type="object"
+                                        icon="fa-search"
+                                        class="btn btn-secondary btn-sm"/>
+                            </div>
+                            <field name="line_ids" nolabel="1">
+                                <list editable="bottom" multi_edit="1"
+                                      decoration-danger="status == 'issue'"
+                                      decoration-warning="status == 'exists'"
+                                      decoration-info="status == 'exists_archived'">
+                                    <field name="sequence" string="#" readonly="1"
+                                           decoration-muted="1" optional="show"/>
+                                    <field name="name" required="1"
+                                           decoration-danger="not name"/>
+                                    <field name="employee_code" string="Employee ID"/>
+                                    <field name="email" required="1"
+                                           decoration-danger="not email"/>
+                                    <field name="role" decoration-danger="not role"/>
+                                    <field name="parent_id"
+                                           string="Reports To"
+                                           options="{'no_create': True, 'no_create_edit': True}"/>
+                                    <field name="manager_email"
+                                           string="Manager Email"
+                                           optional="hide"/>
+                                    <field name="status"
+                                           widget="badge"
+                                           decoration-success="status == 'ready'"
+                                           decoration-danger="status == 'issue'"
+                                           decoration-warning="status == 'exists'"
+                                           decoration-info="status == 'exists_archived'"
+                                           readonly="1"/>
+                                    <field name="existing_archived" optional="hide" readonly="1"/>
+                                    <field name="existing_employee_id" optional="hide" readonly="1"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Import Log"
+                              name="log"
+                              invisible="state != 'done'">
+                            <field name="log_text"
+                                   widget="text"
+                                   nolabel="1"
+                                   readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_employee_role_import_wizard" model="ir.actions.act_window">
+        <field name="name">Import Employees with Role</field>
+        <field name="res_model">employee.role.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_employee_role_import_line_list" model="ir.ui.view">
+        <field name="name">employee.role.import.line.list</field>
+        <field name="model">employee.role.import.line</field>
+        <field name="arch" type="xml">
+            <list editable="bottom" multi_edit="1" string="Preview Rows"
+                  decoration-danger="status == 'issue'"
+                  decoration-warning="status == 'exists'"
+                  decoration-info="status == 'exists_archived'">
+                <field name="sequence" string="#" readonly="1" decoration-muted="1"/>
+                <field name="name" required="1" decoration-danger="not name"/>
+                <field name="employee_code" string="Employee ID"/>
+                <field name="email" required="1" decoration-danger="not email"/>
+                <field name="role" decoration-danger="not role"/>
+                <field name="parent_id"
+                       string="Reports To"
+                       options="{'no_create': True, 'no_create_edit': True}"/>
+                <field name="manager_email" string="Manager Email" optional="hide"/>
+                <field name="status"
+                       widget="badge"
+                       decoration-success="status == 'ready'"
+                       decoration-danger="status == 'issue'"
+                       decoration-warning="status == 'exists'"
+                       decoration-info="status == 'exists_archived'"
+                       readonly="1"/>
+                <field name="existing_archived" optional="hide" readonly="1"/>
+                <field name="existing_employee_id" optional="hide" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_employee_role_import_line_search" model="ir.ui.view">
+        <field name="name">employee.role.import.line.search</field>
+        <field name="model">employee.role.import.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="employee_code" string="Employee ID"/>
+                <field name="email"/>
+                <field name="role"/>
+                <field name="parent_id" string="Reports To"/>
+                <filter name="filter_ready" string="Ready"
+                        domain="[('status', '=', 'ready')]"/>
+                <filter name="filter_exists" string="Already Exists"
+                        domain="[('status', '=', 'exists')]"/>
+                <filter name="filter_archived" string="Archived (Deleted)"
+                        domain="[('status', '=', 'exists_archived')]"/>
+                <filter name="filter_issues" string="With Issues"
+                        domain="[('status', '=', 'issue')]"/>
+                <filter name="filter_empty_role" string="Empty Role"
+                        domain="[('role', '=', False)]"/>
+                <filter name="filter_no_manager" string="No Manager"
+                        domain="[('parent_id', '=', False)]"/>
+                <separator/>
+                <filter name="group_by_role" string="Group by Role"
+                        context="{'group_by': 'role'}"/>
+                <filter name="group_by_status" string="Group by Status"
+                        context="{'group_by': 'status'}"/>
+                <filter name="group_by_manager" string="Group by Manager"
+                        context="{'group_by': 'parent_id'}"/>
+            </search>
+        </field>
+    </record>
+
+</odoo>
