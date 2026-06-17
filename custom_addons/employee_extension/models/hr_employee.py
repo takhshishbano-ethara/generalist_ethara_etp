@@ -23,6 +23,9 @@ class HrEmployee(models.Model):
         string='Assignment History',
     )
 
+    aadhaar_card_url = fields.Char(string='Aadhaar Card URL')
+    resume_url = fields.Char(string='Resume URL')
+
     @api.depends('offboarding_state')
     def _compute_is_offboarded(self):
         for record in self:
