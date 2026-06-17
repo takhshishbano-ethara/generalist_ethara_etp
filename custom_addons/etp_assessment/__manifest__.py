@@ -28,6 +28,11 @@
     "external_dependencies": {
         "python": ["PyJWT", "httpx", "boto3", "cryptography"],
     },
+    "assets": {
+        "web.assets_frontend": [
+            "etp_assessment/static/src/scss/portal.scss",
+        ],
+    },
     "installable": True,
     "application": True,
 }

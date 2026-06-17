@@ -26,6 +26,27 @@ from odoo.http import request
 _logger = logging.getLogger(__name__)
 
 
+def _rules_json(assessment):
+    """Serialize the assessment's proctoring rules to a JSON string for safe
+    injection into the runner's inline JS. Using json.dumps (not a Python
+    dict via t-esc) is what makes the emitted value valid JavaScript."""
+    return json.dumps({
+        "tab_switch": bool(assessment.rule_block_tab_switch),
+        "copy_paste": bool(assessment.rule_block_copy_paste),
+        "right_click": bool(assessment.rule_block_right_click),
+        "devtools": bool(assessment.rule_block_devtools),
+        "screenshot": bool(assessment.rule_block_screenshot),
+        "fullscreen": bool(assessment.rule_fullscreen),
+        "webcam": bool(assessment.rule_webcam),
+        "watermark": bool(assessment.rule_watermark),
+    })
+
+
+def _deadline_iso(dt):
+    # Browsers parse a trailing Z as UTC. Odoo Datetimes are naive UTC.
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else ""
+
+
 class EtpAssessmentPortal(http.Controller):
 
     def _get_evaluator_from_token(self, token):
@@ -100,43 +121,9 @@ class EtpAssessmentPortal(http.Controller):
             return request.render(
                 "etp_assessment.portal_assessment_complete",
                 {"assessment": assessment, "evaluator": evaluator})
-
-        question_order = json.loads(evaluator.question_order or "[]")
-        questions = request.env["etp.assessment.question"].sudo().browse(question_order)
-        answered_ids = request.env["etp.assessment.response"].sudo().search([
-            ("assessment_evaluator_id", "=", evaluator.id),
-            ("state", "=", "submitted"),
-        ]).mapped("question_id.id")
-        current_question, current_index = None, 0
-        for idx, q in enumerate(questions):
-            if q.id not in answered_ids:
-                current_question = q
-                current_index = idx + 1
-                break
-        if not current_question:
-            return request.render(
-                "etp_assessment.portal_assessment_complete",
-                {"assessment": assessment, "evaluator": evaluator})
-        deadline_iso = evaluator.deadline_datetime.strftime(
-            "%Y-%m-%dT%H:%M:%SZ") if evaluator.deadline_datetime else ""
-        return request.render(
-            "etp_assessment.portal_question_page",
-            {
-                "assessment": assessment,
-                "evaluator": evaluator,
-                "day_session": False,
-                "question": current_question,
-                "dimensions": current_question.question_dimension_ids,
-                "current_index": current_index,
-                "total_questions": len(question_order),
-                "token": token,
-                "submit_url": f"/assessment/{token}/submit",
-                "violation_url": f"/assessment/{token}/violation",
-                "progress_percent": int(
-                    (len(answered_ids) / len(question_order)) * 100)
-                    if question_order else 0,
-                "deadline_iso": deadline_iso,
-            })
+        return self._serve_question(
+            sess=False, evaluator=evaluator, token=token,
+            base="/assessment/%s" % token, requested_q=kw.get("q"))
 
     @http.route("/assessment/<string:token>/begin", type="http",
                 auth="public", website=True, methods=["POST"], csrf=False)
@@ -175,6 +162,39 @@ class EtpAssessmentPortal(http.Controller):
             evaluator=evaluator, day_session=False, form=kw)
         if evaluator.state == "pending":
             evaluator.write({"state": "in_progress"})
+        target = self._next_index(
+            json.loads(evaluator.question_order or "[]"),
+            current=kw.get("question_id"), nav=kw.get("nav") or "next")
+        if target is None:
+            return request.redirect(f"/assessment/{token}/review")
+        return request.redirect(f"/assessment/{token}?q={target}")
+
+    @http.route("/assessment/<string:token>/review", type="http",
+                auth="public", website=True)
+    def assessment_review_single(self, token, **kw):
+        evaluator = self._get_evaluator_from_token(token)
+        if not evaluator:
+            return request.render("etp_assessment.portal_invalid_token")
+        if evaluator.is_locked or evaluator.state == "submitted":
+            return request.render(
+                "etp_assessment.portal_assessment_complete",
+                {"assessment": evaluator.assessment_id,
+                 "evaluator": evaluator})
+        return self._render_review(
+            sess=False, evaluator=evaluator, token=token,
+            base="/assessment/%s" % token,
+            finish_url=f"/assessment/{token}/finish")
+
+    @http.route("/assessment/<string:token>/finish", type="http",
+                auth="public", website=True, methods=["POST"], csrf=False)
+    def assessment_finish_single(self, token, **kw):
+        evaluator = self._get_evaluator_from_token(token)
+        if not evaluator:
+            return request.render("etp_assessment.portal_invalid_token")
+        if not evaluator.is_locked and evaluator.state != "submitted":
+            # Finalize: any unanswered questions get placeholder submissions,
+            # then the evaluator is locked + submitted (same as expiry path).
+            self._auto_submit_remaining_single(evaluator)
         return request.redirect(f"/assessment/{token}")
 
     @http.route("/assessment/<string:token>/violation", type="http",
@@ -201,7 +221,7 @@ class EtpAssessmentPortal(http.Controller):
 
     @http.route("/assessment/day/<string:token>", type="http",
                 auth="public", website=True)
-    def day_landing(self, token, **kw):
+    def day_landing(self, token, q=None, **kw):
         sess = self._get_day_session_from_token(token)
         if not sess:
             return request.render("etp_assessment.portal_invalid_token")
@@ -239,50 +259,15 @@ class EtpAssessmentPortal(http.Controller):
                  "token": token, "day_session": sess,
                  "duration_minutes": sess.day_id.duration_minutes,
                  "submit_url": f"/assessment/day/{token}/begin"})
-        # In progress: deadline check, render next unanswered question.
+        # In progress: deadline check, then render the requested (or first
+        # unanswered) question with FREE navigation.
         if (sess.deadline_datetime
                 and sess.deadline_datetime < fields.Datetime.now()):
             self._auto_submit_day_on_expiry(sess)
             return self._render_day_result(sess)
-        question_order = json.loads(sess.question_order or "[]")
-        questions = request.env["etp.assessment.question"].sudo().browse(
-            question_order)
-        answered_ids = request.env["etp.assessment.response"].sudo().search([
-            ("day_session_id", "=", sess.id),
-            ("state", "=", "submitted"),
-        ]).mapped("question_id.id")
-        current_question, current_index = None, 0
-        for idx, q in enumerate(questions):
-            if q.id not in answered_ids:
-                current_question = q
-                current_index = idx + 1
-                break
-        if not current_question:
-            return request.render(
-                "etp_assessment.portal_day_finish_prompt",
-                {"assessment": assessment, "day_session": sess,
-                 "token": token,
-                 "finish_url": f"/assessment/day/{token}/finish"})
-        deadline_iso = sess.deadline_datetime.strftime(
-            "%Y-%m-%dT%H:%M:%SZ") if sess.deadline_datetime else ""
-        return request.render(
-            "etp_assessment.portal_question_page",
-            {
-                "assessment": assessment,
-                "evaluator": sess.evaluator_id,
-                "day_session": sess,
-                "question": current_question,
-                "dimensions": current_question.question_dimension_ids,
-                "current_index": current_index,
-                "total_questions": len(question_order),
-                "token": token,
-                "submit_url": f"/assessment/day/{token}/submit",
-                "violation_url": f"/assessment/day/{token}/violation",
-                "progress_percent": int(
-                    (len(answered_ids) / len(question_order)) * 100)
-                    if question_order else 0,
-                "deadline_iso": deadline_iso,
-            })
+        return self._serve_question(
+            sess=sess, evaluator=sess.evaluator_id, token=token,
+            base="/assessment/day/%s" % token, requested_q=q)
 
     def _render_day_result(self, sess):
         # Gate: 'manual' release withholds the breakdown until an admin flips
@@ -338,7 +323,30 @@ class EtpAssessmentPortal(http.Controller):
             return request.redirect(f"/assessment/day/{token}")
         self._record_response(
             evaluator=sess.evaluator_id, day_session=sess, form=kw)
-        return request.redirect(f"/assessment/day/{token}")
+        # Free navigation: compute the next index from nav intent.
+        target = self._next_index(
+            json.loads(sess.question_order or "[]"),
+            current=kw.get("question_id"), nav=kw.get("nav") or "next")
+        if target is None:
+            # Past the last question on 'next' -> go to review.
+            return request.redirect(f"/assessment/day/{token}/review")
+        return request.redirect(f"/assessment/day/{token}?q={target}")
+
+    @http.route("/assessment/day/<string:token>/review", type="http",
+                auth="public", website=True)
+    def day_review(self, token, **kw):
+        sess = self._get_day_session_from_token(token)
+        if not sess:
+            return request.render("etp_assessment.portal_invalid_token")
+        if sess.state in ("submitted", "scored", "missed"):
+            return request.render(
+                "etp_assessment.portal_assessment_complete",
+                {"assessment": sess.assessment_id,
+                 "evaluator": sess.evaluator_id, "day_session": sess})
+        return self._render_review(
+            sess=sess, evaluator=sess.evaluator_id, token=token,
+            base="/assessment/day/%s" % token,
+            finish_url=f"/assessment/day/{token}/finish")
 
     @http.route("/assessment/day/<string:token>/finish", type="http",
                 auth="public", website=True, methods=["POST"], csrf=False)
@@ -379,6 +387,134 @@ class EtpAssessmentPortal(http.Controller):
         # this route is a placeholder kept per brief §6.1 for future
         # image-bearing question types.
         return request.not_found()
+
+    # ------------------------------------------------------------------
+    # Shared question-serving + navigation helpers (used by both single and
+    # day flows). The candidate can move freely between questions; answers
+    # are saved on every move, and a Review page lists answered/unanswered.
+    # ------------------------------------------------------------------
+    def _answered_question_ids(self, evaluator, day_session):
+        domain = [("state", "=", "submitted")]
+        if day_session:
+            domain.append(("day_session_id", "=", day_session.id))
+        else:
+            domain += [("assessment_evaluator_id", "=", evaluator.id),
+                       ("day_session_id", "=", False)]
+        return set(request.env["etp.assessment.response"].sudo().search(
+            domain).mapped("question_id.id"))
+
+    def _existing_response(self, evaluator, day_session, qid):
+        domain = [("question_id", "=", qid),
+                  ("assessment_evaluator_id", "=", evaluator.id)]
+        if day_session:
+            domain.append(("day_session_id", "=", day_session.id))
+        else:
+            domain.append(("day_session_id", "=", False))
+        return request.env["etp.assessment.response"].sudo().search(
+            domain, limit=1)
+
+    def _next_index(self, order, current, nav):
+        """Return the 1-based index to navigate to, or None when 'next' runs
+        off the end (caller then routes to review). 'prev' clamps at 1."""
+        n = len(order)
+        if not n:
+            return None
+        try:
+            cur_qid = int(current or 0)
+        except (TypeError, ValueError):
+            cur_qid = 0
+        cur_idx = order.index(cur_qid) if cur_qid in order else 0
+        if nav == "prev":
+            return max(1, cur_idx)  # cur_idx is 0-based of current => prev is cur_idx
+        nxt = cur_idx + 2  # 1-based next
+        return nxt if nxt <= n else None
+
+    def _serve_question(self, sess, evaluator, token, base, requested_q=None):
+        assessment = (sess.assessment_id if sess else evaluator.assessment_id)
+        order = json.loads(
+            (sess.question_order if sess else evaluator.question_order) or "[]")
+        if not order:
+            return request.render(
+                "etp_assessment.portal_assessment_complete",
+                {"assessment": assessment, "evaluator": evaluator,
+                 "day_session": sess})
+        answered = self._answered_question_ids(evaluator, sess)
+        # Decide which index to show: explicit ?q wins; else first unanswered.
+        idx = None
+        if requested_q:
+            try:
+                ridx = int(requested_q)
+                if 1 <= ridx <= len(order):
+                    idx = ridx
+            except (TypeError, ValueError):
+                idx = None
+        if idx is None:
+            idx = 1
+            for i, qid in enumerate(order):
+                if qid not in answered:
+                    idx = i + 1
+                    break
+        qid = order[idx - 1]
+        question = request.env["etp.assessment.question"].sudo().browse(qid)
+        existing = self._existing_response(evaluator, sess, qid)
+        selected_option_ids = existing.line_ids.mapped(
+            "selected_option_id.id") if existing else []
+        deadline = sess.deadline_datetime if sess else (
+            evaluator.deadline_datetime)
+        is_day = bool(sess)
+        submit_url = (f"{base}/submit")
+        return request.render(
+            "etp_assessment.portal_question_page",
+            {
+                "assessment": assessment,
+                "evaluator": evaluator,
+                "day_session": sess,
+                "question": question,
+                "dimensions": question.question_dimension_ids,
+                "current_index": idx,
+                "total_questions": len(order),
+                "token": token,
+                "submit_url": submit_url,
+                "violation_url": f"{base}/violation",
+                "review_url": f"{base}/review",
+                "progress_percent": int((len(answered) / len(order)) * 100)
+                    if order else 0,
+                "deadline_iso": _deadline_iso(deadline),
+                "rules_json": _rules_json(assessment),
+                "selected_option_ids": selected_option_ids,
+                "existing_justification": existing.justification if existing else "",
+            })
+
+    def _render_review(self, sess, evaluator, token, base, finish_url):
+        assessment = (sess.assessment_id if sess else evaluator.assessment_id)
+        order = json.loads(
+            (sess.question_order if sess else evaluator.question_order) or "[]")
+        answered = self._answered_question_ids(evaluator, sess)
+        questions = request.env["etp.assessment.question"].sudo().browse(order)
+        rows, unanswered = [], []
+        for i, q in enumerate(questions):
+            is_ans = q.id in answered
+            if not is_ans:
+                unanswered.append(q.id)
+            rows.append({
+                "index": i + 1,
+                "name": q.name,
+                "answered": is_ans,
+                "goto_url": f"{base}?q={i + 1}",
+            })
+        return request.render(
+            "etp_assessment.portal_review_page",
+            {
+                "assessment": assessment,
+                "evaluator": evaluator,
+                "day_session": sess,
+                "review_rows": rows,
+                "answered_count": len(answered),
+                "total_questions": len(order),
+                "unanswered": unanswered,
+                "back_url": f"{base}?q=1",
+                "finish_url": finish_url,
+            })
 
     def _record_response(self, evaluator, day_session, form):
         """Create or update one response from form POST data.

@@ -96,6 +96,29 @@ class EtpAssessmentDay(models.Model):
             if not self.duration_minutes:
                 self.duration_minutes = self.skill_id.time_minutes or 0
 
+    @staticmethod
+    def _floor_to_midnight(dt):
+        # A day "opens" at the START of its scheduled calendar day, not at an
+        # arbitrary time. Snap any scheduled_start down to 00:00:00 so the
+        # day becomes available at midnight of that date.
+        if not dt:
+            return dt
+        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get("scheduled_start"):
+                dt = fields.Datetime.to_datetime(vals["scheduled_start"])
+                vals["scheduled_start"] = self._floor_to_midnight(dt)
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if vals.get("scheduled_start"):
+            dt = fields.Datetime.to_datetime(vals["scheduled_start"])
+            vals["scheduled_start"] = self._floor_to_midnight(dt)
+        return super().write(vals)
+
     @api.constrains("question_source", "skill_id", "question_ids")
     def _check_manual_questions(self):
         for rec in self:
@@ -186,6 +209,60 @@ class EtpAssessmentDaySession(models.Model):
         compute="_compute_score", store=True, string="Day Score")
     max_score = fields.Integer(
         compute="_compute_score", store=True, string="Day Max")
+
+    # ---- Candidate "My Assessments" helpers -------------------------------
+    # The candidate hub groups day sessions into three buckets. Computing the
+    # bucket (stored) lets the kanban/list group by it cleanly.
+    scheduled_start = fields.Datetime(
+        related="day_id.scheduled_start", store=True, string="Scheduled Start")
+    duration_minutes = fields.Integer(
+        related="day_id.duration_minutes", string="Duration (Minutes)")
+    results_released = fields.Boolean(
+        related="evaluator_id.results_released", store=True,
+        string="Results Released")
+    bucket = fields.Selection(
+        [("available", "Available"),
+         ("upcoming", "Upcoming"),
+         ("past", "Past")],
+        compute="_compute_bucket", store=True, string="Bucket", index=True)
+    score_display = fields.Char(
+        compute="_compute_score_display", string="Score")
+
+    @api.depends("state")
+    def _compute_bucket(self):
+        for rec in self:
+            if rec.state in ("available", "in_progress"):
+                rec.bucket = "available"
+            elif rec.state in ("submitted", "scored", "missed"):
+                rec.bucket = "past"
+            else:  # locked
+                rec.bucket = "upcoming"
+
+    @api.depends("state", "score", "max_score", "results_released")
+    def _compute_score_display(self):
+        for rec in self:
+            if rec.state == "missed":
+                rec.score_display = "Missed"
+            elif rec.state not in ("submitted", "scored"):
+                rec.score_display = ""
+            elif not rec.results_released:
+                rec.score_display = "Awaiting results"
+            else:
+                rec.score_display = "%s / %s" % (rec.score, rec.max_score)
+
+    def action_open_test(self):
+        """Candidate launches/resumes this day's test in the proctored
+        runner. Returns the tokenized portal URL (full-screen, chrome-free)."""
+        self.ensure_one()
+        if self.state not in ("available", "in_progress"):
+            raise UserError(
+                "This day is not open. Available days can be started; "
+                "locked days open on schedule or after the previous day.")
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/assessment/day/%s" % self.access_token,
+            "target": "self",
+        }
 
     display_name = fields.Char(
         compute="_compute_display_name", store=True)
@@ -324,7 +401,9 @@ class EtpAssessmentDaySession(models.Model):
 
     def _unlock_next_day(self):
         # Sequential mode: unlock day N+1 for THIS evaluator once day N is
-        # submitted (so each candidate progresses through their own plan).
+        # submitted — BUT only if day N+1's scheduled_start has already
+        # arrived (or it has none). A day scheduled for a future date stays
+        # LOCKED until that date; the open-scheduled cron flips it at midnight.
         # Parallel mode: all days were already available — nothing to do.
         for rec in self:
             assessment = rec.assessment_id
@@ -342,8 +421,9 @@ class EtpAssessmentDaySession(models.Model):
             ], limit=1)
             if not next_session or next_session.state != "locked":
                 continue
-            # Honor the future scheduled_start — leave the day locked
-            # for the open-scheduled cron to pick up at the right time.
+            # Honor a future scheduled_start — leave the day LOCKED for the
+            # open-scheduled cron to pick up at the right date. Completing the
+            # prior day must never open a day before its scheduled start.
             now = fields.Datetime.now()
             if next_day.scheduled_start and next_day.scheduled_start > now:
                 continue
@@ -426,6 +506,13 @@ class EtpAssessmentMultiDayActions(models.Model):
                     "scaffolding.")
             existing_seqs = set(rec.day_ids.mapped("sequence"))
             Day = self.env["etp.assessment.day"]
+            # Each day opens at 00:00 of a consecutive calendar date, counting
+            # from the assessment's Start Date (or today if unset). Day 1 =
+            # start date midnight, Day 2 = next day midnight, etc. Admin can
+            # still edit any day's scheduled_start afterwards.
+            base = rec.start_date or fields.Datetime.now()
+            base = fields.Datetime.to_datetime(base).replace(
+                hour=0, minute=0, second=0, microsecond=0)
             new_days = []
             for seq in range(1, rec.num_days + 1):
                 if seq in existing_seqs:
@@ -433,6 +520,7 @@ class EtpAssessmentMultiDayActions(models.Model):
                 new_days.append({
                     "assessment_id": rec.id,
                     "sequence": seq,
+                    "scheduled_start": base + timedelta(days=seq - 1),
                 })
             if new_days:
                 Day.create(new_days)

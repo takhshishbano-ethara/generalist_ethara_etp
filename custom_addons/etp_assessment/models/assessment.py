@@ -188,6 +188,12 @@ class EtpAssessment(models.Model):
          ("log_only", "Log violation only")],
         string="On Violation", default="auto_submit", required=True,
     )
+    require_objective_justification = fields.Boolean(
+        string="Require Justification on Objective Questions", default=False,
+        help="When on, MCQ/MSQ questions also show a justification box the "
+             "candidate must fill. Off (default) keeps objective questions "
+             "clean — no confusing optional box.",
+    )
     require_justification_image_comparison = fields.Boolean(
         string="Require Justification for Image Comparison", default=False,
         help="Legacy switch from the older schema; no-op when no questions "
