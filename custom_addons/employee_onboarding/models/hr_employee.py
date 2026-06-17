@@ -64,7 +64,7 @@ ONBOARDING_REQUIRED_DOCUMENTS = frozenset({
     "passport_photo",
     "tenth_marksheet",
     "twelfth_marksheet",
-    "highest_qualification",
+    "highest_qualification_certificate",
     "aadhaar_card",
     "pan_card",
     "cancelled_cheque",

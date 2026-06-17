@@ -6,7 +6,7 @@ DOCUMENT_TYPES = [
     ("passport_photo", "Passport Size Photo"),
     ("tenth_marksheet", "10th Marksheet / Certificate"),
     ("twelfth_marksheet", "12th / Diploma Marksheet / Certificate"),
-    ("highest_qualification", "Highest Qualification Certificate"),
+    ("highest_qualification_certificate", "Highest Qualification Certificate"),
     ("aadhaar_card", "Aadhaar Card"),
     ("pan_card", "PAN Card"),
     ("cancelled_cheque", "Cancelled Cheque / Passbook"),

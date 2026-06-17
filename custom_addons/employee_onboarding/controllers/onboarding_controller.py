@@ -41,7 +41,7 @@ ALLOWED_DOCUMENT_TYPES = {
     "passport_photo",
     "tenth_marksheet",
     "twelfth_marksheet",
-    "highest_qualification",
+    "highest_qualification_certificate",
     "aadhaar_card",
     "pan_card",
     "cancelled_cheque",
@@ -412,8 +412,8 @@ class EmployeeOnboardingController(http.Controller):
 
           File fields (each optional; field name == document_type):
             resume, passport_photo, tenth_marksheet, twelfth_marksheet,
-            highest_qualification, aadhaar_card, pan_card, cancelled_cheque,
-            permanent_address_proof, current_address_proof
+            highest_qualification_certificate, aadhaar_card, pan_card,
+            cancelled_cheque, permanent_address_proof, current_address_proof
         """
         try:
             params = dict(kwargs)
