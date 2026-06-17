@@ -503,6 +503,42 @@ class EmployeeOnboardingController(http.Controller):
             return return_Response(message=str(exc), status=400)
 
     @http.route(
+        "/api/v1/get_employee_department",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+    )
+    @validate_token
+    def get_employee_department(self, **kwargs):
+        """Return every active hr.department for populating the
+        onboarding form's Department dropdown."""
+        try:
+            departments = request.env["hr.department"].sudo().search(
+                [("active", "=", True)],
+                order="parent_path asc, name asc",
+            )
+            records = [
+                {
+                    "id": dept.id,
+                    "name": dept.name,
+                    "complete_name": dept.complete_name,
+                    "parent_id": dept.parent_id.id if dept.parent_id else None,
+                    "parent_name": dept.parent_id.name if dept.parent_id else None,
+                }
+                for dept in departments
+            ]
+            return return_Response(
+                message="Success",
+                status=200,
+                data={"record": records, "total_record_count": len(records)},
+            )
+        except Exception as exc:
+            _logger.exception("Failed to fetch hr.department list")
+            return return_Response(message="Fetch Failed", status=400, errors=[str(exc)])
+
+    @http.route(
         "/api/v2/employee-onboarding/<int:employee_id>/documents",
         type="http",
         auth="none",
