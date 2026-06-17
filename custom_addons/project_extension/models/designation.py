@@ -29,7 +29,8 @@ class HrEmployee(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             if vals.get('designation_id'):
-                if self.env.ref('designation_jr_software_engineer').id == int(vals.get('designation_id')):
+                jr_se = self.env.ref('project_extension.designation_jr_software_engineer', raise_if_not_found=False)
+                if jr_se and jr_se.id == int(vals.get('designation_id')):
                     vals['is_tasker'] = True
         employees = super(HrEmployee, self).create(vals_list)
         for emp in employees:
