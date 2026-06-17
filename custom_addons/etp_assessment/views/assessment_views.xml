@@ -424,6 +424,7 @@
                                    decoration-success="result == 'pass'"
                                    decoration-danger="result == 'fail'"
                                    decoration-muted="result == 'pending'"/>
+                            <field name="day_progress_label"/>
                             <field name="results_released"/>
                             <field name="is_locked"/>
                         </group>
@@ -432,15 +433,24 @@
                         <page string="Day Sessions" invisible="not day_session_ids">
                             <field name="day_session_ids" readonly="1"/>
                         </page>
-                        <page string="Responses">
+                        <page string="Score Details">
                             <field name="response_ids" readonly="1">
                                 <list>
                                     <field name="question_id"/>
-                                    <field name="objective_score" string="Objective"/>
-                                    <field name="needs_llm" string="Subjective?"
-                                           widget="boolean"/>
-                                    <field name="subjective_score"
-                                           string="Subj Points" optional="show"/>
+                                    <field name="question_type"
+                                           string="Type" optional="show"/>
+                                    <field name="answer_summary"
+                                           string="Candidate Answer"/>
+                                    <field name="correct_summary"
+                                           string="Correct Answer" optional="show"/>
+                                    <field name="score" string="Obj"/>
+                                    <field name="max_score" string="Obj Max"/>
+                                    <field name="llm_score" string="Subj"/>
+                                    <field name="llm_max_score" string="Subj Max"/>
+                                    <field name="llm_passed" widget="boolean"
+                                           string="Subj Pass"/>
+                                    <field name="llm_feedback"
+                                           string="Subj Feedback" optional="hide"/>
                                     <field name="llm_state" widget="badge"
                                            string="Subj State"
                                            decoration-info="llm_state in ('pending','queued')"

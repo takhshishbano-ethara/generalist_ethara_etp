@@ -292,19 +292,16 @@ class EtpAssessmentPromptQuestion(models.Model):
         Question = self.env["etp.assessment.question"]
         for rec in self.filtered(lambda r: r.state == "draft"):
             category = rec.prompt_id._get_or_create_category()
-            description_parts = []
-            if rec.options_json:
-                description_parts.append("Options: %s" % rec.options_json)
-            if rec.correct_answer_json:
-                description_parts.append("Correct: %s" % rec.correct_answer_json)
-            description = "\n".join(description_parts) if description_parts else False
+            # description is shown to the candidate, so it must never carry
+            # options or the correct answer. Choices live in dimensions and
+            # the answer in option_line is_correct flags.
             vals = {
                 "name": rec.name,
                 "prompt": rec.question_prompt or rec.name,
                 "question_type": rec.question_type or "mcq",
                 "category_id": category.id,
                 "difficulty": rec.difficulty or False,
-                "description": description,
+                "description": False,
                 "subjective_rubric_json": rec.rubric_json or False,
                 "source_ref": "gen:%s" % rec.prompt_id.name,
             }
@@ -330,11 +327,17 @@ class EtpAssessmentPromptQuestion(models.Model):
         except (ValueError, TypeError):
             correct = None
         if isinstance(correct, int):
-            correct_indices = {correct}
-        elif isinstance(correct, list):
-            correct_indices = {i for i in correct if isinstance(i, int)}
-        else:
-            correct_indices = set()
+            correct = [correct]
+        elif not isinstance(correct, list):
+            correct = []
+        correct_indices = {
+            i for i in correct
+            if isinstance(i, int) and 0 <= i < len(options)}
+        if not correct_indices and options:
+            _logger.warning(
+                "Draft %s: correct_answer_json %r yields no valid option "
+                "index in 0..%s; question approved with no correct option.",
+                self.id, self.correct_answer_json, len(options) - 1)
 
         Dimension = self.env["etp.assessment.dimension"]
         Option = self.env["etp.assessment.dimension.option"]

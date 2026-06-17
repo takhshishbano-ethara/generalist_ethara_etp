@@ -17,6 +17,7 @@
                        decoration-danger="state == 'missed'"/>
                 <field name="total_questions"/>
                 <field name="answered_count"/>
+                <field name="scheduled_start" string="Opens"/>
                 <field name="started_at"/>
                 <field name="deadline_datetime"/>
                 <field name="score"/>
@@ -63,6 +64,36 @@
                             <field name="access_token" readonly="1"/>
                         </group>
                     </group>
+                    <notebook>
+                        <page string="Score Details">
+                            <field name="response_ids" readonly="1">
+                                <list>
+                                    <field name="question_id"/>
+                                    <field name="question_type"
+                                           string="Type" optional="show"/>
+                                    <field name="answer_summary"
+                                           string="Candidate Answer"/>
+                                    <field name="correct_summary"
+                                           string="Correct Answer" optional="show"/>
+                                    <field name="score" string="Obj"/>
+                                    <field name="max_score" string="Obj Max"/>
+                                    <field name="llm_score" string="Subj"/>
+                                    <field name="llm_max_score" string="Subj Max"/>
+                                    <field name="llm_passed" widget="boolean"
+                                           string="Subj Pass"/>
+                                    <field name="llm_feedback"
+                                           string="Subj Feedback" optional="hide"/>
+                                    <field name="llm_state" widget="badge"
+                                           string="Subj State"
+                                           decoration-info="llm_state in ('pending','queued')"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-muted="llm_state == 'not_needed'"
+                                           decoration-danger="llm_state == 'failed'"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>
@@ -76,11 +107,16 @@
                 <field name="assessment_id"/>
                 <field name="skill_id"/>
                 <separator/>
-                <filter name="filter_available" string="Available"
+                <filter name="filter_upcoming" string="Upcoming"
+                        domain="[('state','=','locked')]"/>
+                <filter name="filter_available" string="Available Now"
                         domain="[('state','=','available')]"/>
                 <filter name="filter_in_progress" string="In Progress"
                         domain="[('state','=','in_progress')]"/>
-                <filter name="filter_done" string="Done"
+                <separator/>
+                <filter name="filter_history" string="History"
+                        domain="[('state','in',('submitted','scored','missed'))]"/>
+                <filter name="filter_done" string="Completed"
                         domain="[('state','in',('submitted','scored'))]"/>
                 <filter name="filter_missed" string="Missed"
                         domain="[('state','=','missed')]"/>
@@ -99,7 +135,11 @@
         <field name="res_model">etp.assessment.day.session</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="etp_assessment_day_session_my_search"/>
-        <field name="context">{'search_default_filter_available': 1, 'search_default_filter_in_progress': 1}</field>
+        <field name="context">{'search_default_group_state': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No assessments assigned yet</p>
+            <p>Your assigned assessments — upcoming, active, and completed — will appear here.</p>
+        </field>
         <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('etp_assessment_day_session_my_tree')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('etp_assessment_day_session_my_form')})]"/>

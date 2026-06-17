@@ -152,6 +152,8 @@ class EtpAssessmentDaySession(models.Model):
         related="day_id.skill_id", store=True, readonly=True)
     day_sequence = fields.Integer(
         related="day_id.sequence", store=True, readonly=True)
+    scheduled_start = fields.Datetime(
+        related="day_id.scheduled_start", store=True, readonly=True)
 
     access_token = fields.Char(
         string="Access Token", index=True, copy=False,
@@ -265,13 +267,49 @@ class EtpAssessmentDaySession(models.Model):
 
     def action_submit_day(self):
         for rec in self:
-            if rec.state not in ("in_progress", "available"):
+            if rec.state not in ("in_progress",):
                 raise UserError(
                     f"Day session is in state '{rec.state}', cannot submit.")
+            rec._ensure_unanswered_placeholders()
             rec.write({"state": "submitted"})
             rec._rollup_day_score()
             rec._unlock_next_day()
             rec.evaluator_id._rollup_overall_from_days()
+
+    def _ensure_unanswered_placeholders(self):
+        # Zero-score submitted rows for any unanswered question so the day's
+        # max_score denominator reflects ALL assigned questions, not just the
+        # ones answered (else answering 3/10 perfectly reads as 100%).
+        self.ensure_one()
+        question_order = json.loads(self.question_order or "[]")
+        Response = self.env["etp.assessment.response"]
+        for q_id in question_order:
+            existing = Response.search([
+                ("day_session_id", "=", self.id),
+                ("question_id", "=", q_id),
+                ("state", "=", "submitted"),
+            ], limit=1)
+            if existing:
+                continue
+            draft = Response.search([
+                ("day_session_id", "=", self.id),
+                ("question_id", "=", q_id),
+                ("state", "=", "draft"),
+            ], limit=1)
+            if draft:
+                draft.write({"state": "submitted",
+                             "llm_state": "not_needed"})
+                continue
+            Response.create({
+                "assessment_id": self.assessment_id.id,
+                "assessment_evaluator_id": self.evaluator_id.id,
+                "day_session_id": self.id,
+                "evaluator_id": self.evaluator_id.employee_id.id,
+                "question_id": q_id,
+                "justification": "[Auto-submitted: not answered]",
+                "state": "submitted",
+                "llm_state": "not_needed",
+            })
 
     def _rollup_day_score(self):
         # Flip state to ``scored`` only when every subjective response is
@@ -323,7 +361,11 @@ class EtpAssessmentDaySession(models.Model):
             assessment = sess.assessment_id
             if day.scheduled_start and day.scheduled_start > now:
                 continue
-            if assessment.sequential_days and day.sequence > 1:
+            first_day = self.env["etp.assessment.day"].search(
+                [("assessment_id", "=", day.assessment_id.id)],
+                order="sequence", limit=1)
+            is_first = (day.id == first_day.id)
+            if assessment.sequential_days and not is_first:
                 prior_day = self.env["etp.assessment.day"].search([
                     ("assessment_id", "=", assessment.id),
                     ("sequence", "<", day.sequence),
@@ -416,6 +458,18 @@ class EtpAssessmentMultiDayActions(models.Model):
                     "Days missing a skill: "
                     f"{', '.join(str(s) for s in missing_skill)}. "
                     "Assign one before generating the plan.")
+            empty_skill = [
+                f"Day {d.sequence} ({d.skill_id.name})"
+                for d in days
+                if d.question_source == "skill_pool"
+                and not d.skill_id.question_ids.filtered("active")
+            ]
+            if empty_skill:
+                raise UserError(
+                    "These days use a skill with no questions in the bank: "
+                    f"{', '.join(empty_skill)}. Generate or import questions "
+                    "for the skill first, or switch the day to manual mode "
+                    "and pick questions directly.")
             if not rec.evaluator_ids:
                 raise UserError(
                     "Assign at least one candidate before generating the plan.")

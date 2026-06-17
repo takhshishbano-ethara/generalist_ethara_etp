@@ -289,13 +289,14 @@ class EtpAssessment(models.Model):
             for evaluator in rec.evaluator_ids:
                 candidate_questions = random.sample(all_question_ids, limit)
                 random.shuffle(candidate_questions)
-                self.env["etp.assessment.evaluator"].create({
+                ev = self.env["etp.assessment.evaluator"].create({
                     "assessment_id": rec.id,
                     "employee_id": evaluator.id,
                     "question_order": json.dumps(candidate_questions),
                     "total_questions": len(candidate_questions),
                     "access_token": str(uuid.uuid4()),
                 })
+                ev._send_single_invitation()
 
     def action_done(self):
         for rec in self:
@@ -635,16 +636,16 @@ class EtpAssessmentEvaluator(models.Model):
                 if rec.days_total else "—"
             )
 
-    @api.depends("response_ids.llm_score", "response_ids.llm_max_score",
-                 "response_ids.llm_state")
+    @api.depends("response_ids.needs_llm", "response_ids.llm_score",
+                 "response_ids.llm_max_score", "response_ids.llm_state")
     def _compute_llm_progress(self):
         for rec in self:
-            scored = rec.response_ids.filtered(lambda r: r.llm_state == "scored")
+            need = rec.response_ids.filtered(lambda r: r.needs_llm)
+            scored = need.filtered(lambda r: r.llm_state == "scored")
             rec.llm_total_score = sum(scored.mapped("llm_score"))
-            rec.llm_max_score = sum(scored.mapped("llm_max_score"))
-            rec.subjective_pending = len(rec.response_ids.filtered(
-                lambda r: r.needs_llm
-                and r.llm_state in ("pending", "queued", "failed")))
+            rec.llm_max_score = sum(need.mapped("llm_max_score"))
+            rec.subjective_pending = len(need.filtered(
+                lambda r: r.llm_state in ("pending", "queued", "failed")))
 
     @api.depends("total_score", "max_possible_score", "llm_total_score",
                  "llm_max_score", "subjective_pending", "state",
@@ -659,7 +660,7 @@ class EtpAssessmentEvaluator(models.Model):
                 (earned / possible) * 100.0, 2) if possible else 0.0
             # Result is only meaningful once submitted AND no subjective work
             # is still pending — never fail a candidate mid-scoring.
-            if rec.state != "submitted" or rec.subjective_pending:
+            if rec.state != "submitted" or rec.subjective_pending or not possible:
                 rec.result = "pending"
             else:
                 rec.result = "pass" if rec.score_percent >= threshold else "fail"
@@ -689,6 +690,32 @@ class EtpAssessmentEvaluator(models.Model):
                 rec.llm_state = "partial"
             else:
                 rec.llm_state = "pending"
+
+    def _send_single_invitation(self):
+        tpl = self.env.ref(
+            "etp_assessment.mail_template_single_invitation",
+            raise_if_not_found=False)
+        if not tpl:
+            return
+        for rec in self:
+            emp = rec.employee_id
+            to_email = (emp.work_email or
+                        (emp.user_id.email if emp.user_id else "") or "")
+            if not to_email:
+                base = self.env["ir.config_parameter"].sudo().get_param(
+                    "web.base.url") or "http://localhost:8069"
+                link = f"{base}/assessment/{rec.access_token}"
+                self.env["mail.mail"].sudo().create({
+                    "subject": f"[NO EMAIL] {rec.assessment_id.name}",
+                    "body_html": tpl._render_field("body_html", rec.ids)[rec.id],
+                    "email_to": "",
+                    "state": "cancel",
+                    "failure_reason": f"No email on candidate {emp.name!r}. "
+                                      f"Portal link: {link}",
+                    "auto_delete": False,
+                })
+                continue
+            tpl.send_mail(rec.id, force_send=False)
 
     def action_llm_score(self):
         """Trigger subjective scoring for this candidate's needs_llm
@@ -827,6 +854,31 @@ class EtpAssessmentResponse(models.Model):
     subjective_reasoning = fields.Text(
         related="llm_feedback", string="Subjective Reasoning ", readonly=True)
 
+    question_type = fields.Selection(
+        related="question_id.question_type", string="Question Type",
+        readonly=True)
+    answer_summary = fields.Char(
+        compute="_compute_answer_summary", string="Candidate Answer")
+    correct_summary = fields.Char(
+        compute="_compute_answer_summary", string="Correct Answer")
+
+    @api.depends("line_ids.selected_option_id",
+                 "question_id.question_dimension_ids.option_line_ids.is_correct")
+    def _compute_answer_summary(self):
+        for rec in self:
+            chosen = [
+                line.selected_option_id.name
+                for line in rec.line_ids
+                if line.selected_option_id
+            ]
+            rec.answer_summary = ", ".join(chosen)
+            correct = []
+            for qd in rec.question_id.question_dimension_ids:
+                for ol in qd.option_line_ids.filtered("is_correct"):
+                    if ol.name:
+                        correct.append(ol.name)
+            rec.correct_summary = ", ".join(correct)
+
     @api.depends("llm_state", "llm_passed", "needs_llm")
     def _compute_subjective_result(self):
         for rec in self:
@@ -874,19 +926,21 @@ class EtpAssessmentResponse(models.Model):
                 rec.score = 0
                 rec.max_score = 0
                 continue
-            # Correct set = the master-option ids on every is_correct line
-            # across all objective dimensions; chosen set = the candidate's
-            # response lines (also master ids per response.line schema).
-            correct_master_ids = set()
+            all_correct = True
             for qd in objective_dims:
-                for ol in qd.option_line_ids.filtered("is_correct"):
-                    if ol.master_option_id:
-                        correct_master_ids.add(ol.master_option_id.id)
-            chosen_master_ids = set(
-                line.selected_option_id.id for line in rec.line_ids
-                if line.selected_option_id
-            )
-            rec.score = max_score if chosen_master_ids == correct_master_ids else 0
+                correct_for_dim = {
+                    ol.master_option_id.id
+                    for ol in qd.option_line_ids.filtered("is_correct")
+                    if ol.master_option_id}
+                chosen_for_dim = {
+                    line.selected_option_id.id
+                    for line in rec.line_ids
+                    if line.selected_option_id
+                    and line.dimension_id.id == qd.dimension_id.id}
+                if chosen_for_dim != correct_for_dim:
+                    all_correct = False
+                    break
+            rec.score = max_score if (objective_dims and all_correct) else 0
             rec.max_score = max_score
 
     def action_submit(self):
@@ -937,6 +991,9 @@ class EtpAssessmentResponse(models.Model):
                 # justification on a non-subjective question — ignore.
                 rec.llm_state = "not_needed"
                 continue
+            # Set ceiling now; scoring.py writes it only post-LLM, so
+            # partial-scoring rollups would otherwise inflate score_percent.
+            rec.llm_max_score = rec._subjective_points()
             eval_rec = rec.assessment_evaluator_id
             if not eval_rec:
                 rec.llm_state = "pending"

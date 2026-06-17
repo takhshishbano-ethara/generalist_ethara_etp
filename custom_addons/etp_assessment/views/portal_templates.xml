@@ -45,6 +45,29 @@
         </t>
     </template>
 
+    <template id="portal_wrong_candidate" name="ETP Assessment — Wrong Candidate">
+        <t t-call="etp_assessment.portal_layout">
+            <div class="alert alert-danger">
+                <h3>This assessment isn't assigned to you</h3>
+                <p>
+                    This link belongs to
+                    <strong t-out="candidate.name or 'another candidate'"/>.
+                    You are signed in as
+                    <strong t-out="current_user.name"/>.
+                </p>
+                <p>
+                    Please sign in with the account the invitation was sent to,
+                    then open the link again.
+                </p>
+                <p>
+                    <a href="/web/session/logout?redirect=/web/login" class="btn btn-primary">
+                        Switch account
+                    </a>
+                </p>
+            </div>
+        </t>
+    </template>
+
     <template id="portal_day_locked" name="ETP Assessment — Day Locked">
         <t t-call="etp_assessment.portal_layout">
             <div class="alert alert-info">
@@ -181,7 +204,7 @@
                         <t t-if="question.question_type == 'mcq'">
                             <t t-foreach="dimensions" t-as="qd">
                                 <fieldset class="my-3">
-                                    <legend t-out="qd.dimension_id.name"/>
+                                    <legend t-if="qd.dimension_id.name != question.name" t-out="qd.dimension_id.name"/>
                                     <t t-foreach="qd.option_line_ids" t-as="opt">
                                         <div class="form-check">
                                             <input class="form-check-input"
@@ -203,7 +226,7 @@
                             <t t-foreach="dimensions" t-as="qd">
                                 <fieldset class="my-3"
                                           t-att-data-dim-id="qd.dimension_id.id">
-                                    <legend t-out="qd.dimension_id.name"/>
+                                    <legend t-if="qd.dimension_id.name != question.name" t-out="qd.dimension_id.name"/>
                                     <input type="hidden"
                                            t-att-name="'dimension_%d' % qd.dimension_id.id"
                                            value=""
@@ -258,16 +281,16 @@
             <script type="text/javascript">
                 (function () {
                     // ETP proctoring: arm only the rules enabled on the assessment.
-                    var RULES = <t t-esc="{
-                        'tab_switch': bool(assessment.rule_block_tab_switch),
-                        'copy_paste': bool(assessment.rule_block_copy_paste),
-                        'right_click': bool(assessment.rule_block_right_click),
-                        'devtools': bool(assessment.rule_block_devtools),
-                        'screenshot': bool(assessment.rule_block_screenshot),
-                        'fullscreen': bool(assessment.rule_fullscreen),
-                        'webcam': bool(assessment.rule_webcam),
-                        'watermark': bool(assessment.rule_watermark),
-                    }"/>;
+                    var RULES = {
+                        'tab_switch': <t t-out="'true' if assessment.rule_block_tab_switch else 'false'"/>,
+                        'copy_paste': <t t-out="'true' if assessment.rule_block_copy_paste else 'false'"/>,
+                        'right_click': <t t-out="'true' if assessment.rule_block_right_click else 'false'"/>,
+                        'devtools': <t t-out="'true' if assessment.rule_block_devtools else 'false'"/>,
+                        'screenshot': <t t-out="'true' if assessment.rule_block_screenshot else 'false'"/>,
+                        'fullscreen': <t t-out="'true' if assessment.rule_fullscreen else 'false'"/>,
+                        'webcam': <t t-out="'true' if assessment.rule_webcam else 'false'"/>,
+                        'watermark': <t t-out="'true' if assessment.rule_watermark else 'false'"/>
+                    };
                     function reportViolation(reason) {
                         try {
                             document.getElementById('etp-violation-reason').value = reason;
@@ -323,19 +346,23 @@
                     var t = document.getElementById('etp-timer');
                     if (t &amp;&amp; t.dataset.deadline) {
                         var deadline = new Date(t.dataset.deadline.replace(' ', 'T'));
-                        setInterval(function () {
+                        var tick = function () {
                             var ms = deadline - new Date();
                             if (ms &lt;= 0) {
                                 t.textContent = '00:00';
                                 t.classList.remove('bg-warning');
                                 t.classList.add('bg-danger');
+                                var f = document.getElementById('etp-response-form');
+                                if (f) { f.submit(); }
                                 return;
                             }
                             var mm = Math.floor(ms / 60000);
                             var ss = Math.floor((ms % 60000) / 1000);
                             t.textContent = (mm &lt; 10 ? '0' : '') + mm + ':' +
                                             (ss &lt; 10 ? '0' : '') + ss;
-                        }, 1000);
+                        };
+                        tick();
+                        setInterval(tick, 1000);
                     }
                     // MSQ: serialize all checked boxes per dimension into the
                     // single hidden csv input so the controller can split on ','.
@@ -353,6 +380,128 @@
                     });
                 })();
             </script>
+        </t>
+    </template>
+
+    <template id="portal_day_result" name="ETP Assessment — Day Result">
+        <t t-call="etp_assessment.portal_layout">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <h2 class="mb-1" t-out="assessment.name"/>
+                    <h5 class="text-muted mb-0" t-if="day_session">
+                        Day <span t-out="day_session.day_id.sequence"/>:
+                        <span t-out="day_session.skill_id.name"/>
+                    </h5>
+                </div>
+                <div class="text-end">
+                    <div class="badge bg-primary fs-6">
+                        Day Score:
+                        <span t-out="day_session.score"/> /
+                        <span t-out="day_session.max_score"/>
+                    </div>
+                    <div class="mt-2"
+                         t-if="evaluator.result and evaluator.result != 'pending'">
+                        <span class="badge bg-secondary me-1">
+                            Overall <span t-out="evaluator.score_percent"/>%
+                        </span>
+                        <span t-attf-class="badge bg-{{ 'success' if evaluator.result == 'pass' else 'danger' }}"
+                              t-out="evaluator.result.upper()"/>
+                    </div>
+                </div>
+            </div>
+
+            <t t-if="not show_results">
+                <div class="alert alert-info">
+                    <h4 class="alert-heading">Responses Submitted</h4>
+                    <p class="mb-0">
+                        Your responses for day
+                        <span t-out="day_session.day_id.sequence"/> have been
+                        submitted. Results will be released by the
+                        administrator.
+                    </p>
+                </div>
+            </t>
+
+            <t t-else="">
+                <div class="alert alert-success">
+                    <strong>Submitted.</strong> Here is your per-question
+                    breakdown for this day.
+                </div>
+
+                <t t-if="not responses">
+                    <p class="text-muted">No submitted responses to display.</p>
+                </t>
+
+                <t t-foreach="responses" t-as="response">
+                    <t t-set="question" t-value="response.question_id"/>
+                    <t t-set="is_objective"
+                       t-value="response.question_type in ('mcq', 'msq')"/>
+                    <t t-set="is_correct"
+                       t-value="is_objective and response.max_score &gt; 0 and response.score == response.max_score"/>
+                    <div class="card mb-3">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span>
+                                <strong>Q<span t-out="response_index + 1"/>.</strong>
+                                <span t-out="question.name"/>
+                            </span>
+                            <span>
+                                <t t-if="is_objective">
+                                    <span t-if="is_correct"
+                                          class="badge bg-success">Correct</span>
+                                    <span t-else=""
+                                          class="badge bg-danger">Incorrect</span>
+                                    <span class="badge bg-light text-dark ms-1">
+                                        <span t-out="response.score"/> /
+                                        <span t-out="response.max_score"/>
+                                    </span>
+                                </t>
+                                <t t-else="">
+                                    <span t-if="response.llm_state == 'scored'">
+                                        <span t-attf-class="badge bg-{{ 'success' if response.llm_passed else 'danger' }}"
+                                              t-out="'Pass' if response.llm_passed else 'Fail'"/>
+                                        <span class="badge bg-light text-dark ms-1">
+                                            <span t-out="response.llm_score"/> /
+                                            <span t-out="response.llm_max_score"/>
+                                        </span>
+                                    </span>
+                                    <span t-else="" class="badge bg-secondary">
+                                        Scoring in progress
+                                    </span>
+                                </t>
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <p class="text-muted" t-out="question.prompt"/>
+
+                            <t t-if="is_objective">
+                                <p class="mb-1">
+                                    <strong>Your answer:</strong>
+                                    <span t-if="response.answer_summary"
+                                          t-out="response.answer_summary"/>
+                                    <em t-else="" class="text-muted">No answer</em>
+                                </p>
+                                <p class="mb-0" t-if="not is_correct">
+                                    <strong>Correct answer:</strong>
+                                    <span t-out="response.correct_summary"/>
+                                </p>
+                            </t>
+
+                            <t t-else="">
+                                <p class="mb-1">
+                                    <strong>Your answer:</strong>
+                                </p>
+                                <p class="mb-2" style="white-space: pre-wrap;"
+                                   t-out="response.justification"/>
+                                <div t-if="response.llm_feedback"
+                                     class="alert alert-light border mb-0">
+                                    <strong>Feedback:</strong>
+                                    <span t-out="response.llm_feedback"/>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </t>
+            </t>
         </t>
     </template>
 
