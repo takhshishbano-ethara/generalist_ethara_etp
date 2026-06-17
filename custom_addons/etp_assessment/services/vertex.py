@@ -38,7 +38,7 @@ def _vertex_creds(env):
     return (
         _param(env, "etp_assessment.vertex_project_id"),
         _param(env, "etp_assessment.vertex_location", "us-central1"),
-        _param(env, "etp_assessment.vertex_model", "gemini-2.5-pro"),
+        _param(env, "etp_assessment.vertex_model", "gemini-2.5-flash-lite"),
         _param(env, "etp_assessment.vertex_api_key"),
     )
 

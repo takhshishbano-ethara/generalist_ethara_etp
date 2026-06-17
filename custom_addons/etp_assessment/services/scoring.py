@@ -157,7 +157,7 @@ def score_evaluator(env, evaluator):
     )
 
     model_name = (env["ir.config_parameter"].sudo().get_param(
-        "etp_assessment.vertex_model", "gemini-2.5-pro") or "gemini-2.5-pro")
+        "etp_assessment.vertex_model", "gemini-2.5-flash-lite") or "gemini-2.5-flash-lite")
     _logger.info(
         "etp_assessment scoring: evaluator=%s items=%d model=%s",
         evaluator.id, len(items), model_name)

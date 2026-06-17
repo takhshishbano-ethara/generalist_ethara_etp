@@ -33,11 +33,11 @@
                                 <field name="skill_id"/>
                             </div>
                             <div class="small text-muted">
-                                <div><i class="fa fa-question-circle me-1"/><field name="total_questions"/> questions</div>
+                                <div><i class="fa fa-question-circle me-1" title="Questions"/><field name="total_questions"/> questions</div>
                                 <div t-if="record.duration_minutes.raw_value">
-                                    <i class="fa fa-clock-o me-1"/><field name="duration_minutes"/> minutes</div>
+                                    <i class="fa fa-clock-o me-1" title="Duration"/><field name="duration_minutes"/> minutes</div>
                                 <div t-if="record.scheduled_start.raw_value">
-                                    <i class="fa fa-calendar me-1"/><field name="scheduled_start"/></div>
+                                    <i class="fa fa-calendar me-1" title="Scheduled start"/><field name="scheduled_start"/></div>
                             </div>
                             <div class="mt-2">
                                 <field name="state" widget="badge"

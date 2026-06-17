@@ -52,18 +52,11 @@ class EtpAssessment(models.Model):
 
     # The mode decides which branch of the form / lifecycle drives the
     # assessment. category_id is required only in single; skill_id on day
-    # rows is required only in multi_day — both enforced via @api.constrains
-    # so blank scaffolding never trips a NOT NULL violation on the DB.
-    assessment_mode = fields.Selection(
-        [("single", "Single Test"), ("multi_day", "Multi-Day Plan")],
-        default="single",
-        required=True,
-        help="Single = one flat test from a category. Multi-day = N-day plan, "
-             "one skill per day, per-candidate per-day sessions.",
-    )
-
     # ------------------------------------------------------------------
-    # SINGLE-MODE fields (ported from reference). Inert in multi_day.
+    # Question-source fields. Every assessment is a day-based plan now
+    # (a one-off test is simply a 1-day plan). category_id/question_limit
+    # are retained as OPTIONAL metadata (the Flutter/extension serializer
+    # still reads them); the day binds questions via skill_id.
     # ------------------------------------------------------------------
     category_id = fields.Many2one(
         "etp.assessment.category",
@@ -136,7 +129,7 @@ class EtpAssessment(models.Model):
     # ------------------------------------------------------------------
     # Candidates: many2many evaluator_ids is the "assigned" list (admin
     # toggles before launch); assessment_evaluator_ids is the materialized
-    # row per candidate (created by action_start / action_generate_plan).
+    # row per candidate (created by action_generate_plan).
     # ------------------------------------------------------------------
     evaluator_ids = fields.Many2many(
         "hr.employee",
@@ -243,66 +236,6 @@ class EtpAssessment(models.Model):
         for rec in self:
             if rec.start_date and rec.end_date and rec.start_date >= rec.end_date:
                 raise ValidationError("End Date must be after Start Date.")
-
-    @api.constrains("assessment_mode", "category_id")
-    def _check_single_requires_category(self):
-        # Mode-specific NOT NULL surrogate: the column stays nullable so
-        # multi_day scaffolding can leave it blank, but a single-mode plan
-        # has no source of questions without it.
-        for rec in self:
-            if rec.assessment_mode == "single" and not rec.category_id:
-                raise ValidationError(
-                    "Single-mode assessments require a question category."
-                )
-
-    # ------------------------------------------------------------------
-    # SINGLE-MODE lifecycle (ported as-is from the reference).
-    # ------------------------------------------------------------------
-    def action_start(self):
-        for rec in self:
-            if rec.assessment_mode != "single":
-                raise UserError(
-                    "Single-mode action. Use 'Generate Plan' for multi-day "
-                    "assessments."
-                )
-            if rec.state != "draft":
-                raise UserError("Only draft assessments can be started.")
-            if not rec.evaluator_ids:
-                raise UserError("Please assign at least one candidate before starting.")
-            if not rec.category_id:
-                raise UserError("Please select a question category.")
-
-            available_questions = self.env["etp.assessment.question"].search([
-                ("category_id", "=", rec.category_id.id), ("active", "=", True),
-            ])
-            if not available_questions:
-                raise UserError(
-                    "No active questions found in the selected category.")
-
-            limit = rec.question_limit or len(available_questions)
-            if limit > len(available_questions):
-                raise UserError(
-                    f"Requested {limit} questions but only "
-                    f"{len(available_questions)} available in this category.")
-
-            all_question_ids = available_questions.ids
-            rec.write({
-                "question_ids": [(6, 0, all_question_ids)],
-                "state": "in_progress",
-                "start_date": rec.start_date or fields.Datetime.now(),
-            })
-
-            for evaluator in rec.evaluator_ids:
-                candidate_questions = random.sample(all_question_ids, limit)
-                random.shuffle(candidate_questions)
-                ev = self.env["etp.assessment.evaluator"].create({
-                    "assessment_id": rec.id,
-                    "employee_id": evaluator.id,
-                    "question_order": json.dumps(candidate_questions),
-                    "total_questions": len(candidate_questions),
-                    "access_token": str(uuid.uuid4()),
-                })
-                ev._send_single_invitation()
 
     def action_done(self):
         for rec in self:
@@ -696,32 +629,6 @@ class EtpAssessmentEvaluator(models.Model):
                 rec.llm_state = "partial"
             else:
                 rec.llm_state = "pending"
-
-    def _send_single_invitation(self):
-        tpl = self.env.ref(
-            "etp_assessment.mail_template_single_invitation",
-            raise_if_not_found=False)
-        if not tpl:
-            return
-        for rec in self:
-            emp = rec.employee_id
-            to_email = (emp.work_email or
-                        (emp.user_id.email if emp.user_id else "") or "")
-            if not to_email:
-                base = self.env["ir.config_parameter"].sudo().get_param(
-                    "web.base.url") or "http://localhost:8069"
-                link = f"{base}/assessment/{rec.access_token}"
-                self.env["mail.mail"].sudo().create({
-                    "subject": f"[NO EMAIL] {rec.assessment_id.name}",
-                    "body_html": tpl._render_field("body_html", rec.ids)[rec.id],
-                    "email_to": "",
-                    "state": "cancel",
-                    "failure_reason": f"No email on candidate {emp.name!r}. "
-                                      f"Portal link: {link}",
-                    "auto_delete": False,
-                })
-                continue
-            tpl.send_mail(rec.id, force_send=False)
 
     def action_llm_score(self):
         """Trigger subjective scoring for this candidate's needs_llm

@@ -144,8 +144,7 @@
                                 <strong t-out="assessment.max_violations"/>.
                                 Exceeding this auto-submits your assessment.
                             </p>
-                            <form method="post"
-                                  t-att-action="submit_url if submit_url else '/assessment/%s/begin' % token">
+                            <form method="post" t-att-action="submit_url">
                                 <input type="hidden" name="csrf_token"
                                        t-att-value="request.csrf_token()"/>
                                 <button type="submit" class="btn btn-primary btn-lg">
@@ -201,10 +200,6 @@
                                    t-att-value="request.csrf_token()"/>
                             <input type="hidden" name="question_id"
                                    t-att-value="question.id"/>
-                            <!-- nav intent: 'next' (default) or 'prev'.
-                                 The runner uses it to decide which question to
-                                 serve after saving this one. -->
-                            <input type="hidden" name="nav" id="etp-nav" value="next"/>
 
                             <t t-if="question.question_type == 'mcq'">
                                 <t t-foreach="dimensions" t-as="qd">
@@ -273,7 +268,8 @@
                             </t>
 
                             <div class="d-flex justify-content-between mt-4">
-                                <button type="submit" class="btn btn-outline-secondary"
+                                <button type="submit" name="nav" value="prev"
+                                        class="btn btn-outline-secondary"
                                         id="etp-prev-btn"
                                         t-att-disabled="'disabled' if current_index &lt;= 1 else None">
                                     <i class="fa fa-arrow-left me-1"/>Previous
@@ -282,7 +278,8 @@
                                     <a t-att-href="review_url" class="btn btn-link">
                                         Review &amp; Submit
                                     </a>
-                                    <button type="submit" class="btn btn-primary" id="etp-next-btn">
+                                    <button type="submit" name="nav" value="next"
+                                            class="btn btn-primary" id="etp-next-btn">
                                         <t t-if="current_index &gt;= total_questions">Save &amp; Review</t>
                                         <t t-else="">Save &amp; Next</t>
                                         <i class="fa fa-arrow-right ms-1"/>
@@ -386,13 +383,6 @@
                             tick();
                             setInterval(tick, 1000);
                         }
-                        // Previous nav: save current answer then go back.
-                        var prevBtn = document.getElementById('etp-prev-btn');
-                        if (prevBtn) {
-                            prevBtn.addEventListener('click', function () {
-                                document.getElementById('etp-nav').value = 'prev';
-                            });
-                        }
                         // MSQ: serialize checked boxes per dimension into the
                         // hidden csv input the controller splits on ','.
                         document.addEventListener('submit', function (e) {
@@ -475,27 +465,6 @@
         </t>
     </template>
 
-    <template id="portal_day_finish_prompt" name="ETP Assessment — Day Finish">
-        <t t-call="etp_assessment.portal_exam_layout">
-            <t t-set="exam_body">
-                <div class="alert alert-success mt-4">
-                    <h3>All questions answered</h3>
-                    <p>
-                        You have answered every question for day
-                        <span t-out="day_session.day_id.sequence"/>.
-                        Submit the day to finalize your score.
-                    </p>
-                    <form t-att-action="finish_url" method="post">
-                        <input type="hidden" name="csrf_token"
-                               t-att-value="request.csrf_token()"/>
-                        <button type="submit" class="btn btn-success">Submit Day</button>
-                        <a t-att-href="back_url" class="btn btn-link">Review answers</a>
-                    </form>
-                </div>
-            </t>
-        </t>
-    </template>
-
     <!-- ===================================================================
          WRONG CANDIDATE (login-gate: link belongs to another account)
          =================================================================== -->
@@ -555,14 +524,48 @@
                 </div>
 
                 <t t-if="not show_results">
-                    <div class="alert alert-info">
-                        <h4 class="alert-heading">Responses Submitted</h4>
-                        <p class="mb-0">
-                            Your responses for day
-                            <span t-out="day_session.day_id.sequence"/> have been
-                            submitted. Results will be released by the
-                            administrator.
+                    <div class="alert alert-success">
+                        <h4 class="alert-heading">
+                            <i class="fa fa-check-circle me-1"/>Day
+                            <span t-out="day_session.day_id.sequence"/> of
+                            <span t-out="total_days"/> submitted
+                        </h4>
+                        <p class="mb-2">
+                            Your responses are locked in. The administrator
+                            will release results when ready.
                         </p>
+                        <t t-if="next_session">
+                            <hr/>
+                            <p class="mb-0">
+                                <strong>Next up:</strong> Day
+                                <span t-out="next_session.day_id.sequence"/>
+                                (<span t-out="next_session.day_id.name"/>).
+                                <t t-if="next_session.state == 'available'">
+                                    Ready when you are — head back to My
+                                    Assessments to start.
+                                </t>
+                                <t t-elif="next_session.scheduled_start">
+                                    Opens
+                                    <span t-out="next_session.scheduled_start"
+                                          t-options="{'widget': 'datetime'}"/>.
+                                </t>
+                                <t t-else="">
+                                    Will unlock once available.
+                                </t>
+                            </p>
+                        </t>
+                        <t t-elif="all_done">
+                            <hr/>
+                            <p class="mb-0">
+                                All days submitted. You're done with this
+                                assessment.
+                            </p>
+                        </t>
+                    </div>
+                    <div class="mt-3">
+                        <a href="/my/assessments" class="btn btn-primary">
+                            Back to My Assessments
+                        </a>
                     </div>
                 </t>
 

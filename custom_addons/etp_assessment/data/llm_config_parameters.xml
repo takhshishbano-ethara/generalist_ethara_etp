@@ -7,7 +7,7 @@
         </record>
         <record id="param_vertex_model" model="ir.config_parameter">
             <field name="key">etp_assessment.vertex_model</field>
-            <field name="value">gemini-2.5-pro</field>
+            <field name="value">gemini-2.5-flash-lite</field>
         </record>
         <record id="param_s3_region" model="ir.config_parameter">
             <field name="key">etp_assessment.s3_region</field>
