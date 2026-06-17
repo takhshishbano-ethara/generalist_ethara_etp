@@ -1,803 +1,358 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Portal Layout Base -->
-    <template id="portal_layout" name="Assessment Portal Layout">
-        <html>
-            <head>
-                <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
-                <title><t t-esc="page_title or 'ETP Assessment'"/></title>
-                <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"/>
-                <style>
-                    body { background: #f4f6f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-                    .assessment-container { max-width: 900px; margin: 40px auto; padding: 0 20px; }
-                    .assessment-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 32px; margin-bottom: 24px; }
-                    .assessment-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #fff; border-radius: 12px; padding: 32px; margin-bottom: 24px; }
-                    .progress-bar-custom { height: 8px; border-radius: 4px; background: #e9ecef; overflow: hidden; }
-                    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); border-radius: 4px; transition: width 0.3s ease; }
-                    .dimension-card { border: 2px solid #e9ecef; border-radius: 8px; padding: 16px; margin-bottom: 12px; transition: border-color 0.2s; }
-                    .dimension-card:hover { border-color: #667eea; }
-                    .dimension-title { margin-bottom: 10px; font-weight: 600; color: #333; }
-                    .dimensions-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
-                    .options-row { display: flex; flex-wrap: wrap; gap: 6px; }
-                    .option-radio { display: none; }
-                    .option-label { display: inline-block; padding: 8px 14px; border: 2px solid #e9ecef; border-radius: 6px; cursor: pointer; transition: all 0.2s; font-size: 14px; }
-                    .option-label:hover { border-color: #667eea; background: #f8f9ff; }
-                    .option-radio:checked + .option-label { border-color: #667eea; background: #667eea; color: #fff; }
-                    .btn-submit { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border: none; color: #fff; padding: 12px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; }
-                    .btn-submit:hover { opacity: 0.9; color: #fff; }
-                    .question-type-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
-                    .type-image_comparison { background: #e3f2fd; color: #1565c0; }
-                    .type-text { background: #e8f5e9; color: #2e7d32; }
-                    .type-coding { background: #fce4ec; color: #c62828; }
-                    .type-image_text { background: #fff3e0; color: #e65100; }
-                    .type-video { background: #f3e5f5; color: #6a1b9a; }
-                    .code-block { background: #1e1e1e; color: #d4d4d4; padding: 16px; border-radius: 8px; overflow-x: auto; font-family: 'Fira Code', monospace; font-size: 14px; }
-                    .image-comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-                    .image-comparison-grid img { width: 100%; border-radius: 8px; border: 2px solid #e9ecef; }
-                    @media (max-width: 768px) { .image-comparison-grid { grid-template-columns: 1fr; } }
-                    .timer-bar { display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.15); padding: 8px 16px; border-radius: 8px; }
-                    .timer-icon { font-size: 18px; }
-                    .timer-label { font-size: 14px; opacity: 0.9; }
-                    .timer-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-                    .timer-bar.timer-warning { background: rgba(255, 193, 7, 0.3); }
-                    .timer-bar.timer-danger { background: rgba(220, 53, 69, 0.4); animation: pulse 1s infinite; }
-                    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
-                    body.proctor-noselect { -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
-                    body.proctor-noselect * { -webkit-touch-callout: none; }
-                    body.proctor-noselect img { pointer-events: none; -webkit-user-drag: none; }
-                    .violation-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(220,53,69,0.95); z-index: 99999; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #fff; }
-                    .violation-overlay h2 { font-size: 2rem; margin-bottom: 12px; }
-                    .violation-overlay p { font-size: 1.1rem; opacity: 0.9; }
-                    /* Blur protection - applied on focus loss */
-                    .content-blurred .assessment-container { filter: blur(20px) !important; transition: filter 0.1s ease; pointer-events: none; }
-                    .content-blurred .watermark-overlay { filter: none !important; }
-                    /* Watermark overlay */
-                    .watermark-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9998; overflow: hidden; }
-                    .watermark-text { position: absolute; white-space: nowrap; font-size: 16px; font-weight: 600; color: rgba(100, 100, 100, 0.08); transform: rotate(-30deg); font-family: monospace; }
-                    /* Validation error styles */
-                    .dimension-card.dimension-error { border-color: #dc3545; background: #fff5f5; animation: shake 0.4s ease; }
-                    .dimension-card.dimension-error .dimension-title { color: #dc3545; }
-                    @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
-                    .validation-toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #dc3545; color: #fff; padding: 12px 24px; border-radius: 8px; font-weight: 600; font-size: 14px; z-index: 99999; box-shadow: 0 4px 12px rgba(220,53,69,0.4); display: none; animation: slideDown 0.3s ease; }
-                    @keyframes slideDown { from { opacity: 0; transform: translateX(-50%) translateY(-20px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-                    /* Mobile device blocker */
-                    .mobile-block-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #f4f6f9; z-index: 999999; align-items: center; justify-content: center; padding: 24px; text-align: center; }
-                    .mobile-block-overlay .mobile-block-card { background: #fff; border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,0.08); padding: 48px 32px; max-width: 420px; width: 100%; }
-                    .mobile-block-overlay .mobile-block-icon { font-size: 64px; margin-bottom: 16px; }
-                    .mobile-block-overlay h2 { color: #333; font-size: 1.4rem; margin-bottom: 12px; font-weight: 700; }
-                    .mobile-block-overlay p { color: #666; font-size: 1rem; line-height: 1.5; margin-bottom: 0; }
-
-                </style>
-            </head>
-            <body t-att-oncontextmenu="'return false;' if (not assessment or assessment.rule_block_right_click) else None"
-                  t-att-oncopy="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
-                  t-att-oncut="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
-                  t-att-onpaste="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
-                  t-att-ondragstart="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
-                  t-att-onselectstart="'return false;' if (not assessment or assessment.rule_block_copy_paste) else None"
-                  t-att-class="'' if (assessment and not assessment.rule_block_copy_paste) else 'proctor-noselect'">
-                <!-- Mobile Device Blocker -->
-                <div class="mobile-block-overlay" id="mobile-block-overlay">
-                    <div class="mobile-block-card">
-                        <div class="mobile-block-icon">🖥️</div>
-                        <h2>Desktop Required</h2>
-                        <p>This assessment can only be taken on a desktop or laptop computer. Please open the link on a computer with a larger screen to proceed.</p>
-                    </div>
-                </div>
-                <script>
-                    (function() {
-                        var isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent);
-                        var isSmallScreen = window.innerWidth &lt; 1024;
-                        if (isMobile || isSmallScreen) {
-                            document.getElementById("mobile-block-overlay").style.display = "flex";
-                            document.getElementById("mobile-block-overlay").nextElementSibling &amp;&amp; (function() {
-                                /* Hide all content after the blocker */
-                                var siblings = document.getElementById("mobile-block-overlay").parentElement.children;
-                                for (var i = 0; i &lt; siblings.length; i++) {
-                                    if (siblings[i].id !== "mobile-block-overlay") {
-                                        siblings[i].style.display = "none";
-                                    }
-                                }
-                            })();
-                        }
-                        /* Also check on resize (prevent rotating to fake desktop) */
-                        window.addEventListener("resize", function() {
-                            var mobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|Tablet/i.test(navigator.userAgent);
-                            if (mobileUA || window.innerWidth &lt; 1024) {
-                                document.getElementById("mobile-block-overlay").style.display = "flex";
-                                var siblings = document.getElementById("mobile-block-overlay").parentElement.children;
-                                for (var i = 0; i &lt; siblings.length; i++) {
-                                    if (siblings[i].id !== "mobile-block-overlay") {
-                                        siblings[i].style.display = "none";
-                                    }
-                                }
-                            }
-                        });
-                    })();
-                </script>
-                <div class="validation-toast" id="validation-toast">Please select an option for all dimensions before submitting.</div>
-                <span data-candidate-name="" t-att-data-candidate-name="evaluator.employee_id.name if evaluator else ''" style="display:none;"/>
-                <span data-token="" t-att-data-token="token if token else ''" style="display:none;"/>
-                <span id="proctor-rules" style="display:none;"
-                      t-att-data-tab-switch="'1' if (not assessment or assessment.rule_block_tab_switch) else '0'"
-                      t-att-data-screenshot="'1' if (not assessment or assessment.rule_block_screenshot) else '0'"
-                      t-att-data-copy-paste="'1' if (not assessment or assessment.rule_block_copy_paste) else '0'"
-                      t-att-data-devtools="'1' if (not assessment or assessment.rule_block_devtools) else '0'"
-                      t-att-data-watermark="'1' if (not assessment or assessment.rule_watermark) else '0'"
-                      t-att-data-violation-action="assessment.violation_action if assessment else 'auto_submit'"/>
-                <div class="assessment-container">
-                    <t t-raw="0"/>
-                </div>
-                <script>
-                    (function() {
-                        var form = document.querySelector("form");
-                        var violated = false;
-
-                        /* ===== PROCTORING RULE FLAGS (set per-assessment in backend) ===== */
-                        var rulesEl = document.getElementById("proctor-rules");
-                        function ruleOn(attr) {
-                            /* default ON when the flag element is missing (safety) */
-                            return !rulesEl || rulesEl.getAttribute(attr) !== "0";
-                        }
-                        var RULES = {
-                            tabSwitch: ruleOn("data-tab-switch"),
-                            screenshot: ruleOn("data-screenshot"),
-                            copyPaste: ruleOn("data-copy-paste"),
-                            devtools: ruleOn("data-devtools"),
-                            watermark: ruleOn("data-watermark"),
-                            violationAction: (rulesEl &amp;&amp; rulesEl.getAttribute("data-violation-action")) || "auto_submit"
-                        };
-
-                        /* ===== WATERMARK OVERLAY ===== */
-                        function createWatermark() {
-                            var overlay = document.createElement("div");
-                            overlay.className = "watermark-overlay";
-                            var candidateName = document.querySelector("[data-candidate-name]");
-                            var name = candidateName ? candidateName.getAttribute("data-candidate-name") : "Candidate";
-                            var now = new Date().toLocaleString();
-                            var text = name + " | " + now;
-                            /* Create grid of watermark text */
-                            for (var row = -2; row &lt; 20; row++) {
-                                for (var col = -2; col &lt; 10; col++) {
-                                    var span = document.createElement("span");
-                                    span.className = "watermark-text";
-                                    span.textContent = text;
-                                    span.style.top = (row * 120) + "px";
-                                    span.style.left = (col * 400) + "px";
-                                    overlay.appendChild(span);
-                                }
-                            }
-                            document.body.appendChild(overlay);
-                        }
-                        if (RULES.watermark) {
-                            createWatermark();
-                        }
-
-                        /* ===== VIOLATION HANDLER ===== */
-                        function triggerViolation(reason) {
-                            if (violated) return;
-                            var tokenEl = document.querySelector("[data-token]");
-                            var token = tokenEl ? tokenEl.getAttribute("data-token") : "";
-
-                            if (RULES.violationAction === "log_only") {
-                                /* Record the violation server-side but let the candidate continue. */
-                                if (token) {
-                                    try {
-                                        var fd = new FormData();
-                                        fd.append("violation_reason", reason);
-                                        navigator.sendBeacon
-                                            ? navigator.sendBeacon("/assessment/" + token + "/violation", fd)
-                                            : fetch("/assessment/" + token + "/violation", {method: "POST", body: fd});
-                                    } catch (e) {}
-                                }
-                                var toast = document.getElementById("validation-toast");
-                                if (toast) {
-                                    toast.textContent = "⚠️ Violation recorded: " + reason;
-                                    toast.style.display = "block";
-                                    setTimeout(function() { toast.style.display = "none"; }, 4000);
-                                }
-                                return;
-                            }
-
-                            violated = true;
-                            document.body.classList.remove("content-blurred");
-                            var overlay = document.createElement("div");
-                            overlay.className = "violation-overlay";
-                            overlay.innerHTML = '&lt;h2&gt;⚠️ Violation Detected&lt;/h2&gt;&lt;p&gt;' + reason + '&lt;/p&gt;&lt;p&gt;Your assessment is being submitted automatically.&lt;/p&gt;';
-                            document.body.appendChild(overlay);
-
-                            if (token) {
-                                var violationForm = document.createElement("form");
-                                violationForm.method = "POST";
-                                violationForm.action = "/assessment/" + token + "/violation";
-                                var input = document.createElement("input");
-                                input.type = "hidden";
-                                input.name = "violation_reason";
-                                input.value = reason;
-                                violationForm.appendChild(input);
-                                document.body.appendChild(violationForm);
-                                setTimeout(function() { violationForm.submit(); }, 1500);
-                            } else if (form) {
-                                setTimeout(function() { form.submit(); }, 1500);
-                            }
-                        }
-
-
-
-                        /* ===== CONTENT BLUR ON FOCUS LOSS ===== */
-                        window.addEventListener("blur", function() {
-                            if (RULES.tabSwitch &amp;&amp; form &amp;&amp; !violated) {
-                                document.body.classList.add("content-blurred");
-                            }
-                        });
-
-                        window.addEventListener("focus", function() {
-                            if (!violated) {
-                                document.body.classList.remove("content-blurred");
-                            }
-                        });
-
-                        /* ===== KEYBOARD SHORTCUTS BLOCKING ===== */
-                        document.addEventListener("keydown", function(e) {
-                            if (RULES.screenshot &amp;&amp; (e.key === "PrintScreen" || e.key === "Snapshot")) {
-                                e.preventDefault();
-                                triggerViolation("Screenshot attempt detected");
-                            }
-                            /* macOS screenshot shortcuts: Cmd+Shift+3, Cmd+Shift+4, Cmd+Shift+5 */
-                            if (RULES.screenshot &amp;&amp; e.metaKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "3" || e.key === "4" || e.key === "5")) {
-                                e.preventDefault();
-                                triggerViolation("Screenshot shortcut detected (Cmd+Shift+" + e.key + ")");
-                            }
-                            if (RULES.screenshot &amp;&amp; (e.ctrlKey || e.metaKey) &amp;&amp; e.shiftKey &amp;&amp; (e.key === "S" || e.key === "s")) {
-                                e.preventDefault();
-                                triggerViolation("Screenshot shortcut detected");
-                            }
-                            if (RULES.copyPaste &amp;&amp; (e.ctrlKey || e.metaKey) &amp;&amp; (e.key === "c" || e.key === "C" || e.key === "a" || e.key === "A" || e.key === "u" || e.key === "U" || e.key === "s" || e.key === "S" || e.key === "p" || e.key === "P")) {
-                                e.preventDefault();
-                                return false;
-                            }
-                            if (RULES.devtools &amp;&amp; (e.key === "F12" || (e.ctrlKey &amp;&amp; e.shiftKey &amp;&amp; (e.key === "I" || e.key === "i" || e.key === "J" || e.key === "j")))) {
-                                e.preventDefault();
-                                triggerViolation("Developer tools detected");
-                            }
-                        });
-
-                        /* ===== SCREEN CAPTURE API OVERRIDE ===== */
-                        if (RULES.screenshot &amp;&amp; navigator.mediaDevices &amp;&amp; navigator.mediaDevices.getDisplayMedia) {
-                            navigator.mediaDevices.getDisplayMedia = function() {
-                                triggerViolation("Screen capture attempt detected");
-                                return Promise.reject(new Error("Screen capture blocked"));
-                            };
-                        }
-
-                        /* ===== EXTENSION DETECTION ===== */
-                        if (RULES.screenshot) {
-                            var perfObserver = new PerformanceObserver(function(list) {
-                                list.getEntries().forEach(function(entry) {
-                                    if (entry.name &amp;&amp; entry.name.indexOf("screenshot") !== -1) {
-                                        triggerViolation("Screenshot extension detected");
-                                    }
-                                });
-                            });
-                            try { perfObserver.observe({entryTypes: ["resource"]}); } catch(e) {}
-                        }
-
-                        /* ===== DEV TOOLS SIZE DETECTION ===== */
-                        if (RULES.devtools) {
-                            setInterval(function() {
-                                var threshold = 160;
-                                if (window.outerWidth - window.innerWidth > threshold || window.outerHeight - window.innerHeight > threshold) {
-                                    if (!violated &amp;&amp; form) {
-                                        triggerViolation("Developer tools detected");
-                                    }
-                                }
-                            }, 2000);
-                        }
-                    })();
-                </script>
-            </body>
-        </html>
-    </template>
-
-    <!-- Invalid Token Page -->
-    <template id="portal_invalid_token" name="Invalid Token">
-        <t t-call="etp_assessment.portal_layout">
-            <t t-set="page_title">Invalid Link</t>
-            <div class="assessment-card text-center">
-                <div style="font-size: 64px; margin-bottom: 16px;">🔒</div>
-                <h2>Invalid or Expired Link</h2>
-                <p class="text-muted">This assessment link is not valid. It may have expired or been used already.</p>
-                <p class="text-muted">Please check your email for the correct link or contact your administrator.</p>
+    <template id="portal_layout" name="ETP Assessment Portal Layout">
+        <t t-call="website.layout">
+            <div class="container py-4">
+                <t t-out="0"/>
             </div>
         </t>
     </template>
 
-    <!-- Assessment Closed Page -->
-    <template id="portal_assessment_closed" name="Assessment Closed">
+    <template id="portal_invalid_token" name="ETP Assessment — Invalid Token">
         <t t-call="etp_assessment.portal_layout">
-            <t t-set="page_title">Assessment Completed</t>
-            <div class="assessment-header" style="text-align: center;">
-                <div style="font-size: 56px; margin-bottom: 12px;">✅</div>
-                <h2 style="margin: 0; font-size: 1.75rem;">Assessment Completed</h2>
-                <p style="opacity: 0.85; margin-top: 8px; margin-bottom: 0;">
-                    <t t-esc="assessment.name"/>
-                </p>
+            <div class="alert alert-danger">
+                <h3>Invalid Assessment Link</h3>
+                <p>The link you followed is not valid or has expired.</p>
+                <p t-if="reason" t-out="reason"/>
             </div>
-            <div class="assessment-card text-center">
-                <p style="color: #555; font-size: 16px;">
-                    Hello, <strong><t t-esc="evaluator.employee_id.name"/></strong>
+        </t>
+    </template>
+
+    <template id="portal_assessment_closed" name="ETP Assessment — Closed">
+        <t t-call="etp_assessment.portal_layout">
+            <div class="alert alert-warning">
+                <h3>Assessment Not Available</h3>
+                <p>The assessment <strong t-out="assessment.name"/> is not
+                    currently open (state: <span t-out="assessment.state"/>).</p>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_assessment_complete" name="ETP Assessment — Complete">
+        <t t-call="etp_assessment.portal_layout">
+            <div class="alert alert-success">
+                <h3>Submitted</h3>
+                <p t-if="day_session">
+                    Day <span t-out="day_session.day_id.sequence"/> of
+                    <strong t-out="assessment.name"/> is complete.
                 </p>
-                <p style="color: #6c757d;">
-                    This assessment has been closed and is no longer accepting responses.
-                </p>
-                <div style="background: linear-gradient(135deg, #f8f9fa, #e9ecef); border-radius: 12px; padding: 24px; margin: 24px auto; max-width: 300px;">
-                    <div style="font-size: 42px; font-weight: 700; color: #667eea;">
-                        <t t-esc="evaluator.answered_count"/> / <t t-esc="evaluator.total_questions"/>
-                    </div>
-                    <div style="font-size: 13px; color: #6c757d; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.5px;">Questions Attempted</div>
-                </div>
-                <t t-if="evaluator.answered_count == evaluator.total_questions">
-                    <div style="display: inline-block; background: #d4edda; color: #155724; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600;">✓ All questions completed</div>
-                </t>
-                <t t-else="">
-                    <div style="display: inline-block; background: #fff3cd; color: #856404; padding: 6px 16px; border-radius: 20px; font-size: 13px; font-weight: 600;">
-                        <t t-esc="evaluator.total_questions - evaluator.answered_count"/> question(s) not attempted
-                    </div>
-                </t>
-                <p style="color: #adb5bd; font-size: 12px; margin-top: 24px; margin-bottom: 0;">
-                    Your responses have been recorded. You may close this window.
+                <p t-else="">
+                    Your assessment <strong t-out="assessment.name"/> has been
+                    submitted. Thank you.
                 </p>
             </div>
         </t>
     </template>
 
-    <!-- Assessment Complete Page -->
-    <template id="portal_assessment_complete" name="Assessment Complete">
+    <template id="portal_day_locked" name="ETP Assessment — Day Locked">
         <t t-call="etp_assessment.portal_layout">
-            <t t-set="page_title">Assessment Complete</t>
-            <div class="assessment-card text-center">
-                <div style="font-size: 64px; margin-bottom: 16px;">🎉</div>
-                <h2 style="color: #1a1a2e;">Well Done!</h2>
-                <p style="color: #555; font-size: 16px; margin-top: 12px;">
-                    Thank you, <strong><t t-esc="evaluator.employee_id.name"/></strong>!
-                    You have successfully completed "<strong><t t-esc="assessment.name"/></strong>".
+            <div class="alert alert-info">
+                <h3>This day is not yet available</h3>
+                <p>
+                    Day <span t-out="day_session.day_id.sequence"/> of
+                    <strong t-out="assessment.name"/> is currently locked.
                 </p>
-                <div style="background: linear-gradient(135deg, #667eea20, #764ba220); border-radius: 12px; padding: 24px; margin: 24px auto; max-width: 320px; border: 1px solid #667eea30;">
-                    <div style="font-size: 48px; font-weight: 700; color: #667eea;">
-                        <t t-esc="evaluator.answered_count"/> / <t t-esc="evaluator.total_questions"/>
-                    </div>
-                    <div style="font-size: 14px; color: #6c757d; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px;">Questions Attempted</div>
-                </div>
-                <t t-if="evaluator.answered_count == evaluator.total_questions">
-                    <p style="color: #155724; font-weight: 600; margin-top: 16px;">
-                        ✓ All questions have been answered
+                <p t-if="day_session.day_id.scheduled_start">
+                    Scheduled to open at:
+                    <span t-out="day_session.day_id.scheduled_start"/>
+                </p>
+                <p t-else="">
+                    Complete the previous day to unlock this one.
+                </p>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_day_finish_prompt" name="ETP Assessment — Day Finish">
+        <t t-call="etp_assessment.portal_layout">
+            <div class="alert alert-success">
+                <h3>All questions answered</h3>
+                <p>
+                    You have answered every question for day
+                    <span t-out="day_session.day_id.sequence"/>.
+                    Submit the day to finalize your score.
+                </p>
+                <form t-att-action="finish_url" method="post">
+                    <input type="hidden" name="csrf_token"
+                           t-att-value="request.csrf_token()"/>
+                    <button type="submit" class="btn btn-primary">
+                        Submit Day
+                    </button>
+                </form>
+            </div>
+        </t>
+    </template>
+
+    <template id="portal_instructions" name="ETP Assessment — Instructions">
+        <t t-call="etp_assessment.portal_layout">
+            <h2 t-out="assessment.name"/>
+            <h4 t-if="day_session">
+                Day <span t-out="day_session.day_id.sequence"/>:
+                <span t-out="day_session.skill_id.name"/>
+            </h4>
+            <div class="card my-3">
+                <div class="card-body">
+                    <h4>Instructions</h4>
+                    <ul>
+                        <li t-if="duration_minutes">
+                            Duration: <strong t-out="duration_minutes"/> minutes
+                        </li>
+                        <li t-if="assessment.rule_block_tab_switch">
+                            Do not switch tabs or windows
+                        </li>
+                        <li t-if="assessment.rule_block_copy_paste">
+                            Copy/paste is disabled
+                        </li>
+                        <li t-if="assessment.rule_block_screenshot">
+                            Screenshots are disabled
+                        </li>
+                        <li t-if="assessment.rule_block_right_click">
+                            Right-click is disabled
+                        </li>
+                        <li t-if="assessment.rule_block_devtools">
+                            Developer tools detection is active
+                        </li>
+                        <li t-if="assessment.rule_fullscreen">
+                            Fullscreen is required
+                        </li>
+                        <li t-if="assessment.rule_webcam">
+                            Webcam access may be required
+                        </li>
+                    </ul>
+                    <p t-if="assessment.max_violations">
+                        Maximum violations allowed:
+                        <strong t-out="assessment.max_violations"/>.
+                        Exceeding this count auto-submits your assessment.
                     </p>
-                </t>
-                <t t-else="">
-                    <p style="color: #856404; font-weight: 600; margin-top: 16px;">
-                        <t t-esc="evaluator.total_questions - evaluator.answered_count"/> question(s) were not attempted
-                    </p>
-                </t>
-                <p style="color: #adb5bd; font-size: 13px; margin-top: 24px;">
-                    Your responses have been recorded. You may close this window.
-                </p>
+                    <form method="post"
+                          t-att-action="submit_url if submit_url else '/assessment/%s/begin' % token">
+                        <input type="hidden" name="csrf_token"
+                               t-att-value="request.csrf_token()"/>
+                        <button type="submit" class="btn btn-primary btn-lg">
+                            Start
+                        </button>
+                    </form>
+                </div>
             </div>
         </t>
     </template>
 
-    <!-- Instructions / Rules Page (shown before starting) -->
-    <template id="portal_instructions" name="Assessment Instructions">
+    <template id="portal_question_page" name="ETP Assessment — Question Page">
         <t t-call="etp_assessment.portal_layout">
-            <t t-set="page_title" t-value="'Instructions - ' + assessment.name"/>
-
-            <div class="assessment-header" style="text-align: center;">
-                <h2 style="margin: 0;">📝 Assessment Instructions</h2>
-                <p style="opacity: 0.85; margin-top: 8px; margin-bottom: 0; font-size: 1.1rem;">
-                    <t t-esc="assessment.name"/>
-                </p>
-            </div>
-
-            <div class="assessment-card">
-                <h5 style="color: #1a1a2e; margin-bottom: 16px;">Welcome, <t t-esc="evaluator.employee_id.name"/></h5>
-                <p style="color: #555;">Please read the following rules carefully before starting your assessment.</p>
-
-                <div style="background: #f8f9fa; border-radius: 10px; padding: 20px; margin: 20px 0;">
-                    <h6 style="color: #667eea; margin-bottom: 12px; font-weight: 700;">📋 Assessment Details</h6>
-                    <table style="width: 100%; font-size: 14px;">
-                        <tr style="border-bottom: 1px solid #e9ecef;">
-                            <td style="padding: 8px 0; color: #6c757d;">Total Questions</td>
-                            <td style="padding: 8px 0; font-weight: 600; text-align: right;"><t t-esc="evaluator.total_questions"/></td>
-                        </tr>
-                        <t t-if="duration_minutes">
-                            <tr style="border-bottom: 1px solid #e9ecef;">
-                                <td style="padding: 8px 0; color: #6c757d;">Time Limit</td>
-                                <td style="padding: 8px 0; font-weight: 600; text-align: right;"><t t-esc="duration_minutes"/> minutes</td>
-                            </tr>
-                        </t>
-                        <t t-if="assessment.end_date">
-                            <tr>
-                                <td style="padding: 8px 0; color: #6c757d;">Assessment Deadline</td>
-                                <td style="padding: 8px 0; font-weight: 600; text-align: right;"><t t-esc="assessment.end_date"/></td>
-                            </tr>
-                        </t>
-                    </table>
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <div>
+                    <h4 class="mb-0" t-out="assessment.name"/>
+                    <small t-if="day_session">
+                        Day <span t-out="day_session.day_id.sequence"/>:
+                        <span t-out="day_session.skill_id.name"/>
+                    </small>
                 </div>
-
-                    <div style="margin: 24px 0;">
-                    <h6 style="color: #dc3545; margin-bottom: 12px; font-weight: 700;">⚠️ Important Rules</h6>
-                    <div style="background: #fff5f5; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px;">
-                        <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #444; line-height: 2;">
-                            <li t-if="assessment.rule_block_tab_switch"><strong>Do NOT switch tabs or windows</strong> — Content will be blurred while you are away.</li>
-                            <li t-if="assessment.rule_block_screenshot"><strong>Do NOT take screenshots</strong> — Any screenshot attempt (keyboard shortcut or extension) will be flagged as a violation. Content blurs instantly on any attempt.</li>
-                            <li t-if="assessment.rule_block_copy_paste"><strong>Do NOT copy text</strong> — Text selection, copy, cut, and paste are disabled.</li>
-                            <li t-if="assessment.rule_block_devtools"><strong>Do NOT open Developer Tools</strong> — Opening browser dev tools will be flagged as a violation.</li>
-                            <li t-if="assessment.rule_block_right_click"><strong>Do NOT right-click</strong> — Context menu is disabled throughout the assessment.</li>
-                            <li t-if="assessment.rule_block_screenshot"><strong>Do NOT use screen recording</strong> — Screen capture attempts are detected and flagged.</li>
-                            <li t-if="assessment.rule_watermark"><strong>Watermark tracking is active</strong> — All content is watermarked with your name and timestamp.</li>
-                            <t t-if="not (assessment.rule_block_tab_switch or assessment.rule_block_screenshot or assessment.rule_block_copy_paste or assessment.rule_block_devtools or assessment.rule_block_right_click or assessment.rule_watermark)">
-                                <li>Complete the assessment honestly and without external assistance.</li>
-                            </t>
-                        </ul>
-                    </div>
-                </div>
-
-                <div style="margin: 24px 0;">
-                    <h6 style="color: #155724; margin-bottom: 12px; font-weight: 700;">✅ Guidelines</h6>
-                    <div style="background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px;">
-                        <ul style="margin: 0; padding-left: 20px; font-size: 14px; color: #444; line-height: 2;">
-                            <li>Read each question carefully before answering.</li>
-                            <li>Select one option per dimension for each question.</li>
-                            <li>Provide a brief justification for your choices.</li>
-                            <li>Once submitted, a question cannot be changed.</li>
-                            <t t-if="duration_minutes">
-                                <li>The timer starts as soon as you click "Start Assessment".</li>
-                                <li>If time runs out, unanswered questions will be auto-submitted.</li>
-                            </t>
-                            <li>Ensure a stable internet connection throughout.</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <div style="background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin: 24px 0;">
-                    <p style="margin: 0; font-size: 13px; color: #92400e;">
-                        <strong>⚡ Note:</strong> By clicking "Start Assessment" below, you acknowledge that you have read and understood the above rules.
-                        <t t-if="assessment.violation_action == 'auto_submit'">
-                            Any violation will result in immediate auto-submission of your assessment.
-                        </t>
-                        <t t-else="">
-                            Any violation will be recorded and reviewed by the assessment team.
-                        </t>
-                    </p>
-                </div>
-            </div>
-
-            <form t-attf-action="/assessment/#{token}/begin" method="post" id="begin-form" style="text-align: center; margin-bottom: 40px;">
-                <button type="submit" class="btn btn-submit" style="padding: 14px 48px; font-size: 18px;">
-                    🚀 Start Assessment
-                </button>
-            </form>
-        </t>
-    </template>
-
-    <!-- Question Page -->
-    <template id="portal_question_page" name="Assessment Question">
-        <t t-call="etp_assessment.portal_layout">
-            <t t-set="page_title" t-value="'Question ' + str(current_index) + ' - ' + assessment.name"/>
-
-            <!-- Header -->
-            <div class="assessment-header">
-                <h3 class="mb-1"><t t-esc="assessment.name"/></h3>
-                <p class="mb-3 opacity-75">
-                    Welcome, <t t-esc="evaluator.employee_id.name"/>
-                </p>
-                <t t-if="deadline_iso">
-                    <div class="timer-bar mb-3" id="timer-container">
-                        <span class="timer-icon">⏱</span>
-                        <span class="timer-label">Time Remaining:</span>
-                        <span class="timer-value" id="countdown-timer">--:--:--</span>
-                    </div>
-                </t>
-                <t t-if="duration_minutes and not deadline_iso">
-                    <div class="timer-bar mb-3">
-                        <span class="timer-icon">⏱</span>
-                        <span class="timer-label">Duration:</span>
-                        <span class="timer-value"><t t-esc="duration_minutes"/> min</span>
-                    </div>
-                </t>
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span>Question <t t-esc="current_index"/> of <t t-esc="total_questions"/></span>
-                    <span><t t-esc="progress_percent"/>% Complete</span>
-                </div>
-                <div class="progress-bar-custom">
-                    <div class="progress-bar-fill" t-attf-style="width: #{progress_percent}%"></div>
-                </div>
-            </div>
-
-            <!-- Question Content -->
-            <div class="assessment-card">
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <h4 class="mb-0"><t t-esc="question.name"/></h4>
-                    <span t-attf-class="question-type-badge type-#{question.question_type}">
-                        <t t-esc="question.question_type"/>
+                <div>
+                    <span class="badge bg-secondary">
+                        Question <span t-out="current_index"/> /
+                        <span t-out="total_questions"/>
+                    </span>
+                    <span t-if="deadline_iso" class="badge bg-warning ms-2"
+                          id="etp-timer" t-att-data-deadline="deadline_iso">
+                        --:--
                     </span>
                 </div>
-
-                <!-- Prompt -->
-                <div class="mb-4" style="background: #f8f9fa; padding: 16px; border-radius: 8px; border-left: 4px solid #667eea;">
-                    <p class="mb-0" style="white-space: pre-wrap;"><t t-esc="question.prompt"/></p>
-                </div>
-
-                <t t-if="question.description and question.question_type in ('text', 'image_text', 'subjective')">
-                    <div class="mb-4">
-                        <p style="white-space: pre-wrap;"><t t-esc="question.description"/></p>
-                    </div>
-                </t>
-
-                <!-- Image Comparison -->
-                <t t-if="question.question_type == 'image_comparison'">
-                    <div class="image-comparison-grid mb-4">
-                        <div>
-                            <h6 class="text-center mb-2">Response A</h6>
-                            <t t-if="question.image_a">
-                                <img referrerpolicy="no-referrer" t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Response A"/>
-                            </t>
-                            <t t-elif="question.image_a_url">
-                                <img referrerpolicy="no-referrer" t-att-src="question.image_a_url" alt="Response A"/>
-                            </t>
-                        </div>
-                        <div>
-                            <h6 class="text-center mb-2">Response B</h6>
-                            <t t-if="question.image_b">
-                                <img referrerpolicy="no-referrer" t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_b'" alt="Response B"/>
-                            </t>
-                            <t t-elif="question.image_b_url">
-                                <img referrerpolicy="no-referrer" t-att-src="question.image_b_url" alt="Response B"/>
-                            </t>
-                        </div>
-                    </div>
-                </t>
-
-                <!-- Image + Text -->
-                <t t-if="question.question_type == 'image_text'">
-                    <div class="mb-4 text-center">
-                        <t t-if="question.image_a">
-                            <img referrerpolicy="no-referrer" t-att-src="'/assessment/' + token + '/image/' + str(question.id) + '/image_a'" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
-                        </t>
-                        <t t-elif="question.image_a_url">
-                            <img referrerpolicy="no-referrer" t-att-src="question.image_a_url" alt="Question Image" style="max-width: 100%; border-radius: 8px;"/>
-                        </t>
-                    </div>
-                </t>
-
-                <!-- Coding -->
-                <t t-if="question.question_type == 'coding'">
-                    <div class="mb-4">
-                        <div class="d-flex justify-content-between align-items-center mb-2">
-                            <strong>Code Snippet</strong>
-                            <span class="badge bg-secondary"><t t-esc="question.code_language or 'code'"/></span>
-                        </div>
-                        <pre class="code-block"><t t-esc="question.code_snippet"/></pre>
-                    </div>
-                </t>
-
-                <!-- Video -->
-                <t t-if="question.question_type == 'video'">
-                    <div class="mb-4 text-center">
-                        <a t-att-href="question.video_url" target="_blank" class="btn btn-outline-primary">
-                            🎬 Open Video
-                        </a>
-                        <p class="text-muted mt-2 small"><t t-esc="question.video_url"/></p>
-                    </div>
-                </t>
+            </div>
+            <div class="progress mb-4" style="height: 6px;">
+                <div class="progress-bar" role="progressbar"
+                     t-att-style="'width: {}%'.format(progress_percent)"/>
             </div>
 
-            <!-- Response Form -->
-            <form t-attf-action="/assessment/#{token}/submit" method="post">
-                <input type="hidden" name="question_id" t-att-value="question.id"/>
+            <div class="card">
+                <div class="card-body">
+                    <h5 t-out="question.name"/>
+                    <p t-out="question.prompt"/>
+                    <p t-if="question.description"
+                       class="text-muted" t-out="question.description"/>
 
-                <div t-if="question.question_type != 'subjective'" class="assessment-card">
-                    <h5 class="mb-3">Rate each dimension</h5>
-                    <div class="dimensions-grid">
-                        <t t-foreach="dimensions" t-as="dim">
-                            <div class="dimension-card">
-                                <h6 class="dimension-title"><t t-esc="dim.dimension_id.name"/></h6>
-                                <div class="options-row">
-                                    <t t-foreach="dim.option_line_ids" t-as="opt">
-                                        <input type="radio"
-                                               t-attf-name="dimension_#{dim.dimension_id.id}"
-                                               t-att-value="opt.master_option_id.id"
-                                               t-attf-id="opt_#{dim.dimension_id.id}_#{opt.master_option_id.id}"
-                                               class="option-radio"/>
-                                        <label t-attf-for="opt_#{dim.dimension_id.id}_#{opt.master_option_id.id}" class="option-label">
-                                            <t t-esc="opt.name"/>
-                                        </label>
+                    <form method="post" t-att-action="submit_url"
+                          id="etp-response-form">
+                        <input type="hidden" name="csrf_token"
+                               t-att-value="request.csrf_token()"/>
+                        <input type="hidden" name="question_id"
+                               t-att-value="question.id"/>
+
+                        <t t-if="question.question_type == 'mcq'">
+                            <t t-foreach="dimensions" t-as="qd">
+                                <fieldset class="my-3">
+                                    <legend t-out="qd.dimension_id.name"/>
+                                    <t t-foreach="qd.option_line_ids" t-as="opt">
+                                        <div class="form-check">
+                                            <input class="form-check-input"
+                                                   type="radio"
+                                                   t-att-name="'dimension_%d' % qd.dimension_id.id"
+                                                   t-att-value="opt.master_option_id.id"
+                                                   t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                   required="required"/>
+                                            <label class="form-check-label"
+                                                   t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                   t-out="opt.name"/>
+                                        </div>
                                     </t>
-                                </div>
+                                </fieldset>
+                            </t>
+                        </t>
+
+                        <t t-if="question.question_type == 'msq'">
+                            <t t-foreach="dimensions" t-as="qd">
+                                <fieldset class="my-3"
+                                          t-att-data-dim-id="qd.dimension_id.id">
+                                    <legend t-out="qd.dimension_id.name"/>
+                                    <input type="hidden"
+                                           t-att-name="'dimension_%d' % qd.dimension_id.id"
+                                           value=""
+                                           class="etp-msq-csv"/>
+                                    <t t-foreach="qd.option_line_ids" t-as="opt">
+                                        <div class="form-check">
+                                            <input class="form-check-input etp-msq-cb"
+                                                   type="checkbox"
+                                                   t-att-value="opt.master_option_id.id"
+                                                   t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"/>
+                                            <label class="form-check-label"
+                                                   t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                   t-out="opt.name"/>
+                                        </div>
+                                    </t>
+                                </fieldset>
+                            </t>
+                        </t>
+
+                        <t t-if="question.question_type in ('subjective_justification', 'subjective_rubric')">
+                            <div class="mb-3">
+                                <label class="form-label">Your Answer</label>
+                                <textarea name="justification" rows="6"
+                                          class="form-control"
+                                          required="required"/>
                             </div>
                         </t>
-                    </div>
-                </div>
 
-                <t t-set="justification_optional" t-value="question.question_type == 'image_comparison' and not assessment.require_justification_image_comparison"/>
-                <t t-if="question.question_type == 'subjective'">
-                    <div class="assessment-card">
-                        <h5 class="mb-3">Your Answer <span style="color: #dc3545;">*</span></h5>
-                        <textarea name="justification" class="form-control" rows="8" required="required"
-                                  placeholder="Type your answer here..." minlength="10"></textarea>
-                        <small class="text-muted">Required — minimum 10 characters.</small>
-                    </div>
-                </t>
-                <t t-elif="not justification_optional">
-                    <div class="assessment-card">
-                        <h5 class="mb-3">Justification <span style="color: #dc3545;">*</span></h5>
-                        <textarea name="justification" class="form-control" rows="4" required="required"
-                                  placeholder="Explain your reasoning for the ratings above..." minlength="10"></textarea>
-                        <small class="text-muted">Required — minimum 10 characters.</small>
-                    </div>
-                </t>
-                <t t-else="">
-                    <div class="assessment-card">
-                        <h5 class="mb-3">Justification <span class="text-muted" style="font-size: 13px; font-weight: 400;">(optional)</span></h5>
-                        <textarea name="justification" class="form-control" rows="4"
-                                  placeholder="Optionally explain your reasoning for the ratings above..."></textarea>
-                        <small class="text-muted">Optional for image comparison questions.</small>
-                    </div>
-                </t>
+                        <t t-if="question.question_type in ('mcq', 'msq')">
+                            <div class="mb-3">
+                                <label class="form-label">Justification (optional)</label>
+                                <textarea name="justification" rows="3"
+                                          class="form-control"/>
+                            </div>
+                        </t>
 
-                <!-- Submit Button -->
-                <div class="text-center mb-5">
-                    <button type="submit" class="btn btn-submit" id="submit-btn">
-                        Submit &amp; Next →
-                    </button>
-                    <p class="text-muted mt-2 small">
-                        <t t-if="current_index &lt; total_questions">
-                            After submitting, you'll proceed to the next question.
-                        </t>
-                        <t t-else="">
-                            This is the last question. Submitting will complete your assessment.
-                        </t>
-                    </p>
+                        <button type="submit" class="btn btn-primary">
+                            Submit &amp; Next
+                        </button>
+                    </form>
                 </div>
+            </div>
+
+            <form id="etp-violation-form" method="post"
+                  t-att-action="violation_url" class="d-none">
+                <input type="hidden" name="csrf_token"
+                       t-att-value="request.csrf_token()"/>
+                <input type="hidden" name="violation_reason"
+                       id="etp-violation-reason" value=""/>
             </form>
 
-            <!-- Dimension Validation Script -->
-            <script>
-                (function() {
-                    var form = document.querySelector("form[action*='/submit']");
-                    if (!form) return;
-
-                    form.addEventListener("submit", function(e) {
-                        var dimensionCards = form.querySelectorAll(".dimension-card");
-                        var hasError = false;
-                        var firstError = null;
-
-                        dimensionCards.forEach(function(card) {
-                            var radios = card.querySelectorAll("input[type='radio']");
-                            if (radios.length === 0) return;
-
-                            var name = radios[0].name;
-                            var selected = form.querySelector("input[name='" + name + "']:checked");
-
-                            if (!selected) {
-                                card.classList.add("dimension-error");
-                                hasError = true;
-                                if (!firstError) firstError = card;
-                            } else {
-                                card.classList.remove("dimension-error");
+            <script type="text/javascript">
+                (function () {
+                    // ETP proctoring: arm only the rules enabled on the assessment.
+                    var RULES = <t t-esc="{
+                        'tab_switch': bool(assessment.rule_block_tab_switch),
+                        'copy_paste': bool(assessment.rule_block_copy_paste),
+                        'right_click': bool(assessment.rule_block_right_click),
+                        'devtools': bool(assessment.rule_block_devtools),
+                        'screenshot': bool(assessment.rule_block_screenshot),
+                        'fullscreen': bool(assessment.rule_fullscreen),
+                        'webcam': bool(assessment.rule_webcam),
+                        'watermark': bool(assessment.rule_watermark),
+                    }"/>;
+                    function reportViolation(reason) {
+                        try {
+                            document.getElementById('etp-violation-reason').value = reason;
+                            document.getElementById('etp-violation-form').submit();
+                        } catch (e) { console.warn('violation post failed', e); }
+                    }
+                    // Disable right-click + copy/paste when armed.
+                    if (RULES.right_click) {
+                        document.addEventListener('contextmenu', function (e) {
+                            e.preventDefault();
+                            reportViolation('Right-click attempted');
+                        });
+                    }
+                    if (RULES.copy_paste) {
+                        ['copy', 'cut', 'paste'].forEach(function (ev) {
+                            document.addEventListener(ev, function (e) {
+                                e.preventDefault();
+                                reportViolation('Clipboard action: ' + ev);
+                            });
+                        });
+                    }
+                    // Tab/window blur — fire ONCE per blur burst (debounce).
+                    if (RULES.tab_switch) {
+                        var blurredAt = 0;
+                        document.addEventListener('visibilitychange', function () {
+                            if (document.hidden &amp;&amp; Date.now() - blurredAt > 1500) {
+                                blurredAt = Date.now();
+                                reportViolation('Tab switched / window hidden');
                             }
                         });
-
-                        if (hasError) {
-                            e.preventDefault();
-                            var toast = document.getElementById("validation-toast");
-                            toast.style.display = "block";
-                            setTimeout(function() { toast.style.display = "none"; }, 4000);
-                            if (firstError) {
-                                firstError.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }
+                    // DevTools heuristic: if window outer dims differ from inner
+                    // by more than the typical devtools panel (160px), flag once.
+                    if (RULES.devtools) {
+                        var devtoolsReported = false;
+                        setInterval(function () {
+                            var w = window.outerWidth - window.innerWidth;
+                            var h = window.outerHeight - window.innerHeight;
+                            if (!devtoolsReported &amp;&amp; (w > 200 || h > 200)) {
+                                devtoolsReported = true;
+                                reportViolation('Developer tools detected');
                             }
-                        }
-                    });
-
-                    // Remove error state when user selects an option
-                    form.addEventListener("change", function(e) {
-                        if (e.target.type === "radio") {
-                            var card = e.target.closest(".dimension-card");
-                            if (card) card.classList.remove("dimension-error");
-                        }
+                        }, 2000);
+                    }
+                    if (RULES.screenshot) {
+                        document.addEventListener('keyup', function (e) {
+                            if (e.key === 'PrintScreen') {
+                                reportViolation('Screenshot key pressed');
+                            }
+                        });
+                    }
+                    // Live countdown timer (deadline_iso is UTC ISO 8601).
+                    var t = document.getElementById('etp-timer');
+                    if (t &amp;&amp; t.dataset.deadline) {
+                        var deadline = new Date(t.dataset.deadline.replace(' ', 'T'));
+                        setInterval(function () {
+                            var ms = deadline - new Date();
+                            if (ms &lt;= 0) {
+                                t.textContent = '00:00';
+                                t.classList.remove('bg-warning');
+                                t.classList.add('bg-danger');
+                                return;
+                            }
+                            var mm = Math.floor(ms / 60000);
+                            var ss = Math.floor((ms % 60000) / 1000);
+                            t.textContent = (mm &lt; 10 ? '0' : '') + mm + ':' +
+                                            (ss &lt; 10 ? '0' : '') + ss;
+                        }, 1000);
+                    }
+                    // MSQ: serialize all checked boxes per dimension into the
+                    // single hidden csv input so the controller can split on ','.
+                    document.addEventListener('submit', function (e) {
+                        if (e.target.id !== 'etp-response-form') { return; }
+                        var sets = e.target.querySelectorAll('[data-dim-id]');
+                        sets.forEach(function (fs) {
+                            var picks = [];
+                            fs.querySelectorAll('.etp-msq-cb:checked').forEach(function (cb) {
+                                picks.push(cb.value);
+                            });
+                            var csv = fs.querySelector('.etp-msq-csv');
+                            if (csv) { csv.value = picks.join(','); }
+                        });
                     });
                 })();
             </script>
-
-            <!-- Countdown Timer Script -->
-            <t t-if="deadline_iso">
-                <script>
-                    (function() {
-                        var deadline = new Date("<t t-esc="deadline_iso"/>");
-                        var timerEl = document.getElementById("countdown-timer");
-                        var containerEl = document.getElementById("timer-container");
-                        var form = document.querySelector("form");
-                        var autoSubmitted = false;
-
-                        function updateTimer() {
-                            var now = new Date();
-                            var diff = deadline - now;
-
-                            if (diff &lt;= 0) {
-                                timerEl.textContent = "00:00:00";
-                                if (!autoSubmitted) {
-                                    autoSubmitted = true;
-                                    containerEl.className = "timer-bar mb-3 timer-danger";
-                                    form.submit();
-                                }
-                                return;
-                            }
-
-                            var hours = Math.floor(diff / 3600000);
-                            var mins = Math.floor((diff % 3600000) / 60000);
-                            var secs = Math.floor((diff % 60000) / 1000);
-
-                            timerEl.textContent =
-                                String(hours).padStart(2, "0") + ":" +
-                                String(mins).padStart(2, "0") + ":" +
-                                String(secs).padStart(2, "0");
-
-                            if (diff &lt; 60000) {
-                                containerEl.className = "timer-bar mb-3 timer-danger";
-                            } else if (diff &lt; 300000) {
-                                containerEl.className = "timer-bar mb-3 timer-warning";
-                            }
-                        }
-
-                        updateTimer();
-                        setInterval(updateTimer, 1000);
-                    })();
-                </script>
-            </t>
-        </t>
-    </template>
-
-    <!-- Progress Page -->
-    <template id="portal_progress_page" name="Assessment Progress">
-        <t t-call="etp_assessment.portal_layout">
-            <t t-set="page_title" t-value="'Progress - ' + assessment.name"/>
-
-            <div class="assessment-header">
-                <h3 class="mb-1"><t t-esc="assessment.name"/></h3>
-                <p class="mb-0 opacity-75">
-                    <t t-esc="evaluator.employee_id.name"/> — Progress Overview
-                </p>
-            </div>
-
-            <div class="assessment-card">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">Questions</h5>
-                    <span class="badge bg-primary"><t t-esc="answered_count"/> / <t t-esc="total_questions"/> answered</span>
-                </div>
-
-                <t t-foreach="question_statuses" t-as="qs">
-                    <div class="d-flex align-items-center p-2 mb-2" style="border-radius: 6px; background: #f8f9fa;">
-                        <span class="me-3 fw-bold" style="min-width: 30px;">#<t t-esc="qs['index']"/></span>
-                        <span class="flex-grow-1"><t t-esc="qs['question'].name"/></span>
-                        <t t-if="qs['status'] == 'submitted'">
-                            <span class="badge bg-success">✓ Submitted</span>
-                        </t>
-                        <t t-elif="qs['status'] == 'draft'">
-                            <span class="badge bg-warning">Draft</span>
-                        </t>
-                        <t t-else="">
-                            <span class="badge bg-secondary">Pending</span>
-                        </t>
-                    </div>
-                </t>
-
-                <div class="text-center mt-4">
-                    <a t-attf-href="/assessment/#{token}" class="btn btn-submit">
-                        Continue Assessment →
-                    </a>
-                </div>
-            </div>
         </t>
     </template>
 

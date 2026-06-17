@@ -1,112 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!--
-      LLM configuration (noupdate: module upgrades will NEVER overwrite
-      values pasted here — safe to fill on stage/prod).
-
-      Settings > Technical > Parameters > System Parameters, filter "etp_assessment."
-
-      SINGLE PROVIDER: Vertex AI Gemini — one model for question generation,
-      image generation, AND multimodal scoring.
-
-      CREDENTIALS (replace PLACEHOLDER_* with real values; any value still
-      containing "PLACEHOLDER" is treated as unset by the services):
-        etp_assessment.vertex_project_id    - GCP project id
-        etp_assessment.vertex_api_key       - Vertex API key
-        etp_assessment.vertex_location      - region (default us-central1)
-        etp_assessment.vertex_model         - text/scoring model (gemini)
-        etp_assessment.vertex_image_model   - image model (imagen)
-
-      SYSTEM PROMPTS: the bundled prompts/seed_master.md and
-      prompts/scoring_master.md files are the canonical defaults. The
-      System Parameters `etp_assessment.seed_system_prompt` and
-      `etp_assessment.scoring_system_prompt` are LIVE OVERRIDES — fill
-      them via Settings → ETP Assessment → System Prompts (file upload)
-      when you want a custom prompt. Empty = use the bundled .md file.
-    -->
     <data noupdate="1">
-        <record id="param_vertex_project_id" model="ir.config_parameter">
-            <field name="key">etp_assessment.vertex_project_id</field>
-            <field name="value">PLACEHOLDER_VERTEX_PROJECT_ID</field>
-        </record>
         <record id="param_vertex_location" model="ir.config_parameter">
             <field name="key">etp_assessment.vertex_location</field>
             <field name="value">us-central1</field>
         </record>
         <record id="param_vertex_model" model="ir.config_parameter">
             <field name="key">etp_assessment.vertex_model</field>
-            <field name="value">gemini-3-pro</field>
-        </record>
-        <record id="param_vertex_image_model" model="ir.config_parameter">
-            <field name="key">etp_assessment.vertex_image_model</field>
-            <field name="value">imagen-4.0-generate-001</field>
-        </record>
-        <record id="param_vertex_api_key" model="ir.config_parameter">
-            <field name="key">etp_assessment.vertex_api_key</field>
-            <field name="value">PLACEHOLDER_VERTEX_API_KEY</field>
-        </record>
-        <!-- OAuth bearer token for the Vertex AI (aiplatform) endpoint. Set
-             this INSTEAD of vertex_api_key when using a service-account /
-             gcloud token. API key -> generativelanguage endpoint; bearer ->
-             aiplatform endpoint. Do not set both. -->
-        <record id="param_vertex_access_token" model="ir.config_parameter">
-            <field name="key">etp_assessment.vertex_access_token</field>
-            <field name="value">PLACEHOLDER_VERTEX_ACCESS_TOKEN</field>
-        </record>
-
-        <!-- Pass/fail threshold (percent). A candidate passes when their
-             combined objective+subjective score % >= this. Default 70. -->
-        <record id="param_pass_threshold" model="ir.config_parameter">
-            <field name="key">etp_assessment.pass_threshold</field>
-            <field name="value">70</field>
-        </record>
-        <!-- Points a SUBJECTIVE question is worth. The LLM returns a 0..1
-             score; if it meets the subjective threshold the question PASSES
-             and awards these points, otherwise FAIL awards 0. Default 10. -->
-        <record id="param_subjective_points" model="ir.config_parameter">
-            <field name="key">etp_assessment.subjective_points</field>
-            <field name="value">10</field>
-        </record>
-        <!-- Per-question subjective PASS cutoff (0..1). The LLM's 0..1 score
-             >= this => PASS. Accepts a fraction (0.7) or percent (70).
-             Independent of the overall assessment pass_threshold. Default 0.7. -->
-        <record id="param_subjective_pass_threshold" model="ir.config_parameter">
-            <field name="key">etp_assessment.subjective_pass_threshold</field>
-            <field name="value">0.7</field>
-        </record>
-
-        <!-- S3 for generated question media (placeholder = off, images kept
-             inline on the record until configured). -->
-        <record id="param_s3_bucket" model="ir.config_parameter">
-            <field name="key">etp_assessment.s3_bucket</field>
-            <field name="value">PLACEHOLDER_S3_BUCKET</field>
+            <field name="value">gemini-2.5-pro</field>
         </record>
         <record id="param_s3_region" model="ir.config_parameter">
             <field name="key">etp_assessment.s3_region</field>
             <field name="value">us-east-1</field>
         </record>
-        <record id="param_s3_access_key_id" model="ir.config_parameter">
-            <field name="key">etp_assessment.s3_access_key_id</field>
-            <field name="value">PLACEHOLDER_S3_ACCESS_KEY_ID</field>
-        </record>
-        <record id="param_s3_secret_key" model="ir.config_parameter">
-            <field name="key">etp_assessment.s3_secret_key</field>
-            <field name="value">PLACEHOLDER_S3_SECRET_KEY</field>
-        </record>
         <record id="param_s3_folder" model="ir.config_parameter">
             <field name="key">etp_assessment.s3_folder</field>
             <field name="value">etp_assessment</field>
         </record>
-        <record id="param_s3_cdn_url" model="ir.config_parameter">
-            <field name="key">etp_assessment.s3_cdn_url</field>
-            <field name="value"></field>
-        </record>
-        <!-- Max attempts per S3 put_object before giving up (exponential
-             backoff between tries). Default 3. -->
         <record id="param_s3_max_retries" model="ir.config_parameter">
             <field name="key">etp_assessment.s3_max_retries</field>
             <field name="value">3</field>
         </record>
-
     </data>
 </odoo>

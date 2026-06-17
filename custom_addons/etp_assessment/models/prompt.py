@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-import json
 import logging
 
 from odoo import models, fields, api
@@ -9,58 +7,42 @@ _logger = logging.getLogger(__name__)
 
 
 class EtpAssessmentPrompt(models.Model):
-    """One LLM question-generation session: paste text -> skills -> questions."""
     _name = "etp.assessment.prompt"
-    _description = "Assessment Prompt (LLM Question Generator)"
+    _description = "Assessment Prompt (LLM Skill/Question Generator)"
     _order = "create_date desc"
 
     name = fields.Char(string="Title", default="New Prompt", required=True)
-    source_text = fields.Text(
-        string="Additional Notes (optional)",
-        help="Optional extra instructions appended after the uploaded "
-             "resource files in the generation payload.",
-    )
+    source_text = fields.Text(string="Additional Notes (optional)")
     resource_ids = fields.One2many(
         "etp.assessment.prompt.resource", "prompt_id",
         string="SOP / Resource Files",
-        help="Upload one or more resource documents (SOP, instruction docs, "
-             "guidelines). Their extracted text is concatenated and fed to "
-             "the seed prompt.",
     )
     resource_count = fields.Integer(compute="_compute_resource_count")
-    generation_mode = fields.Selection(
-        [
-            ("seed", "Seed (SOP + golden example, 1 call)"),
-            ("skills", "Skills (extract skills first, 2 calls)"),
-        ],
-        default="seed",
-        required=True,
-        string="Generation Mode",
-        help="Seed: research-team flow — one LLM call takes the SOP plus one "
-             "golden example question and generates the full set directly. "
-             "Skills: legacy two-stage flow (extract skills, then generate "
-             "per skill).",
-    )
-    golden_example = fields.Text(
-        string="Golden Example Question",
-        help="One exemplary question (full text) demonstrating the desired "
-             "style, depth and format. Required for Seed mode.",
-    )
-    max_questions = fields.Integer(
-        string="Max Questions",
-        default=0,
-        help="Seed mode: how many questions to generate. 0 = let the model decide.",
-    )
     category_id = fields.Many2one(
         "etp.assessment.category",
         string="Target Category",
-        help="Approved questions are added to this category in the Question Bank.",
     )
     skill_ids = fields.One2many(
-        "etp.assessment.prompt.skill", "prompt_id", string="Skills"
+        "etp.assessment.prompt.skill", "prompt_id", string="Extracted (this run)"
+    )
+    skill_bank_ids = fields.Many2many(
+        "etp.assessment.skill",
+        relation="etp_assessment_prompt_skill_bank_rel",
+        column1="prompt_id",
+        column2="skill_id",
+        string="Skill Bank Links",
+    )
+    selected_skill_ids = fields.Many2many(
+        "etp.assessment.skill",
+        relation="etp_assessment_prompt_selected_skill_rel",
+        column1="prompt_id",
+        column2="skill_id",
+        string="Skills to Generate Questions For",
+        help="Tick the skills you want question drafts for, then click "
+             "Generate Questions. Each ticked skill triggers one LLM call.",
     )
     question_ids = fields.One2many(
-        "etp.assessment.prompt.question", "prompt_id", string="Generated Questions"
+        "etp.assessment.prompt.question", "prompt_id", string="Draft Questions"
     )
     state = fields.Selection(
         [
@@ -70,10 +52,59 @@ class EtpAssessmentPrompt(models.Model):
             ("done", "Done"),
         ],
         default="draft",
-        string="State",
     )
     question_count = fields.Integer(compute="_compute_counts")
     approved_count = fields.Integer(compute="_compute_counts")
+    last_extract_summary = fields.Char(readonly=True)
+    quick_upload_file = fields.Binary(string="Upload SOP / Doc")
+    quick_upload_filename = fields.Char()
+    upload_sop_file = fields.Binary(string="Upload SOP")
+    upload_sop_filename = fields.Char()
+    upload_vendor_file = fields.Binary(string="Upload Vendor Doc")
+    upload_vendor_filename = fields.Char()
+    upload_client_file = fields.Binary(string="Upload Client Doc")
+    upload_client_filename = fields.Char()
+
+    def _add_resource(self, data, filename, category):
+        if not data:
+            return
+        self.resource_ids = [(0, 0, {
+            "name": filename or "uploaded-file",
+            "file": data,
+            "category": category,
+        })]
+
+    @api.onchange("quick_upload_file")
+    def _onchange_quick_upload_file(self):
+        self._add_resource(
+            self.quick_upload_file, self.quick_upload_filename, "other",
+        )
+        self.quick_upload_file = False
+        self.quick_upload_filename = False
+
+    @api.onchange("upload_sop_file")
+    def _onchange_upload_sop(self):
+        self._add_resource(
+            self.upload_sop_file, self.upload_sop_filename, "sop",
+        )
+        self.upload_sop_file = False
+        self.upload_sop_filename = False
+
+    @api.onchange("upload_vendor_file")
+    def _onchange_upload_vendor(self):
+        self._add_resource(
+            self.upload_vendor_file, self.upload_vendor_filename, "vendor",
+        )
+        self.upload_vendor_file = False
+        self.upload_vendor_filename = False
+
+    @api.onchange("upload_client_file")
+    def _onchange_upload_client(self):
+        self._add_resource(
+            self.upload_client_file, self.upload_client_filename, "client",
+        )
+        self.upload_client_file = False
+        self.upload_client_filename = False
 
     @api.depends("question_ids", "question_ids.state")
     def _compute_counts(self):
@@ -89,11 +120,6 @@ class EtpAssessmentPrompt(models.Model):
             rec.resource_count = len(rec.resource_ids)
 
     def _compiled_source_text(self):
-        """All uploaded resources' extracted text + optional notes, in order.
-
-        This is THE input the seed prompt sees. Raises UserError when no
-        usable text exists at all.
-        """
         self.ensure_one()
         parts = []
         for res in self.resource_ids.sorted("sequence"):
@@ -118,62 +144,7 @@ class EtpAssessmentPrompt(models.Model):
             )
         return "\n\n".join(parts)
 
-    # ---- serialization helpers (used by the JSON API for Flutter) ----
-    def _skill_dict(self, skill):
-        return {
-            "id": skill.id,
-            "name": skill.name,
-            "description": skill.description or "",
-            "max_questions": skill.max_questions,
-            "generated": skill.generated,
-        }
-
-    def _question_dict(self, q):
-        return {
-            "id": q.id,
-            "skill": q.skill or "",
-            "name": q.name,
-            "question_prompt": q.question_prompt or "",
-            "question_type": q.question_type or "text",
-            "state": q.state,
-            "approved_question_id": q.approved_question_id.id or False,
-            "image_prompt_a": q.image_prompt_a or "",
-            "image_prompt_b": q.image_prompt_b or "",
-            "image_state": q.image_state or "none",
-            "image_error": q.image_error or "",
-        }
-
-    def to_dict(self, include_children=True):
-        """Full prompt payload for the mobile app to (re)hydrate its screen."""
-        self.ensure_one()
-        data = {
-            "id": self.id,
-            "name": self.name,
-            "source_text": self.source_text or "",
-            "generation_mode": self.generation_mode or "seed",
-            "golden_example": self.golden_example or "",
-            "max_questions": self.max_questions or 0,
-            "category_id": self.category_id.id or False,
-            "category_name": self.category_id.name or "",
-            "state": self.state,
-            "question_count": self.question_count,
-            "approved_count": self.approved_count,
-            "create_date": self.create_date.isoformat() if self.create_date else False,
-        }
-        if include_children:
-            data["resources"] = [r.to_dict() for r in self.resource_ids]
-            data["skills"] = [self._skill_dict(s) for s in self.skill_ids]
-            data["questions"] = [self._question_dict(q) for q in self.question_ids]
-        return data
-
-    # ---- target category: self-managing ----
     def _get_or_create_category(self):
-        """Return the prompt's target category, auto-creating one if unset.
-
-        Without a category, approved questions would be invisible to every
-        assessment (action_start composes purely by category). One SOP ->
-        one auto category keeps the chain intact with zero admin effort.
-        """
         self.ensure_one()
         if self.category_id:
             return self.category_id
@@ -185,135 +156,99 @@ class EtpAssessmentPrompt(models.Model):
         self.category_id = category.id
         return category
 
-    # ---- editable system prompts (Leviathan pattern) ----
-    @api.model
-    def _get_seed_system_prompt(self):
-        from ..services.vertex_questions import (
-            DEFAULT_SEED_PROMPT, _load_bundled_prompt,
-        )
-        p = self.env["ir.config_parameter"].sudo().get_param(
-            "etp_assessment.seed_system_prompt", "") or ""
-        if p.strip():
-            return p
-        bundled = _load_bundled_prompt("seed_master.md")
-        return bundled if bundled.strip() else DEFAULT_SEED_PROMPT
-
-    @api.model
-    def _get_skills_system_prompt(self):
-        from ..services.vertex_questions import DEFAULT_SKILLS_PROMPT
-        return self.env["ir.config_parameter"].sudo().get_param(
-            "etp_assessment.skills_system_prompt", "") or DEFAULT_SKILLS_PROMPT
-
-    @api.model
-    def _get_questions_system_prompt(self):
-        from ..services.vertex_questions import DEFAULT_QUESTIONS_PROMPT
-        return self.env["ir.config_parameter"].sudo().get_param(
-            "etp_assessment.questions_system_prompt", "") or DEFAULT_QUESTIONS_PROMPT
-
-    # ---- RPC entry points used by the Prompt UI ----
     def action_extract_skills(self):
-        """Call the LLM, replace skills, return them for progressive render."""
-        from ..services import vertex_questions
         self.ensure_one()
+        from ..services import vertex
         self.skill_ids.unlink()
-        skills = vertex_questions.extract_skills(
-            self.env, self._compiled_source_text(), self._get_skills_system_prompt()
-        )
-        seq = 10
-        created = []
-        for s in skills:
-            rec = self.env["etp.assessment.prompt.skill"].create({
-                "prompt_id": self.id,
-                "name": s["skill"],
-                "description": s["reason"],
-                "max_questions": s["suggested_max"],
-                "sequence": seq,
-            })
-            created.append({
-                "id": rec.id, "name": rec.name,
-                "description": rec.description, "max_questions": rec.max_questions,
-            })
-            seq += 10
-        self.state = "skills_ready"
-        return created
+        summary = vertex.extract_skills(self.env, self)
+        self.write({
+            "state": "skills_ready",
+            "last_extract_summary": "Created %s, Skipped %s, Total %s" % (
+                summary.get("created", 0),
+                summary.get("skipped", 0),
+                summary.get("total", 0),
+            ),
+        })
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Skill Extraction Complete",
+                "message": "Created %s new, skipped %s existing (of %s extracted)." % (
+                    summary.get("created", 0),
+                    summary.get("skipped", 0),
+                    summary.get("total", 0),
+                ),
+                "type": "success",
+                "sticky": False,
+            },
+        }
 
     def action_generate_questions(self):
-        """Generate draft questions. ONE Vertex AI Gemini call either way.
-
-        seed mode (default, research-team flow): SOP + golden example ->
-        questions directly, no skills stage.
-        skills mode (legacy): uses previously extracted skills.
-        """
-        from ..services import vertex_questions
         self.ensure_one()
-        # clear previous drafts (keep approved/denied history? -> drop drafts only)
+        from ..services import vertex
+        if not self.selected_skill_ids:
+            raise UserError(
+                "Pick at least one skill from 'Skills to Generate For' before generating."
+            )
         self.question_ids.filtered(lambda q: q.state == "draft").unlink()
-
-        if self.generation_mode == "seed":
-            if not (self.golden_example or "").strip():
-                raise UserError(
-                    "Seed mode needs a Golden Example Question — paste one "
-                    "exemplary question that shows the desired style and depth."
-                )
-            qs = vertex_questions.generate_questions_from_seed(
-                self.env,
-                self._compiled_source_text(),
-                self.golden_example,
-                self._get_seed_system_prompt(),
-                max_questions=self.max_questions or 0,
-            )
-        else:
-            skills = [
-                {"name": s.name, "max_questions": s.max_questions}
-                for s in self.skill_ids
-            ]
-            qs = vertex_questions.generate_questions(
-                self.env, self._compiled_source_text(), skills,
-                self._get_questions_system_prompt(),
-            )
-        created = []
-        for q in qs:
-            is_imgcmp = q["type"] == "image_comparison"
-            rec = self.env["etp.assessment.prompt.question"].create({
-                "prompt_id": self.id,
-                "skill": q["skill"],
-                "name": q["title"],
-                "question_prompt": q["prompt"],
-                "question_type": q["type"],
-                "image_prompt_a": q.get("image_prompt_a") or False,
-                "image_prompt_b": q.get("image_prompt_b") or False,
-                "image_state": "pending" if is_imgcmp else "none",
-            })
-            created.append({
-                "id": rec.id, "skill": rec.skill, "name": rec.name,
-                "question_prompt": rec.question_prompt,
-                "question_type": rec.question_type, "state": rec.state,
-                "image_prompt_a": rec.image_prompt_a or "",
-                "image_prompt_b": rec.image_prompt_b or "",
-                "image_state": rec.image_state,
-            })
+        self.state = "generating"
+        total = 0
+        for skill in self.selected_skill_ids:
+            draft_ids = vertex.generate_questions(self.env, self, skill)
+            total += len(draft_ids)
         self.state = "done"
-        return created
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Question Drafts Ready",
+                "message": "Generated %s drafts across %s skill(s)." % (
+                    total, len(self.selected_skill_ids)
+                ),
+                "type": "success",
+                "sticky": False,
+            },
+        }
 
 
 class EtpAssessmentPromptSkill(models.Model):
-    """A skill the LLM extracted from the source text."""
     _name = "etp.assessment.prompt.skill"
-    _description = "Prompt Skill"
+    _description = "Prompt Extracted Skill (transient view)"
     _order = "sequence, id"
 
     prompt_id = fields.Many2one(
         "etp.assessment.prompt", required=True, ondelete="cascade"
     )
     name = fields.Char(string="Skill", required=True)
-    description = fields.Text(string="Why relevant")
+    description = fields.Text()
+    tags = fields.Char()
     sequence = fields.Integer(default=10)
-    max_questions = fields.Integer(string="Max Questions", default=5)
-    generated = fields.Boolean(default=False)
+    question_type = fields.Selection(
+        [
+            ("mcq", "Objective - MCQ"),
+            ("msq", "Objective - MSQ"),
+            ("subjective_justification", "Subjective - Justification"),
+            ("subjective_rubric", "Subjective - Rubric"),
+        ],
+        default="mcq",
+    )
+    question_count = fields.Integer(default=5)
+    time_minutes = fields.Integer(default=10)
+    difficulty = fields.Selection(
+        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
+        default="medium",
+    )
+    bank_skill_id = fields.Many2one(
+        "etp.assessment.skill", string="Bank Skill", ondelete="set null"
+    )
+    upsert_state = fields.Selection(
+        [("created", "Created"), ("skipped", "Skipped (existed)")],
+        readonly=True,
+    )
 
 
 class EtpAssessmentPromptQuestion(models.Model):
-    """A draft question generated by the LLM, pending approve/deny."""
     _name = "etp.assessment.prompt.question"
     _description = "Prompt Draft Question"
     _order = "id"
@@ -321,45 +256,26 @@ class EtpAssessmentPromptQuestion(models.Model):
     prompt_id = fields.Many2one(
         "etp.assessment.prompt", required=True, ondelete="cascade"
     )
-    skill = fields.Char(string="Skill")
+    skill_id = fields.Many2one(
+        "etp.assessment.skill", string="Skill", ondelete="set null"
+    )
     name = fields.Char(string="Title", required=True)
     question_prompt = fields.Text(string="Question Prompt")
     question_type = fields.Selection(
         [
-            ("text", "Text"),
-            ("coding", "Coding"),
-            ("image_comparison", "Image Comparison"),
-            ("image_text", "Image + Text"),
-            ("video", "Video"),
-            ("subjective", "Subjective"),
+            ("mcq", "Objective - MCQ"),
+            ("msq", "Objective - MSQ"),
+            ("subjective_justification", "Subjective - Justification"),
+            ("subjective_rubric", "Subjective - Rubric"),
         ],
-        default="text",
+        default="mcq",
     )
-    # --- image_comparison support: LLM emits two text-to-image prompts,
-    # vertex_images turns them into actual images before/at approval ---
-    image_prompt_a = fields.Text(
-        string="Image Prompt A",
-        help="Text-to-image prompt for Response A (image_comparison only).",
+    difficulty = fields.Selection(
+        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
     )
-    image_prompt_b = fields.Text(
-        string="Image Prompt B",
-        help="Text-to-image prompt for Response B (image_comparison only).",
-    )
-    image_a = fields.Binary(string="Generated Image A", attachment=True)
-    image_b = fields.Binary(string="Generated Image B", attachment=True)
-    image_a_url = fields.Char(string="Image A URL (S3)")
-    image_b_url = fields.Char(string="Image B URL (S3)")
-    image_state = fields.Selection(
-        [
-            ("none", "Not Needed"),
-            ("pending", "Pending Generation"),
-            ("generated", "Generated"),
-            ("failed", "Failed"),
-        ],
-        default="none",
-        string="Images",
-    )
-    image_error = fields.Char(string="Image Error", readonly=True)
+    options_json = fields.Text(string="Options (JSON)")
+    correct_answer_json = fields.Text(string="Correct Answer (JSON)")
+    rubric_json = fields.Text(string="Rubric (JSON)")
     state = fields.Selection(
         [
             ("draft", "Pending"),
@@ -372,106 +288,90 @@ class EtpAssessmentPromptQuestion(models.Model):
         "etp.assessment.question", string="Bank Question", readonly=True
     )
 
-    def action_generate_images(self):
-        """Generate the A/B images for image_comparison drafts via Vertex.
-
-        Each generated image is uploaded to S3 (when configured) and its URL
-        stored on the draft; otherwise the base64 is kept inline on the
-        record. Idempotent: already-generated drafts are skipped; failed ones
-        can be retried.
-        """
-        from ..services import vertex_images, s3_service
-        todo = self.filtered(
-            lambda r: r.question_type == "image_comparison"
-            and r.state == "draft"
-            and r.image_state != "generated"
-        )
-        for rec in todo:
-            if not (rec.image_prompt_a and rec.image_prompt_b):
-                rec.write({
-                    "image_state": "failed",
-                    "image_error": "Missing image prompt A and/or B.",
-                })
-                continue
-            try:
-                img_a = vertex_images.generate_image_b64(
-                    self.env, rec.image_prompt_a
-                )
-                img_b = vertex_images.generate_image_b64(
-                    self.env, rec.image_prompt_b
-                )
-                vals = {"image_state": "generated", "image_error": False}
-                # upload to S3 when configured, else keep inline binary.
-                # upload_image_pair is atomic: if B fails after A, it rolls
-                # back A so no orphan is left in the bucket.
-                if s3_service.is_configured(self.env):
-                    url_a, url_b = s3_service.upload_image_pair(
-                        self.env, img_a, img_b, key_hint=f"gen{rec.id}")
-                    vals["image_a_url"] = url_a
-                    vals["image_b_url"] = url_b
-                else:
-                    vals["image_a"] = img_a
-                    vals["image_b"] = img_b
-                rec.write(vals)
-            except Exception as exc:
-                _logger.exception(
-                    "Image generation failed for draft question %s", rec.id
-                )
-                rec.write({
-                    "image_state": "failed",
-                    "image_error": str(exc)[:500],
-                })
-        return True
-
     def action_approve(self):
-        """Create a real question in the Question Bank from this draft."""
         Question = self.env["etp.assessment.question"]
         for rec in self.filtered(lambda r: r.state == "draft"):
+            category = rec.prompt_id._get_or_create_category()
+            description_parts = []
+            if rec.options_json:
+                description_parts.append("Options: %s" % rec.options_json)
+            if rec.correct_answer_json:
+                description_parts.append("Correct: %s" % rec.correct_answer_json)
+            description = "\n".join(description_parts) if description_parts else False
             vals = {
                 "name": rec.name,
                 "prompt": rec.question_prompt or rec.name,
-                "question_type": rec.question_type or "text",
-                "category_id": rec.prompt_id._get_or_create_category().id,
-                "description": "Generated from prompt: %s (skill: %s)" % (
-                    rec.prompt_id.name, rec.skill or "-"),
+                "question_type": rec.question_type or "mcq",
+                "category_id": category.id,
+                "difficulty": rec.difficulty or False,
+                "description": description,
+                "subjective_rubric_json": rec.rubric_json or False,
+                "source_ref": "gen:%s" % rec.prompt_id.name,
             }
-            # carry generated images onto the bank question (URL preferred)
-            if rec.question_type == "image_comparison":
-                if rec.image_a_url and rec.image_b_url:
-                    vals["image_a_url"] = rec.image_a_url
-                    vals["image_b_url"] = rec.image_b_url
-                elif rec.image_a and rec.image_b:
-                    vals["image_a"] = rec.image_a
-                    vals["image_b"] = rec.image_b
-                elif rec.image_prompt_a or rec.image_prompt_b:
-                    # not generated yet — keep prompts visible for ops
-                    vals["description"] = (vals["description"] +
-                        "\n[Image prompts pending generation]"
-                        "\nA: %s\nB: %s" % (
-                            rec.image_prompt_a or "-",
-                            rec.image_prompt_b or "-"))
+            if rec.skill_id:
+                vals["skill_ids"] = [(4, rec.skill_id.id)]
             q = Question.create(vals)
+            if rec.question_type in ("mcq", "msq"):
+                rec._materialize_dimension(q)
             rec.write({"state": "approved", "approved_question_id": q.id})
         return True
+
+    def _materialize_dimension(self, bank_question):
+        import json as _json
+        self.ensure_one()
+        try:
+            options = _json.loads(self.options_json or "[]")
+        except (ValueError, TypeError):
+            return
+        if not isinstance(options, list) or not options:
+            return
+        try:
+            correct = _json.loads(self.correct_answer_json or "null")
+        except (ValueError, TypeError):
+            correct = None
+        if isinstance(correct, int):
+            correct_indices = {correct}
+        elif isinstance(correct, list):
+            correct_indices = {i for i in correct if isinstance(i, int)}
+        else:
+            correct_indices = set()
+
+        Dimension = self.env["etp.assessment.dimension"]
+        Option = self.env["etp.assessment.dimension.option"]
+        dim_name = (self.name or bank_question.name or "Answer")[:200]
+        dimension = Dimension.create({"name": dim_name})
+        master_options = []
+        for idx, opt_text in enumerate(options):
+            master_options.append(Option.create({
+                "name": str(opt_text)[:200],
+                "dimension_id": dimension.id,
+                "sequence": (idx + 1) * 10,
+            }))
+
+        qd_vals = {
+            "question_id": bank_question.id,
+            "dimension_id": dimension.id,
+            "option_line_ids": [
+                (0, 0, {
+                    "master_option_id": mo.id,
+                    "is_correct": idx in correct_indices,
+                    "sequence": (idx + 1) * 10,
+                })
+                for idx, mo in enumerate(master_options)
+            ],
+        }
+        self.env["etp.assessment.question.dimension"].create(qd_vals)
 
     def action_deny(self):
         self.filtered(lambda r: r.state == "draft").write({"state": "denied"})
         return True
 
     def action_approve_all(self):
-        """Approve every still-pending draft in this recordset (bulk)."""
         self.filtered(lambda r: r.state == "draft").action_approve()
         return True
 
 
 class EtpAssessmentPromptResource(models.Model):
-    """One uploaded resource file (SOP, instruction doc...) on a prompt.
-
-    Text is extracted at upload time so generation never re-parses files.
-    Supported: .docx (stdlib zip+xml, no python-docx dependency), .txt,
-    .md, .csv, .html. PDFs and images record an extraction error — convert
-    to docx/txt or paste into Additional Notes.
-    """
     _name = "etp.assessment.prompt.resource"
     _description = "Prompt Resource File"
     _order = "sequence, id"
@@ -481,11 +381,16 @@ class EtpAssessmentPromptResource(models.Model):
     )
     sequence = fields.Integer(default=10)
     name = fields.Char(string="Filename")
+    category = fields.Selection(
+        [("sop", "SOP"), ("vendor", "Vendor"),
+         ("client", "Client"), ("other", "Other")],
+        default="other", required=True, index=True,
+    )
     file = fields.Binary(string="File", attachment=True, required=True)
-    extracted_text = fields.Text(string="Extracted Text", readonly=True)
-    extraction_error = fields.Char(string="Extraction Issue", readonly=True)
+    extracted_text = fields.Text(readonly=True)
+    extraction_error = fields.Char(readonly=True)
     char_count = fields.Integer(
-        string="Characters", compute="_compute_char_count", store=True
+        compute="_compute_char_count", store=True
     )
 
     @api.depends("extracted_text")
@@ -493,19 +398,15 @@ class EtpAssessmentPromptResource(models.Model):
         for rec in self:
             rec.char_count = len(rec.extracted_text or "")
 
-    # ------------------------------------------------------------------
     @staticmethod
     def _extract_docx(raw):
-        """Pull paragraph text out of a .docx using stdlib only."""
         import io
         import re as _re
         import zipfile
-        # defusedxml: docx files are user-uploaded; stdlib ElementTree is
-        # vulnerable to XXE / entity-expansion payloads.
         try:
             from defusedxml.ElementTree import fromstring as _xml_fromstring
         except ImportError:
-            from xml.etree.ElementTree import (  # noqa: S314 — fallback only
+            from xml.etree.ElementTree import (  # noqa: S314
                 fromstring as _xml_fromstring,
             )
 
@@ -523,7 +424,6 @@ class EtpAssessmentPromptResource(models.Model):
         return _re.sub(r"\n{3,}", "\n\n", text)
 
     def _extract_text(self):
-        """Best-effort text extraction by filename extension."""
         self.ensure_one()
         import base64
 
@@ -542,7 +442,7 @@ class EtpAssessmentPromptResource(models.Model):
                     text = _re.sub(r"\s+", " ", text)
                 return text, False
             if ext == "pdf":
-                return "", ("PDF text extraction not supported — convert to "
+                return "", ("PDF text extraction not supported - convert to "
                             ".docx/.txt or paste the text into Additional Notes.")
             return "", f"Unsupported file type '.{ext}'."
         except Exception as exc:
@@ -568,13 +468,3 @@ class EtpAssessmentPromptResource(models.Model):
         if "file" in vals or "name" in vals:
             self._run_extraction()
         return res
-
-    def to_dict(self):
-        self.ensure_one()
-        return {
-            "id": self.id,
-            "name": self.name or "",
-            "sequence": self.sequence or 0,
-            "char_count": self.char_count,
-            "extraction_error": self.extraction_error or "",
-        }

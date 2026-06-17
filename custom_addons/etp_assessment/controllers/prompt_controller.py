@@ -1,271 +1,122 @@
-# -*- coding: utf-8 -*-
-"""JSON API for the LLM Question Bank generator.
-
-All routes: type="jsonrpc", auth="user". The client must first authenticate via
-POST /web/session/authenticate and carry the session_id cookie. Every request
-body is the standard Odoo JSON-RPC envelope:
-
-    {"jsonrpc":"2.0","method":"call","params": { ...the documented params... }}
-
-and the response is {"jsonrpc":"2.0","id":...,"result": <documented result>}.
-Errors come back as {"error": {"data": {"message": "..."}}}.
-
-Full request/response examples: see docs/PROMPT_API.md in this addon.
-"""
 from odoo import http
 from odoo.http import request
 
 
-class EtpPromptController(http.Controller):
+class EtpAssessmentPromptController(http.Controller):
 
-    # ---------------------------------------------------------------- create
-    @http.route("/etp_assessment/prompt/create", type="jsonrpc", auth="user")
-    def create_prompt(self, title=None, source_text=None, category_id=None):
-        rec = request.env["etp.assessment.prompt"].create({
-            "name": title or "New Prompt",
-            "source_text": source_text or "",
-            "category_id": category_id or False,
-        })
-        return rec.to_dict()
-
-    # ------------------------------------------------------------------ list
-    @http.route("/etp_assessment/prompt/list", type="jsonrpc", auth="user")
-    def list_prompts(self, limit=50, offset=0):
-        """Landing list of prompt sessions (newest first), no children."""
-        recs = request.env["etp.assessment.prompt"].search(
-            [], limit=limit, offset=offset, order="create_date desc")
-        total = request.env["etp.assessment.prompt"].search_count([])
-        return {
-            "total": total,
-            "prompts": [r.to_dict(include_children=False) for r in recs],
-        }
-
-    # ------------------------------------------------------------------- get
-    @http.route("/etp_assessment/prompt/get", type="jsonrpc", auth="user")
-    def get_prompt(self, prompt_id):
-        """Full prompt incl. skills + questions — for resume/reload."""
+    @http.route("/etp/skill_gen/extract", type="jsonrpc", auth="user", methods=["POST"])
+    def skill_gen_extract(self, prompt_id):
         rec = request.env["etp.assessment.prompt"].browse(prompt_id).exists()
         if not rec:
-            return {"error": "not_found"}
-        return rec.to_dict()
-
-    # ---------------------------------------------------------------- delete
-    @http.route("/etp_assessment/prompt/delete", type="jsonrpc", auth="user")
-    def delete_prompt(self, prompt_id):
-        rec = request.env["etp.assessment.prompt"].browse(prompt_id).exists()
-        if rec:
-            rec.unlink()
-        return {"deleted": True}
-
-    # ---------------------------------------------------------------- update
-    @http.route("/etp_assessment/prompt/update", type="jsonrpc", auth="user")
-    def update_prompt(self, prompt_id, title=None, source_text=None, category_id=None):
-        rec = request.env["etp.assessment.prompt"].browse(prompt_id)
-        vals = {}
-        if title is not None:
-            vals["name"] = title
-        if source_text is not None:
-            vals["source_text"] = source_text
-        if category_id is not None:
-            vals["category_id"] = category_id or False
-        if vals:
-            rec.write(vals)
-        return rec.to_dict(include_children=False)
-
-    # ------------------------------------------------------ resource upload
-    @http.route("/etp_assessment/prompt/upload_resource", type="jsonrpc", auth="user")
-    def upload_resource(self, prompt_id, filename, file_b64):
-        rec = request.env["etp.assessment.prompt.resource"].create({
-            "prompt_id": prompt_id,
-            "name": filename,
-            "file": file_b64,
+            return {"error": "prompt_not_found"}
+        from ..services import vertex
+        summary = vertex.extract_skills(request.env, rec)
+        rec.write({
+            "state": "skills_ready",
+            "last_extract_summary": "Created %s, Skipped %s, Total %s" % (
+                summary.get("created", 0),
+                summary.get("skipped", 0),
+                summary.get("total", 0),
+            ),
         })
-        return rec.to_dict()
-
-    @http.route("/etp_assessment/prompt/remove_resource", type="jsonrpc", auth="user")
-    def remove_resource(self, resource_id):
-        rec = request.env["etp.assessment.prompt.resource"].browse(resource_id).exists()
-        if rec:
-            rec.unlink()
-        return {"removed": True}
-
-    # ------------------------------------------------------ bank JSON import
-    @http.route("/etp_assessment/bank/import_json", type="jsonrpc", auth="user")
-    def import_bank_json(self, bank=None, category_id=None,
-                         category_name=None, generate_images=False):
-        """Import a research-team / generated question-bank JSON into the bank.
-
-        `bank` may be the JSON object or a JSON string. Returns the importer
-        summary (questions_created, objective_fields, subjective_fields,
-        skills_created, images_generated, warnings).
-        """
-        if not bank:
-            return {"error": "no bank payload"}
-        summary = request.env["etp.assessment.bank.import"].import_bank(
-            bank,
-            category_id=category_id or False,
-            category_name=category_name,
-            generate_images=bool(generate_images),
-            source_tag="json",
-        )
-        return summary
-
-    # ----------------------------------------------- CALL 1: extract skills
-    @http.route("/etp_assessment/prompt/extract_skills", type="jsonrpc", auth="user")
-    def extract_skills(self, prompt_id, source_text=None, title=None, category_id=None):
-        rec = request.env["etp.assessment.prompt"].browse(prompt_id)
-        vals = {}
-        if source_text is not None:
-            vals["source_text"] = source_text
-        if title:
-            vals["name"] = title
-        if category_id is not None:
-            vals["category_id"] = category_id or False
-        if vals:
-            rec.write(vals)
-        skills = rec.action_extract_skills()
-        return {"skills": skills, "state": rec.state}
-
-    # ------------------------------------------------------------ save skills
-    @http.route("/etp_assessment/prompt/save_skills", type="jsonrpc", auth="user")
-    def save_skills(self, skills):
-        """Persist edited max_questions (and optional name) before generation."""
-        Skill = request.env["etp.assessment.prompt.skill"]
-        for s in skills or []:
-            if s.get("id"):
-                vals = {"max_questions": int(s.get("max_questions", 5) or 5)}
-                if s.get("name"):
-                    vals["name"] = s["name"]
-                Skill.browse(s["id"]).write(vals)
-        return {"saved": True}
-
-    # ------------------------------------------------- generation (seed)
-    @http.route("/etp_assessment/prompt/generate", type="jsonrpc", auth="user")
-    def generate(self, prompt_id, title=None, notes=None, golden_example=None,
-                 max_questions=None, category_id=None):
-        rec = request.env["etp.assessment.prompt"].browse(prompt_id)
-        vals = {}
-        if title:
-            vals["name"] = title
-        if notes is not None:
-            vals["source_text"] = notes
-        if golden_example is not None:
-            vals["golden_example"] = golden_example
-        if max_questions is not None:
-            vals["max_questions"] = int(max_questions or 0)
-        if category_id is not None:
-            vals["category_id"] = category_id or False
-        if vals:
-            rec.write(vals)
-        questions = rec.action_generate_questions()
-        return {"questions": questions, "state": rec.state}
-
-    # -------------------------------------------- image generation (drafts)
-    @http.route("/etp_assessment/prompt/generate_images", type="jsonrpc", auth="user")
-    def generate_images(self, prompt_id, question_ids=None):
-        rec = request.env["etp.assessment.prompt"].browse(prompt_id)
-        drafts = rec.question_ids
-        if question_ids:
-            drafts = drafts.filtered(lambda q: q.id in question_ids)
-        drafts.action_generate_images()
-        return {"questions": [
-            rec._question_dict(q)
-            for q in drafts.filtered(
-                lambda q: q.question_type == "image_comparison")
-        ]}
-
-    # --------------------------------------------------- approve / deny one
-    @http.route("/etp_assessment/prompt/decision", type="jsonrpc", auth="user")
-    def decision(self, question_id, approve):
-        q = request.env["etp.assessment.prompt.question"].browse(question_id)
-        if approve:
-            q.action_approve()
-        else:
-            q.action_deny()
         return {
-            "id": q.id,
-            "state": q.state,
-            "approved_question_id": q.approved_question_id.id or False,
-        }
-
-    # ----------------------------------------------- bulk approve / deny
-    @http.route("/etp_assessment/prompt/decision_bulk", type="jsonrpc", auth="user")
-    def decision_bulk(self, question_ids=None, approve=True, prompt_id=None, skill=None):
-        """Approve/deny many at once.
-
-        Provide either an explicit `question_ids` list, OR a `prompt_id`
-        (optionally narrowed by `skill`) to act on all its pending drafts.
-        """
-        Q = request.env["etp.assessment.prompt.question"]
-        if question_ids:
-            recs = Q.browse(question_ids)
-        elif prompt_id:
-            domain = [("prompt_id", "=", prompt_id), ("state", "=", "draft")]
-            if skill:
-                domain.append(("skill", "=", skill))
-            recs = Q.search(domain)
-        else:
-            recs = Q.browse([])
-        if approve:
-            recs.action_approve()
-        else:
-            recs.action_deny()
-        prompt = request.env["etp.assessment.prompt"].browse(prompt_id) if prompt_id else None
-        return {
-            "updated": [
-                {"id": r.id, "state": r.state,
-                 "approved_question_id": r.approved_question_id.id or False}
-                for r in recs
+            "prompt_id": rec.id,
+            "summary": summary,
+            "skills": [
+                {
+                    "id": s.id, "name": s.name,
+                    "description": s.description or "",
+                    "tags": s.tags or "",
+                    "question_type": s.question_type,
+                    "question_count": s.question_count,
+                    "difficulty": s.difficulty,
+                }
+                for s in rec.skill_bank_ids
             ],
-            "approved_count": prompt.approved_count if prompt else False,
         }
 
-    # ------------------------------------------------------------ categories
-    @http.route("/etp_assessment/prompt/categories", type="jsonrpc", auth="user")
-    def categories(self):
-        return request.env["etp.assessment.category"].search_read(
-            [], ["id", "name"], order="name")
-
-    # -------------------------------------------------------- system prompts
-    @http.route("/etp_assessment/prompt/system_prompts", type="jsonrpc", auth="user")
-    def get_system_prompts(self):
-        """The two live prompts: seed (generation) + scoring."""
-        Prompt = request.env["etp.assessment.prompt"]
-        from odoo.addons.etp_assessment.services.vertex_scoring import (
-            _get_scoring_prompt,
-        )
+    @http.route("/etp/skill_gen/skills", type="jsonrpc", auth="user", methods=["POST"])
+    def skill_gen_list(self, query=None, question_type=None, difficulty=None,
+                      limit=100, offset=0):
+        domain = [("active", "=", True)]
+        if query:
+            domain.append(("name", "ilike", query))
+        if question_type:
+            domain.append(("question_type", "=", question_type))
+        if difficulty:
+            domain.append(("difficulty", "=", difficulty))
+        Skill = request.env["etp.assessment.skill"]
+        total = Skill.search_count(domain)
+        recs = Skill.search(domain, limit=limit, offset=offset, order="name")
         return {
-            "seed": Prompt._get_seed_system_prompt(),
-            "scoring": _get_scoring_prompt(request.env),
-            # legacy slots kept for the dormant skills mode
-            "skills": Prompt._get_skills_system_prompt(),
-            "questions": Prompt._get_questions_system_prompt(),
+            "total": total,
+            "skills": [
+                {
+                    "id": s.id, "name": s.name,
+                    "description": s.description or "",
+                    "tags": s.tags or "",
+                    "question_type": s.question_type,
+                    "question_count": s.question_count,
+                    "time_minutes": s.time_minutes,
+                    "difficulty": s.difficulty,
+                }
+                for s in recs
+            ],
         }
 
-    @http.route("/etp_assessment/prompt/save_system_prompt", type="jsonrpc", auth="user")
-    def save_system_prompt(self, which, value):
-        allowed = {"seed", "scoring", "skills", "questions"}
-        if which not in allowed:
-            return {"error": f"unknown prompt '{which}'"}
-        key = f"etp_assessment.{which}_system_prompt"
-        request.env["ir.config_parameter"].sudo().set_param(key, value or "")
-        return {"saved": True}
-
-    # ------------------------------------------------- vertex config status
-    @http.route("/etp_assessment/prompt/config_status", type="jsonrpc", auth="user")
-    def config_status(self):
-        """Lets the app show 'LLM ready' vs 'not configured' without a failed call."""
-        from ..services import vertex_questions as bq
-        from ..services import vertex_images, s3_service
-        env = request.env
-        project = bq._param(env, "etp_assessment.vertex_project_id")
-        api_key = bq._param(env, "etp_assessment.vertex_api_key")
+    @http.route("/etp/question_gen/generate", type="jsonrpc", auth="user", methods=["POST"])
+    def question_gen_generate(self, prompt_id, skill_ids):
+        rec = request.env["etp.assessment.prompt"].browse(prompt_id).exists()
+        if not rec:
+            return {"error": "prompt_not_found"}
+        skills = request.env["etp.assessment.skill"].browse(skill_ids).exists()
+        if not skills:
+            return {"error": "no_skills"}
+        from ..services import vertex
+        all_drafts = []
+        for skill in skills:
+            draft_ids = vertex.generate_questions(request.env, rec, skill)
+            all_drafts.extend(draft_ids)
+        rec.write({"state": "done"})
+        drafts = request.env["etp.assessment.prompt.question"].browse(all_drafts)
         return {
-            "provider": "vertex",
-            "configured": bool(project and api_key),
-            "model": bq._param(env, "etp_assessment.vertex_model", "gemini-3-pro"),
-            "location": bq._param(env, "etp_assessment.vertex_location", "us-central1"),
-            "text_configured": bool(project and api_key),
-            "image_configured": vertex_images.is_configured(env),
-            "s3_configured": s3_service.is_configured(env),
+            "prompt_id": rec.id,
+            "draft_count": len(drafts),
+            "drafts": [
+                {
+                    "id": d.id, "name": d.name,
+                    "skill_id": d.skill_id.id,
+                    "skill_name": d.skill_id.name or "",
+                    "question_prompt": d.question_prompt or "",
+                    "question_type": d.question_type,
+                    "difficulty": d.difficulty or "",
+                    "options_json": d.options_json or "",
+                    "correct_answer_json": d.correct_answer_json or "",
+                    "rubric_json": d.rubric_json or "",
+                    "state": d.state,
+                }
+                for d in drafts
+            ],
         }
+
+    @http.route("/etp/question_gen/drafts/<int:draft_id>/approve",
+                type="jsonrpc", auth="user", methods=["POST"])
+    def question_gen_approve(self, draft_id):
+        draft = request.env["etp.assessment.prompt.question"].browse(draft_id).exists()
+        if not draft:
+            return {"error": "draft_not_found"}
+        draft.action_approve()
+        return {
+            "id": draft.id,
+            "state": draft.state,
+            "approved_question_id": draft.approved_question_id.id or False,
+        }
+
+    @http.route("/etp/question_gen/drafts/<int:draft_id>/deny",
+                type="jsonrpc", auth="user", methods=["POST"])
+    def question_gen_deny(self, draft_id):
+        draft = request.env["etp.assessment.prompt.question"].browse(draft_id).exists()
+        if not draft:
+            return {"error": "draft_not_found"}
+        draft.action_deny()
+        return {"id": draft.id, "state": draft.state}

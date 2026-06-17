@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-
     <record id="res_config_settings_view_form_etp_assessment" model="ir.ui.view">
         <field name="name">res.config.settings.view.form.inherit.etp_assessment</field>
         <field name="model">res.config.settings</field>
@@ -13,29 +12,41 @@
                      name="etp_assessment"
                      groups="etp_assessment.group_assessment_manager">
 
-                    <block title="Vertex AI (LLM)" name="etp_vertex_section">
-                        <setting id="etp_vertex_model"
-                                 string="Text / Scoring Model"
-                                 help="Gemini model ID used for question generation and LLM scoring of candidate justifications. Default: gemini-3-pro. Alternatives: gemini-2.5-pro, gemini-2.5-flash.">
-                            <field name="etp_assessment_vertex_model"
-                                   placeholder="gemini-3-pro"/>
+                    <block title="Vertex AI" name="etp_vertex_section">
+                        <setting id="etp_vertex_project_id"
+                                 string="Vertex Project ID"
+                                 help="GCP project ID hosting the Vertex AI / Gemini deployment.">
+                            <field name="etp_assessment_vertex_project_id"
+                                   placeholder="my-gcp-project"/>
                         </setting>
-                        <setting id="etp_vertex_image_model"
-                                 string="Image Model"
-                                 help="Imagen model ID for generating A/B images on image_comparison questions. Default: imagen-4.0-generate-001. Clear this field to disable image generation entirely (drafts will keep their image prompts as text instead of generating actual images).">
-                            <field name="etp_assessment_vertex_image_model"
-                                   placeholder="imagen-4.0-generate-001"/>
+                        <setting id="etp_vertex_location"
+                                 string="Vertex Location"
+                                 help="Region for Vertex AI (us-central1, europe-west1, or 'global').">
+                            <field name="etp_assessment_vertex_location"
+                                   placeholder="us-central1"/>
+                        </setting>
+                        <setting id="etp_vertex_model"
+                                 string="Model"
+                                 help="Gemini model used for skill extraction and question generation.">
+                            <field name="etp_assessment_vertex_model"
+                                   placeholder="gemini-2.5-pro"/>
                         </setting>
                         <setting id="etp_vertex_api_key"
                                  string="API Key"
-                                 help="Google API key. Two formats accepted: AIza… (Gemini Developer API — text/scoring only) or AQ.… (Vertex AI Express Mode — also serves Imagen image generation). The auth router (services/vertex_questions.py:_gemini_request) picks the endpoint by key prefix automatically. Both use the x-goog-api-key header. Never paste an OAuth bearer here.">
+                                 help="AIza... (Gemini Developer API) or AQ... (Vertex Express).">
                             <field name="etp_assessment_vertex_api_key"
                                    password="True"
-                                   placeholder="AIza... or AQ...."/>
+                                   placeholder="AIza... or AQ..."/>
+                        </setting>
+                        <setting id="etp_vertex_access_token"
+                                 string="Static OAuth Bearer (optional)"
+                                 help="Static aiplatform OAuth bearer. Leave empty to use SA JSON.">
+                            <field name="etp_assessment_vertex_access_token"
+                                   password="True"/>
                         </setting>
                         <setting id="etp_vertex_sa"
-                                 string="Service Account JSON (optional)"
-                                 help="Upload a Google Cloud service account JSON to enable Vertex AI OAuth auth. The module signs JWTs and auto-refreshes 1-hour bearer tokens — no manual paste/refresh needed. Required when using an AIza key but you also need Imagen image generation, or when policy forbids static API keys. Leave empty to use just the API Key above.">
+                                 string="Service Account JSON"
+                                 help="Upload a GCP service-account JSON. The module signs JWTs and auto-refreshes 1h bearers.">
                             <field name="vertex_sa_upload"
                                    widget="binary"
                                    filename="vertex_sa_upload_filename"/>
@@ -48,114 +59,82 @@
                         </setting>
                     </block>
 
-                    <block title="Scoring" name="etp_scoring_section">
-                        <setting id="etp_pass_threshold"
-                                 string="Pass Threshold (%)"
-                                 help="Candidate passes when (objective + subjective) / (max_obj + max_llm) × 100 ≥ this. Default 70.">
-                            <field name="etp_assessment_pass_threshold"/>
-                        </setting>
-                        <setting id="etp_subjective_points"
-                                 string="Subjective Points / Question"
-                                 help="Points awarded per subjective question that passes the LLM rubric. Default 10.">
-                            <field name="etp_assessment_subjective_points"/>
-                        </setting>
-                        <setting id="etp_subjective_pass_threshold"
-                                 string="Subjective Pass Threshold"
-                                 help="LLM 0..1 score ≥ this is treated as PASS for a subjective question. Default 0.7.">
-                            <field name="etp_assessment_subjective_pass_threshold"/>
-                        </setting>
-                    </block>
-
-                    <block title="S3 Image Hosting" name="etp_s3_section">
+                    <block title="S3 Storage" name="etp_s3_section">
                         <setting id="etp_s3_bucket"
                                  string="S3 Bucket"
-                                 help="Target bucket for generated A/B images. Leave empty to keep images inline on the question record (no S3).">
+                                 help="Target bucket. Leave empty to disable S3.">
                             <field name="etp_assessment_s3_bucket"/>
                         </setting>
                         <setting id="etp_s3_region"
                                  string="S3 Region"
-                                 help="AWS region for the bucket (default us-east-1).">
+                                 help="AWS region for the bucket.">
                             <field name="etp_assessment_s3_region"/>
                         </setting>
                         <setting id="etp_s3_access_key_id"
                                  string="S3 Access Key ID"
-                                 help="AWS access key with PutObject + DeleteObject permission on the bucket.">
+                                 help="AWS access key with PutObject/DeleteObject permissions.">
                             <field name="etp_assessment_s3_access_key_id"/>
                         </setting>
                         <setting id="etp_s3_secret_key"
-                                 string="S3 Secret Access Key"
+                                 string="S3 Secret Key"
                                  help="AWS secret matching the access key ID.">
                             <field name="etp_assessment_s3_secret_key"
                                    password="True"/>
                         </setting>
                         <setting id="etp_s3_folder"
                                  string="S3 Key Prefix"
-                                 help="Folder under the bucket where images are stored (default etp_assessment).">
+                                 help="Folder under the bucket where uploads land.">
                             <field name="etp_assessment_s3_folder"/>
                         </setting>
                         <setting id="etp_s3_cdn_url"
-                                 string="S3 CDN Base URL"
-                                 help="Optional. If set, returned image URLs use this base (e.g. https://cdn.example.com) instead of the virtual-hosted S3 URL.">
+                                 string="CDN Base URL"
+                                 help="Optional. Returned URLs use this base instead of the virtual-hosted S3 URL.">
                             <field name="etp_assessment_s3_cdn_url"
                                    placeholder="https://cdn.example.com"/>
                         </setting>
                         <setting id="etp_s3_max_retries"
                                  string="Max Upload Retries"
-                                 help="put_object retry count on transient errors (5xx, throttling). Default 3.">
+                                 help="put_object retry count on transient errors.">
                             <field name="etp_assessment_s3_max_retries"/>
                         </setting>
                     </block>
 
                     <block title="System Prompts" name="etp_prompts_section">
-                        <setting id="etp_seed_system_prompt"
-                                 string="Seed Mode Prompt (.md upload)"
-                                 help="Upload a .md file to override the bundled prompts/seed_master.md default. Leave empty to use the bundled default (recommended). Applies on the next LLM call, no deploy.">
-                            <field name="seed_prompt_upload"
+                        <setting id="etp_skill_gen_prompt"
+                                 string="Skill Generation Prompt (.md upload)"
+                                 help="Upload a .md to override the bundled prompts/skill_gen.md. Empty = use bundled.">
+                            <field name="skill_gen_prompt_upload"
                                    widget="binary"
-                                   filename="seed_prompt_upload_filename"/>
-                            <field name="seed_prompt_upload_filename"
-                                   invisible="1"/>
-                            <field name="etp_assessment_seed_system_prompt"
-                                   invisible="1"/>
-                            <div invisible="not etp_assessment_seed_system_prompt"
+                                   filename="skill_gen_prompt_upload_filename"/>
+                            <field name="skill_gen_prompt_upload_filename" invisible="1"/>
+                            <field name="etp_assessment_skill_gen_prompt" invisible="1"/>
+                            <field name="etp_assessment_skill_gen_prompt_filename" invisible="1"/>
+                            <div invisible="not etp_assessment_skill_gen_prompt"
                                  class="text-muted mt-1">
-                                Custom override active. Clear at Technical →
-                                System Parameters → etp_assessment.seed_system_prompt
-                                to revert to the bundled default.
+                                Current: <field name="etp_assessment_skill_gen_prompt_filename"
+                                              readonly="1" nolabel="1" class="d-inline-block"/>
+                                <br/>
+                                Custom override active. Clear at Technical → System
+                                Parameters → etp_assessment.skill_gen_prompt to revert.
                             </div>
                         </setting>
-                        <setting id="etp_scoring_system_prompt"
-                                 string="Scoring Prompt (.md upload)"
-                                 help="Upload a .md file to override the bundled prompts/scoring_master.md default. Leave empty to use the bundled default (recommended). Applies on the next LLM call, no deploy.">
-                            <field name="scoring_prompt_upload"
+                        <setting id="etp_question_prompt"
+                                 string="Question Generation Prompt (.md upload)"
+                                 help="Upload a .md to override the bundled prompts/question.md. Empty = use bundled.">
+                            <field name="question_prompt_upload"
                                    widget="binary"
-                                   filename="scoring_prompt_upload_filename"/>
-                            <field name="scoring_prompt_upload_filename"
-                                   invisible="1"/>
-                            <field name="etp_assessment_scoring_system_prompt"
-                                   invisible="1"/>
-                            <div invisible="not etp_assessment_scoring_system_prompt"
+                                   filename="question_prompt_upload_filename"/>
+                            <field name="question_prompt_upload_filename" invisible="1"/>
+                            <field name="etp_assessment_question_prompt" invisible="1"/>
+                            <field name="etp_assessment_question_prompt_filename" invisible="1"/>
+                            <div invisible="not etp_assessment_question_prompt"
                                  class="text-muted mt-1">
-                                Custom override active. Clear at Technical →
-                                System Parameters → etp_assessment.scoring_system_prompt
-                                to revert to the bundled default.
+                                Current: <field name="etp_assessment_question_prompt_filename"
+                                              readonly="1" nolabel="1" class="d-inline-block"/>
+                                <br/>
+                                Custom override active. Clear at Technical → System
+                                Parameters → etp_assessment.question_prompt to revert.
                             </div>
-                        </setting>
-                        <setting id="etp_skills_system_prompt"
-                                 string="Skills Prompt (legacy two-stage)"
-                                 help="Active only for generation_mode='skills'. Extract skills from SOP. Empty falls back to the embedded default."
-                                 class="o_setting_box_full">
-                            <field name="etp_assessment_skills_system_prompt"
-                                   nolabel="1"
-                                   widget="text"/>
-                        </setting>
-                        <setting id="etp_questions_system_prompt"
-                                 string="Questions Prompt (legacy two-stage)"
-                                 help="Active only for generation_mode='skills'. Generate questions per skill. Empty falls back to the embedded default."
-                                 class="o_setting_box_full">
-                            <field name="etp_assessment_questions_system_prompt"
-                                   nolabel="1"
-                                   widget="text"/>
                         </setting>
                     </block>
 
@@ -164,4 +143,11 @@
         </field>
     </record>
 
+    <record id="action_etp_assessment_config" model="ir.actions.act_window">
+        <field name="name">ETP Assessment Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'etp_assessment'}</field>
+    </record>
 </odoo>

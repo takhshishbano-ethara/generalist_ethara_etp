@@ -1,136 +1,78 @@
-# ETP Assessment Module
+# ETP Assessment
 
-Odoo 19 module for managing candidate assessments with a question bank, dimension-based scoring, and a secure public portal.
+Odoo 19 module implementing the **Skill Bank** and **Question Bank** generation
+flow driven by Vertex AI Gemini.
 
-## Features
+## Scope
 
-### Question Bank
-- **Question Types**: Image Comparison, Text, Coding, Image+Text, Video
-- **Categories**: Organize questions into categories for different assessments
-- **Dimensions**: Each question has linked dimensions with options (e.g., Instruction Following, Visual Quality)
-- **Correct Option Marking**: Mark one option per dimension as correct for automated scoring
-- **Auto-populate Options**: Adding a dimension to a question automatically populates its options from the master
+This module implements only the *Skill Generation* path of the assessment
+program:
 
-### Assessment Management
-- **Category-based Selection**: Pick questions from a specific category
-- **Question Limit**: Set how many questions to include (0 = all)
-- **Shuffled Order**: Each candidate receives questions in a randomized order
-- **Duration Timer**: Set a time limit (minutes) for candidates to complete the assessment
-- **Auto-complete**: Assessment automatically moves to "Done" when all candidates submit
-- **States**: Draft → In Progress → Done / Cancelled
+1. **Stage 1 — Skill Extraction.** An admin creates a Prompt, uploads SOP /
+   vendor / client documents (resources). Clicking *Extract Skills* concatenates
+   resource text, sends it together with `prompts/skill_gen.md` to Vertex AI
+   Gemini, and upserts each returned skill into the **Skill Bank**
+   (`etp.assessment.skill`). Names are unique; existing skills are skipped.
+2. **Stage 2 — Question Generation.** The admin picks one or more skills on the
+   prompt, clicks *Generate Questions*. For each selected skill, the LLM
+   generates draft questions per `prompts/question.md`. Drafts can be approved
+   into the **Question Bank** (`etp.assessment.question`) or denied.
 
-### Candidate Management
-- **Manual Assignment**: Add candidates via Many2many tags
-- **CSV Import**: Bulk import candidates from CSV (name, email, job_title, department)
-- **Auto-create Employees**: If email not found in hr.employee, creates one automatically
-- **Template Download**: Download a sample CSV template
-
-### Portal (Public Assessment Interface)
-- **Token-based Access**: Each candidate gets a unique URL (no login required)
-- **Instructions Screen**: Candidates see rules and assessment details before starting
-- **One Question at a Time**: Sequential question display with progress bar
-- **Countdown Timer**: Visual timer with warning states (yellow < 5min, red < 1min)
-- **Auto-submit on Timeout**: When time expires, remaining questions are auto-submitted
-- **Responsive Design**: Works on desktop and mobile
-
-### Anti-Cheat Protections
-- **No Text Selection/Copy**: CSS `user-select: none` + event handlers
-- **No Right-click**: Context menu disabled
-- **No Screenshots**: PrintScreen key detection, Ctrl+Shift+S blocked
-- **No Tab Switching**: `visibilitychange` and `blur` events trigger auto-submit
-- **No Developer Tools**: F12, Ctrl+Shift+I/J detection + window size monitoring
-- **No Screen Capture**: `getDisplayMedia` API intercepted
-- **Violation Overlay**: Red screen with reason shown before auto-submit
-
-### Dashboard
-- **KPI Cards**: Total assessments, questions, candidates, responses, completion rate
-- **Charts**: Question types (doughnut), categories (bar), completion status
-- **Active Work Panel**: In-progress assessments with candidate progress
-- **Top Candidates**: Leaderboard by score
-- **Dimension Analytics**: Accuracy percentage per dimension
-
-### Email Notifications
-- **Assessment Invitation**: Styled HTML email with assessment details, rules summary, and start link
-- **QWeb Rendering**: Uses `web.base.url` for link generation
+Assessments, evaluators, candidate responses, portal, scoring, and email
+invitations are intentionally **out of scope** for this module.
 
 ## Models
 
-| Model | Description |
-|-------|-------------|
-| `etp.assessment` | Main assessment record |
-| `etp.assessment.category` | Question categories |
-| `etp.assessment.dimension` | Evaluation dimensions (master) |
-| `etp.assessment.dimension.option` | Options per dimension (master) |
-| `etp.assessment.question` | Question bank entries |
-| `etp.assessment.question.dimension` | Question-dimension link with options |
-| `etp.assessment.question.dimension.option` | Per-question dimension options with `is_correct` |
-| `etp.assessment.evaluator` | Candidate assignment (token, state, timer) |
-| `etp.assessment.response` | Candidate's response per question |
-| `etp.assessment.response.line` | Selected option per dimension |
-
-## Workflow
-
-1. **Admin** creates dimensions + options in Configuration
-2. **Admin** creates categories and questions in Question Bank
-3. **Admin** adds dimensions to each question, marks correct option per dimension
-4. **Admin** creates an Assessment: picks category, question limit, duration, dates
-5. **Admin** assigns candidates (manual or CSV import)
-6. **Admin** clicks **Start Assessment** → selects questions, shuffles per candidate, sends emails
-7. **Candidate** receives email with rules summary + link
-8. **Candidate** opens link → sees Instructions/Rules page
-9. **Candidate** clicks "Start Assessment" → timer begins
-10. **Candidate** answers questions one by one (dimensions + justification)
-11. **Candidate** submits all → locked, sees completion page
-12. **System** auto-marks assessment "Done" when all candidates complete
-
-## Security
-
-| Group | Access |
-|-------|--------|
-| Assessment Candidate (Evaluator) | Read masters, create/edit own responses |
-| Assessment Manager | Full CRUD on all models |
-
-## Installation
-
-1. Place module in your addons path
-2. Update app list: Settings → Apps → Update Apps List
-3. Install "ETP Assessment"
-
-## Dependencies
-
-- `base`
-- `web`
-- `hr`
-- `mail`
-- `website`
+| Model                                       | Purpose                                  |
+|---------------------------------------------|------------------------------------------|
+| `etp.assessment.skill`                      | First-class skill bank (UNIQUE name)     |
+| `etp.assessment.category`                   | Question categories                      |
+| `etp.assessment.dimension` + `.option`      | Scoring dimensions (objective questions) |
+| `etp.assessment.question`                   | Question bank entry                      |
+| `etp.assessment.question.dimension` + `.option` | Per-question dimension/option link   |
+| `etp.assessment.prompt`                     | One LLM session (resources + drafts)     |
+| `etp.assessment.prompt.resource`            | Uploaded source file                     |
+| `etp.assessment.prompt.skill`               | Transient view of what this run extracted|
+| `etp.assessment.prompt.question`            | Draft question awaiting approve/deny     |
+| `etp.assessment.bank.import` (abstract)     | JSON question-bank importer              |
 
 ## Configuration
 
-### System Parameters
-- `web.base.url`: Must be set to your domain for email links to work correctly
+Settings → ETP Assessment lets a Manager configure:
 
-### Duration
-- Set `Duration (Minutes)` on the assessment form (0 = no time limit)
-- Timer starts when candidate clicks "Start Assessment" on the instructions page
+- **Vertex AI**: project, location, model, API key OR static OAuth bearer OR
+  uploaded service-account JSON (the module mints and refreshes 1h bearers).
+- **S3 Storage**: bucket, region, access key, secret, prefix, optional CDN.
+- **System Prompts**: upload custom `skill_gen.md` and `question.md` to override
+  the bundled defaults.
 
-## CSV Import Format
+All credentials are stored in `ir.config_parameter` under the `etp_assessment.*`
+namespace. The default-data XML ships only safe non-secret defaults.
 
-### Candidates CSV
-```
-name,email,job_title,department
-John Doe,john@example.com,Evaluator,Engineering
-Jane Smith,jane@example.com,Senior Evaluator,Design
-```
+## JSON-RPC API
 
-### Question Bank CSV
-```
-name,category_id,question_type,prompt,description,code_snippet,code_language,video_url,image_a_url,image_b_url
-```
+| Route                                                   | Description                            |
+|---------------------------------------------------------|----------------------------------------|
+| `POST /etp/skill_gen/extract`                           | Run Stage 1 on a prompt                |
+| `POST /etp/skill_gen/skills`                            | List/search the skill bank             |
+| `POST /etp/question_gen/generate`                       | Run Stage 2 for chosen skills          |
+| `POST /etp/question_gen/drafts/<int:draft_id>/approve`  | Approve a draft into the question bank |
+| `POST /etp/question_gen/drafts/<int:draft_id>/deny`     | Deny a draft                           |
 
-## Technical Details
+All routes are `type="jsonrpc"`, `auth="user"`. Use the standard Odoo
+`{"jsonrpc":"2.0","method":"call","params":{...}}` envelope.
 
-- **Version**: 19.0.0.4
-- **License**: LGPL-3
-- **OWL Dashboard**: Custom component with Chart.js
-- **Portal**: Public routes with token auth (`auth="public"`)
-- **Scoring**: Binary (1 = correct option selected, 0 = wrong)
+## Security
+
+Two groups under the *ETP Assessment* category:
+
+- `group_assessment_evaluator` — read-only access to the bank.
+- `group_assessment_manager` — full CRUD on all models + access to Configuration.
+
+## Dependencies
+
+- Odoo 19, Python 3.11+
+- `PyJWT[crypto]` — JWT signing for service-account auth (the right `jwt`
+  package; the module raises if the wrong `jwt` PyPI package is installed).
+- `httpx` — HTTP client for Vertex calls.
+- `boto3`, `cryptography` — S3 and signing.

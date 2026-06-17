@@ -1,42 +1,33 @@
-# -*- coding: utf-8 -*-
 {
     "name": "ETP Assessment",
-    "summary": "Question Bank & Assessment module for ETP evaluations",
-    "description": """
-Manages question bank master with configurable dimensions and options.
-Supports creating assessments, assigning candidates, and collecting responses.
-Includes a public portal for candidates to take assessments via email link.
-    """,
+    "version": "19.0.2.0.0",
+    "summary": "Skill Bank + Question Bank + Assessment lifecycle (LLM-driven, Vertex AI)",
     "author": "Ethara",
     "website": "https://www.ethara.com",
     "category": "Human Resources",
-    "version": "19.0.0.17",
-    "application": True,
-    "depends": ["base", "web", "hr", "mail", "website"],
+    "license": "LGPL-3",
+    "depends": ["base", "mail", "hr", "website"],
     "data": [
         "security/etp_assessment_security.xml",
         "security/ir.model.access.csv",
-        "data/default_data.xml",
+        "security/etp_assessment_record_rules.xml",
         "data/llm_config_parameters.xml",
-        "data/mail_template.xml",
+        "views/skill_views.xml",
         "views/category_views.xml",
         "views/dimension_views.xml",
         "views/question_views.xml",
-        "views/assessment_views.xml",
-        "data/cron.xml",
-        "views/portal_templates.xml",
+        "views/prompt_views.xml",
         "views/res_config_settings_views.xml",
-        "views/menu_items.xml",
+        "views/assessment_views.xml",
+        "views/my_assessments_views.xml",
+        "views/portal_templates.xml",
+        "data/cron.xml",
+        "data/mail_template.xml",
+        "views/menus.xml",
     ],
-    "assets": {
-        "web.assets_backend": [
-            "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js",
-            "etp_assessment/static/src/dashboard/dashboard.js",
-            "etp_assessment/static/src/dashboard/dashboard.xml",
-            "etp_assessment/static/src/dashboard/dashboard.scss",
-            "etp_assessment/static/src/prompt/prompt.js",
-            "etp_assessment/static/src/prompt/prompt.xml",
-        ],
+    "external_dependencies": {
+        "python": ["PyJWT", "httpx", "boto3", "cryptography"],
     },
-    "demo": [],
+    "installable": True,
+    "application": True,
 }
