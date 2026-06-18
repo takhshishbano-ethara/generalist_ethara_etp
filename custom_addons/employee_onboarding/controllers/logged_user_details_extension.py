@@ -35,10 +35,10 @@ class LoggedUserDetailsOnboardingExtension(ApiAuthController):
                 return response
 
             body = json.loads(body_text)
-            if body.get("status_code") != 200 or not isinstance(body.get("data"), dict):
+            if body.get("status_code") != 200:
                 return response
 
-            record = body["data"].get("record")
+            record = body.get("record")
             if not isinstance(record, dict):
                 return response
 
