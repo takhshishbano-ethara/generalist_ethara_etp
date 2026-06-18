@@ -298,6 +298,7 @@ class EmployeeSelfRegistrationController(http.Controller):
             college_id = int(data.get('college_id') or 0)
         except (TypeError, ValueError):
             college_id = 0
+        college_name = (data.get('college_name') or '').strip()
 
         errors = []
         if not name:
@@ -353,6 +354,18 @@ class EmployeeSelfRegistrationController(http.Controller):
         ResUsers = admin_env['res.users']
         Applicant = admin_env['hr.applicant']
         College = admin_env['employee.college']
+
+        if not college_id and college_name:
+            existing_college = College.with_context(active_test=False).search(
+                [('name', '=ilike', college_name)], limit=1,
+            )
+            if existing_college:
+                college_id = existing_college.id
+            else:
+                college_id = College.create({
+                    'name': college_name,
+                    'active': True,
+                }).id
 
         if college_id and not College.browse(college_id).exists():
             return return_Response(message=f"College id {college_id} does not exist", status=400)
