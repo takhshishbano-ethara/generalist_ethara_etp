@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_etp_project_budget_topup_list" model="ir.ui.view">
+        <field name="name">etp.project.budget.topup.list</field>
+        <field name="model">etp.project.budget.topup</field>
+        <field name="arch" type="xml">
+            <list string="Project Budget Top-ups" decoration-info="state == 'pending'" decoration-success="state == 'approved'" decoration-muted="state == 'rejected'">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="project_budget_id"/>
+                <field name="amount" sum="USD"/>
+                <field name="requester_id"/>
+                <field name="approver_id" optional="show"/>
+                <field name="approval_date" optional="hide"/>
+                <field name="state" widget="badge" decoration-info="state == 'pending'" decoration-success="state == 'approved'" decoration-danger="state == 'rejected'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_etp_project_budget_topup_form" model="ir.ui.view">
+        <field name="name">etp.project.budget.topup.form</field>
+        <field name="model">etp.project.budget.topup</field>
+        <field name="arch" type="xml">
+            <form string="Project Budget Top-up">
+                <header>
+                    <button name="action_submit" type="object" string="Submit for Approval" class="btn-primary" invisible="state != 'draft'"/>
+                    <button name="action_approve" type="object" string="Approve" class="btn-primary" invisible="state != 'pending'" groups="base.group_user"/>
+                    <button name="action_reject" type="object" string="Reject" invisible="state != 'pending'" groups="base.group_user"/>
+                    <button name="action_reset_to_draft" type="object" string="Reset to Draft" invisible="state != 'rejected'"/>
+                    <field name="state" widget="statusbar" statusbar_visible="draft,pending,approved"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Request">
+                            <field name="project_budget_id" options="{'no_create': True}" readonly="state != 'draft'"/>
+                            <field name="project_id" readonly="1"/>
+                            <field name="amount" readonly="state != 'draft'"/>
+                            <field name="requester_id" readonly="1"/>
+                        </group>
+                        <group string="Decision">
+                            <field name="approver_id" readonly="1"/>
+                            <field name="approval_date" readonly="1"/>
+                            <field name="rejection_reason" readonly="1" invisible="state != 'rejected'"/>
+                        </group>
+                    </group>
+                    <group string="Justification">
+                        <field name="justification" nolabel="1" readonly="state != 'draft'"/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_etp_project_budget_topup_search" model="ir.ui.view">
+        <field name="name">etp.project.budget.topup.search</field>
+        <field name="model">etp.project.budget.topup</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="project_budget_id"/>
+                <field name="requester_id"/>
+                <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
+                <filter name="filter_pending" string="Pending" domain="[('state','=','pending')]"/>
+                <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
+                <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
+                <group>
+                    <filter name="group_project_budget" string="Project Budget" context="{'group_by':'project_budget_id'}"/>
+                    <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_project_budget_topup" model="ir.actions.act_window">
+        <field name="name">Project Budget Top-ups</field>
+        <field name="res_model">etp.project.budget.topup</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_etp_project_budget_topup_search"/>
+    </record>
+
+    <menuitem id="menu_etp_project_budget_topup"
+              name="Top-up Requests"
+              parent="menu_etp_project_aws_root"
+              action="action_etp_project_budget_topup"
+              sequence="25"/>
+
+    <record id="view_etp_project_budget_topup_reject_wizard_form" model="ir.ui.view">
+        <field name="name">etp.project.budget.topup.reject.wizard.form</field>
+        <field name="model">etp.project.budget.topup.reject.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reject Top-up">
+                <sheet>
+                    <group>
+                        <field name="topup_id" invisible="1"/>
+                        <field name="reason"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" type="object" string="Confirm Rejection" class="btn-danger"/>
+                    <button special="cancel" string="Cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>
