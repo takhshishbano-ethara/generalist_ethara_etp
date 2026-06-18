@@ -9,7 +9,8 @@
                 <field name="name"/>
                 <field name="question_type"/>
                 <field name="category_id"/>
-                <field name="prompt" optional="hide"/>
+                <field name="difficulty"/>
+                <field name="source_ref"/>
                 <field name="active" column_invisible="1"/>
             </list>
         </field>
@@ -29,74 +30,54 @@
                     <group>
                         <group>
                             <field name="question_type"/>
-                            <field name="sequence"/>
-                            <field name="active"/>
+                            <field name="category_id"/>
+                            <field name="difficulty"/>
+                            <field name="time_minutes"/>
                         </group>
                         <group>
-                            <field name="category_id"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                            <field name="source_ref" readonly="1"/>
+                            <field name="has_subjective" readonly="1"/>
                         </group>
                     </group>
+                    <field name="prompt" placeholder="Question prompt..."/>
+                    <field name="description" placeholder="Optional description..."/>
                     <notebook>
-                        <page string="Content">
-                            <group>
-                                <field name="prompt" nolabel="1" placeholder="Enter the prompt text..."/>
-                            </group>
-                            <group invisible="question_type not in ('text', 'image_text', 'subjective')">
-                                <field name="description" placeholder="Additional description or context"/>
-                            </group>
+                        <page string="Skills">
+                            <field name="skill_ids" widget="many2many_tags"/>
                         </page>
-                        <page string="Images" invisible="question_type not in ('image_comparison', 'image_text')">
-                            <group invisible="question_type != 'image_comparison'">
-                                <group string="Response A">
-                                    <field name="image_a" widget="image"/>
-                                    <field name="image_a_url" placeholder="https://..."/>
-                                </group>
-                                <group string="Response B">
-                                    <field name="image_b" widget="image"/>
-                                    <field name="image_b_url" placeholder="https://..."/>
-                                </group>
-                            </group>
-                            <group invisible="question_type != 'image_text'">
-                                <group string="Image">
-                                    <field name="image_a" widget="image" string="Image"/>
-                                    <field name="image_a_url" string="Image URL" placeholder="https://..."/>
-                                </group>
-                            </group>
-                        </page>
-                        <page string="Code" invisible="question_type != 'coding'">
-                            <group>
-                                <field name="code_language"/>
-                            </group>
-                            <field name="code_snippet" placeholder="Paste the code snippet here..."/>
-                        </page>
-                        <page string="Video" invisible="question_type != 'video'">
-                            <group>
-                                <field name="video_url" placeholder="https://youtube.com/... or video URL"/>
-                            </group>
-                        </page>
-                        <page string="Dimensions" invisible="question_type == 'subjective'">
+                        <page string="Dimensions">
                             <field name="question_dimension_ids">
                                 <list>
                                     <field name="sequence" widget="handle"/>
                                     <field name="dimension_id"/>
                                 </list>
                                 <form>
-                                    <group>
-                                        <field name="dimension_id"/>
-                                        <field name="sequence"/>
-                                    </group>
-                                    <label for="option_line_ids"/>
-                                    <field name="option_line_ids">
-                                        <list editable="bottom">
-                                            <field name="sequence" widget="handle"/>
-                                            <field name="name" readonly="1"/>
-                                            <field name="is_correct"/>
-                                            <field name="score" readonly="1"/>
-                                            <field name="master_option_id" column_invisible="1"/>
-                                        </list>
-                                    </field>
+                                    <sheet>
+                                        <group>
+                                            <field name="dimension_id"/>
+                                            <field name="sequence"/>
+                                        </group>
+                                        <field name="option_line_ids">
+                                            <list editable="bottom">
+                                                <field name="sequence" widget="handle"/>
+                                                <field name="master_option_id"/>
+                                                <field name="name" readonly="1"/>
+                                                <field name="is_correct"/>
+                                                <field name="score" readonly="1"/>
+                                            </list>
+                                        </field>
+                                    </sheet>
                                 </form>
                             </field>
+                        </page>
+                        <page string="Grading / Rubric">
+                            <group>
+                                <field name="grading_json" placeholder="{}" widget="text"/>
+                                <field name="subjective_rubric_json" placeholder="[]" widget="text"/>
+                                <field name="meta_json" placeholder="{}" widget="text"/>
+                            </group>
                         </page>
                     </notebook>
                 </sheet>
@@ -108,20 +89,22 @@
         <field name="name">etp.assessment.question.search</field>
         <field name="model">etp.assessment.question</field>
         <field name="arch" type="xml">
-            <search string="Question Bank">
+            <search>
                 <field name="name"/>
+                <field name="prompt"/>
                 <field name="category_id"/>
-                <field name="question_type"/>
+                <field name="skill_ids"/>
                 <separator/>
-                <filter string="Image Comparison" name="filter_image_comparison" domain="[('question_type', '=', 'image_comparison')]"/>
-                <filter string="Text" name="filter_text" domain="[('question_type', '=', 'text')]"/>
-                <filter string="Coding" name="filter_coding" domain="[('question_type', '=', 'coding')]"/>
-                <filter string="Image + Text" name="filter_image_text" domain="[('question_type', '=', 'image_text')]"/>
-                <filter string="Video" name="filter_video" domain="[('question_type', '=', 'video')]"/>
-                <group>
-                    <filter string="Question Type" name="groupby_type" context="{'group_by': 'question_type'}"/>
-                    <filter string="Category" name="groupby_category" context="{'group_by': 'category_id'}"/>
-                </group>
+                <filter name="filter_mcq" string="MCQ" domain="[('question_type','=','mcq')]"/>
+                <filter name="filter_msq" string="MSQ" domain="[('question_type','=','msq')]"/>
+                <filter name="filter_subjective" string="Subjective"
+                        domain="[('question_type','in',('subjective_justification','subjective_rubric'))]"/>
+                <filter name="group_category" string="Category"
+                        context="{'group_by':'category_id'}"/>
+                <filter name="group_type" string="Type"
+                        context="{'group_by':'question_type'}"/>
+                <filter name="group_difficulty" string="Difficulty"
+                        context="{'group_by':'difficulty'}"/>
             </search>
         </field>
     </record>
@@ -131,5 +114,23 @@
         <field name="res_model">etp.assessment.question</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="etp_assessment_question_search"/>
+    </record>
+
+    <record id="action_export_question_bank_json" model="ir.actions.server">
+        <field name="name">Export to JSON</field>
+        <field name="model_id" ref="model_etp_assessment_question"/>
+        <field name="binding_model_id" ref="model_etp_assessment_question"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_export_json()</field>
+    </record>
+
+    <record id="action_export_question_bank_csv" model="ir.actions.server">
+        <field name="name">Export to CSV</field>
+        <field name="model_id" ref="model_etp_assessment_question"/>
+        <field name="binding_model_id" ref="model_etp_assessment_question"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_export_csv()</field>
     </record>
 </odoo>

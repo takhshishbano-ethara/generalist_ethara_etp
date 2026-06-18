@@ -1,4 +1,5 @@
-# -*- coding: utf-8 -*-
+import base64
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
@@ -13,17 +14,12 @@ class ResConfigSettings(models.TransientModel):
     etp_assessment_vertex_location = fields.Char(
         string="Vertex Location",
         config_parameter="etp_assessment.vertex_location",
-        default="global",
+        default="us-central1",
     )
     etp_assessment_vertex_model = fields.Char(
-        string="Text / Scoring Model",
+        string="Vertex Model",
         config_parameter="etp_assessment.vertex_model",
-        default="gemini-3-pro",
-    )
-    etp_assessment_vertex_image_model = fields.Char(
-        string="Image Model",
-        config_parameter="etp_assessment.vertex_image_model",
-        default="imagen-4.0-generate-001",
+        default="gemini-2.5-flash-lite",
     )
     etp_assessment_vertex_api_key = fields.Char(
         string="Vertex API Key",
@@ -33,12 +29,6 @@ class ResConfigSettings(models.TransientModel):
         string="Vertex Access Token",
         config_parameter="etp_assessment.vertex_access_token",
     )
-
-    # Service Account JSON support: a Text-backed config_parameter stores the
-    # decoded JSON; a non-stored Binary holds the freshly uploaded file which
-    # the onchange handler decodes into the text-backed field. Once set,
-    # vertex_questions._minted_bearer signs JWTs and exchanges them for fresh
-    # ~1h OAuth bearers (cached + auto-refreshed).
     etp_assessment_vertex_service_account_json = fields.Char(
         string="Service Account JSON (text)",
         config_parameter="etp_assessment.vertex_service_account_json",
@@ -49,79 +39,6 @@ class ResConfigSettings(models.TransientModel):
     )
     vertex_sa_upload = fields.Binary(string="Upload Service Account JSON")
     vertex_sa_upload_filename = fields.Char(string="SA Upload Filename")
-
-    seed_prompt_upload = fields.Binary(string="Upload Seed Prompt .md")
-    seed_prompt_upload_filename = fields.Char()
-    scoring_prompt_upload = fields.Binary(string="Upload Scoring Prompt .md")
-    scoring_prompt_upload_filename = fields.Char()
-
-    @api.onchange("seed_prompt_upload")
-    def _onchange_seed_prompt_upload(self):
-        if not self.seed_prompt_upload:
-            return
-        import base64
-        try:
-            text = base64.b64decode(self.seed_prompt_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError("Seed prompt must be UTF-8 text (%s)." % exc)
-        self.etp_assessment_seed_system_prompt = text
-
-    @api.onchange("scoring_prompt_upload")
-    def _onchange_scoring_prompt_upload(self):
-        if not self.scoring_prompt_upload:
-            return
-        import base64
-        try:
-            text = base64.b64decode(
-                self.scoring_prompt_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError(
-                "Scoring prompt must be UTF-8 text (%s)." % exc)
-        self.etp_assessment_scoring_system_prompt = text
-
-    @api.onchange("vertex_sa_upload")
-    def _onchange_vertex_sa_upload(self):
-        if not self.vertex_sa_upload:
-            return
-        import base64
-        try:
-            text = base64.b64decode(self.vertex_sa_upload).decode("utf-8")
-        except (ValueError, UnicodeDecodeError) as exc:
-            raise UserError(
-                "Service account JSON must be a UTF-8 text file (%s)." % exc
-            )
-        fname = self.vertex_sa_upload_filename or "service-account.json"
-        # Persist immediately to ir.config_parameter so the value survives
-        # even if res.config.settings.execute() never runs (page refresh,
-        # CSRF expiry, proxy timeout). The Char-via-config_parameter wrapper
-        # only persists on Save; this set_param commits during the onchange
-        # RPC itself.
-        ICP = self.env["ir.config_parameter"].sudo()
-        ICP.set_param("etp_assessment.vertex_service_account_json", text)
-        ICP.set_param("etp_assessment.vertex_service_account_filename", fname)
-        # Wipe any cached minted token so the next LLM call re-mints from the
-        # newly-uploaded SA — old credentials must not leak across uploads.
-        ICP.set_param("etp_assessment.vertex_minted_token", "")
-        ICP.set_param("etp_assessment.vertex_minted_token_expires", "")
-        self.etp_assessment_vertex_service_account_json = text
-        self.etp_assessment_vertex_service_account_filename = fname
-
-    etp_assessment_pass_threshold = fields.Integer(
-        string="Pass Threshold (%)",
-        config_parameter="etp_assessment.pass_threshold",
-        default=70,
-    )
-    etp_assessment_subjective_points = fields.Integer(
-        string="Subjective Points / Question",
-        config_parameter="etp_assessment.subjective_points",
-        default=10,
-    )
-    etp_assessment_subjective_pass_threshold = fields.Float(
-        string="Subjective Pass Threshold",
-        config_parameter="etp_assessment.subjective_pass_threshold",
-        default=0.7,
-        digits=(3, 2),
-    )
 
     etp_assessment_s3_bucket = fields.Char(
         string="S3 Bucket",
@@ -150,24 +67,77 @@ class ResConfigSettings(models.TransientModel):
         config_parameter="etp_assessment.s3_cdn_url",
     )
     etp_assessment_s3_max_retries = fields.Integer(
-        string="Max Upload Retries",
+        string="S3 Max Upload Retries",
         config_parameter="etp_assessment.s3_max_retries",
         default=3,
     )
 
-    etp_assessment_seed_system_prompt = fields.Char(
-        string="Seed Mode Prompt",
-        config_parameter="etp_assessment.seed_system_prompt",
+    etp_assessment_skill_gen_prompt = fields.Char(
+        string="Skill Generation Prompt",
+        config_parameter="etp_assessment.skill_gen_prompt",
     )
-    etp_assessment_scoring_system_prompt = fields.Char(
-        string="Scoring Prompt",
-        config_parameter="etp_assessment.scoring_system_prompt",
+    etp_assessment_question_prompt = fields.Char(
+        string="Question Generation Prompt",
+        config_parameter="etp_assessment.question_prompt",
     )
-    etp_assessment_skills_system_prompt = fields.Char(
-        string="Skills Prompt (legacy)",
-        config_parameter="etp_assessment.skills_system_prompt",
+    skill_gen_prompt_upload = fields.Binary(string="Upload skill_gen.md")
+    skill_gen_prompt_upload_filename = fields.Char()
+    question_prompt_upload = fields.Binary(string="Upload question.md")
+    question_prompt_upload_filename = fields.Char()
+    etp_assessment_skill_gen_prompt_filename = fields.Char(
+        string="Skill Gen Prompt Filename",
+        config_parameter="etp_assessment.skill_gen_prompt_filename",
     )
-    etp_assessment_questions_system_prompt = fields.Char(
-        string="Questions Prompt (legacy)",
-        config_parameter="etp_assessment.questions_system_prompt",
+    etp_assessment_question_prompt_filename = fields.Char(
+        string="Question Prompt Filename",
+        config_parameter="etp_assessment.question_prompt_filename",
     )
+
+    @api.onchange("vertex_sa_upload")
+    def _onchange_vertex_sa_upload(self):
+        if not self.vertex_sa_upload:
+            return
+        try:
+            text = base64.b64decode(self.vertex_sa_upload).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise UserError(
+                "Service account JSON must be a UTF-8 text file (%s)." % exc
+            )
+        fname = self.vertex_sa_upload_filename or "service-account.json"
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("etp_assessment.vertex_service_account_json", text)
+        ICP.set_param("etp_assessment.vertex_service_account_filename", fname)
+        ICP.set_param("etp_assessment.vertex_minted_token", "")
+        ICP.set_param("etp_assessment.vertex_minted_token_expires", "")
+        self.etp_assessment_vertex_service_account_json = text
+        self.etp_assessment_vertex_service_account_filename = fname
+
+    @api.onchange("skill_gen_prompt_upload")
+    def _onchange_skill_gen_prompt_upload(self):
+        if not self.skill_gen_prompt_upload:
+            return
+        try:
+            text = base64.b64decode(self.skill_gen_prompt_upload).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise UserError("Skill prompt must be UTF-8 text (%s)." % exc)
+        ICP = self.env["ir.config_parameter"].sudo()
+        fname = self.skill_gen_prompt_upload_filename or "skill_gen.md"
+        ICP.set_param("etp_assessment.skill_gen_prompt", text)
+        ICP.set_param("etp_assessment.skill_gen_prompt_filename", fname)
+        self.etp_assessment_skill_gen_prompt = text
+        self.etp_assessment_skill_gen_prompt_filename = fname
+
+    @api.onchange("question_prompt_upload")
+    def _onchange_question_prompt_upload(self):
+        if not self.question_prompt_upload:
+            return
+        try:
+            text = base64.b64decode(self.question_prompt_upload).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as exc:
+            raise UserError("Question prompt must be UTF-8 text (%s)." % exc)
+        ICP = self.env["ir.config_parameter"].sudo()
+        fname = self.question_prompt_upload_filename or "question.md"
+        ICP.set_param("etp_assessment.question_prompt", text)
+        ICP.set_param("etp_assessment.question_prompt_filename", fname)
+        self.etp_assessment_question_prompt = text
+        self.etp_assessment_question_prompt_filename = fname

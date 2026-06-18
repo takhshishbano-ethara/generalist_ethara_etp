@@ -66,3 +66,5 @@ custom_addons/vegeta/deploy/
 
 # Vegeta docs/ (legacy K8s docs — replaced by deploy/)
 custom_addons/vegeta/docs/
+.venv/
+.venv

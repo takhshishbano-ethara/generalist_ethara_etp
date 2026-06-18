@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from odoo import models, fields, api
 
 
@@ -17,7 +16,7 @@ class EtpAssessmentDimension(models.Model):
         string="Options", compute="_compute_option_count"
     )
     options_display = fields.Char(
-        string="Options", compute="_compute_options_display"
+        string="Options Preview", compute="_compute_options_display"
     )
 
     @api.depends("option_ids")

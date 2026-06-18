@@ -3,7 +3,6 @@
 
     <menuitem id="menu_employee_extension_root"
               name="Employee Extension"
-              parent="hr.menu_hr_root"
               sequence="100"/>
 
 

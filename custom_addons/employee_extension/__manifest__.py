@@ -19,6 +19,7 @@ This module extends the hr.employee functionality with:
     "depends": [
         "base",
         "hr",
+        "hr_recruitment",
         "project",
         "api_auth_gateway",
         "mail",
@@ -27,6 +28,7 @@ This module extends the hr.employee functionality with:
         "security/ir.model.access.csv",
         "data/onboarding_email_template.xml",
         "views/hr_employee_views.xml",
+        "views/hr_applicant_views.xml",
         "views/allocation_request_views.xml",
         "views/assignment_history_views.xml",
         "views/menu_views.xml",

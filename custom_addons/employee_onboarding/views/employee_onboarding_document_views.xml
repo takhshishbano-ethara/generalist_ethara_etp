@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_employee_onboarding_document_list" model="ir.ui.view">
+        <field name="name">employee.onboarding.document.list</field>
+        <field name="model">employee.onboarding.document</field>
+        <field name="arch" type="xml">
+            <list string="Onboarding Documents">
+                <field name="employee_id"/>
+                <field name="document_type"/>
+                <field name="document_label"/>
+                <field name="file_name"/>
+                <field name="file_url" widget="url"/>
+                <field name="uploaded_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_employee_onboarding_document_form" model="ir.ui.view">
+        <field name="name">employee.onboarding.document.form</field>
+        <field name="model">employee.onboarding.document</field>
+        <field name="arch" type="xml">
+            <form string="Onboarding Document">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="document_type"/>
+                            <field name="document_label" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="file_name"/>
+                            <field name="file_url" widget="url"/>
+                            <field name="uploaded_at" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -13,7 +13,7 @@
         </record>
 
         <record id="group_assessment_evaluator" model="res.groups">
-            <field name="name">Candidate</field>
+            <field name="name">Evaluator</field>
             <field name="privilege_id" ref="privilege_etp_assessment"/>
             <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
         </record>
