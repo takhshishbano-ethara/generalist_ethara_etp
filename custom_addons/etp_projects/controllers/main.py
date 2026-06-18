@@ -114,8 +114,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
-                        "tag_key": budget.tag_summary or "",
-                        "tag_value": budget.tag_summary or "",
+                        "tag_key": budget.tag_key or "",
+                        "tag_value": budget.tag_value or "",
                         "status": "success",
                         "created": created,
                         "updated": updated,
@@ -150,8 +150,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
-                        "tag_key": budget.tag_summary or "",
-                        "tag_value": budget.tag_summary or "",
+                        "tag_key": budget.tag_key or "",
+                        "tag_value": budget.tag_value or "",
                         "status": "error",
                         "error": str(e),
                         "created": 0,
@@ -191,8 +191,8 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
-                        "tag_key": budget.tag_summary or "",
-                        "tag_value": budget.tag_summary or "",
+                        "tag_key": budget.tag_key or "",
+                        "tag_value": budget.tag_value or "",
                         "status": "error",
                         "error": str(e),
                         "created": 0,
@@ -550,8 +550,8 @@ class EtpProjectsAwsCostController(http.Controller):
                 ws.write_number(row, 9, 0.0, f_money)
                 ws.write_number(row, 10, 0, f_int)
                 ws.write(row, 11, "", f_text)
-                ws.write(row, 12, b.tag_summary or "", f_text)
-                ws.write(row, 13, b.tag_summary or "", f_text)
+                ws.write(row, 12, b.tag_key or "", f_text)
+                ws.write(row, 13, b.tag_value or "", f_text)
                 ws.write(
                     row, 14,
                     b.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S") if b.last_fetched_at else "",

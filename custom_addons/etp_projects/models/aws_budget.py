@@ -107,18 +107,8 @@ class EtpProjectAwsBudget(models.Model):
     aws_region = fields.Char(default="us-east-1", string="AWS Region")
     fetch_months = fields.Integer(default=6, string="Months to Fetch")
 
-    tag_ids = fields.One2many(
-        "etp.project.aws.budget.tag", "budget_id",
-        string="Tag Filters",
-        help="One or more AWS cost-allocation (Tag Key, Tag Value) pairs. "
-             "Each active pair triggers its own Cost Explorer query, so a "
-             "single budget can aggregate spend across multiple tags.",
-    )
-    tag_summary = fields.Char(
-        compute="_compute_tag_summary", store=True, string="Tags",
-        help="Comma-separated summary of active tag filters, used in lists, "
-             "search, and fetch-log snapshots.",
-    )
+    tag_key = fields.Char(string="Tag Key")
+    tag_value = fields.Char(string="Tag Value")
 
     openrouter_enabled = fields.Boolean(
         string="Fetch OpenRouter Costs", default=False,
@@ -312,23 +302,6 @@ class EtpProjectAwsBudget(models.Model):
         for rec in self:
             rec.cost_line_count = len(rec.cost_line_ids)
 
-    @api.depends("tag_ids.active", "tag_ids.tag_key", "tag_ids.tag_value")
-    def _compute_tag_summary(self):
-        for rec in self:
-            parts = []
-            for tag in rec.tag_ids:
-                if not tag.active:
-                    continue
-                key = (tag.tag_key or "").strip()
-                value = (tag.tag_value or "").strip()
-                if key and value:
-                    parts.append("%s=%s" % (key, value))
-                elif key:
-                    parts.append(key)
-                elif value:
-                    parts.append(value)
-            rec.tag_summary = ", ".join(parts)
-
     @api.depends(
         "project_type",
         "budget_amount",
@@ -410,8 +383,8 @@ class EtpProjectAwsBudget(models.Model):
                 created = result.get("created", 0)
                 updated = result.get("updated", 0)
                 messages.append(
-                    "%s [%s]: +%s new, %s updated"
-                    % (rec.name, rec.tag_summary or "?", created, updated)
+                    "%s [%s=%s]: +%s new, %s updated"
+                    % (rec.name, rec.tag_key or "?", rec.tag_value or "?", created, updated)
                 )
             except UserError as e:
                 messages.append("%s ERROR: %s" % (rec.name, e))
@@ -955,10 +928,9 @@ class EtpProjectAwsBudget(models.Model):
         return created, updated
 
     def _fetch_bedrock_model_breakdown(
-        self, client, base_tag_filter, start_month, end_day, tag=None,
+        self, client, base_tag_filter, start_month, end_day,
     ):
         self.ensure_one()
-        tag_id = tag.id if tag else False
         bedrock_filter = {
             "And": [
                 base_tag_filter,
@@ -1000,7 +972,6 @@ class EtpProjectAwsBudget(models.Model):
                 existing = Line.search(
                     [
                         ("budget_id", "=", self.id),
-                        ("tag_id", "=", tag_id),
                         ("period", "=", period),
                         ("granularity", "=", "day"),
                         ("service_name", "=", BEDROCK_SERVICE_NAME),
@@ -1012,7 +983,6 @@ class EtpProjectAwsBudget(models.Model):
                 )
                 vals = {
                     "budget_id": self.id,
-                    "tag_id": tag_id,
                     "period": period,
                     "granularity": "day",
                     "service_name": BEDROCK_SERVICE_NAME,
@@ -1167,8 +1137,8 @@ class EtpProjectAwsBudget(models.Model):
             "budget_id": self.id,
             "triggered_by_id": self.env.uid or False,
             "source": source or "other",
-            "tag_key": self.tag_summary or "",
-            "tag_value": self.tag_summary or "",
+            "tag_key": self.tag_key or "",
+            "tag_value": self.tag_value or "",
             "fetch_months": self.fetch_months or 0,
         }
 
@@ -1183,14 +1153,8 @@ class EtpProjectAwsBudget(models.Model):
         try:
             if not (self.aws_access_key_id and self.aws_secret_access_key and self.aws_region):
                 raise UserError(_("Set AWS Access Key ID, Secret, and Region first."))
-            active_tags = self.tag_ids.filtered(
-                lambda t: t.active and t.tag_key and t.tag_value
-            )
-            if not active_tags:
-                raise UserError(_(
-                    "Add at least one active Tag Filter (Tag Key + Tag Value) "
-                    "before fetching AWS Cost Explorer data."
-                ))
+            if not (self.tag_key and self.tag_value):
+                raise UserError(_("Set Tag Key and Tag Value first."))
             try:
                 import boto3
             except ImportError:
@@ -1204,80 +1168,75 @@ class EtpProjectAwsBudget(models.Model):
                 aws_secret_access_key=self.aws_secret_access_key,
                 region_name=self.aws_region,
             )
+            ce_filter = {
+                "Tags": {"Key": self.tag_key, "Values": [self.tag_value]}
+            }
             ce_groupby = [{"Type": "DIMENSION", "Key": "SERVICE"}]
-            Line = self.env["etp.project.aws.cost.line"]
-            created = updated = 0
-            fetch_ts = fields.Datetime.now()
-            for tag in active_tags:
-                ce_filter = {
-                    "Tags": {"Key": tag.tag_key, "Values": [tag.tag_value]}
-                }
-                try:
-                    api_hit_count += 1
-                    resp_day = client.get_cost_and_usage(
-                        TimePeriod={
-                            "Start": start_month.strftime("%Y-%m-%d"),
-                            "End": end_day.strftime("%Y-%m-%d"),
-                        },
-                        Granularity="DAILY",
-                        Metrics=["UnblendedCost"],
-                        Filter=ce_filter,
-                        GroupBy=ce_groupby,
-                    )
-                except Exception as e:
-                    raise UserError(_(
-                        "AWS Cost Explorer failed for tag %s=%s: %s"
-                    ) % (tag.tag_key, tag.tag_value, e))
-                for result in resp_day.get("ResultsByTime", []):
-                    period = fields.Date.from_string(result["TimePeriod"]["Start"])
-                    for group in result.get("Groups", []):
-                        service_name = (group["Keys"][0] if group.get("Keys") else "").strip() or "Unknown"
-                        amount = float(group["Metrics"]["UnblendedCost"]["Amount"])
-                        if amount == 0.0:
-                            continue
-                        existing = Line.search(
-                            [
-                                ("budget_id", "=", self.id),
-                                ("tag_id", "=", tag.id),
-                                ("period", "=", period),
-                                ("granularity", "=", "day"),
-                                ("service_name", "=", service_name),
-                                ("is_model_breakdown", "=", False),
-                            ],
-                            limit=1,
-                        )
-                        vals = {
-                            "budget_id": self.id,
-                            "tag_id": tag.id,
-                            "period": period,
-                            "granularity": "day",
-                            "service_name": service_name,
-                            "amount_source": amount,
-                            "source": "aws",
-                        }
-                        if existing:
-                            existing.write(vals)
-                            updated += 1
-                        else:
-                            Line.create(vals)
-                            created += 1
-                try:
-                    br_created, br_updated, br_api_hits = self._fetch_bedrock_model_breakdown(
-                        client, ce_filter, start_month, end_day, tag=tag,
-                    )
-                    created += br_created
-                    updated += br_updated
-                    api_hit_count += br_api_hits
-                except Exception:
-                    _logger.exception(
-                        "Bedrock per-model breakdown failed for budget %s tag %s=%s",
-                        self.id, tag.tag_key, tag.tag_value,
-                    )
-                tag.last_fetched_at = fetch_ts
+            try:
+                api_hit_count += 1
+                resp_day = client.get_cost_and_usage(
+                    TimePeriod={
+                        "Start": start_month.strftime("%Y-%m-%d"),
+                        "End": end_day.strftime("%Y-%m-%d"),
+                    },
+                    Granularity="DAILY",
+                    Metrics=["UnblendedCost"],
+                    Filter=ce_filter,
+                    GroupBy=ce_groupby,
+                )
+            except Exception as e:
+                raise UserError(_("AWS Cost Explorer call failed: %s") % e)
             api_hit_cost_usd = round(
                 api_hit_count * AWS_CE_COST_PER_REQUEST_USD, 4,
             )
-            self.last_fetched_at = fetch_ts
+            Line = self.env["etp.project.aws.cost.line"]
+            created = updated = 0
+            for result in resp_day.get("ResultsByTime", []):
+                period = fields.Date.from_string(result["TimePeriod"]["Start"])
+                for group in result.get("Groups", []):
+                    service_name = (group["Keys"][0] if group.get("Keys") else "").strip() or "Unknown"
+                    amount = float(group["Metrics"]["UnblendedCost"]["Amount"])
+                    if amount == 0.0:
+                        continue
+                    existing = Line.search(
+                        [
+                            ("budget_id", "=", self.id),
+                            ("period", "=", period),
+                            ("granularity", "=", "day"),
+                            ("service_name", "=", service_name),
+                            ("is_model_breakdown", "=", False),
+                        ],
+                        limit=1,
+                    )
+                    vals = {
+                        "budget_id": self.id,
+                        "period": period,
+                        "granularity": "day",
+                        "service_name": service_name,
+                        "amount_source": amount,
+                        "source": "aws",
+                    }
+                    if existing:
+                        existing.write(vals)
+                        updated += 1
+                    else:
+                        Line.create(vals)
+                        created += 1
+            try:
+                br_created, br_updated, br_api_hits = self._fetch_bedrock_model_breakdown(
+                    client, ce_filter, start_month, end_day,
+                )
+                created += br_created
+                updated += br_updated
+                api_hit_count += br_api_hits
+                api_hit_cost_usd = round(
+                    api_hit_count * AWS_CE_COST_PER_REQUEST_USD, 4,
+                )
+            except Exception:
+                _logger.exception(
+                    "Bedrock per-model breakdown failed for budget %s", self.id,
+                )
+            self.last_fetched_at = fields.Datetime.now()
             self.invalidate_recordset(['cost_line_ids'])
             if self.openrouter_enabled and self.openrouter_api_key:
                 try:

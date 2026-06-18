@@ -1,6 +1,6 @@
 {
     'name': 'ETP Projects',
-    'version': '19.0.1.0.11',
+    'version': '19.0.1.0.13',
     'category': 'Project',
     'summary': 'Classify projects as internal or external',
     'description': """

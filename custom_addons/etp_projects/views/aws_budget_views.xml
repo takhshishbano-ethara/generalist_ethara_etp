@@ -10,7 +10,8 @@
                 <field name="name"/>
                 <field name="project_type" optional="show"/>
                 <field name="budget_amount" optional="show" sum="USD"/>
-                <field name="tag_summary" optional="show"/>
+                <field name="tag_key"/>
+                <field name="tag_value"/>
                 <field name="last_fetched_at"/>
             </list>
         </field>
@@ -67,7 +68,7 @@
                             <field name="cto_user_id"/>
                         </group>
                     </group>
-                    <group string="AWS Credentials">
+                    <group string="AWS Credentials &amp; Filter">
                         <group>
                             <field name="aws_access_key_id" password="True"/>
                             <field name="aws_secret_access_key" password="True"/>
@@ -75,7 +76,8 @@
                             <field name="fetch_months"/>
                         </group>
                         <group>
-                            <field name="tag_summary" readonly="1"/>
+                            <field name="tag_key" placeholder="e.g. team"/>
+                            <field name="tag_value" placeholder="e.g. alpha"/>
                         </group>
                     </group>
                     <group string="OpenRouter">
@@ -126,23 +128,6 @@
                         </group>
                     </group>
                     <notebook>
-                        <page string="AWS Tag Filters" name="aws_tags">
-                            <p class="text-muted">
-                                Add one or more (Tag Key, Tag Value) pairs. Each active row
-                                triggers its own AWS Cost Explorer query, so a single budget
-                                can aggregate spend across multiple tags (e.g. team=alpha and
-                                env=prod).
-                            </p>
-                            <field name="tag_ids">
-                                <list editable="bottom">
-                                    <field name="sequence" widget="handle"/>
-                                    <field name="tag_key"/>
-                                    <field name="tag_value"/>
-                                    <field name="active"/>
-                                    <field name="last_fetched_at" readonly="1"/>
-                                </list>
-                            </field>
-                        </page>
                         <page string="Models" name="models" invisible="project_type != 'operations'">
                             <field name="model_line_ids">
                                 <list editable="bottom">
@@ -254,8 +239,8 @@
                 <field name="name"/>
                 <field name="project_id"/>
                 <field name="project_type"/>
-                <field name="tag_ids"/>
-                <field name="tag_summary"/>
+                <field name="tag_key"/>
+                <field name="tag_value"/>
                 <filter name="filter_project_type_rnd" string="R&amp;D" domain="[('project_type','=','rnd')]"/>
                 <filter name="filter_project_type_ops" string="Operations" domain="[('project_type','=','operations')]"/>
                 <separator/>
@@ -263,6 +248,7 @@
                 <group>
                     <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
                     <filter name="group_project_type" string="Project Type" context="{'group_by':'project_type'}"/>
+                    <filter name="group_tag_key" string="Tag Key" context="{'group_by':'tag_key'}"/>
                 </group>
             </search>
         </field>
@@ -275,8 +261,7 @@
         <field name="search_view_id" ref="view_etp_project_aws_budget_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create a project AWS budget</p>
-            <p>Set the project, AWS keys, and one or more tag filters (Tag Key + Value).
-            Click <b>Fetch Cost</b> to pull per-tag, per-service spend from Cost Explorer.</p>
+            <p>Set the project, AWS keys, and Tag Key + Value. Click <b>Fetch Cost</b> to pull per-service spend from Cost Explorer.</p>
         </field>
     </record>
 
