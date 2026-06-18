@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+      Menu visibility
+      ===============
+      Both candidates and managers open the SAME app (apps menu -> ETP
+      Assessment). What differs is what's inside:
+
+        - Candidates (group_assessment_evaluator) see ONLY "My Assessments".
+        - Managers (group_assessment_manager, which implies evaluator) see
+          everything: Assessments, Skills, Questions, etc.
+
+      So the root menu is gated to the EVALUATOR group (the lowest common
+      denominator) and every admin/config item is gated to MANAGER. This keeps
+      candidates inside the app but blocks them from any admin data — the
+      record rules scope My Assessments to their own rows on top of that.
+    -->
+
+    <!-- App root: visible to anyone in the assessment groups -->
+    <menuitem id="menu_etp_assessment_root"
+              name="ETP Assessment"
+              sequence="100"
+              groups="etp_assessment.group_assessment_evaluator"/>
+
+    <!-- Candidate-facing: the ONLY item a candidate sees -->
+    <menuitem id="menu_etp_assessment_my"
+              name="My Assessments"
+              parent="menu_etp_assessment_root"
+              action="action_my_assessments"
+              groups="etp_assessment.group_assessment_evaluator"
+              sequence="1"/>
+
+    <!-- Everything below is MANAGER-only -->
+    <menuitem id="menu_etp_assessment_assessments"
+              name="Assessments"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="5"/>
+
+    <menuitem id="menu_etp_assessment_skill"
+              name="Skills"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_skill"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="10"/>
+
+    <menuitem id="menu_etp_assessment_category"
+              name="Categories"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_category"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="20"/>
+
+    <menuitem id="menu_etp_assessment_question"
+              name="Questions"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_question"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="30"/>
+
+    <menuitem id="menu_etp_assessment_dimension"
+              name="Dimensions"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_dimension"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="40"/>
+
+    <menuitem id="menu_etp_assessment_prompt"
+              name="Generators"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_prompt"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="50"/>
+
+    <menuitem id="menu_etp_assessment_days_admin"
+              name="Day Plans"
+              parent="menu_etp_assessment_root"
+              action="action_assessment_days_admin"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="60"/>
+
+    <menuitem id="menu_etp_assessment_day_sessions_admin"
+              name="All Day Sessions"
+              parent="menu_etp_assessment_root"
+              action="action_assessment_day_sessions_admin"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="65"/>
+
+    <menuitem id="menu_etp_assessment_responses"
+              name="All Responses"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_response"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="70"/>
+
+    <menuitem id="menu_etp_assessment_config"
+              name="Configuration"
+              parent="menu_etp_assessment_root"
+              action="action_etp_assessment_config"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="90"/>
+</odoo>

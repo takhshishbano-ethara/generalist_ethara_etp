@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_employee_form_onboarding" model="ir.ui.view">
+        <field name="name">hr.employee.form.inherit.onboarding</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Onboarding" name="onboarding">
+                    <group>
+                        <group string="Status">
+                            <field name="onboarding_status"/>
+                            <field name="onboarding_step"/>
+                            <field name="onboarding_submitted_at" readonly="1"/>
+                            <field name="onboarding_completed" readonly="1"/>
+                        </group>
+                        <group string="Personal">
+                            <field name="blood_group"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Family">
+                            <field name="has_kids"/>
+                            <field name="father_name"/>
+                            <field name="father_dob"/>
+                            <field name="mother_name"/>
+                            <field name="mother_dob"/>
+                            <field name="emergency_contact_relation"/>
+                        </group>
+                        <group string="Education">
+                            <field name="tenth_score_type"/>
+                            <field name="tenth_score"/>
+                            <field name="twelfth_score_type"/>
+                            <field name="twelfth_score"/>
+                            <field name="highest_qualification"/>
+                            <field name="highest_qualification_score_type"/>
+                            <field name="highest_qualification_score"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Identity">
+                            <field name="aadhaar_number"/>
+                            <field name="pan_number"/>
+                            <field name="has_uan"/>
+                            <field name="uan_number"/>
+                        </group>
+                        <group string="Bank">
+                            <field name="has_savings_account"/>
+                            <field name="has_salary_account"/>
+                            <field name="bank_account_number"/>
+                            <field name="bank_name"/>
+                            <field name="bank_ifsc_code"/>
+                        </group>
+                    </group>
+                    <group string="Address">
+                        <field name="current_same_as_permanent"/>
+                        <field name="permanent_address"/>
+                        <field name="current_address"/>
+                    </group>
+                    <group string="Uploaded Documents">
+                        <field name="onboarding_document_ids" nolabel="1">
+                            <list>
+                                <field name="document_type"/>
+                                <field name="document_label"/>
+                                <field name="file_name"/>
+                                <field name="file_url" widget="url"/>
+                                <field name="uploaded_at"/>
+                            </list>
+                        </field>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

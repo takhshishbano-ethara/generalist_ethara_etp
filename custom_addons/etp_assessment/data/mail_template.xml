@@ -1,69 +1,42 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo>
-    <data noupdate="0">
-
-        <record id="email_assessment_invitation" model="mail.template">
-            <field name="name">Assessment Invitation</field>
-            <field name="model_id" ref="model_etp_assessment_evaluator"/>
-            <field name="email_from">{{ (object.assessment_id.create_uid.email_formatted or user.email_formatted) }}</field>
-            <field name="email_to">{{ object.employee_id.work_email or object.employee_id.private_email or '' }}</field>
-            <field name="subject">Assessment Invitation: {{ object.assessment_id.name }}</field>
-            <field name="body_html" type="html">
-<div style="margin: 0px; padding: 0px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-    <table style="width: 100%; max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
-        <tr>
-            <td style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 32px; text-align: center;">
-                <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Assessment Invitation</h1>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding: 32px;">
-                <p style="font-size: 16px; color: #333;">
-                    Hello <strong><t t-out="object.employee_id.name">Candidate</t></strong>,
-                </p>
-                <p style="font-size: 14px; color: #555;">
-                    You have been assigned to complete the following assessment:
-                </p>
-                <div style="background: #f8f9fa; border-radius: 8px; padding: 16px; margin: 16px 0;">
-                    <p style="margin: 4px 0;"><strong>Assessment:</strong> <t t-out="object.assessment_id.name">Assessment</t></p>
-                    <p style="margin: 4px 0;"><strong>Total Questions:</strong> <t t-out="object.total_questions">0</t></p>
-                    <t t-if="object.assessment_id.duration_minutes">
-                        <p style="margin: 4px 0;"><strong>Time Limit:</strong> <t t-out="object.assessment_id.duration_minutes">0</t> minutes</p>
-                    </t>
-                    <t t-if="object.assessment_id.end_date">
-                        <p style="margin: 4px 0;"><strong>Deadline:</strong> <t t-out="object.assessment_id.end_date">-</t></p>
-                    </t>
-                </div>
-
-                <div style="background: #fff5f5; border: 1px solid #fee2e2; border-radius: 8px; padding: 16px; margin: 16px 0;">
-                    <p style="margin: 0 0 8px 0; font-size: 14px; font-weight: 700; color: #dc3545;">⚠️ Important Rules</p>
-                    <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #555; line-height: 1.8;">
-                        <li>Do NOT switch tabs or windows during the assessment.</li>
-                        <li>Do NOT take screenshots or use screen recording.</li>
-                        <li>Do NOT copy text or open Developer Tools.</li>
-                        <li>Any violation will auto-submit your assessment immediately.</li>
-                    </ul>
-                </div>
-
-                <p style="font-size: 14px; color: #555;">
-                    Click the button below to view full instructions and start your assessment. No login required.
-                </p>
-                <div style="text-align: center; margin: 24px 0;">
-                    <a t-att-href="'%s/assessment/%s' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.access_token)"
-                       style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: #ffffff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-size: 16px; font-weight: 600;">
-                        Start Assessment →
-                    </a>
-                </div>
-                <p style="font-size: 12px; color: #999; margin-top: 24px;">
-                    This link is unique to you. Please do not share it with anyone else.
-                </p>
-            </td>
-        </tr>
+<odoo noupdate="1">
+    <record id="mail_template_day_invitation" model="mail.template">
+        <field name="name">ETP Assessment: Day Invitation</field>
+        <field name="model_id" ref="model_etp_assessment_day_session"/>
+        <field name="subject">Your assessment is ready: {{ object.assessment_id.name }} — Day {{ object.day_id.sequence }}</field>
+        <field name="email_from">{{ object.assessment_id.create_uid.email_formatted or user.email_formatted or (object.env['ir.config_parameter'].sudo().get_param('mail.default.from') and (object.env['ir.config_parameter'].sudo().get_param('mail.default.from') + '@' + (object.env['ir.config_parameter'].sudo().get_param('mail.catchall.domain') or ''))) or '' }}</field>
+        <field name="email_to">{{ object.evaluator_id.employee_id.work_email or object.evaluator_id.employee_id.user_id.email or '' }}</field>
+        <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.5">
+    <p>Hi <strong t-out="object.evaluator_id.employee_id.name or 'there'"/>,</p>
+    <p>You have been assigned to take an assessment.</p>
+    <table style="border-collapse:collapse;margin:12px 0">
+        <tr><td style="padding:6px 12px"><b>Assessment:</b></td><td t-out="object.assessment_id.name"/></tr>
+        <tr><td style="padding:6px 12px"><b>Day:</b></td><td t-out="object.day_id.sequence"/></tr>
+        <tr><td style="padding:6px 12px"><b>Skill:</b></td><td t-out="object.day_id.skill_id.name or ''"/></tr>
+        <tr><td style="padding:6px 12px"><b>Duration:</b></td><td><span t-out="object.day_id.duration_minutes"/> minutes</td></tr>
+        <tr><td style="padding:6px 12px"><b>Questions:</b></td><td t-out="object.total_questions"/></tr>
     </table>
+    <p style="margin:24px 0">
+        <a t-att-href="(object.assessment_id.env['ir.config_parameter'].sudo().get_param('web.base.url') or 'http://localhost:8069') + '/assessment/day/' + (object.access_token or '')"
+           style="background:#714B67;color:#fff;padding:10px 22px;text-decoration:none;border-radius:4px;font-weight:600">
+            Start this assessment
+        </a>
+        &amp;nbsp;&amp;nbsp;
+        <a t-att-href="(object.assessment_id.env['ir.config_parameter'].sudo().get_param('web.base.url') or 'http://localhost:8069') + '/my/assessments'"
+           style="color:#714B67;padding:10px 18px;text-decoration:none;border:1px solid #714B67;border-radius:4px;font-weight:600">
+            Go to My Assessments
+        </a>
+    </p>
+    <p style="color:#888;font-size:12px">
+        Or paste this URL into your browser:<br/>
+        <span t-out="(object.assessment_id.env['ir.config_parameter'].sudo().get_param('web.base.url') or 'http://localhost:8069') + '/assessment/day/' + (object.access_token or '')"/>
+    </p>
+    <p style="color:#888;font-size:12px">This link is personal to you. Do not share it.</p>
 </div>
-            </field>
-            <field name="auto_delete" eval="False"/>
-        </record>
-
-    </data>
+        </field>
+        <field name="auto_delete" eval="False"/>
+        <field name="use_default_to" eval="False"/>
+        <field name="lang">en_US</field>
+    </record>
 </odoo>

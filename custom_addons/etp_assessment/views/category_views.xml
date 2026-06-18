@@ -40,7 +40,8 @@
                                 <list>
                                     <field name="sequence" widget="handle"/>
                                     <field name="name"/>
-                                    <field name="prompt"/>
+                                    <field name="question_type"/>
+                                    <field name="difficulty"/>
                                     <field name="active"/>
                                 </list>
                             </field>

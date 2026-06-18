@@ -1,13 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- LLM auto-score drainer (no-op unless an assessment enables llm_auto_score) -->
-    <record id="ir_cron_llm_auto_score" model="ir.cron">
-        <field name="name">ETP Assessment: LLM auto-score submitted candidates</field>
-        <field name="model_id" ref="model_etp_assessment"/>
-        <field name="state">code</field>
-        <field name="code">model._cron_llm_auto_score()</field>
-        <field name="interval_number">1</field>
-        <field name="interval_type">minutes</field>
-        <field name="active">True</field>
-    </record>
+    <data noupdate="1">
+
+        <record id="ir_cron_llm_auto_score" model="ir.cron">
+            <field name="name">ETP Assessment: Auto-score submitted candidates</field>
+            <field name="model_id" ref="model_etp_assessment"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_llm_auto_score()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_open_scheduled_days" model="ir.cron">
+            <field name="name">ETP Assessment: Open scheduled day sessions</field>
+            <field name="model_id" ref="model_etp_assessment_day_session"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_open_scheduled_days()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_mark_missed_days" model="ir.cron">
+            <field name="name">ETP Assessment: Mark missed day sessions</field>
+            <field name="model_id" ref="model_etp_assessment_day_session"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_mark_missed()</field>
+            <field name="interval_number">5</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
 </odoo>

@@ -1,0 +1,71 @@
+/* ETP Assessment — candidate-facing portal styles.
+   Chrome-free exam runner + clean My Assessments home. */
+
+.o_etp_exam_root {
+    min-height: 100vh;
+    background: #f4f5f7;
+}
+
+.o_etp_exam_topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    background: #714B67;
+    color: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.15);
+}
+
+.o_etp_exam_topbar .o_etp_brand {
+    font-weight: 700;
+    letter-spacing: 0.3px;
+}
+
+.o_etp_topbar_spacer {
+    flex: 1 1 auto;
+}
+
+.o_etp_exam_body {
+    max-width: 860px;
+    padding-top: 28px;
+    padding-bottom: 48px;
+}
+
+.o_etp_card_narrow {
+    max-width: 680px;
+    margin: 0 auto;
+}
+
+.o_etp_rules li {
+    margin-bottom: 4px;
+}
+
+.o_etp_section_title {
+    border-bottom: 2px solid currentColor;
+    padding-bottom: 4px;
+    margin-bottom: 16px;
+    font-size: 1.05rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-block;
+}
+
+.o_etp_my .card {
+    transition: box-shadow 0.15s ease;
+}
+
+.o_etp_my .card:hover {
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+}
+
+.o_etp_done_icon {
+    line-height: 1;
+}
+
+/* Keep the exam form readable on small screens */
+@media (max-width: 576px) {
+    .o_etp_exam_body {
+        padding-left: 12px;
+        padding-right: 12px;
+    }
+}

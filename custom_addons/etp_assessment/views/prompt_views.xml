@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="etp_assessment_prompt_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.prompt.tree</field>
+        <field name="model">etp.assessment.prompt</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="category_id"/>
+                <field name="resource_count"/>
+                <field name="question_count"/>
+                <field name="approved_count"/>
+                <field name="state"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_prompt_form" model="ir.ui.view">
+        <field name="name">etp.assessment.prompt.form</field>
+        <field name="model">etp.assessment.prompt</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_extract_skills" type="object"
+                            string="Extract Skills"
+                            class="oe_highlight"
+                            invisible="not resource_ids"/>
+                    <button name="action_generate_questions" type="object"
+                            string="Generate Questions"
+                            class="oe_highlight"
+                            invisible="state == 'draft' or not selected_skill_ids"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,skills_ready,generating,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Prompt Title"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="category_id"/>
+                            <field name="resource_count" readonly="1"/>
+                            <field name="last_extract_summary" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="question_count" readonly="1"/>
+                            <field name="approved_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="source_text" placeholder="Optional notes appended to resources..."/>
+                    <notebook>
+                        <page string="Resources">
+                            <div class="alert alert-info" role="alert">
+                                Pick the right bucket for each file. Accepted formats: .docx, .txt, .md, .csv, .html.
+                            </div>
+                            <group>
+                                <group string="SOP">
+                                    <field name="upload_sop_file"
+                                           widget="binary"
+                                           filename="upload_sop_filename"
+                                           nolabel="1"/>
+                                    <field name="upload_sop_filename" invisible="1"/>
+                                </group>
+                                <group string="Vendor Guidelines">
+                                    <field name="upload_vendor_file"
+                                           widget="binary"
+                                           filename="upload_vendor_filename"
+                                           nolabel="1"/>
+                                    <field name="upload_vendor_filename" invisible="1"/>
+                                </group>
+                                <group string="Client Feedback">
+                                    <field name="upload_client_file"
+                                           widget="binary"
+                                           filename="upload_client_filename"
+                                           nolabel="1"/>
+                                    <field name="upload_client_filename" invisible="1"/>
+                                </group>
+                            </group>
+                            <field name="resource_ids">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="category"/>
+                                    <field name="name"/>
+                                    <field name="file" filename="name"/>
+                                    <field name="char_count"/>
+                                    <field name="extraction_error"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <field name="name"/>
+                                            <field name="sequence"/>
+                                            <field name="file" filename="name"/>
+                                            <field name="char_count" readonly="1"/>
+                                            <field name="extraction_error" readonly="1"/>
+                                        </group>
+                                        <field name="extracted_text" readonly="1"/>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Skills Extracted">
+                            <group>
+                                <field name="skill_bank_ids" widget="many2many_tags"
+                                       string="Linked Bank Skills" readonly="1"/>
+                                <field name="selected_skill_ids" widget="many2many_tags"
+                                       string="Skills to Generate Questions For"
+                                       domain="[('id','in',skill_bank_ids)]"/>
+                            </group>
+                            <field name="skill_ids">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="tags"/>
+                                    <field name="question_type"/>
+                                    <field name="question_count"/>
+                                    <field name="difficulty"/>
+                                    <field name="upsert_state"/>
+                                    <field name="bank_skill_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Question Drafts">
+                            <field name="question_ids">
+                                <list>
+                                    <field name="skill_id"/>
+                                    <field name="name"/>
+                                    <field name="question_type"/>
+                                    <field name="difficulty"/>
+                                    <field name="state"/>
+                                    <button name="action_approve" type="object"
+                                            icon="fa-check" title="Approve"
+                                            invisible="state != 'draft'"/>
+                                    <button name="action_deny" type="object"
+                                            icon="fa-times" title="Deny"
+                                            invisible="state != 'draft'"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <group>
+                                                <field name="skill_id"/>
+                                                <field name="question_type"/>
+                                                <field name="difficulty"/>
+                                            </group>
+                                            <group>
+                                                <field name="state" readonly="1"/>
+                                                <field name="approved_question_id" readonly="1"/>
+                                            </group>
+                                        </group>
+                                        <field name="name"/>
+                                        <field name="question_prompt"/>
+                                        <notebook>
+                                            <page string="Options">
+                                                <field name="options_json" widget="text"/>
+                                            </page>
+                                            <page string="Correct Answer">
+                                                <field name="correct_answer_json" widget="text"/>
+                                            </page>
+                                            <page string="Rubric">
+                                                <field name="rubric_json" widget="text"/>
+                                            </page>
+                                        </notebook>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_prompt" model="ir.actions.act_window">
+        <field name="name">Question Bank Generators</field>
+        <field name="res_model">etp.assessment.prompt</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>
