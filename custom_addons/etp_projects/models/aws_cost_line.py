@@ -33,8 +33,8 @@ class EtpProjectAwsCostLine(models.Model):
     project_id = fields.Many2one(
         related="budget_id.project_id", store=True, readonly=True, index=True,
     )
-    tag_key = fields.Char(related="budget_id.tag_key", store=True, readonly=True)
-    tag_value = fields.Char(related="budget_id.tag_value", store=True, readonly=True)
+    source_tag_key = fields.Char(string="Source Tag Key", index=True)
+    source_tag_value = fields.Char(string="Source Tag Value", index=True)
 
     period = fields.Date(required=True, index=True)
     period_label = fields.Char(compute="_compute_period_label", store=True)
@@ -57,8 +57,8 @@ class EtpProjectAwsCostLine(models.Model):
     is_model_breakdown = fields.Boolean(default=False, index=True)
 
     _uniq_line = models.Constraint(
-        "unique(budget_id, period, service_name, granularity, model_name, token_type)",
-        "One row per budget/period/service/granularity/model/token type.",
+        "unique(budget_id, period, service_name, granularity, model_name, token_type, source_tag_key)",
+        "One row per budget/period/service/granularity/model/token type/source tag.",
     )
 
     @api.depends("period", "granularity")
