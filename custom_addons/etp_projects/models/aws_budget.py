@@ -1,5 +1,7 @@
 import calendar
+import json
 import logging
+import re
 from datetime import date, timedelta
 
 import requests
@@ -11,7 +13,53 @@ from odoo.exceptions import UserError
 OPENROUTER_SERVICE_NAME = "OpenRouter"
 OPENROUTER_ACTIVITY_URL = "https://openrouter.ai/api/v1/activity"
 
+MOONSHOT_SERVICE_NAME = "Moonshot"
+MOONSHOT_BALANCE_URL = "https://api.moonshot.ai/v1/users/me/balance"
+
+OPENAI_SERVICE_NAME = "OpenAI"
+OPENAI_COSTS_URL = "https://api.openai.com/v1/organization/costs"
+OPENAI_USAGE_COMPLETIONS_URL = (
+    "https://api.openai.com/v1/organization/usage/completions"
+)
+
+GCP_DEFAULT_SERVICE_NAME = "GCP"
+
 AWS_CE_COST_PER_REQUEST_USD = 0.01
+
+BEDROCK_SERVICE_NAME = "Amazon Bedrock"
+BEDROCK_REGION_PREFIX_RE = re.compile(r"^[A-Z]{2,4}\d?-")
+BEDROCK_SERVICE_PREFIX_RE = re.compile(r"^bedrock:", re.IGNORECASE)
+BEDROCK_TOKEN_SUFFIXES = (
+    ("-CacheReadInputTokens", "cache_read"),
+    ("-CacheWriteInputTokens", "cache_write"),
+    ("-InputTokens", "input"),
+    ("-OutputTokens", "output"),
+)
+
+
+def _parse_bedrock_usage_type(usage_type):
+    """Parse an AWS Cost Explorer Bedrock USAGE_TYPE into (model_name, token_type).
+
+    Examples:
+        'USE1-Bedrock:Anthropic.Claude-3-Sonnet-InputTokens'
+            -> ('Anthropic.Claude-3-Sonnet', 'input')
+        'USW2-bedrock:Claude-3-Haiku-OutputTokens'
+            -> ('Claude-3-Haiku', 'output')
+        'USE1-Bedrock:Claude-3-Sonnet-CacheReadInputTokens'
+            -> ('Claude-3-Sonnet', 'cache_read')
+    """
+    if not usage_type:
+        return "", "other"
+    remainder = BEDROCK_REGION_PREFIX_RE.sub("", usage_type, count=1)
+    remainder = BEDROCK_SERVICE_PREFIX_RE.sub("", remainder, count=1)
+    token_type = "other"
+    for suffix, token_label in BEDROCK_TOKEN_SUFFIXES:
+        if remainder.endswith(suffix):
+            remainder = remainder[: -len(suffix)]
+            token_type = token_label
+            break
+    return remainder.strip(" -"), token_type
+
 
 _logger = logging.getLogger(__name__)
 
@@ -27,32 +75,31 @@ class EtpProjectAwsBudget(models.Model):
     project_id = fields.Many2one(
         "project.project", required=True, ondelete="cascade", tracking=True,
     )
+    project_type = fields.Selection(
+        [("rnd", "R&D"), ("operations", "Operations")],
+        string="Budget Type",
+        tracking=True,
+        help="Which project type this budget represents. Used by client deliverables "
+             "to auto-pick the right budget once a project + project type are chosen.",
+    )
     active = fields.Boolean(default=True)
 
-    budget_amount = fields.Monetary(
-        currency_field="currency_id", required=True, tracking=True,
-        string="Final Project Budget",
+    budget_amount = fields.Float(
+        string="Budget (USD)",
+        tracking=True,
+        help="Top-level budget envelope for this project (USD).",
     )
-    project_budget = fields.Monetary(
-        currency_field="currency_id", tracking=True,
-        string="Project Budget",
-        help="Initial allocated budget for the project. Auto-incremented when an approved token purchase request is completed.",
+    model_line_ids = fields.One2many(
+        "etp.project.budget.model.line",
+        "budget_id",
+        string="Model Lines",
+        help="AI models and their per-task cost. Used by Operations budgets and Batch Budget snapshots.",
     )
-    purchase_request_ids = fields.One2many(
-        "etp.project.token.purchase.request", "budget_id",
-        string="Token Purchase Requests",
-    )
-    purchase_request_count = fields.Integer(
-        compute="_compute_purchase_request_count", store=False,
-        string="Purchase Requests",
-    )
-    currency_id = fields.Many2one(
-        "res.currency",
-        default=lambda s: s.env.ref("base.USD", raise_if_not_found=False)
-        or s.env.company.currency_id,
-    )
-    usd_currency_id = fields.Many2one(
-        "res.currency", compute="_compute_usd_currency", store=False,
+    infra_line_ids = fields.One2many(
+        "etp.project.budget.infra.line",
+        "budget_id",
+        string="Infrastructure Lines",
+        help="Infrastructure cost components (EC2, S3, RDS, ...).",
     )
 
     aws_access_key_id = fields.Char(string="AWS Access Key ID")
@@ -60,8 +107,18 @@ class EtpProjectAwsBudget(models.Model):
     aws_region = fields.Char(default="us-east-1", string="AWS Region")
     fetch_months = fields.Integer(default=6, string="Months to Fetch")
 
-    tag_key = fields.Char(string="Tag Key", help="AWS cost-allocation tag key, e.g. 'team'.")
-    tag_value = fields.Char(string="Tag Value", help="AWS cost-allocation tag value, e.g. 'alpha'.")
+    tag_ids = fields.One2many(
+        "etp.project.aws.budget.tag", "budget_id",
+        string="Tag Filters",
+        help="One or more AWS cost-allocation (Tag Key, Tag Value) pairs. "
+             "Each active pair triggers its own Cost Explorer query, so a "
+             "single budget can aggregate spend across multiple tags.",
+    )
+    tag_summary = fields.Char(
+        compute="_compute_tag_summary", store=True, string="Tags",
+        help="Comma-separated summary of active tag filters, used in lists, "
+             "search, and fetch-log snapshots.",
+    )
 
     openrouter_enabled = fields.Boolean(
         string="Fetch OpenRouter Costs", default=False,
@@ -76,6 +133,88 @@ class EtpProjectAwsBudget(models.Model):
         readonly=True, string="Last OpenRouter Fetch",
     )
 
+    moonshot_enabled = fields.Boolean(
+        string="Fetch Moonshot Costs", default=False,
+        help="When enabled, Moonshot (Kimi) balance consumption is fetched alongside AWS Cost Explorer.",
+    )
+    moonshot_api_key = fields.Char(
+        string="Moonshot API Key",
+        help="API key from platform.moonshot.ai/console/api-keys. "
+             "Used to query /v1/users/me/balance.",
+    )
+    last_moonshot_fetched_at = fields.Datetime(
+        readonly=True, string="Last Moonshot Fetch",
+    )
+    moonshot_last_used_usd = fields.Float(
+        readonly=True, string="Moonshot Last-Used Baseline (USD)",
+        help="Snapshot of (cash_balance - available_balance) at the previous fetch. "
+             "Subsequent fetches compute delta = current_used - this baseline and "
+             "accumulate it into today's daily Moonshot cost row.",
+    )
+    moonshot_last_used_at = fields.Datetime(
+        readonly=True, string="Moonshot Baseline Recorded At",
+    )
+
+    openai_enabled = fields.Boolean(
+        string="Fetch OpenAI Costs", default=False,
+        help="When enabled, OpenAI organization costs are fetched alongside AWS Cost Explorer.",
+    )
+    openai_api_key = fields.Char(
+        string="OpenAI Admin API Key",
+        help="Admin API key (sk-admin-*) from platform.openai.com/settings/organization/admin-keys. "
+             "Regular sk-... project keys will NOT work for the /v1/organization/costs endpoint.",
+    )
+    openai_project_id = fields.Char(
+        string="OpenAI Project ID",
+        help="OpenAI Project ID (proj_...) to scope cost data to one project. "
+             "Find at platform.openai.com/settings/organization/projects -> your project -> Settings. "
+             "When set, only this project's spend is fetched; leave empty to pull the whole organization.",
+    )
+    last_openai_fetched_at = fields.Datetime(
+        readonly=True, string="Last OpenAI Fetch",
+    )
+
+    gcp_enabled = fields.Boolean(
+        string="Fetch GCP Costs", default=False,
+        help="When enabled, GCP costs are pulled from a BigQuery Billing Export "
+             "dataset. See GCP_SETUP_GUIDE.md in this module for the one-time "
+             "setup steps (enable Billing Export → BigQuery + service account).",
+    )
+    gcp_project_id = fields.Char(
+        string="GCP Project ID",
+        help="GCP project that contains the BigQuery Billing Export dataset.",
+    )
+    gcp_bq_dataset = fields.Char(
+        string="BigQuery Dataset", default="billing_export",
+        help="Dataset name configured in GCP Console → Billing → Billing Export.",
+    )
+    gcp_bq_table = fields.Char(
+        string="BigQuery Table",
+        help="Billing export table, e.g. 'gcp_billing_export_v1_018F2A_XXXX_YYYYYY'. "
+             "Use '*' suffix to query sharded tables.",
+    )
+    gcp_service_account_json = fields.Text(
+        string="GCP Service Account JSON",
+        help="Paste the full service-account JSON key. The account needs "
+             "roles/bigquery.dataViewer + roles/bigquery.jobUser on the billing dataset.",
+    )
+    gcp_service_filter = fields.Char(
+        string="GCP Service Filter",
+        help="Optional — exact match on service.description, e.g. "
+             "'Generative Language API' to restrict the result to Gemini spend.",
+    )
+    gcp_label_key = fields.Char(
+        string="GCP Label Key",
+        help="Optional — GCP resource label key (mirrors AWS tag pattern), e.g. 'team'.",
+    )
+    gcp_label_value = fields.Char(
+        string="GCP Label Value",
+        help="Optional — GCP resource label value, e.g. 'alpha'.",
+    )
+    last_gcp_fetched_at = fields.Datetime(
+        readonly=True, string="Last GCP Fetch",
+    )
+
     last_fetched_at = fields.Datetime(readonly=True, tracking=True)
     cost_line_ids = fields.One2many("etp.project.aws.cost.line", "budget_id")
     cost_line_count = fields.Integer(compute="_compute_totals", store=False)
@@ -87,111 +226,180 @@ class EtpProjectAwsBudget(models.Model):
         compute="_compute_fetch_log_count", store=False, string="Fetch Log Entries",
     )
 
-    total_consumed = fields.Monetary(
-        currency_field="currency_id", compute="_compute_totals", store=False,
-        string="Total Consumed",
+    approver_user_ids = fields.Many2many(
+        "res.users",
+        "etp_aws_budget_approver_rel",
+        "budget_id",
+        "user_id",
+        string="Approvers",
+        help="Users authorised to approve Batch Budget and Top-up requests on this project.",
     )
-    percent_consumed = fields.Float(
-        compute="_compute_totals", store=False, string="% Consumed",
+    cto_user_id = fields.Many2one(
+        "res.users",
+        string="CTO (Threshold Alerts)",
+        help="Recipient of batch consumption threshold alert mails.",
     )
-    remaining = fields.Monetary(
-        currency_field="currency_id", compute="_compute_totals", store=False,
+    batch_budget_ids = fields.One2many(
+        "etp.batch.budget", "project_budget_id", string="Batch Budgets",
     )
-    daily_burn_rate = fields.Monetary(
-        currency_field="currency_id", compute="_compute_totals", store=False,
-        string="Daily Burn",
-        help="Latest complete month's consumed amount divided by the number of days in that month.",
+    topup_ids = fields.One2many(
+        "etp.project.budget.topup", "project_budget_id", string="Top-up Requests",
+    )
+    allocated_amount = fields.Float(
+        string="Allocated to Batches (USD)",
+        compute="_compute_batch_totals", store=False,
+        help="Sum of Approved Amount across all approved/in-progress/delivered/closed batches.",
+    )
+    consumed_amount = fields.Float(
+        string="Consumed by Batches (USD)",
+        compute="_compute_batch_totals", store=False,
+    )
+    topup_total_amount = fields.Float(
+        string="Approved Top-ups (USD)",
+        compute="_compute_batch_totals", store=False,
+    )
+    remaining_amount = fields.Float(
+        string="Remaining (USD)",
+        compute="_compute_batch_totals", store=False,
+    )
+    consumed_pct = fields.Float(
+        string="Consumed %",
+        compute="_compute_batch_totals", store=False,
+    )
+    health_status = fields.Selection(
+        [
+            ("unknown", "Unknown"),
+            ("healthy", "Healthy"),
+            ("warning", "Warning"),
+            ("at_risk", "At Risk"),
+            ("critical", "Critical"),
+        ],
+        string="Budget Health",
+        compute="_compute_batch_totals", store=False,
+    )
+    is_rnd = fields.Boolean(
+        string="R&D Project",
+        compute="_compute_is_rnd",
+        store=True,
+    )
+    llm_consumed_amount = fields.Float(
+        string="LLM Consumed (USD)",
+        compute="_compute_batch_totals", store=False,
+        help="Sum of daily cost lines (service-level rows only) for this project.",
+    )
+    total_approved_amount = fields.Float(
+        string="Total Approved Budget (USD)",
+        compute="_compute_batch_totals", store=False,
+        help="Initial budget plus all approved top-ups.",
+    )
+    batch_budget_remain = fields.Float(
+        string="Delivered Leftover Pool (USD)",
+        default=0.0,
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help="Unused approved amount from delivered batches. Auto-allocated "
+             "to the next new or restarted batch.",
     )
 
-    alert_75_sent = fields.Boolean(readonly=True)
-    alert_90_sent = fields.Boolean(readonly=True)
-    alert_100_sent = fields.Boolean(readonly=True)
-    notify_user_ids = fields.Many2many(
-        "res.users", string="Extra Notify",
-        help="Additional recipients for budget threshold alerts.",
-    )
-
-    def _compute_usd_currency(self):
-        usd = self.env.ref("base.USD", raise_if_not_found=False)
+    @api.depends("project_type")
+    def _compute_is_rnd(self):
         for rec in self:
-            rec.usd_currency_id = usd or rec.currency_id
+            rec.is_rnd = rec.project_type == "rnd"
 
-    @api.depends("cost_line_ids.amount_source", "cost_line_ids.period", "budget_amount")
+    @api.depends("cost_line_ids")
     def _compute_totals(self):
         for rec in self:
             rec.cost_line_count = len(rec.cost_line_ids)
-            rec.total_consumed = sum(rec.cost_line_ids.mapped("amount_source"))
-            rec.remaining = (rec.budget_amount or 0.0) - rec.total_consumed
-            if rec.budget_amount:
-                rec.percent_consumed = (rec.total_consumed / rec.budget_amount) * 100.0
+
+    @api.depends("tag_ids.active", "tag_ids.tag_key", "tag_ids.tag_value")
+    def _compute_tag_summary(self):
+        for rec in self:
+            parts = []
+            for tag in rec.tag_ids:
+                if not tag.active:
+                    continue
+                key = (tag.tag_key or "").strip()
+                value = (tag.tag_value or "").strip()
+                if key and value:
+                    parts.append("%s=%s" % (key, value))
+                elif key:
+                    parts.append(key)
+                elif value:
+                    parts.append(value)
+            rec.tag_summary = ", ".join(parts)
+
+    @api.depends(
+        "project_type",
+        "budget_amount",
+        "batch_budget_ids.state",
+        "batch_budget_ids.approved_amount",
+        "batch_budget_ids.carried_over_amount",
+        "batch_budget_ids.consumed_cost",
+        "batch_budget_ids.closed_remaining",
+        "topup_ids.state",
+        "topup_ids.amount",
+        "cost_line_ids.amount_source",
+        "cost_line_ids.granularity",
+        "cost_line_ids.is_model_breakdown",
+    )
+    def _compute_batch_totals(self):
+        for rec in self:
+            topups = sum(
+                t.amount or 0.0
+                for t in rec.topup_ids
+                if t.state == "approved"
+            )
+            envelope = (rec.budget_amount or 0.0) + topups
+            llm_consumed = sum(
+                line.amount_source or 0.0
+                for line in rec.cost_line_ids
+                if line.granularity == "day" and not line.is_model_breakdown
+            )
+            rec.topup_total_amount = topups
+            rec.llm_consumed_amount = llm_consumed
+            if rec.project_type == "rnd":
+                rec.total_approved_amount = envelope
             else:
-                rec.percent_consumed = 0.0
-            periods = [p for p in rec.cost_line_ids.mapped("period") if p]
-            if periods:
-                latest = max(periods)
-                latest_total = sum(
-                    rec.cost_line_ids.filtered(lambda l: l.period == latest).mapped("amount_source")
-                )
-                days_in_month = calendar.monthrange(latest.year, latest.month)[1]
-                rec.daily_burn_rate = latest_total / days_in_month if days_in_month else 0.0
+                rec.total_approved_amount = rec.budget_amount or 0.0
+            if rec.project_type == "rnd":
+                rec.allocated_amount = 0.0
+                rec.consumed_amount = llm_consumed
+                rec.remaining_amount = envelope - llm_consumed
+                consumed_for_pct = llm_consumed
             else:
-                rec.daily_burn_rate = 0.0
+                locked = 0.0
+                consumed = 0.0
+                for batch in rec.batch_budget_ids:
+                    if batch.state in ("rejected", "withdrawn"):
+                        continue
+                    if batch.state == "draft":
+                        locked += batch.carried_over_amount or 0.0
+                        continue
+                    locked += batch.approved_amount or 0.0
+                    consumed += batch.consumed_cost or 0.0
+                rec.allocated_amount = locked
+                rec.consumed_amount = consumed
+                rec.remaining_amount = envelope - locked
+                consumed_for_pct = consumed
+            pct = (consumed_for_pct / envelope * 100.0) if envelope else 0.0
+            rec.consumed_pct = pct
+            if not envelope:
+                rec.health_status = "unknown"
+            elif pct < 60.0:
+                rec.health_status = "healthy"
+            elif pct < 80.0:
+                rec.health_status = "warning"
+            elif pct < 100.0:
+                rec.health_status = "at_risk"
+            else:
+                rec.health_status = "critical"
 
-    def _budget_snapshot(self, window_days=14):
-        """Real-data budget snapshot for the API (burn rate + runway).
-
-        Burn rate = total INR consumption over a trailing ``window_days``
-        window (from the latest cost-line period backwards) divided by the
-        span actually covered, so every figure derives from real cost rows.
-        Returns ``0``/``""`` (never a constant) when there is no consumption.
-        """
-        self.ensure_one()
-        window_days = max(int(window_days or 1), 1)
-        remaining_cost = float(self.remaining or 0.0)
-        currency_symbol = (
-            self.currency_id.symbol if self.currency_id else ""
-        ) or ""
-
-        periods = [l.period for l in self.cost_line_ids if l.period]
-        if not periods:
-            return {
-                "daily_burn_rate": 0.0,
-                "runway_days": 0,
-                "runway_days_exact": 0.0,
-                "runway_depletes_on": "",
-                "currency_symbol": currency_symbol,
-            }
-
-        latest = max(periods)
-        window_start = latest - timedelta(days=window_days - 1)
-        window_total = sum(
-            (l.amount_source or 0.0)
-            for l in self.cost_line_ids
-            if l.period and window_start <= l.period <= latest
-        )
-        # Span actually covered by data inside the window (never < 1 day).
-        covered = (latest - window_start).days + 1
-        daily_burn_rate = round(window_total / covered, 2) if covered else 0.0
-
-        if daily_burn_rate <= 0.0:
-            return {
-                "daily_burn_rate": 0.0,
-                "runway_days": 0,
-                "runway_days_exact": 0.0,
-                "runway_depletes_on": "",
-                "currency_symbol": currency_symbol,
-            }
-
-        runway_days_exact = round(max(remaining_cost, 0.0) / daily_burn_rate, 4)
-        runway_days = int(runway_days_exact)  # floor
-        depletes_on = (date.today() + timedelta(days=runway_days)).isoformat()
-        return {
-            "daily_burn_rate": daily_burn_rate,
-            "runway_days": runway_days,
-            "runway_days_exact": runway_days_exact,
-            "runway_depletes_on": depletes_on,
-            "currency_symbol": currency_symbol,
-        }
+    def _propagate_batch_alerts(self):
+        for rec in self:
+            for batch in rec.batch_budget_ids:
+                if batch.state in ("approved", "in_progress"):
+                    batch._check_threshold_alerts()
 
     def action_fetch_cost(self):
         messages = []
@@ -202,13 +410,13 @@ class EtpProjectAwsBudget(models.Model):
                 created = result.get("created", 0)
                 updated = result.get("updated", 0)
                 messages.append(
-                    "%s [%s=%s]: +%s new, %s updated"
-                    % (rec.name, rec.tag_key or "?", rec.tag_value or "?", created, updated)
+                    "%s [%s]: +%s new, %s updated"
+                    % (rec.name, rec.tag_summary or "?", created, updated)
                 )
-                rec._maybe_alert_thresholds()
             except UserError as e:
                 messages.append("%s ERROR: %s" % (rec.name, e))
                 notif_type = "warning"
+        self._propagate_batch_alerts()
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -234,10 +442,10 @@ class EtpProjectAwsBudget(models.Model):
                     "%s [OpenRouter]: +%s new, %s updated"
                     % (rec.name, created, updated)
                 )
-                rec._maybe_alert_thresholds()
             except UserError as e:
                 messages.append("%s ERROR: %s" % (rec.name, e))
                 notif_type = "warning"
+        self._propagate_batch_alerts()
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -248,6 +456,418 @@ class EtpProjectAwsBudget(models.Model):
                 "sticky": True,
             },
         }
+
+    def action_fetch_moonshot(self):
+        messages = []
+        notif_type = "success"
+        for rec in self:
+            if not rec.moonshot_enabled:
+                messages.append("%s: Moonshot not enabled" % rec.name)
+                notif_type = "warning"
+                continue
+            try:
+                created, updated = rec._fetch_moonshot_cost_one()
+                messages.append(
+                    "%s [Moonshot]: +%s new, %s updated"
+                    % (rec.name, created, updated)
+                )
+            except UserError as e:
+                messages.append("%s ERROR: %s" % (rec.name, e))
+                notif_type = "warning"
+        self._propagate_batch_alerts()
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": notif_type,
+                "title": _("Moonshot cost fetch"),
+                "message": "\n".join(messages) or _("No records."),
+                "sticky": True,
+            },
+        }
+
+    def action_fetch_openai(self):
+        messages = []
+        notif_type = "success"
+        for rec in self:
+            if not rec.openai_enabled:
+                messages.append("%s: OpenAI not enabled" % rec.name)
+                notif_type = "warning"
+                continue
+            try:
+                created, updated = rec._fetch_openai_cost_one()
+                messages.append(
+                    "%s [OpenAI]: +%s new, %s updated"
+                    % (rec.name, created, updated)
+                )
+            except UserError as e:
+                messages.append("%s ERROR: %s" % (rec.name, e))
+                notif_type = "warning"
+        self._propagate_batch_alerts()
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": notif_type,
+                "title": _("OpenAI cost fetch"),
+                "message": "\n".join(messages) or _("No records."),
+                "sticky": True,
+            },
+        }
+
+    def action_fetch_gcp(self):
+        messages = []
+        notif_type = "success"
+        for rec in self:
+            if not rec.gcp_enabled:
+                messages.append("%s: GCP not enabled" % rec.name)
+                notif_type = "warning"
+                continue
+            try:
+                created, updated = rec._fetch_gcp_cost_one()
+                messages.append(
+                    "%s [GCP]: +%s new, %s updated"
+                    % (rec.name, created, updated)
+                )
+            except UserError as e:
+                messages.append("%s ERROR: %s" % (rec.name, e))
+                notif_type = "warning"
+        self._propagate_batch_alerts()
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": notif_type,
+                "title": _("GCP cost fetch"),
+                "message": "\n".join(messages) or _("No records."),
+                "sticky": True,
+            },
+        }
+
+    def _fetch_moonshot_cost_one(self):
+        # Moonshot exposes only current balance, not history — delta tracking
+        # against moonshot_last_used_usd is the only way to derive consumption.
+        self.ensure_one()
+        if not self.moonshot_api_key:
+            raise UserError(_(
+                "Moonshot API Key required. Create one at "
+                "platform.moonshot.ai/console/api-keys."
+            ))
+        try:
+            resp = requests.get(
+                MOONSHOT_BALANCE_URL,
+                headers={"Authorization": f"Bearer {self.moonshot_api_key}"},
+                timeout=60,
+            )
+        except requests.RequestException as e:
+            raise UserError(_("Moonshot request failed: %s") % e)
+        if resp.status_code in (401, 403):
+            raise UserError(_(
+                "Moonshot returned HTTP %(s)s. Check that the API key is valid "
+                "and has permission to read account balance."
+            ) % {"s": resp.status_code})
+        if resp.status_code != 200:
+            raise UserError(
+                _("Moonshot returned HTTP %(s)s: %(t)s")
+                % {"s": resp.status_code, "t": resp.text[:300]}
+            )
+        try:
+            payload = resp.json()
+        except ValueError:
+            raise UserError(_("Moonshot returned non-JSON response."))
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            raise UserError(_("Moonshot returned unexpected response shape."))
+
+        available = float(data.get("available_balance") or 0.0)
+        cash = float(data.get("cash_balance") or 0.0)
+        current_used = max(cash - available, 0.0)
+
+        today = date.today()
+        Line = self.env["etp.project.aws.cost.line"]
+        created = updated = 0
+
+        if not self.moonshot_last_used_at:
+            existing_day = Line.search(
+                [
+                    ("budget_id", "=", self.id),
+                    ("period", "=", today),
+                    ("granularity", "=", "day"),
+                    ("service_name", "=", MOONSHOT_SERVICE_NAME),
+                ],
+                limit=1,
+            )
+            vals = {
+                "budget_id": self.id,
+                "period": today,
+                "granularity": "day",
+                "service_name": MOONSHOT_SERVICE_NAME,
+                "amount_source": current_used,
+                "source": "moonshot",
+            }
+            if existing_day:
+                existing_day.write(vals)
+                updated += 1
+            else:
+                Line.create(vals)
+                created += 1
+        else:
+            delta = max(current_used - (self.moonshot_last_used_usd or 0.0), 0.0)
+            if delta > 0.0:
+                day_row = Line.search(
+                    [
+                        ("budget_id", "=", self.id),
+                        ("period", "=", today),
+                        ("granularity", "=", "day"),
+                        ("service_name", "=", MOONSHOT_SERVICE_NAME),
+                    ],
+                    limit=1,
+                )
+                if day_row:
+                    day_row.amount_source = (day_row.amount_source or 0.0) + delta
+                    updated += 1
+                else:
+                    Line.create({
+                        "budget_id": self.id,
+                        "period": today,
+                        "granularity": "day",
+                        "service_name": MOONSHOT_SERVICE_NAME,
+                        "amount_source": delta,
+                        "source": "moonshot",
+                    })
+                    created += 1
+
+        self.moonshot_last_used_usd = current_used
+        self.moonshot_last_used_at = fields.Datetime.now()
+        self.last_moonshot_fetched_at = fields.Datetime.now()
+        self.invalidate_recordset(['cost_line_ids'])
+        return created, updated
+
+    def _fetch_openai_cost_one(self):
+        self.ensure_one()
+        if not self.openai_api_key:
+            raise UserError(_(
+                "OpenAI Admin API Key required. Use a sk-admin-* key from "
+                "platform.openai.com/settings/organization/admin-keys "
+                "(regular project keys will NOT work for /v1/organization/costs)."
+            ))
+        import time
+        end = date.today() + timedelta(days=1)
+        start = end.replace(day=1) - relativedelta(months=self.fetch_months or 6)
+        start_ts = int(time.mktime(start.timetuple()))
+        end_ts = int(time.mktime(end.timetuple()))
+        params = {
+            "start_time": start_ts,
+            "end_time": end_ts,
+            "bucket_width": "1d",
+            "limit": 180,
+        }
+        if self.openai_project_id:
+            params["project_ids"] = [self.openai_project_id.strip()]
+
+        buckets = []
+        next_page = None
+        while True:
+            page_params = dict(params)
+            if next_page:
+                page_params["page"] = next_page
+            try:
+                resp = requests.get(
+                    OPENAI_COSTS_URL,
+                    headers={"Authorization": f"Bearer {self.openai_api_key}"},
+                    params=page_params,
+                    timeout=60,
+                )
+            except requests.RequestException as e:
+                raise UserError(_("OpenAI request failed: %s") % e)
+            if resp.status_code in (401, 403):
+                raise UserError(_(
+                    "OpenAI returned HTTP %(s)s. The /v1/organization/costs endpoint "
+                    "requires an Admin API key (sk-admin-*), not a regular project key. "
+                    "Create one at platform.openai.com/settings/organization/admin-keys."
+                ) % {"s": resp.status_code})
+            if resp.status_code != 200:
+                raise UserError(
+                    _("OpenAI returned HTTP %(s)s: %(t)s")
+                    % {"s": resp.status_code, "t": resp.text[:300]}
+                )
+            try:
+                payload = resp.json()
+            except ValueError:
+                raise UserError(_("OpenAI returned non-JSON response."))
+            page_buckets = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(page_buckets, list):
+                raise UserError(_("OpenAI returned unexpected response shape."))
+            buckets.extend(page_buckets)
+            if not payload.get("has_more"):
+                break
+            next_page = payload.get("next_page")
+            if not next_page:
+                break
+
+        by_day = {}
+        for bucket in buckets:
+            if not isinstance(bucket, dict):
+                continue
+            bstart = bucket.get("start_time")
+            if bstart is None:
+                continue
+            try:
+                bday = date.fromtimestamp(int(bstart))
+            except (TypeError, ValueError, OSError):
+                continue
+            for result in bucket.get("results") or []:
+                if not isinstance(result, dict):
+                    continue
+                amt = result.get("amount") or {}
+                try:
+                    value = float(amt.get("value") or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                by_day[bday] = by_day.get(bday, 0.0) + value
+
+        created, updated = self._upsert_provider_rows(
+            OPENAI_SERVICE_NAME, "openai", by_day,
+        )
+        try:
+            br_c, br_u, _br_hits = self._fetch_openai_model_breakdown(
+                start_ts, end_ts,
+            )
+            created += br_c
+            updated += br_u
+        except UserError as bre:
+            _logger.warning(
+                "OpenAI model breakdown failed for budget %s: %s", self.id, bre,
+            )
+        except Exception:
+            _logger.exception(
+                "Unexpected OpenAI breakdown error for budget %s", self.id,
+            )
+        self.last_openai_fetched_at = fields.Datetime.now()
+        self.invalidate_recordset(['cost_line_ids'])
+        return created, updated
+
+    def _fetch_gcp_cost_one(self):
+        self.ensure_one()
+        if not (self.gcp_project_id and self.gcp_bq_dataset and self.gcp_bq_table):
+            raise UserError(_(
+                "Set GCP Project ID, BigQuery Dataset, and BigQuery Table first. "
+                "See GCP_SETUP_GUIDE.md."
+            ))
+        if not self.gcp_service_account_json:
+            raise UserError(_(
+                "Paste the GCP service-account JSON key into the budget. "
+                "See GCP_SETUP_GUIDE.md."
+            ))
+        for ref_name, ref_val in (
+            ("GCP Project ID", self.gcp_project_id),
+            ("BigQuery Dataset", self.gcp_bq_dataset),
+            ("BigQuery Table", self.gcp_bq_table),
+        ):
+            # BigQuery doesn't parameterise table refs — guard against SQL injection
+            # by allowlisting the small set of chars that legally appear in GCP refs.
+            if not re.fullmatch(r"[A-Za-z0-9_\-.*]+", ref_val or ""):
+                raise UserError(_(
+                    "%(n)s contains unsupported characters. Allowed: "
+                    "letters, digits, '_', '-', '.', '*'."
+                ) % {"n": ref_name})
+        try:
+            sa_info = json.loads(self.gcp_service_account_json)
+        except ValueError as e:
+            raise UserError(_("GCP service-account JSON is not valid JSON: %s") % e)
+        try:
+            from google.oauth2 import service_account
+            from google.cloud import bigquery
+        except ImportError:
+            raise UserError(_(
+                "Python packages 'google-cloud-bigquery' and 'google-auth' must be "
+                "installed on the Odoo server."
+            ))
+        try:
+            credentials = service_account.Credentials.from_service_account_info(sa_info)
+        except Exception as e:
+            raise UserError(_("Failed to load GCP credentials: %s") % e)
+        try:
+            client = bigquery.Client(project=self.gcp_project_id, credentials=credentials)
+        except Exception as e:
+            raise UserError(_("Failed to build BigQuery client: %s") % e)
+
+        end_date = date.today()
+        start_date = (end_date.replace(day=1) - relativedelta(months=self.fetch_months or 6))
+        table_ref = "`%s.%s.%s`" % (
+            self.gcp_project_id, self.gcp_bq_dataset, self.gcp_bq_table,
+        )
+        where_clauses = ["DATE(usage_start_time) BETWEEN @start_date AND @end_date"]
+        params = [
+            bigquery.ScalarQueryParameter("start_date", "DATE", start_date),
+            bigquery.ScalarQueryParameter("end_date", "DATE", end_date),
+        ]
+        if self.gcp_service_filter:
+            where_clauses.append("service.description = @service_filter")
+            params.append(bigquery.ScalarQueryParameter(
+                "service_filter", "STRING", self.gcp_service_filter,
+            ))
+        if self.gcp_label_key and self.gcp_label_value:
+            where_clauses.append(
+                "EXISTS (SELECT 1 FROM UNNEST(labels) AS l "
+                "WHERE l.key = @label_key AND l.value = @label_value)"
+            )
+            params.append(bigquery.ScalarQueryParameter(
+                "label_key", "STRING", self.gcp_label_key,
+            ))
+            params.append(bigquery.ScalarQueryParameter(
+                "label_value", "STRING", self.gcp_label_value,
+            ))
+        where_sql = " AND ".join(where_clauses)
+        sql = (
+            "WITH base AS (\n"
+            "  SELECT\n"
+            "    DATE(usage_start_time) AS day,\n"
+            "    service.description AS service_name,\n"
+            "    cost\n"
+            "  FROM " + table_ref + "\n"
+            "  WHERE " + where_sql + "\n"
+            ")\n"
+            "SELECT day AS period, service_name, "
+            "SUM(cost) AS amount\n"
+            "FROM base GROUP BY day, service_name HAVING amount != 0"
+        )
+        job_config = bigquery.QueryJobConfig(query_parameters=params)
+        try:
+            rows = list(client.query(sql, job_config=job_config).result())
+        except Exception as e:
+            raise UserError(_("BigQuery query failed: %s") % e)
+
+        by_day = {}
+        service_seen = {}
+        for row in rows:
+            try:
+                period = row["period"]
+                service_name = (row["service_name"] or GCP_DEFAULT_SERVICE_NAME).strip() \
+                    or GCP_DEFAULT_SERVICE_NAME
+                amount = float(row["amount"] or 0.0)
+            except (KeyError, TypeError, ValueError):
+                continue
+            if amount == 0.0:
+                continue
+            by_day.setdefault(service_name, {})[period] = (
+                by_day[service_name].get(period, 0.0) + amount
+            )
+            service_seen[service_name] = True
+
+        Line = self.env["etp.project.aws.cost.line"]
+        created = updated = 0
+        for service_name in service_seen:
+            day_bucket = by_day.get(service_name, {})
+            sub_c, sub_u = self._upsert_provider_rows(
+                service_name, "gcp", day_bucket,
+            )
+            created += sub_c
+            updated += sub_u
+
+        self.last_gcp_fetched_at = fields.Datetime.now()
+        self.invalidate_recordset(['cost_line_ids'])
+        return created, updated
 
     def _fetch_openrouter_cost_one(self):
         self.ensure_one()
@@ -283,7 +903,7 @@ class EtpProjectAwsBudget(models.Model):
         if not isinstance(rows_raw, list):
             raise UserError(_("OpenRouter returned unexpected response shape."))
 
-        by_month = {}
+        by_day = {}
         for r in rows_raw:
             day_str = (r.get("date") or "")[:10]
             if not day_str:
@@ -292,28 +912,39 @@ class EtpProjectAwsBudget(models.Model):
                 day = fields.Date.from_string(day_str)
             except (TypeError, ValueError):
                 continue
-            month_start = day.replace(day=1)
-            by_month[month_start] = by_month.get(month_start, 0.0) + float(r.get("usage") or 0.0)
+            usage = float(r.get("usage") or 0.0)
+            by_day[day] = by_day.get(day, 0.0) + usage
 
+        created, updated = self._upsert_provider_rows(
+            OPENROUTER_SERVICE_NAME, "openrouter", by_day,
+        )
+        self.last_openrouter_fetched_at = fields.Datetime.now()
+        self.invalidate_recordset(['cost_line_ids'])
+        return created, updated
+
+    def _upsert_provider_rows(self, service_name, source, by_day):
+        self.ensure_one()
         Line = self.env["etp.project.aws.cost.line"]
         created = updated = 0
-        for period, amount in by_month.items():
+        for period, amount in by_day.items():
             if amount == 0.0:
                 continue
             existing = Line.search(
                 [
                     ("budget_id", "=", self.id),
                     ("period", "=", period),
-                    ("service_name", "=", OPENROUTER_SERVICE_NAME),
+                    ("granularity", "=", "day"),
+                    ("service_name", "=", service_name),
                 ],
                 limit=1,
             )
             vals = {
                 "budget_id": self.id,
                 "period": period,
-                "service_name": OPENROUTER_SERVICE_NAME,
+                "granularity": "day",
+                "service_name": service_name,
                 "amount_source": amount,
-                "source": "openrouter",
+                "source": source,
             }
             if existing:
                 existing.write(vals)
@@ -321,12 +952,214 @@ class EtpProjectAwsBudget(models.Model):
             else:
                 Line.create(vals)
                 created += 1
-        self.last_openrouter_fetched_at = fields.Datetime.now()
-        self.invalidate_recordset(
-            ["cost_line_ids", "total_consumed", "remaining",
-             "percent_consumed", "daily_burn_rate"]
-        )
         return created, updated
+
+    def _fetch_bedrock_model_breakdown(
+        self, client, base_tag_filter, start_month, end_day, tag=None,
+    ):
+        self.ensure_one()
+        tag_id = tag.id if tag else False
+        bedrock_filter = {
+            "And": [
+                base_tag_filter,
+                {"Dimensions": {"Key": "SERVICE", "Values": [BEDROCK_SERVICE_NAME]}},
+            ]
+        }
+        ce_groupby = [{"Type": "DIMENSION", "Key": "USAGE_TYPE"}]
+        metrics = ["UnblendedCost", "UsageQuantity"]
+        api_hit_count = 0
+        api_hit_count += 1
+        resp_day = client.get_cost_and_usage(
+            TimePeriod={
+                "Start": start_month.strftime("%Y-%m-%d"),
+                "End": end_day.strftime("%Y-%m-%d"),
+            },
+            Granularity="DAILY",
+            Metrics=metrics,
+            Filter=bedrock_filter,
+            GroupBy=ce_groupby,
+        )
+        Line = self.env["etp.project.aws.cost.line"]
+        created = updated = 0
+        for result in resp_day.get("ResultsByTime", []):
+            period = fields.Date.from_string(result["TimePeriod"]["Start"])
+            for group in result.get("Groups", []):
+                usage_type = (group["Keys"][0] if group.get("Keys") else "").strip()
+                if not usage_type:
+                    continue
+                metrics_dict = group.get("Metrics") or {}
+                cost_metric = metrics_dict.get("UnblendedCost") or {}
+                qty_metric = metrics_dict.get("UsageQuantity") or {}
+                amount = float(cost_metric.get("Amount") or 0.0)
+                quantity = float(qty_metric.get("Amount") or 0.0)
+                if amount == 0.0 and quantity == 0.0:
+                    continue
+                model_name, token_type = _parse_bedrock_usage_type(usage_type)
+                if not model_name:
+                    model_name = usage_type
+                existing = Line.search(
+                    [
+                        ("budget_id", "=", self.id),
+                        ("tag_id", "=", tag_id),
+                        ("period", "=", period),
+                        ("granularity", "=", "day"),
+                        ("service_name", "=", BEDROCK_SERVICE_NAME),
+                        ("model_name", "=", model_name),
+                        ("token_type", "=", token_type),
+                        ("is_model_breakdown", "=", True),
+                    ],
+                    limit=1,
+                )
+                vals = {
+                    "budget_id": self.id,
+                    "tag_id": tag_id,
+                    "period": period,
+                    "granularity": "day",
+                    "service_name": BEDROCK_SERVICE_NAME,
+                    "source": "aws",
+                    "model_name": model_name,
+                    "usage_type": usage_type,
+                    "token_type": token_type,
+                    "usage_quantity": quantity,
+                    "usage_unit": qty_metric.get("Unit") or "",
+                    "amount_source": amount,
+                    "is_model_breakdown": True,
+                }
+                if existing:
+                    existing.write(vals)
+                    updated += 1
+                else:
+                    Line.create(vals)
+                    created += 1
+        return created, updated, api_hit_count
+
+    def _fetch_openai_model_breakdown(self, start_ts, end_ts):
+        self.ensure_one()
+        headers = {"Authorization": f"Bearer {self.openai_api_key}"}
+        base_params = {
+            "start_time": start_ts,
+            "end_time": end_ts,
+            "bucket_width": "1d",
+            "limit": 180,
+            "group_by": ["model"],
+        }
+        if self.openai_project_id:
+            base_params["project_ids"] = [self.openai_project_id.strip()]
+
+        api_hit_count = 0
+        tokens_by_model = {}
+        next_page = None
+        while True:
+            page_params = dict(base_params)
+            if next_page:
+                page_params["page"] = next_page
+            api_hit_count += 1
+            resp = requests.get(
+                OPENAI_USAGE_COMPLETIONS_URL,
+                headers=headers,
+                params=page_params,
+                timeout=60,
+            )
+            if resp.status_code in (401, 403):
+                raise UserError(_(
+                    "OpenAI per-model usage denied (HTTP %(s)s). The admin "
+                    "key must have the 'api.usage.read' scope (and the org "
+                    "must have Usage API access). Body: %(t)s"
+                ) % {"s": resp.status_code, "t": resp.text[:200]})
+            if resp.status_code != 200:
+                raise UserError(_(
+                    "OpenAI /usage/completions HTTP %(s)s: %(t)s"
+                ) % {"s": resp.status_code, "t": resp.text[:200]})
+            try:
+                payload = resp.json()
+            except ValueError:
+                raise UserError(_(
+                    "OpenAI /usage/completions returned non-JSON"
+                ))
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(data, list):
+                raise UserError(_(
+                    "OpenAI /usage/completions returned unexpected shape"
+                ))
+            for bucket in data:
+                if not isinstance(bucket, dict):
+                    continue
+                try:
+                    day = date.fromtimestamp(int(bucket.get("start_time")))
+                except (TypeError, ValueError, OSError):
+                    continue
+                for result in bucket.get("results") or []:
+                    if not isinstance(result, dict):
+                        continue
+                    model = (result.get("model") or "").strip()
+                    if not model:
+                        continue
+                    try:
+                        inp = int(result.get("input_tokens") or 0)
+                        out = int(result.get("output_tokens") or 0)
+                        cached = int(result.get("input_cached_tokens") or 0)
+                    except (TypeError, ValueError):
+                        continue
+                    if inp == 0 and out == 0 and cached == 0:
+                        continue
+                    slot = tokens_by_model.setdefault(
+                        (day, model),
+                        {"input": 0, "output": 0, "cache_read": 0},
+                    )
+                    slot["input"] += inp
+                    slot["output"] += out
+                    slot["cache_read"] += cached
+            if not payload.get("has_more"):
+                break
+            next_page = payload.get("next_page")
+            if not next_page:
+                break
+
+        Line = self.env["etp.project.aws.cost.line"]
+        created = updated = 0
+        for (day, model), tokens in tokens_by_model.items():
+            for token_type in ("input", "output", "cache_read"):
+                qty = tokens[token_type]
+                if qty == 0:
+                    continue
+                existing = Line.search(
+                    [
+                        ("budget_id", "=", self.id),
+                        ("period", "=", day),
+                        ("granularity", "=", "day"),
+                        ("service_name", "=", OPENAI_SERVICE_NAME),
+                        ("model_name", "=", model),
+                        ("token_type", "=", token_type),
+                        ("is_model_breakdown", "=", True),
+                    ],
+                    limit=1,
+                )
+                vals = {
+                    "budget_id": self.id,
+                    "period": day,
+                    "granularity": "day",
+                    "service_name": OPENAI_SERVICE_NAME,
+                    "source": "openai",
+                    "model_name": model,
+                    "usage_type": "",
+                    "token_type": token_type,
+                    "usage_quantity": float(qty),
+                    "usage_unit": "Tokens",
+                    "amount_source": 0.0,
+                    "is_model_breakdown": True,
+                }
+                if existing:
+                    existing.write(vals)
+                    updated += 1
+                else:
+                    Line.create(vals)
+                    created += 1
+        _logger.info(
+            "OpenAI model breakdown for budget %s: models=%s "
+            "created=%s updated=%s api_hits=%s",
+            self.id, len(tokens_by_model), created, updated, api_hit_count,
+        )
+        return created, updated, api_hit_count
 
     def _fetch_log_snapshot_base(self, source):
         self.ensure_one()
@@ -334,10 +1167,9 @@ class EtpProjectAwsBudget(models.Model):
             "budget_id": self.id,
             "triggered_by_id": self.env.uid or False,
             "source": source or "other",
-            "tag_key": self.tag_key or "",
-            "tag_value": self.tag_value or "",
+            "tag_key": self.tag_summary or "",
+            "tag_value": self.tag_summary or "",
             "fetch_months": self.fetch_months or 0,
-            "budget_amount": self.budget_amount or 0.0,
         }
 
     def _create_fetch_log(self, vals):
@@ -351,71 +1183,102 @@ class EtpProjectAwsBudget(models.Model):
         try:
             if not (self.aws_access_key_id and self.aws_secret_access_key and self.aws_region):
                 raise UserError(_("Set AWS Access Key ID, Secret, and Region first."))
-            if not (self.tag_key and self.tag_value):
-                raise UserError(_("Set Tag Key and Tag Value first."))
+            active_tags = self.tag_ids.filtered(
+                lambda t: t.active and t.tag_key and t.tag_value
+            )
+            if not active_tags:
+                raise UserError(_(
+                    "Add at least one active Tag Filter (Tag Key + Tag Value) "
+                    "before fetching AWS Cost Explorer data."
+                ))
             try:
                 import boto3
             except ImportError:
                 raise UserError(_("Python package 'boto3' is not installed."))
-            end = date.today().replace(day=1)
-            start = end - relativedelta(months=self.fetch_months or 6)
+            end_month = date.today().replace(day=1)
+            start_month = end_month - relativedelta(months=self.fetch_months or 6)
+            end_day = date.today() + timedelta(days=1)
             client = boto3.client(
                 "ce",
                 aws_access_key_id=self.aws_access_key_id,
                 aws_secret_access_key=self.aws_secret_access_key,
                 region_name=self.aws_region,
             )
-            try:
-                api_hit_count += 1
-                api_hit_cost_usd = round(
-                    api_hit_count * AWS_CE_COST_PER_REQUEST_USD, 4,
-                )
-                resp = client.get_cost_and_usage(
-                    TimePeriod={
-                        "Start": start.strftime("%Y-%m-%d"),
-                        "End": end.strftime("%Y-%m-%d"),
-                    },
-                    Granularity="MONTHLY",
-                    Metrics=["UnblendedCost"],
-                    Filter={"Tags": {"Key": self.tag_key, "Values": [self.tag_value]}},
-                    GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
-                )
-            except Exception as e:
-                raise UserError(_("AWS Cost Explorer failed: %s") % e)
+            ce_groupby = [{"Type": "DIMENSION", "Key": "SERVICE"}]
             Line = self.env["etp.project.aws.cost.line"]
             created = updated = 0
-            for result in resp.get("ResultsByTime", []):
-                period = fields.Date.from_string(result["TimePeriod"]["Start"])
-                for group in result.get("Groups", []):
-                    service_name = (group["Keys"][0] if group.get("Keys") else "").strip() or "Unknown"
-                    amount = float(group["Metrics"]["UnblendedCost"]["Amount"])
-                    if amount == 0.0:
-                        continue
-                    existing = Line.search(
-                        [
-                            ("budget_id", "=", self.id),
-                            ("period", "=", period),
-                            ("service_name", "=", service_name),
-                        ],
-                        limit=1,
+            fetch_ts = fields.Datetime.now()
+            for tag in active_tags:
+                ce_filter = {
+                    "Tags": {"Key": tag.tag_key, "Values": [tag.tag_value]}
+                }
+                try:
+                    api_hit_count += 1
+                    resp_day = client.get_cost_and_usage(
+                        TimePeriod={
+                            "Start": start_month.strftime("%Y-%m-%d"),
+                            "End": end_day.strftime("%Y-%m-%d"),
+                        },
+                        Granularity="DAILY",
+                        Metrics=["UnblendedCost"],
+                        Filter=ce_filter,
+                        GroupBy=ce_groupby,
                     )
-                    vals = {
-                        "budget_id": self.id,
-                        "period": period,
-                        "service_name": service_name,
-                        "amount_source": amount,
-                    }
-                    if existing:
-                        existing.write(vals)
-                        updated += 1
-                    else:
-                        Line.create(vals)
-                        created += 1
-            self.last_fetched_at = fields.Datetime.now()
-            self.invalidate_recordset(
-                ["cost_line_ids", "total_consumed", "remaining",
-                 "percent_consumed", "daily_burn_rate"]
+                except Exception as e:
+                    raise UserError(_(
+                        "AWS Cost Explorer failed for tag %s=%s: %s"
+                    ) % (tag.tag_key, tag.tag_value, e))
+                for result in resp_day.get("ResultsByTime", []):
+                    period = fields.Date.from_string(result["TimePeriod"]["Start"])
+                    for group in result.get("Groups", []):
+                        service_name = (group["Keys"][0] if group.get("Keys") else "").strip() or "Unknown"
+                        amount = float(group["Metrics"]["UnblendedCost"]["Amount"])
+                        if amount == 0.0:
+                            continue
+                        existing = Line.search(
+                            [
+                                ("budget_id", "=", self.id),
+                                ("tag_id", "=", tag.id),
+                                ("period", "=", period),
+                                ("granularity", "=", "day"),
+                                ("service_name", "=", service_name),
+                                ("is_model_breakdown", "=", False),
+                            ],
+                            limit=1,
+                        )
+                        vals = {
+                            "budget_id": self.id,
+                            "tag_id": tag.id,
+                            "period": period,
+                            "granularity": "day",
+                            "service_name": service_name,
+                            "amount_source": amount,
+                            "source": "aws",
+                        }
+                        if existing:
+                            existing.write(vals)
+                            updated += 1
+                        else:
+                            Line.create(vals)
+                            created += 1
+                try:
+                    br_created, br_updated, br_api_hits = self._fetch_bedrock_model_breakdown(
+                        client, ce_filter, start_month, end_day, tag=tag,
+                    )
+                    created += br_created
+                    updated += br_updated
+                    api_hit_count += br_api_hits
+                except Exception:
+                    _logger.exception(
+                        "Bedrock per-model breakdown failed for budget %s tag %s=%s",
+                        self.id, tag.tag_key, tag.tag_value,
+                    )
+                tag.last_fetched_at = fetch_ts
+            api_hit_cost_usd = round(
+                api_hit_count * AWS_CE_COST_PER_REQUEST_USD, 4,
             )
+            self.last_fetched_at = fetch_ts
+            self.invalidate_recordset(['cost_line_ids'])
             if self.openrouter_enabled and self.openrouter_api_key:
                 try:
                     or_created, or_updated = self._fetch_openrouter_cost_one()
@@ -429,6 +1292,47 @@ class EtpProjectAwsBudget(models.Model):
                     _logger.exception(
                         "Unexpected OpenRouter error for budget %s", self.id,
                     )
+            if self.moonshot_enabled and self.moonshot_api_key:
+                try:
+                    ms_created, ms_updated = self._fetch_moonshot_cost_one()
+                    created += ms_created
+                    updated += ms_updated
+                except UserError as mse:
+                    _logger.warning(
+                        "Moonshot fetch failed for budget %s: %s", self.id, mse,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Unexpected Moonshot error for budget %s", self.id,
+                    )
+            if self.openai_enabled and self.openai_api_key:
+                try:
+                    oa_created, oa_updated = self._fetch_openai_cost_one()
+                    created += oa_created
+                    updated += oa_updated
+                except UserError as oae:
+                    _logger.warning(
+                        "OpenAI fetch failed for budget %s: %s", self.id, oae,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Unexpected OpenAI error for budget %s", self.id,
+                    )
+            if (self.gcp_enabled and self.gcp_project_id
+                    and self.gcp_bq_dataset and self.gcp_bq_table
+                    and self.gcp_service_account_json):
+                try:
+                    g_created, g_updated = self._fetch_gcp_cost_one()
+                    created += g_created
+                    updated += g_updated
+                except UserError as ge:
+                    _logger.warning(
+                        "GCP fetch failed for budget %s: %s", self.id, ge,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Unexpected GCP error for budget %s", self.id,
+                    )
             self._create_fetch_log({
                 **snapshot,
                 "status": "success",
@@ -436,10 +1340,6 @@ class EtpProjectAwsBudget(models.Model):
                 "updated_count": updated,
                 "api_hit_count": api_hit_count,
                 "api_hit_cost_usd": api_hit_cost_usd,
-                "total_consumed": float(self.total_consumed or 0.0),
-                "remaining": float(self.remaining or 0.0),
-                "percent_consumed": float(self.percent_consumed or 0.0),
-                "daily_burn_rate": float(self.daily_burn_rate or 0.0),
             })
             return {
                 "created": created,
@@ -454,10 +1354,6 @@ class EtpProjectAwsBudget(models.Model):
                 "error_message": str(ue),
                 "api_hit_count": api_hit_count,
                 "api_hit_cost_usd": api_hit_cost_usd,
-                "total_consumed": float(self.total_consumed or 0.0),
-                "remaining": float(self.remaining or 0.0),
-                "percent_consumed": float(self.percent_consumed or 0.0),
-                "daily_burn_rate": float(self.daily_burn_rate or 0.0),
             })
             raise
         except Exception as exc:
@@ -470,10 +1366,6 @@ class EtpProjectAwsBudget(models.Model):
                 "error_message": str(exc),
                 "api_hit_count": api_hit_count,
                 "api_hit_cost_usd": api_hit_cost_usd,
-                "total_consumed": float(self.total_consumed or 0.0),
-                "remaining": float(self.remaining or 0.0),
-                "percent_consumed": float(self.percent_consumed or 0.0),
-                "daily_burn_rate": float(self.daily_burn_rate or 0.0),
             })
             raise
 
@@ -481,180 +1373,3 @@ class EtpProjectAwsBudget(models.Model):
     def _compute_fetch_log_count(self):
         for rec in self:
             rec.fetch_log_count = len(rec.fetch_log_ids)
-
-    def _maybe_alert_thresholds(self):
-        self.ensure_one()
-        pct = self.percent_consumed or 0.0
-        if pct >= 100.0 and not self.alert_100_sent:
-            self._send_threshold_alert(100)
-            self.alert_100_sent = True
-        elif pct >= 90.0 and not self.alert_90_sent:
-            self._send_threshold_alert(90)
-            self.alert_90_sent = True
-        elif pct >= 75.0 and not self.alert_75_sent:
-            self._send_threshold_alert(75)
-            self.alert_75_sent = True
-
-    def _send_threshold_alert(self, threshold):
-        self.ensure_one()
-        recipients = set()
-        project = self.project_id
-
-        if project.user_id and project.user_id.partner_id:
-            recipients.add(project.user_id.partner_id.id)
-
-        for u in self.notify_user_ids:
-            if u.partner_id:
-                recipients.add(u.partner_id.id)
-
-        role_employees = (
-            project.project_lead
-            | project.project_aire
-            | project.project_swe
-            | project.project_tasker
-            | project.project_qc_reviewer
-        )
-        for emp in role_employees:
-            partner = emp.work_contact_id or (emp.user_id.partner_id if emp.user_id else False)
-            if partner:
-                recipients.add(partner.id)
-
-        for u in project.assigned_team_ids:
-            if u.partner_id:
-                recipients.add(u.partner_id.id)
-
-        if not recipients:
-            _logger.warning(
-                "etp.project.aws.budget %s threshold %s: no recipients", self.name, threshold,
-            )
-            return
-
-        accent = {75: "#f59e0b", 90: "#ea580c", 100: "#dc2626"}.get(threshold, "#dc2626")
-        label = {
-            75: _("Heads up"),
-            90: _("Warning"),
-            100: _("Budget exhausted"),
-        }.get(threshold, _("Alert"))
-        symbol = self.currency_id.symbol or self.currency_id.name or ""
-        budget_val = self.budget_amount or 0.0
-        used_val = self.total_consumed or 0.0
-        remaining_val = self.remaining or 0.0
-        bar_width = max(2, min(threshold, 100))
-
-        subject = _("[AWS Budget %(t)s%%] %(n)s") % {"t": threshold, "n": self.name}
-
-        body = (
-            '<div style="font-family:Arial,Helvetica,sans-serif;color:#1f2937;'
-            'max-width:560px;margin:0 auto;">'
-              '<div style="background:%(accent)s;color:#ffffff;padding:14px 18px;'
-              'border-radius:6px 6px 0 0;font-size:15px;font-weight:600;">'
-                '%(label)s &middot; %(t)s%% of AWS budget reached'
-              '</div>'
-              '<div style="border:1px solid #e5e7eb;border-top:0;'
-              'border-radius:0 0 6px 6px;padding:18px;background:#ffffff;">'
-                '<p style="margin:0 0 12px 0;font-size:14px;line-height:1.5;">'
-                  '%(intro)s'
-                '</p>'
-                '<table cellspacing="0" cellpadding="0" border="0" '
-                'style="width:100%%;border-collapse:collapse;font-size:13px;margin:4px 0 14px 0;">'
-                  '<tr>'
-                    '<td style="padding:6px 0;color:#6b7280;width:130px;">%(lbl_name)s</td>'
-                    '<td style="padding:6px 0;color:#111827;font-weight:600;">%(name)s</td>'
-                  '</tr>'
-                  '<tr>'
-                    '<td style="padding:6px 0;color:#6b7280;">%(lbl_tag)s</td>'
-                    '<td style="padding:6px 0;color:#111827;">%(tk)s = %(tv)s</td>'
-                  '</tr>'
-                '</table>'
-                '<div style="background:#f3f4f6;border-radius:4px;height:10px;'
-                'overflow:hidden;margin:6px 0 16px 0;">'
-                  '<div style="background:%(accent)s;height:10px;width:%(bar)s%%;"></div>'
-                '</div>'
-                '<table cellspacing="0" cellpadding="0" border="0" '
-                'style="width:100%%;border-collapse:collapse;font-size:13px;">'
-                  '<tr>'
-                    '<td style="padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
-                    'border-radius:4px;width:33%%;vertical-align:top;">'
-                      '<div style="color:#6b7280;font-size:11px;text-transform:uppercase;'
-                      'letter-spacing:.04em;">%(lbl_budget)s</div>'
-                      '<div style="color:#111827;font-weight:600;font-size:15px;margin-top:4px;">'
-                        '%(sym)s %(b).2f'
-                      '</div>'
-                    '</td>'
-                    '<td style="width:6px;"></td>'
-                    '<td style="padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
-                    'border-radius:4px;width:33%%;vertical-align:top;">'
-                      '<div style="color:#6b7280;font-size:11px;text-transform:uppercase;'
-                      'letter-spacing:.04em;">%(lbl_consumed)s</div>'
-                      '<div style="color:%(accent)s;font-weight:600;font-size:15px;margin-top:4px;">'
-                        '%(sym)s %(used).2f'
-                      '</div>'
-                    '</td>'
-                    '<td style="width:6px;"></td>'
-                    '<td style="padding:10px 12px;background:#f9fafb;border:1px solid #e5e7eb;'
-                    'border-radius:4px;width:33%%;vertical-align:top;">'
-                      '<div style="color:#6b7280;font-size:11px;text-transform:uppercase;'
-                      'letter-spacing:.04em;">%(lbl_remaining)s</div>'
-                      '<div style="color:#111827;font-weight:600;font-size:15px;margin-top:4px;">'
-                        '%(sym)s %(r).2f'
-                      '</div>'
-                    '</td>'
-                  '</tr>'
-                '</table>'
-                '<p style="margin:18px 0 0 0;font-size:12px;color:#6b7280;">'
-                  '%(footer)s'
-                '</p>'
-              '</div>'
-            '</div>'
-        ) % {
-            "accent": accent,
-            "label": label,
-            "t": threshold,
-            "bar": bar_width,
-            "intro": _(
-                "The AWS budget for project <b>%(p)s</b> has crossed the "
-                "<b>%(t)s%%</b> threshold."
-            ) % {"p": self.project_id.display_name or "", "t": threshold},
-            "lbl_name": _("Budget name"),
-            "lbl_tag": _("Tag"),
-            "lbl_budget": _("Budget"),
-            "lbl_consumed": _("Consumed"),
-            "lbl_remaining": _("Remaining"),
-            "footer": _("Automated notification from Aurora cost watch."),
-            "name": self.name or "",
-            "tk": self.tag_key or "—",
-            "tv": self.tag_value or "—",
-            "sym": symbol,
-            "b": budget_val,
-            "used": used_val,
-            "r": remaining_val,
-        }
-        self.message_post(
-            body=body, subject=subject,
-            partner_ids=list(recipients),
-            subtype_xmlid="mail.mt_comment",
-        )
-
-    def action_reset_alerts(self):
-        for rec in self:
-            rec.alert_75_sent = False
-            rec.alert_90_sent = False
-            rec.alert_100_sent = False
-        return True
-
-    @api.depends("purchase_request_ids")
-    def _compute_purchase_request_count(self):
-        for rec in self:
-            rec.purchase_request_count = len(rec.purchase_request_ids)
-
-    def action_view_purchase_requests(self):
-        self.ensure_one()
-        action = self.env["ir.actions.act_window"]._for_xml_id(
-            "etp_projects.action_etp_project_token_purchase_request"
-        )
-        action["domain"] = [("budget_id", "=", self.id)]
-        action["context"] = {
-            "default_budget_id": self.id,
-            "default_project_id": self.project_id.id,
-        }
-        return action
