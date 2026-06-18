@@ -19,7 +19,7 @@ class ResConfigSettings(models.TransientModel):
     etp_assessment_vertex_model = fields.Char(
         string="Vertex Model",
         config_parameter="etp_assessment.vertex_model",
-        default="gemini-2.5-flash-lite",
+        default="gemini-2.5-pro",
     )
     etp_assessment_vertex_api_key = fields.Char(
         string="Vertex API Key",
