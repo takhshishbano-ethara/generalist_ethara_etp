@@ -178,7 +178,8 @@
             <field name="body_html" type="html">
 <div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
     <p>Hello,</p>
-    <p>
+    <p t-if="object.message" t-out="object.message"></p>
+    <p t-if="not object.message">
         <strong t-out="object.requester_id.name or 'A user'"></strong>
         has submitted a <strong>Batch Budget Request</strong> for your approval.
     </p>
@@ -187,6 +188,9 @@
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch:</td><td t-out="object.batch_id.name or ''"></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Request #:</td><td t-out="object.sequence_number or 0"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Priority:</td><td t-out="dict(object._fields['priority'].selection).get(object.priority, object.priority or '')"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Total Tasks:</td><td t-out="object.total_tasks or 0"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Buffer %:</td><td><span t-out="'%.2f' % (object.buffer_pct or 0.0)"></span>%</td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Requested Total:</td><td><strong t-out="'%.2f USD' % (object.requested_total or 0.0)"></strong></td></tr>
         <tr><td style="padding:4px 12px 4px 0;color:#666;">Requested On:</td><td t-out="object.request_date or ''"></td></tr>
     </table>
@@ -196,14 +200,12 @@
     <table style="border-collapse:collapse;border:1px solid #dee2e6;">
         <thead><tr style="background:#f8f9fa;">
             <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:left;">Model</th>
-            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Tasks</th>
             <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Per Task (USD)</th>
             <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Requested (USD)</th>
         </tr></thead>
         <tbody>
             <tr t-foreach="object.model_line_ids" t-as="line">
                 <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="line.ai_model_id.name or ''"></td>
-                <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="line.task_count or 0"></td>
                 <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.4f' % (line.per_task_cost or 0.0)"></td>
                 <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.2f' % (line.requested_amount or 0.0)"></td>
             </tr>
@@ -218,7 +220,7 @@
         </tr></thead>
         <tbody>
             <tr t-foreach="object.infra_line_ids" t-as="iline">
-                <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="dict(iline._fields['infra_type'].selection).get(iline.infra_type, iline.infra_type or '')"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="iline.infra_type_id.name or ''"></td>
                 <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="iline.description or ''"></td>
                 <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.2f' % (iline.requested_amount or 0.0)"></td>
             </tr>

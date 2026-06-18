@@ -15,12 +15,22 @@
                         </group>
                         <group>
                             <field name="is_first_request" invisible="1"/>
+                            <field name="total_tasks"/>
+                            <field name="buffer_pct"/>
                             <field name="requested_total" readonly="1"/>
+                            <field name="priority"/>
                         </group>
                     </group>
                     <group>
                         <field name="justification"
                                placeholder="Why is this budget needed? (Required)"/>
+                    </group>
+                    <group string="Notification to Approvers">
+                        <field name="subject"
+                               placeholder="Optional email subject (defaults if blank)"/>
+                        <field name="message"
+                               placeholder="Optional message included in the approval email"/>
+                        <field name="attachment_ids" widget="many2many_binary"/>
                     </group>
                     <notebook>
                         <page string="Model Lines" name="model_lines">
@@ -28,9 +38,8 @@
                                 <list editable="bottom">
                                     <field name="ai_model_id"/>
                                     <field name="description"/>
-                                    <field name="task_count"/>
                                     <field name="per_task_cost"/>
-                                    <field name="requested_amount" sum="USD"/>
+                                    <field name="requested_amount" sum="USD" readonly="1"/>
                                 </list>
                             </field>
                         </page>
