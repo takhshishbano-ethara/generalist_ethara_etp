@@ -785,7 +785,9 @@ class EtpAssessmentEvaluator(models.Model):
                     "auto_delete": False,
                 })
                 continue
-            tpl.send_mail(rec.id, force_send=False)
+            # force_send=True: invitations must go out immediately when the
+            # plan is generated, not wait for the mail-queue cron.
+            tpl.send_mail(rec.id, force_send=True)
 
     def action_llm_score(self):
         """Trigger subjective scoring for this candidate's needs_llm
