@@ -125,7 +125,9 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Passwords do not match")
 
         birthday_value = False
-        if birthday_raw:
+        if not birthday_raw:
+            errors.append("Date of birth is required")
+        else:
             try:
                 birthday_value = datetime.strptime(birthday_raw, '%Y-%m-%d').date()
             except ValueError:
