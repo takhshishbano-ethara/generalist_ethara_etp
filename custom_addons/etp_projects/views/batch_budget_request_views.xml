@@ -78,6 +78,8 @@
                     </group>
                     <group string="Totals">
                         <group>
+                            <field name="total_tasks" readonly="state != 'draft'"/>
+                            <field name="buffer_pct" readonly="state != 'draft'"/>
                             <field name="requested_total" readonly="1"/>
                         </group>
                         <group>
@@ -93,12 +95,10 @@
                                            readonly="parent.state != 'draft'"/>
                                     <field name="description"
                                            readonly="parent.state != 'draft'"/>
-                                    <field name="task_count"
-                                           readonly="parent.state != 'draft'"/>
                                     <field name="per_task_cost"
                                            readonly="parent.state != 'draft'"/>
                                     <field name="requested_amount" sum="USD"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="1"/>
                                     <field name="approved_amount" sum="USD"
                                            readonly="parent.state not in ('draft','pending')"/>
                                 </list>
@@ -118,6 +118,15 @@
                                            readonly="parent.state not in ('draft','pending')"/>
                                 </list>
                             </field>
+                        </page>
+                        <page string="Notification" name="notification">
+                            <group>
+                                <field name="priority" readonly="state != 'draft'"/>
+                                <field name="subject" readonly="state != 'draft'"/>
+                            </group>
+                            <field name="message" readonly="state != 'draft'"/>
+                            <field name="attachment_ids" widget="many2many_binary"
+                                   readonly="state != 'draft'"/>
                         </page>
                         <page string="Rejection" name="rejection"
                               invisible="state != 'rejected'">
