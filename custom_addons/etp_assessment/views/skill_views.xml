@@ -31,7 +31,6 @@
                     </div>
                     <group>
                         <group>
-                            <field name="sequence"/>
                             <field name="tags"/>
                             <field name="question_type"/>
                             <field name="difficulty"/>

@@ -7,9 +7,7 @@
         <field name="arch" type="xml">
             <list>
                 <field name="name"/>
-                <field name="assessment_mode"/>
-                <field name="category_id" optional="show"/>
-                <field name="num_days" optional="show"/>
+                <field name="num_days" string="Days" optional="show"/>
                 <field name="start_date"/>
                 <field name="end_date"/>
                 <field name="state" widget="badge"
@@ -28,12 +26,14 @@
         <field name="arch" type="xml">
             <form>
                 <header>
+                    <!-- Single-mode Start Assessment retired from UI; button hidden
+                         (action_start kept dormant in the model). -->
                     <button name="action_start" string="Start Assessment" type="object"
                             class="oe_highlight"
-                            invisible="state != 'draft' or assessment_mode != 'single'"/>
-                    <button name="action_scaffold_days" string="Scaffold Days" type="object"
+                            invisible="1"/>
+                    <button name="action_scaffold_days" string="Build Day Plan" type="object"
                             invisible="state != 'draft' or assessment_mode != 'multi_day'"/>
-                    <button name="action_generate_plan" string="Generate Plan" type="object"
+                    <button name="action_generate_plan" string="Launch &amp; Invite" type="object"
                             class="oe_highlight"
                             invisible="assessment_mode != 'multi_day' or state == 'done'"/>
                     <button name="action_done" string="Mark Done" type="object"
@@ -57,36 +57,24 @@
                             <field name="name" placeholder="Assessment Name"/>
                         </h1>
                     </div>
+                    <!-- assessment_mode is forced to multi_day for all new records
+                         and kept invisible so the multi-day groups/pages below
+                         (invisible="assessment_mode != 'multi_day'") still evaluate
+                         true. Admins no longer pick a mode. -->
+                    <field name="assessment_mode" invisible="1"/>
                     <group>
-                        <group string="Mode">
-                            <field name="assessment_mode" widget="radio"
-                                   readonly="state != 'draft'"/>
-                        </group>
                         <group string="Schedule">
                             <field name="start_date" readonly="state != 'draft'"/>
                             <field name="end_date" readonly="state != 'draft'"/>
-                            <field name="deadline"/>
                             <field name="response_count"/>
                         </group>
                     </group>
 
-                    <group string="Single-Mode Configuration"
-                           invisible="assessment_mode != 'single'">
-                        <group>
-                            <field name="category_id" readonly="state != 'draft'"
-                                   required="assessment_mode == 'single'"/>
-                            <field name="question_limit" readonly="state != 'draft'"/>
-                            <field name="total_questions_available"/>
-                        </group>
-                        <group>
-                            <field name="duration_minutes" readonly="state != 'draft'"/>
-                        </group>
-                    </group>
-
-                    <group string="Multi-Day Configuration"
+                    <group string="Assessment Configuration"
                            invisible="assessment_mode != 'multi_day'">
                         <group>
-                            <field name="num_days" readonly="state != 'draft'"/>
+                            <field name="num_days" readonly="state != 'draft'"
+                                   help="1 for a single-day test, more for a multi-day plan."/>
                             <field name="sequential_days" readonly="state != 'draft'"/>
                             <field name="results_release"/>
                         </group>
@@ -154,8 +142,9 @@
                             <field name="day_ids">
                                 <list editable="bottom">
                                     <field name="sequence" widget="handle"/>
-                                    <field name="skill_id"/>
-                                    <field name="question_source"/>
+                                    <field name="pool_by"/>
+                                    <field name="skill_id" invisible="pool_by == 'category'"/>
+                                    <field name="category_id" invisible="pool_by == 'skill'"/>
                                     <field name="question_count"/>
                                     <field name="available_question_count"/>
                                     <field name="duration_minutes"/>
@@ -166,8 +155,9 @@
                                         <group>
                                             <group>
                                                 <field name="sequence"/>
-                                                <field name="skill_id"/>
-                                                <field name="question_source"/>
+                                                <field name="pool_by"/>
+                                                <field name="skill_id" invisible="pool_by == 'category'"/>
+                                                <field name="category_id" invisible="pool_by == 'skill'"/>
                                                 <field name="question_count"/>
                                                 <field name="available_question_count"
                                                        readonly="1"/>
@@ -175,17 +165,8 @@
                                             <group>
                                                 <field name="duration_minutes"/>
                                                 <field name="scheduled_start"/>
-                                                <field name="category_id"/>
                                             </group>
                                         </group>
-                                        <notebook>
-                                            <page string="Manual Questions"
-                                                  invisible="question_source != 'manual'">
-                                                <field name="question_ids"
-                                                       widget="many2many_tags"
-                                                       domain="[('skill_ids', 'in', [skill_id])]"/>
-                                            </page>
-                                        </notebook>
                                     </sheet>
                                 </form>
                             </field>
@@ -319,7 +300,6 @@
         <field name="arch" type="xml">
             <search>
                 <field name="name"/>
-                <field name="category_id"/>
                 <field name="evaluator_ids"/>
                 <separator/>
                 <filter name="filter_draft" string="Draft"
@@ -328,17 +308,9 @@
                         domain="[('state','=','in_progress')]"/>
                 <filter name="filter_done" string="Done"
                         domain="[('state','=','done')]"/>
-                <filter name="filter_single" string="Single Mode"
-                        domain="[('assessment_mode','=','single')]"/>
-                <filter name="filter_multi_day" string="Multi-Day"
-                        domain="[('assessment_mode','=','multi_day')]"/>
                 <group>
                     <filter name="group_state" string="State"
                             context="{'group_by':'state'}"/>
-                    <filter name="group_mode" string="Mode"
-                            context="{'group_by':'assessment_mode'}"/>
-                    <filter name="group_category" string="Category"
-                            context="{'group_by':'category_id'}"/>
                 </group>
             </search>
         </field>
