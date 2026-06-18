@@ -164,13 +164,13 @@ class EtpBatchBudgetRequest(models.Model):
         if not self.batch_id:
             raise UserError(_("Request has no batch budget."))
         project_budget = self.batch_id.project_budget_id
-        if (
-            self.env.user not in project_budget.approver_user_ids
-            and self.env.user != self.requester_id
-        ):
+        if self.env.user not in project_budget.approver_user_ids:
             raise UserError(_(
-                "Only an approver of this Project Budget or the requester "
-                "can act on this request."
+                "You are not in the approver pool for this Project Budget."
+            ))
+        if self.env.user == self.requester_id:
+            raise UserError(_(
+                "You cannot approve a request you submitted yourself."
             ))
 
     def _approver_partner_ids(self):

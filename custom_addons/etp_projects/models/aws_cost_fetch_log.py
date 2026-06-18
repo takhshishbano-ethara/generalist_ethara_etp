@@ -36,6 +36,7 @@ class EtpProjectAwsCostFetchLog(models.Model):
 
     tag_key = fields.Char(string="Tag Key (snapshot)")
     tag_value = fields.Char(string="Tag Value (snapshot)")
+    tags_summary = fields.Char(string="Tags (snapshot)")
     fetch_months = fields.Integer(string="Months Fetched (snapshot)")
 
     api_hit_count = fields.Integer(string="API Hits")

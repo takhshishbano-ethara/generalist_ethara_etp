@@ -4,6 +4,7 @@ from . import api_mapping
 from . import etp_ai_model
 from . import etp_infra_type
 from . import aws_budget
+from . import aws_budget_tag_line
 from . import project_budget_model_line
 from . import project_budget_infra_line
 from . import aws_cost_line
