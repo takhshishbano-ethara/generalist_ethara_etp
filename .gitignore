@@ -13,6 +13,11 @@ env/
 .env
 .env.*
 !.env.example
+# Google / GCP service-account keys — NEVER commit
+agon-development-499205-5a7716960fea.json
+*service-account*.json
+*serviceaccount*.json
+*credentials*.json
 
 # ── IDE ──────────────────────────────────────────────────────────────────────
 .vscode/
