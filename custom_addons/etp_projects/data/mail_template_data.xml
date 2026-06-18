@@ -1,213 +1,281 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="0">
+    <data noupdate="1">
 
-        <!-- 1. Approval Required -->
-        <record id="email_token_purchase_request_approval" model="mail.template">
-            <field name="name">Token Purchase Request: Approval Required</field>
-            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
+        <record id="mail_template_batch_approval_request" model="mail.template">
+            <field name="name">Batch Budget: Approval Request</field>
+            <field name="model_id" ref="model_etp_batch_budget"/>
+            <field name="subject">[Batch Budget] Approval Requested: {{ object.name }}</field>
             <field name="email_from">{{ (object.requester_id.email_formatted or user.email_formatted) }}</field>
-            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('approver_partner_ids') or [])) }}</field>
-            <field name="subject">Approval Required – Token Purchase Request for Project {{ object.project_id.name or '' }}</field>
+            <field name="auto_delete" eval="False"/>
             <field name="body_html" type="html">
-<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-        <tr>
-            <td style="background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);padding:32px;text-align:center;">
-                <h1 style="color:#ffffff;margin:0;font-size:22px;">Token Purchase Approval Request</h1>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:32px;">
-                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">Hello,</p>
-                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
-                    A new Token Purchase Request has been submitted and requires your action.
-                </p>
-                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
-                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">TPR/.../...</t></p>
-                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">Project</t></p>
-                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Requested Amount:</strong>
-                        <span t-out="object.currency_id.symbol or ''"/> <t t-out="'%.2f' % (object.requested_amount or 0.0)">0.00</t>
-                    </p>
-                    <p style="margin:4px 0;"><strong>Description:</strong> <t t-out="object.description or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Requested By:</strong> <t t-out="object.requester_id.name or ''">-</t></p>
-                </div>
-                <p style="font-size:14px;color:#555;margin:16px 0;">
-                    Approval from any one of the configured approvers is sufficient.
-                    Please open the request in Odoo to review and Approve or Reject it.
-                </p>
-<!--                <div style="text-align:center;margin:24px 0;">-->
-<!--                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"-->
-<!--                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">-->
-<!--                        Open Request in Odoo-->
-<!--                    </a>-->
-<!--                </div>-->
-                <div style="text-align:center;margin:24px 0;">
-                    <a href="https://web.ethara.ai/login"
-                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
-                        Open Request in Dashboard
-                    </a>
-                </div>
-                <p style="font-size:12px;color:#999;margin-top:24px;">
-                    Thank you,<br/>ETP Projects System
-                </p>
-            </td>
-        </tr>
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        <strong t-out="object.requester_id.name or 'A user'"></strong>
+        has submitted a <strong>Batch Budget</strong> for your approval.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch:</td><td><strong t-out="object.name"></strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project Budget:</td><td t-out="object.project_budget_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Total Tasks:</td><td t-out="object.total_tasks or 0"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Estimated Cost:</td><td t-out="'%.2f USD' % (object.estimated_cost or 0.0)"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Buffer %:</td><td t-out="'%.2f' % (object.buffer_pct or 0.0)"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch Budget:</td><td><strong t-out="'%.2f USD' % (object.batch_budget or 0.0)"></strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Date Range:</td><td><span t-out="object.start_date or '—'"></span> &#8594; <span t-out="object.end_date or '—'"></span></td></tr>
     </table>
+    <p style="margin-top:12px;"><strong>Model Lines</strong></p>
+    <table style="border-collapse:collapse;border:1px solid #dee2e6;">
+        <thead><tr style="background:#f8f9fa;">
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:left;">Model</th>
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Per Task Cost (USD)</th>
+        </tr></thead>
+        <tbody>
+            <tr t-foreach="object.model_line_ids" t-as="line">
+                <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="line.ai_model_id.name or ''"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.4f' % (line.per_task_cost or 0.0)"></td>
+            </tr>
+        </tbody>
+    </table>
+    <p style="margin-top:16px;">
+        Approve or reject this batch from the in-app form: open
+        <em t-out="object.name"></em> under <em>AWS Budgets &gt; Batch Budgets</em>.
+    </p>
 </div>
             </field>
-            <field name="auto_delete" eval="False"/>
         </record>
 
-        <!-- 2. Finance: Action Required – Complete Approved Token Purchase Details -->
-        <record id="email_token_purchase_request_finance" model="mail.template">
-            <field name="name">Token Purchase Request: Finance Action Required</field>
-            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
-            <field name="email_from">{{ (object.approver_id.email_formatted or user.email_formatted) }}</field>
-            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('finance_partner_ids') or [])) }}</field>
-            <field name="subject">Action Required – Complete Approved Token Purchase Details</field>
+        <record id="mail_template_batch_approved" model="mail.template">
+            <field name="name">Batch Budget: Approved</field>
+            <field name="model_id" ref="model_etp_batch_budget"/>
+            <field name="subject">[Batch Budget Approved] {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
             <field name="body_html" type="html">
-<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-        <tr>
-            <td style="background:linear-gradient(135deg,#0ea5e9 0%,#2563eb 100%);padding:32px;text-align:center;">
-                <h1 style="color:#ffffff;margin:0;font-size:22px;">Approved – Finance Action Required</h1>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:32px;">
-                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">Hello,</p>
-                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
-                    A Token Purchase Request has been approved and requires final processing.
-                </p>
-                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
-                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">TPR/.../...</t></p>
-                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">Project</t></p>
-                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Approved Amount (Requested):</strong>
-                        <span t-out="object.currency_id.symbol or ''"/> <t t-out="'%.2f' % (object.requested_amount or 0.0)">0.00</t>
-                    </p>
-                    <p style="margin:4px 0;"><strong>Approved By:</strong> <t t-out="object.approver_id.name or ''">-</t></p>
-                </div>
-                <p style="font-size:14px;color:#555;margin:16px 0;">
-                    Please open the request in Odoo and complete the post-approval details:
-                </p>
-                <ul style="font-size:14px;color:#555;line-height:1.7;">
-                    <li>Approved Amount</li>
-                    <li>Module / Cost Center</li>
-                    <li>Supporting Document</li>
-                </ul>
-<!--                <div style="text-align:center;margin:24px 0;">-->
-<!--                    <a t-att-href="'%s/web#id=%s&amp;model=etp.project.token.purchase.request&amp;view_type=form' % (object.env['ir.config_parameter'].sudo().get_param('web.base.url'), object.id)"-->
-<!--                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">-->
-<!--                        Open Request in Odoo-->
-<!--                    </a>-->
-<!--                </div>-->
-                <div style="text-align:center;margin:24px 0;">
-                    <a href="https://web.ethara.ai/login"
-                       style="display:inline-block;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#ffffff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:15px;font-weight:600;">
-                        Open Request in Dashboard
-                    </a>
-                </div>
-                <p style="font-size:12px;color:#777;margin:0 0 8px 0;text-align:center;">
-                    Once Approved Amount, Cost Center, and Supporting Document are filled, click <strong>Mark Completed</strong>; the Project Budget will update automatically.
-                </p>
-                <p style="font-size:12px;color:#999;margin-top:24px;">
-                    Thank you,<br/>ETP Projects System
-                </p>
-            </td>
-        </tr>
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Your batch budget <strong t-out="object.name"></strong> has been
+        <strong style="color:#198754;">approved</strong> by
+        <span t-out="object.approver_id.name or ''"></span>.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Approved Budget:</td><td><strong t-out="'%.2f USD' % (object.batch_budget or 0.0)"></strong></td></tr>
     </table>
 </div>
             </field>
-            <field name="auto_delete" eval="False"/>
         </record>
 
-        <!-- 3. Requester: Approved -->
-        <record id="email_token_purchase_request_approved_requester" model="mail.template">
-            <field name="name">Token Purchase Request: Approved (Requester)</field>
-            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
-            <field name="email_from">{{ (object.approver_id.email_formatted or user.email_formatted) }}</field>
-            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('requester_partner_ids') or [])) }}</field>
-            <field name="subject">Approved – Token Purchase Request {{ object.name or '' }}</field>
+        <record id="mail_template_batch_rejected" model="mail.template">
+            <field name="name">Batch Budget: Rejected</field>
+            <field name="model_id" ref="model_etp_batch_budget"/>
+            <field name="subject">[Batch Budget Rejected] {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
             <field name="body_html" type="html">
-<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-        <tr>
-            <td style="background:linear-gradient(135deg,#16a34a 0%,#15803d 100%);padding:32px;text-align:center;">
-                <h1 style="color:#ffffff;margin:0;font-size:22px;">Request Approved</h1>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:32px;">
-                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">
-                    Hello <strong><t t-out="object.requester_id.name or ''">-</t></strong>,
-                </p>
-                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
-                    Your Token Purchase Request has been approved.
-                </p>
-                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
-                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Approved By:</strong> <t t-out="object.approver_id.name or ''">-</t></p>
-                </div>
-                <p style="font-size:14px;color:#555;margin:16px 0;">
-                    The finance team will complete the post-approval processing.
-                </p>
-                <p style="font-size:12px;color:#999;margin-top:24px;">
-                    Thank you,<br/>ETP Projects System
-                </p>
-            </td>
-        </tr>
-    </table>
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Your batch budget <strong t-out="object.name"></strong> was
+        <strong style="color:#dc3545;">rejected</strong> by
+        <span t-out="object.approver_id.name or ''"></span>.
+    </p>
+    <p><strong>Reason:</strong></p>
+    <blockquote style="border-left:3px solid #dc3545;padding:8px 12px;background:#f8f9fa;" t-out="object.rejection_reason or ''"></blockquote>
 </div>
             </field>
-            <field name="auto_delete" eval="False"/>
         </record>
 
-        <!-- 4. Requester: Rejected -->
-        <record id="email_token_purchase_request_rejected_requester" model="mail.template">
-            <field name="name">Token Purchase Request: Rejected (Requester)</field>
-            <field name="model_id" ref="model_etp_project_token_purchase_request"/>
-            <field name="email_from">{{ (object.approver_id.email_formatted or user.email_formatted) }}</field>
-            <field name="partner_to">{{ ','.join(str(pid) for pid in (ctx.get('requester_partner_ids') or [])) }}</field>
-            <field name="subject">Rejected – Token Purchase Request {{ object.name or '' }}</field>
+        <record id="mail_template_batch_threshold" model="mail.template">
+            <field name="name">Batch Budget: Threshold Alert</field>
+            <field name="model_id" ref="model_etp_batch_budget"/>
+            <field name="subject">[Batch Budget Alert] {{ object.name }} at {{ '%.1f' % (object.consumed_pct or 0.0) }}%</field>
+            <field name="auto_delete" eval="False"/>
             <field name="body_html" type="html">
-<div style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
-    <table style="width:100%;max-width:600px;margin:0 auto;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-        <tr>
-            <td style="background:linear-gradient(135deg,#dc2626 0%,#991b1b 100%);padding:32px;text-align:center;">
-                <h1 style="color:#ffffff;margin:0;font-size:22px;">Request Rejected</h1>
-            </td>
-        </tr>
-        <tr>
-            <td style="padding:32px;">
-                <p style="font-size:15px;color:#333;margin:0 0 12px 0;">
-                    Hello <strong><t t-out="object.requester_id.name or ''">-</t></strong>,
-                </p>
-                <p style="font-size:14px;color:#555;margin:0 0 16px 0;">
-                    Your Token Purchase Request has been rejected.
-                </p>
-                <div style="background:#f8f9fa;border-radius:8px;padding:16px;margin:16px 0;font-size:13px;color:#333;">
-                    <p style="margin:4px 0;"><strong>Request:</strong> <t t-out="object.name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Project:</strong> <t t-out="object.project_id.name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Model Name:</strong> <t t-out="object.model_name or ''">-</t></p>
-                    <p style="margin:4px 0;"><strong>Rejected By:</strong> <t t-out="object.approver_id.name or ''">-</t></p>
-                    <t t-if="object.rejection_reason">
-                        <p style="margin:4px 0;"><strong>Reason:</strong> <t t-out="object.rejection_reason or ''">-</t></p>
-                    </t>
-                </div>
-                <p style="font-size:12px;color:#999;margin-top:24px;">
-                    Thank you,<br/>ETP Projects System
-                </p>
-            </td>
-        </tr>
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Batch budget <strong t-out="object.name"></strong> has reached
+        <strong><span t-out="'%.1f' % (object.consumed_pct or 0.0)"></span>%</strong> consumption.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch Budget:</td><td t-out="'%.2f USD' % (object.batch_budget or 0.0)"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Consumed (AWS):</td><td><strong t-out="'%.2f USD' % (object.consumed_cost or 0.0)"></strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Remaining:</td><td t-out="'%.2f USD' % (object.remaining_cost or 0.0)"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Date Range:</td><td><span t-out="object.start_date or ''"></span> &#8594; <span t-out="object.end_date or ''"></span></td></tr>
     </table>
 </div>
             </field>
+        </record>
+
+        <record id="mail_template_topup_approval_request" model="mail.template">
+            <field name="name">Project Budget Top-up: Approval Request</field>
+            <field name="model_id" ref="model_etp_project_budget_topup"/>
+            <field name="subject">[Project Budget Top-up] Approval Requested: {{ object.name }}</field>
+            <field name="email_from">{{ (object.requester_id.email_formatted or user.email_formatted) }}</field>
             <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        <strong t-out="object.requester_id.name or 'A user'"></strong>
+        is requesting an additional <strong>Project Budget Top-up</strong>.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Top-up:</td><td><strong t-out="object.name"></strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project Budget:</td><td t-out="object.project_budget_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Amount:</td><td><strong t-out="'%.2f USD' % (object.amount or 0.0)"></strong></td></tr>
+    </table>
+    <p><strong>Justification</strong></p>
+    <blockquote style="border-left:3px solid #6c757d;padding:8px 12px;background:#f8f9fa;" t-out="object.justification or ''"></blockquote>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_topup_approved" model="mail.template">
+            <field name="name">Project Budget Top-up: Approved</field>
+            <field name="model_id" ref="model_etp_project_budget_topup"/>
+            <field name="subject">[Project Budget Top-up Approved] {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Your Project Budget Top-up <strong t-out="object.name"></strong> for
+        <strong t-out="'%.2f USD' % (object.amount or 0.0)"></strong>
+        has been <strong style="color:#198754;">approved</strong>.
+    </p>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_topup_rejected" model="mail.template">
+            <field name="name">Project Budget Top-up: Rejected</field>
+            <field name="model_id" ref="model_etp_project_budget_topup"/>
+            <field name="subject">[Project Budget Top-up Rejected] {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Your Project Budget Top-up <strong t-out="object.name"></strong> was
+        <strong style="color:#dc3545;">rejected</strong>.
+    </p>
+    <p><strong>Reason:</strong></p>
+    <blockquote style="border-left:3px solid #dc3545;padding:8px 12px;background:#f8f9fa;" t-out="object.rejection_reason or ''"></blockquote>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_batch_request_submitted" model="mail.template">
+            <field name="name">Batch Budget Request: Submitted</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[Budget Request] Approval Requested: {{ object.name }}</field>
+            <field name="email_from">{{ (object.requester_id.email_formatted or user.email_formatted) }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        <strong t-out="object.requester_id.name or 'A user'"></strong>
+        has submitted a <strong>Batch Budget Request</strong> for your approval.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Request:</td><td><strong t-out="object.name"></strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch:</td><td t-out="object.batch_id.name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Request #:</td><td t-out="object.sequence_number or 0"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Requested Total:</td><td><strong t-out="'%.2f USD' % (object.requested_total or 0.0)"></strong></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Requested On:</td><td t-out="object.request_date or ''"></td></tr>
+    </table>
+    <p><strong>Justification</strong></p>
+    <blockquote style="border-left:3px solid #6c757d;padding:8px 12px;background:#f8f9fa;" t-out="object.justification or ''"></blockquote>
+    <p style="margin-top:12px;"><strong>Model Lines</strong></p>
+    <table style="border-collapse:collapse;border:1px solid #dee2e6;">
+        <thead><tr style="background:#f8f9fa;">
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:left;">Model</th>
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Tasks</th>
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Per Task (USD)</th>
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Requested (USD)</th>
+        </tr></thead>
+        <tbody>
+            <tr t-foreach="object.model_line_ids" t-as="line">
+                <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="line.ai_model_id.name or ''"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="line.task_count or 0"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.4f' % (line.per_task_cost or 0.0)"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.2f' % (line.requested_amount or 0.0)"></td>
+            </tr>
+        </tbody>
+    </table>
+    <p t-if="object.infra_line_ids" style="margin-top:12px;"><strong>Infrastructure Lines</strong></p>
+    <table t-if="object.infra_line_ids" style="border-collapse:collapse;border:1px solid #dee2e6;">
+        <thead><tr style="background:#f8f9fa;">
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:left;">Infra Type</th>
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:left;">Description</th>
+            <th style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;">Requested (USD)</th>
+        </tr></thead>
+        <tbody>
+            <tr t-foreach="object.infra_line_ids" t-as="iline">
+                <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="dict(iline._fields['infra_type'].selection).get(iline.infra_type, iline.infra_type or '')"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;" t-out="iline.description or ''"></td>
+                <td style="padding:6px 12px;border:1px solid #dee2e6;text-align:right;" t-out="'%.2f' % (iline.requested_amount or 0.0)"></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_batch_request_approved" model="mail.template">
+            <field name="name">Batch Budget Request: Approved</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[Budget Request {{ 'Partially Approved' if object.state == 'partially_approved' else 'Approved' }}] {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Your batch budget request <strong t-out="object.name"></strong> has been
+        <strong style="color:#198754;" t-out="'partially approved' if object.state == 'partially_approved' else 'approved'"></strong> by
+        <span t-out="object.approver_id.name or ''"></span>.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch:</td><td t-out="object.batch_id.name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Requested Total:</td><td t-out="'%.2f USD' % (object.requested_total or 0.0)"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Approved Total:</td><td><strong t-out="'%.2f USD' % (object.approved_total or 0.0)"></strong></td></tr>
+    </table>
+    <p style="margin-top:12px;">
+        The approved amount has been added to the batch budget. You may now log daily tasks against this batch.
+    </p>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_batch_request_rejected" model="mail.template">
+            <field name="name">Batch Budget Request: Rejected</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[Budget Request Rejected] {{ object.name }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:13px;color:#212529;">
+    <p>Hello,</p>
+    <p>
+        Your batch budget request <strong t-out="object.name"></strong> was
+        <strong style="color:#dc3545;">rejected</strong> by
+        <span t-out="object.approver_id.name or ''"></span>.
+    </p>
+    <table style="border-collapse:collapse;margin:12px 0;">
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Batch:</td><td t-out="object.batch_id.name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Project:</td><td t-out="object.project_id.display_name or ''"></td></tr>
+        <tr><td style="padding:4px 12px 4px 0;color:#666;">Requested Total:</td><td t-out="'%.2f USD' % (object.requested_total or 0.0)"></td></tr>
+    </table>
+    <p><strong>Reason:</strong></p>
+    <blockquote style="border-left:3px solid #dc3545;padding:8px 12px;background:#f8f9fa;" t-out="object.rejection_reason or ''"></blockquote>
+</div>
+            </field>
         </record>
 
     </data>

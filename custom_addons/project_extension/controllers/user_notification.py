@@ -1,6 +1,10 @@
 from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value
+
+import logging
+
+_logger = logging.getLogger(__name__)
 class NotificationController(http.Controller):
 
     @validate_token
@@ -35,7 +39,8 @@ class NotificationController(http.Controller):
             if employee_dict:
                 user_id.employee_id.sudo().write(employee_dict)
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
         return return_Response(message="Updated Notification Successfully", status=200)
 
     @validate_token
@@ -61,7 +66,8 @@ class NotificationController(http.Controller):
                 }
                 access_token_data.sudo().write(token_dict)
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
         return return_Response(message="User Appearance Updated Successfully", status=200)
 
     @validate_token
@@ -91,4 +97,5 @@ class NotificationController(http.Controller):
 
             return return_Response(message="Success", status=200, data={"record": temp, "total_record_count": employee_count, "count": len(temp)})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])

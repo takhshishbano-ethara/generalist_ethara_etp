@@ -1,6 +1,5 @@
 from odoo import api, fields, models
 
-
 class EtpProjectAwsCostFetchLog(models.Model):
     _name = "etp.project.aws.cost.fetch.log"
     _description = "Project AWS Cost Fetch History"
@@ -39,33 +38,8 @@ class EtpProjectAwsCostFetchLog(models.Model):
     tag_value = fields.Char(string="Tag Value (snapshot)")
     fetch_months = fields.Integer(string="Months Fetched (snapshot)")
 
-    api_hit_count = fields.Integer(
-        string="API Hits",
-        help="Number of AWS Cost Explorer API requests attempted during this fetch.",
-    )
-    api_hit_cost_usd = fields.Float(
-        string="API Hit Cost (USD)", digits=(12, 4),
-        help="Estimated USD cost of the AWS Cost Explorer API requests made "
-             "during this fetch (AWS charges $0.01 per request).",
-    )
-
-    currency_id = fields.Many2one(
-        "res.currency", related="budget_id.currency_id",
-        store=True, readonly=True,
-    )
-    budget_amount = fields.Monetary(
-        currency_field="currency_id", string="Final Budget (snapshot)",
-    )
-    total_consumed = fields.Monetary(
-        currency_field="currency_id", string="Total Consumed (snapshot)",
-    )
-    remaining = fields.Monetary(
-        currency_field="currency_id", string="Remaining (snapshot)",
-    )
-    percent_consumed = fields.Float(string="% Consumed (snapshot)")
-    daily_burn_rate = fields.Monetary(
-        currency_field="currency_id", string="Daily Burn (snapshot)",
-    )
+    api_hit_count = fields.Integer(string="API Hits")
+    api_hit_cost_usd = fields.Float(string="API Hit Cost (USD)", digits=(12, 4))
 
     display_name = fields.Char(compute="_compute_display_name", store=False)
 
@@ -107,11 +81,4 @@ class EtpProjectAwsCostFetchLog(models.Model):
             "fetch_months": int(self.fetch_months or 0),
             "api_hit_count": int(self.api_hit_count or 0),
             "api_hit_cost_usd": round(float(self.api_hit_cost_usd or 0.0), 4),
-            "budget_amount": float(self.budget_amount or 0.0),
-            "total_consumed": float(self.total_consumed or 0.0),
-            "remaining": float(self.remaining or 0.0),
-            "percent_consumed": round(float(self.percent_consumed or 0.0), 2),
-            "daily_burn_rate": float(self.daily_burn_rate or 0.0),
-            "currency": self.currency_id.name if self.currency_id else "",
-            "currency_symbol": self.currency_id.symbol if self.currency_id else "",
         }

@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_etp_batch_budget_list" model="ir.ui.view">
+        <field name="name">etp.batch.budget.list</field>
+        <field name="model">etp.batch.budget</field>
+        <field name="arch" type="xml">
+            <list string="Batch Budgets"
+                  decoration-success="state == 'approved'"
+                  decoration-primary="state == 'in_progress'"
+                  decoration-muted="state in ('rejected','withdrawn','closed')">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="project_budget_id"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <field name="total_tasks"/>
+                <field name="estimated_cost" sum="USD"/>
+                <field name="buffer_pct"/>
+                <field name="batch_budget" sum="USD" optional="hide"/>
+                <field name="approved_amount" sum="USD"/>
+                <field name="consumed_cost" sum="USD"/>
+                <field name="remaining_cost" sum="USD"/>
+                <field name="health_status" widget="badge"
+                       decoration-success="health_status == 'healthy'"
+                       decoration-info="health_status == 'warning'"
+                       decoration-warning="health_status == 'at_risk'"
+                       decoration-danger="health_status == 'critical'"
+                       decoration-muted="health_status == 'unknown'"/>
+                <field name="state" widget="badge"
+                       decoration-success="state in ('approved','delivered')"
+                       decoration-primary="state == 'in_progress'"
+                       decoration-danger="state == 'rejected'"
+                       decoration-muted="state in ('draft','withdrawn','closed')"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_etp_batch_budget_form" model="ir.ui.view">
+        <field name="name">etp.batch.budget.form</field>
+        <field name="model">etp.batch.budget</field>
+        <field name="arch" type="xml">
+            <form string="Batch Budget">
+                <header>
+                    <button name="action_open_request_wizard" type="object"
+                            string="Request Budget" class="btn-primary"
+                            invisible="state in ('rejected','withdrawn','closed','delivered')"/>
+                    <button name="action_withdraw" type="object"
+                            string="Withdraw" class="btn-secondary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_deliver" type="object"
+                            string="Deliver" class="btn-primary"
+                            invisible="state not in ('approved','in_progress')"
+                            confirm="Deliver this batch? Remaining budget will be returned to the project."/>
+                    <button name="action_restart" type="object"
+                            string="Start" class="btn-primary"
+                            invisible="state != 'delivered'"
+                            confirm="Restart this batch and pull any available project remaining into it?"/>
+                    <button name="action_close" type="object"
+                            string="Close" class="btn-secondary"
+                            invisible="state != 'delivered'"/>
+                    <button name="action_reset_to_draft" type="object"
+                            string="Reset to Draft" class="btn-secondary"
+                            invisible="state not in ('rejected','withdrawn')"/>
+                    <button name="action_refresh_model_lines" type="object"
+                            string="Refresh Model Lines" class="btn-secondary"
+                            confirm="Replace current model lines with a fresh snapshot from the Project Budget?"
+                            invisible="state != 'draft' or not project_budget_id"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,approved,in_progress,delivered,closed"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_requests" type="object"
+                                class="oe_stat_button" icon="fa-list-alt"
+                                invisible="request_count == 0">
+                            <field name="request_count" widget="statinfo" string="Requests"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Source">
+                            <field name="project_budget_id" options="{'no_create': True}"
+                                   readonly="state != 'draft'"/>
+                            <field name="project_id" readonly="1"/>
+                            <field name="connected_model" readonly="1"/>
+                            <field name="active"/>
+                        </group>
+                        <group string="Budget">
+                            <field name="start_date" readonly="state != 'draft'"/>
+                            <field name="end_date" readonly="state != 'draft'"/>
+                            <field name="total_tasks" readonly="state != 'draft'"/>
+                            <field name="estimated_cost" readonly="1"/>
+                            <field name="buffer_pct" readonly="state != 'draft'"/>
+                            <field name="batch_budget" readonly="1" string="Estimated Budget"/>
+                            <field name="approved_amount" readonly="1"/>
+                            <field name="carried_over_amount" readonly="1" invisible="not carried_over_amount"/>
+                            <field name="health_status" widget="badge" readonly="1"
+                                   decoration-success="health_status == 'healthy'"
+                                   decoration-info="health_status == 'warning'"
+                                   decoration-warning="health_status == 'at_risk'"
+                                   decoration-danger="health_status == 'critical'"
+                                   decoration-muted="health_status == 'unknown'"/>
+                        </group>
+                        <group string="Consumption">
+                            <field name="consumed_cost" readonly="1"/>
+                            <field name="consumed_pct" readonly="1" widget="progressbar"/>
+                            <field name="remaining_cost" readonly="1"/>
+                            <field name="alert_80_sent" readonly="1" invisible="not alert_80_sent"/>
+                            <field name="alert_100_sent" readonly="1" invisible="not alert_100_sent"/>
+                        </group>
+                        <group string="Decision">
+                            <field name="requester_id" readonly="1"/>
+                            <field name="delivered_date" readonly="1" invisible="state not in ('delivered','closed')"/>
+                            <field name="closed_remaining" readonly="1" invisible="state not in ('delivered','closed')"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Model Lines" name="model_lines">
+                            <field name="model_line_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="ai_model_id"/>
+                                    <field name="per_task_cost" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Infrastructure" name="infrastructure">
+                            <field name="infra_line_ids" readonly="1">
+                                <list create="0" delete="0" edit="0">
+                                    <field name="infra_type_id"/>
+                                    <field name="description"/>
+                                    <field name="budget_amount" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Requests" name="requests">
+                            <field name="request_ids" readonly="1">
+                                <list create="0" delete="0" edit="0"
+                                      decoration-info="state == 'pending'"
+                                      decoration-success="state in ('approved','partially_approved')"
+                                      decoration-danger="state == 'rejected'"
+                                      decoration-muted="state in ('draft','withdrawn')">
+                                    <field name="name"/>
+                                    <field name="sequence_number"/>
+                                    <field name="request_date"/>
+                                    <field name="requester_id"/>
+                                    <field name="requested_total" sum="USD"/>
+                                    <field name="approved_total" sum="USD"/>
+                                    <field name="approver_id" optional="show"/>
+                                    <field name="approval_date" optional="hide"/>
+                                    <field name="state" widget="badge"
+                                           decoration-info="state == 'pending'"
+                                           decoration-success="state in ('approved','partially_approved')"
+                                           decoration-danger="state == 'rejected'"
+                                           decoration-muted="state in ('draft','withdrawn')"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Budget vs Cost" name="budget_vs_cost">
+                            <group>
+                                <group string="Debit (Approved)">
+                                    <field name="approved_amount" readonly="1"/>
+                                </group>
+                                <group string="Credit (Consumed)">
+                                    <field name="consumed_cost" readonly="1"/>
+                                    <field name="remaining_cost" readonly="1"/>
+                                </group>
+                            </group>
+                            <field name="matched_cost_line_ids" readonly="1">
+                                <list create="0" delete="0" edit="0">
+                                    <field name="period"/>
+                                    <field name="service_name"/>
+                                    <field name="source"/>
+                                    <field name="model_name" optional="show"/>
+                                    <field name="amount_source" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Daily Task Log" name="daily_task_log">
+                            <field name="daily_task_ids" readonly="1">
+                                <list create="0" delete="0">
+                                    <field name="entry_date"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="done_count" sum="Tasks"/>
+                                    <field name="per_task_cost"/>
+                                    <field name="ideal_per_task_cost"/>
+                                    <field name="total_cost" sum="USD"/>
+                                    <field name="health_status" widget="badge"
+                                           decoration-success="health_status == 'healthy'"
+                                           decoration-warning="health_status == 'warning'"
+                                           decoration-danger="health_status == 'critical'"
+                                           decoration-muted="health_status == 'unknown'"/>
+                                    <field name="note" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Connected Records" name="connected_records" invisible="not project_id">
+                            <field name="connected_model" invisible="1"/>
+                            <field name="connected_record_ids" nolabel="1" readonly="state == 'delivered'">
+                                <list editable="bottom">
+                                    <field name="connected_model" column_invisible="1"/>
+                                    <field name="res_id" string="Record"/>
+                                    <field name="record_display" readonly="1"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="General Info Links" name="info_links">
+                            <field name="info_link_ids">
+                                <list editable="bottom">
+                                    <field name="label"/>
+                                    <field name="url" widget="url"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Client Feedback" name="feedback">
+                            <field name="feedback_ids">
+                                <list editable="bottom">
+                                    <field name="date"/>
+                                    <field name="author_id"/>
+                                    <field name="rating"/>
+                                    <field name="note"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_etp_batch_budget_search" model="ir.ui.view">
+        <field name="name">etp.batch.budget.search</field>
+        <field name="model">etp.batch.budget</field>
+        <field name="arch" type="xml">
+            <search string="Batch Budgets">
+                <field name="name"/>
+                <field name="project_id"/>
+                <field name="project_budget_id"/>
+                <field name="requester_id"/>
+                <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
+                <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
+                <filter name="filter_in_progress" string="In Progress" domain="[('state','=','in_progress')]"/>
+                <filter name="filter_delivered" string="Delivered" domain="[('state','=','delivered')]"/>
+                <separator/>
+                <filter name="filter_archived" string="Archived" domain="[('active','=',False)]"/>
+                <group>
+                    <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
+                    <filter name="group_project_budget" string="Project Budget" context="{'group_by':'project_budget_id'}"/>
+                    <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_batch_budget" model="ir.actions.act_window">
+        <field name="name">Batch Budgets</field>
+        <field name="res_model">etp.batch.budget</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_etp_batch_budget_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create a Batch Budget</p>
+            <p>Pick an Operations Project Budget, enter total tasks, dates and buffer %.
+            Use <b>Request Budget</b> to submit one or more approval requests; each approved request
+            adds to the batch's approved amount.</p>
+        </field>
+    </record>
+
+    <record id="view_etp_batch_budget_form_daily_task_button" model="ir.ui.view">
+        <field name="name">etp.batch.budget.form.daily.task.button</field>
+        <field name="model">etp.batch.budget</field>
+        <field name="inherit_id" ref="view_etp_batch_budget_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="%(action_etp_batch_budget_daily_task_wizard)d"
+                        type="action"
+                        string="Add Daily Task"
+                        class="btn-secondary"
+                        context="{'default_batch_id': id}"
+                        invisible="not id or state not in ('approved','in_progress')"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

@@ -5,10 +5,46 @@ from datetime import datetime, date
 import functools
 import json
 import calendar
+import logging
 import mimetypes
 import time
 import re
 import uuid
+
+_logger = logging.getLogger(__name__)
+
+_LEAK_MARKERS = ('Traceback', '/opt/ethara', "<class '", 'File "/')
+_LEAK_PREFIXES = ('odoo.', 'psycopg2.', 'werkzeug.', 'sqlalchemy.')
+
+
+def _looks_leaky(text):
+    if not isinstance(text, str):
+        return False
+    if any(m in text for m in _LEAK_MARKERS):
+        return True
+    if any(text.startswith(p) for p in _LEAK_PREFIXES):
+        return True
+    return False
+
+
+def _scrub_errors(errors):
+    corr_id = uuid.uuid4().hex[:8]
+    scrubbed = []
+    leaked = False
+    for e in errors:
+        if isinstance(e, dict):
+            cleaned = dict(e)
+            for k, v in list(cleaned.items()):
+                if isinstance(v, str) and _looks_leaky(v):
+                    cleaned[k] = 'Internal error (ref=%s)' % corr_id
+                    leaked = True
+            scrubbed.append(cleaned)
+        elif isinstance(e, str) and _looks_leaky(e):
+            scrubbed.append('Internal error (ref=%s)' % corr_id)
+            leaked = True
+        else:
+            scrubbed.append(e)
+    return scrubbed, leaked, corr_id
 
 
 def return_Response(message, status=200, errors=[], data=None):
@@ -16,6 +52,14 @@ def return_Response(message, status=200, errors=[], data=None):
         'message': message,
         "errors": errors
     }
+    if status >= 400 and res.get('errors'):
+        scrubbed, leaked, corr_id = _scrub_errors(res['errors'])
+        if leaked:
+            _logger.exception(
+                'Suppressed leaky error response (ref=%s) original=%r',
+                corr_id, res['errors'],
+            )
+        res['errors'] = scrubbed
     if data:
         res.update(data)
     if status == 200:

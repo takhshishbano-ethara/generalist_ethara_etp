@@ -4,6 +4,10 @@ from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value
 
+import logging
+
+_logger = logging.getLogger(__name__)
+
 class DashboardController(http.Controller):
 
     @validate_token
@@ -136,7 +140,8 @@ class DashboardController(http.Controller):
             }
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_project_blockers', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -190,7 +195,8 @@ class DashboardController(http.Controller):
             )
 
         except Exception as e:
-            return return_Response(message="Fetch Failed", status=500, errors=[str(e)])
+            _logger.exception("Fetch Failed")
+            return return_Response(message="Fetch Failed", status=500, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_pl_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -355,7 +361,8 @@ class DashboardController(http.Controller):
 
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_aire_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -454,7 +461,8 @@ class DashboardController(http.Controller):
 
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_swe_dashboard_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -552,4 +560,5 @@ class DashboardController(http.Controller):
 
             return return_Response(message="Success", status=200, data={"records": vals})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])

@@ -86,9 +86,9 @@ class EtpProjectsBudgetConsolidationController(http.Controller):
                         "burn": 0.0,
                     }
                     project_rows[pid] = row
-                row["budget"] += float(b.budget_amount or 0.0)
-                row["spend"] += float(b.total_consumed or 0.0)
-                row["burn"] += float(b.daily_burn_rate or 0.0)
+                row["budget"] += 0.0
+                row["spend"] += 0.0
+                row["burn"] += 0.0
 
             total_spend = sum(r["spend"] for r in project_rows.values())
             total_budget = sum(r["budget"] for r in project_rows.values())
