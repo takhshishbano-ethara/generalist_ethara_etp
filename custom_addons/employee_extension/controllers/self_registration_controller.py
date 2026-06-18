@@ -349,7 +349,7 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         admin_env = request.env(user=SUPERUSER_ID)
         ResUsers = admin_env['res.users']
-        Candidate = admin_env['employee.candidate']
+        Applicant = admin_env['hr.applicant']
         College = admin_env['employee.college']
 
         if college_id and not College.browse(college_id).exists():
@@ -357,9 +357,9 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         if ResUsers.search_count([('login', '=', personal_email)]):
             return return_Response(message=f"An account already exists for {personal_email}", status=400)
-        if Candidate.search_count([('personal_email', '=ilike', personal_email)]):
+        if Applicant.search_count([('email_from', '=ilike', personal_email)]):
             return return_Response(message=f"A candidate profile already exists for {personal_email}", status=400)
-        if aadhaar_number and Candidate.search_count([('aadhaar_number', '=', aadhaar_number)]):
+        if aadhaar_number and Applicant.search_count([('aadhaar_number', '=', aadhaar_number)]):
             return return_Response(message="Aadhaar number already registered as a candidate", status=400)
 
         company = (
@@ -387,24 +387,31 @@ class EmployeeSelfRegistrationController(http.Controller):
             tracking_disable=True,
         ).create(user_vals)
 
-        candidate = Candidate.create({
-            'name': name,
+        applicant_vals = {
+            'partner_name': name,
+            'partner_id': new_user.partner_id.id,
+            'email_from': personal_email,
+            'partner_phone': phone or False,
+            'company_id': company.id,
             'gender': gender or False,
-            'phone': phone or False,
-            'personal_email': personal_email,
-            'aadhaar_number': aadhaar_number,
             'birthday': birthday_value or False,
+            'aadhaar_number': aadhaar_number,
             'experience': experience,
             'experience_years': experience_years if experience == 'experienced' else 0.0,
             'college_id': college_id or False,
-            'user_id': new_user.id,
-        })
+            'candidate_user_id': new_user.id,
+        }
+        applicant = Applicant.with_company(company).with_context(
+            mail_create_nosubscribe=True,
+            mail_create_nolog=True,
+            tracking_disable=True,
+        ).create(applicant_vals)
 
         aadhaar_b64 = base64.b64encode(aadhaar_bytes).decode('utf-8')
         aadhaar_url = generate_s3_link(
             aadhaar_b64,
             prefix='candidate/aadhaar',
-            uid=candidate.id,
+            uid=applicant.id,
             filename=aadhaar_filename or 'aadhaar',
         )
         if not aadhaar_url:
@@ -414,13 +421,13 @@ class EmployeeSelfRegistrationController(http.Controller):
         resume_url = generate_s3_link(
             resume_b64,
             prefix='candidate/resume',
-            uid=candidate.id,
+            uid=applicant.id,
             filename=resume_filename or 'resume',
         )
         if not resume_url:
             return return_Response(message="Failed to upload resume to storage", status=500)
 
-        candidate.write({
+        applicant.write({
             'aadhaar_card_url': aadhaar_url,
             'resume_url': resume_url,
         })
@@ -430,11 +437,11 @@ class EmployeeSelfRegistrationController(http.Controller):
             status=200,
             data={'data': {
                 'type': 'candidate',
-                'candidate_id': candidate.id,
+                'applicant_id': applicant.id,
                 'user_id': new_user.id,
                 'personal_email': personal_email,
                 'experience': experience,
-                'experience_years': candidate.experience_years,
+                'experience_years': applicant.experience_years,
                 'aadhaar_card_url': aadhaar_url,
                 'resume_url': resume_url,
             }},
