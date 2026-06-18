@@ -79,9 +79,13 @@ class EtpProjectBudgetTopup(models.Model):
 
     def _check_can_approve(self):
         self.ensure_one()
-        if self.env.user not in self.project_budget_id.approver_user_ids:
+        if (
+            self.env.user not in self.project_budget_id.approver_user_ids
+            and self.env.user != self.requester_id
+        ):
             raise UserError(_(
-                "You are not in the approver pool for this Project Budget."
+                "Only an approver of this Project Budget or the requester "
+                "can act on this top-up."
             ))
 
     def action_submit(self):
