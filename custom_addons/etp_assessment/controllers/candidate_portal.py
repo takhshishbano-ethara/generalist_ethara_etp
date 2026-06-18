@@ -1,31 +1,216 @@
 # -*- coding: utf-8 -*-
-"""Candidate convenience redirect.
+"""Candidate-facing "My Assessments" portal page.
 
-The candidate hub lives in the BACKEND (apps -> ETP Assessment -> My
-Assessments), not on the website. The proctored runner pages, however, link
-back to "/my/assessments" after submitting a day. To keep those links working
-we resolve "/my/assessments" to the backend My Assessments action.
+Candidates are PORTAL users (group_portal) — they have NO model ACL on the
+etp_assessment models, so every read here goes through ``sudo()`` (mirroring
+the exam portal in controllers/portal.py). The candidate is bound strictly by
+their linked ``hr.employee``: we only ever surface work that belongs to the
+logged-in user's employee.
 
-Authenticated users are sent to the backend menu/action; anyone not logged in
-is sent to the login page first (then bounced back here).
+The page lists the candidate's assessments grouped into four buckets:
+Available now, In Progress, Upcoming (locked / scheduled), and Completed. Each
+item links to the proctored runner — ``/assessment/day/<token>`` for multi-day
+sessions and ``/assessment/<token>`` for single-mode tests. The runner pages
+themselves keep their own login gate + candidate guard untouched.
 """
 from odoo import http
-from odoo.http import request
+from odoo.http import request, route
+from odoo.tools import format_datetime
+from odoo.addons.portal.controllers.portal import CustomerPortal
 
 
-class EtpCandidateRedirect(http.Controller):
+class EtpCandidatePortal(http.Controller):
+
+    def _resolve_employee(self):
+        """Return the logged-in user's hr.employee (sudo). Portal users can't
+        read hr.employee directly, so resolve it with sudo by user_id."""
+        user = request.env.user
+        # request.env.user.employee_id would trigger an hr.employee read the
+        # portal group is not allowed; go straight to a sudo search instead.
+        return request.env["hr.employee"].sudo().search(
+            [("user_id", "=", user.id)], limit=1)
+
+    # ------------------------------------------------------------------
+    # Item builders — normalize day-sessions and single evaluators into a
+    # uniform dict the template can render without branching on the source.
+    # ------------------------------------------------------------------
+    # status_kind drives only the badge colour in the template; it collapses
+    # the per-mode state vocabularies into one small palette.
+    _DAY_STATUS_KIND = {
+        "available": "available", "in_progress": "progress",
+        "locked": "locked", "submitted": "done", "scored": "done",
+        "missed": "missed",
+    }
+    _SINGLE_STATUS_KIND = {
+        "available": "available", "in_progress": "progress",
+        "upcoming": "locked", "completed": "done", "closed": "missed",
+    }
+
+    def _day_item(self, sess):
+        return {
+            "kind": "day",
+            "name": sess.assessment_id.name,
+            "day_label": "Day %s" % sess.day_id.sequence,
+            "skill": sess.skill_id.name or "",
+            "state": sess.state,
+            "state_label": dict(
+                sess._fields["state"].selection).get(sess.state, sess.state),
+            "status_kind": self._DAY_STATUS_KIND.get(sess.state, "locked"),
+            "score_display": sess.score_display or "",
+            "total_questions": sess.total_questions,
+            "answered_count": sess.answered_count,
+            "scheduled_start": format_datetime(
+                self.env, sess.scheduled_start, dt_format="MMM d, h:mm a")
+                if sess.scheduled_start else "",
+            "deadline": format_datetime(
+                self.env, sess.deadline_datetime, dt_format="MMM d, h:mm a")
+                if sess.deadline_datetime else "",
+            "url": "/assessment/day/%s" % sess.access_token,
+        }
+
+    def _single_item(self, ev):
+        assessment = ev.assessment_id
+        # Derive a coarse candidate-facing state for single mode from the
+        # evaluator + assessment lifecycle.
+        if ev.is_locked or ev.state == "submitted":
+            state = "completed"
+        elif assessment.state == "done":
+            state = "closed"
+        elif ev.state == "in_progress" and ev.started_at:
+            state = "in_progress"
+        elif assessment.state == "in_progress":
+            state = "available"
+        else:  # assessment still draft / not opened
+            state = "upcoming"
+
+        # Score display respects the results_released gate, same as day mode.
+        score_display = ""
+        if state in ("completed", "closed"):
+            if not ev.results_released:
+                score_display = "Awaiting results"
+            else:
+                verdict = ev.result.upper() if ev.result and ev.result != "pending" else ""
+                score_display = "%s%%%s" % (
+                    int(round(ev.score_percent)),
+                    " · %s" % verdict if verdict else "")
+
+        state_labels = {
+            "available": "Available",
+            "in_progress": "In Progress",
+            "upcoming": "Upcoming",
+            "completed": "Completed",
+            "closed": "Closed",
+        }
+        return {
+            "kind": "single",
+            "name": assessment.name,
+            "day_label": "",
+            "skill": "",
+            "state": state,
+            "state_label": state_labels.get(state, state),
+            "status_kind": self._SINGLE_STATUS_KIND.get(state, "locked"),
+            "score_display": score_display,
+            "total_questions": ev.total_questions,
+            "answered_count": ev.answered_count,
+            "scheduled_start": format_datetime(
+                self.env, assessment.start_date, dt_format="MMM d, h:mm a")
+                if assessment.start_date else "",
+            "deadline": format_datetime(
+                self.env, ev.deadline_datetime, dt_format="MMM d, h:mm a")
+                if ev.deadline_datetime else "",
+            "url": "/assessment/%s" % ev.access_token,
+        }
 
     @http.route("/my/assessments", type="http", auth="user", website=True)
-    def my_assessments_redirect(self, **kw):
-        # Resolve the backend action + menu so the web client opens directly on
-        # the candidate's My Assessments tab inside the ETP Assessment app.
-        action = request.env.ref(
-            "etp_assessment.action_my_assessments", raise_if_not_found=False)
-        menu = request.env.ref(
-            "etp_assessment.menu_etp_assessment_my", raise_if_not_found=False)
-        if action and menu:
-            return request.redirect(
-                "/odoo/action-%s?menu_id=%s" % (action.id, menu.id))
-        if action:
-            return request.redirect("/odoo/action-%s" % action.id)
-        return request.redirect("/odoo")
+    def my_assessments(self, **kw):
+        employee = self._resolve_employee()
+        if not employee:
+            # No linked employee → friendly empty state (still authenticated).
+            return request.render(
+                "etp_assessment.portal_my_assessments",
+                {"no_employee": True, "available": [], "in_progress": [],
+                 "upcoming": [], "completed": [], "total_count": 0})
+
+        # All reads via sudo() — portal users have no ACL on etp models.
+        day_sessions = request.env["etp.assessment.day.session"].sudo().search(
+            [("evaluator_id.employee_id", "=", employee.id)],
+            order="assessment_id, day_sequence")
+        single_evaluators = request.env["etp.assessment.evaluator"].sudo().search(
+            [("employee_id", "=", employee.id),
+             ("assessment_id.assessment_mode", "=", "single")],
+            order="create_date desc")
+
+        available, in_progress, upcoming, completed = [], [], [], []
+
+        for sess in day_sessions:
+            item = self._day_item(sess)
+            if sess.state == "available":
+                available.append(item)
+            elif sess.state == "in_progress":
+                in_progress.append(item)
+            elif sess.state == "locked":
+                upcoming.append(item)
+            else:  # submitted / scored / missed
+                completed.append(item)
+
+        for ev in single_evaluators:
+            item = self._single_item(ev)
+            if item["state"] == "available":
+                available.append(item)
+            elif item["state"] == "in_progress":
+                in_progress.append(item)
+            elif item["state"] == "upcoming":
+                upcoming.append(item)
+            else:  # completed / closed
+                completed.append(item)
+
+        total_count = (len(available) + len(in_progress)
+                       + len(upcoming) + len(completed))
+        return request.render(
+            "etp_assessment.portal_my_assessments",
+            {
+                "no_employee": False,
+                "employee": employee,
+                "available": available,
+                "in_progress": in_progress,
+                "upcoming": upcoming,
+                "completed": completed,
+                "total_count": total_count,
+            })
+
+
+class EtpPortalHome(CustomerPortal):
+
+    def _candidate_employee(self):
+        user = request.env.user
+        if not user.share:
+            return request.env["hr.employee"].browse()
+        return request.env["hr.employee"].sudo().search(
+            [("user_id", "=", user.id)], limit=1)
+
+    def _candidate_assessment_count(self, employee):
+        if not employee:
+            return 0
+        Day = request.env["etp.assessment.day.session"].sudo()
+        Single = request.env["etp.assessment.evaluator"].sudo()
+        return (Day.search_count(
+                    [("evaluator_id.employee_id", "=", employee.id)])
+                + Single.search_count(
+                    [("employee_id", "=", employee.id),
+                     ("assessment_id.assessment_mode", "=", "single")]))
+
+    def _prepare_home_portal_values(self, counters):
+        values = super()._prepare_home_portal_values(counters)
+        if "assessment_count" in counters:
+            values["assessment_count"] = self._candidate_assessment_count(
+                self._candidate_employee())
+        return values
+
+    @route()
+    def home(self, **kw):
+        # Candidates are portal-only assessment takers — send them straight to
+        # their progress view instead of the generic "My account" home.
+        employee = self._candidate_employee()
+        if employee and self._candidate_assessment_count(employee):
+            return request.redirect("/my/assessments")
+        return super().home(**kw)

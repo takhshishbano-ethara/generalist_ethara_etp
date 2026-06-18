@@ -8,7 +8,7 @@
 
         - Candidates (group_assessment_evaluator) see ONLY "My Assessments".
         - Managers (group_assessment_manager, which implies evaluator) see
-          everything: Assessments, Skills, Questions, etc.
+          everything: Assessments, Plans, Configuration, etc.
 
       So the root menu is gated to the EVALUATOR group (the lowest common
       denominator) and every admin/config item is gated to MANAGER. This keeps
@@ -38,66 +38,80 @@
               groups="etp_assessment.group_assessment_manager"
               sequence="5"/>
 
-    <menuitem id="menu_etp_assessment_skill"
-              name="Skills"
+    <!-- Plans: day plans + the materialized per-candidate day sessions -->
+    <menuitem id="menu_etp_assessment_plans"
+              name="Plans"
               parent="menu_etp_assessment_root"
-              action="action_etp_assessment_skill"
               groups="etp_assessment.group_assessment_manager"
               sequence="10"/>
 
-    <menuitem id="menu_etp_assessment_category"
-              name="Categories"
-              parent="menu_etp_assessment_root"
-              action="action_etp_assessment_category"
+    <menuitem id="menu_etp_assessment_days_admin"
+              name="Day Plans"
+              parent="menu_etp_assessment_plans"
+              action="action_assessment_days_admin"
               groups="etp_assessment.group_assessment_manager"
-              sequence="20"/>
+              sequence="1"/>
+
+    <menuitem id="menu_etp_assessment_day_sessions_admin"
+              name="Day Sessions"
+              parent="menu_etp_assessment_plans"
+              action="action_assessment_day_sessions_admin"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="2"/>
 
     <menuitem id="menu_etp_assessment_question"
               name="Questions"
               parent="menu_etp_assessment_root"
               action="action_etp_assessment_question"
               groups="etp_assessment.group_assessment_manager"
-              sequence="30"/>
-
-    <menuitem id="menu_etp_assessment_dimension"
-              name="Dimensions"
-              parent="menu_etp_assessment_root"
-              action="action_etp_assessment_dimension"
-              groups="etp_assessment.group_assessment_manager"
-              sequence="40"/>
+              sequence="20"/>
 
     <menuitem id="menu_etp_assessment_prompt"
               name="Generators"
               parent="menu_etp_assessment_root"
               action="action_etp_assessment_prompt"
               groups="etp_assessment.group_assessment_manager"
-              sequence="50"/>
-
-    <menuitem id="menu_etp_assessment_days_admin"
-              name="Day Plans"
-              parent="menu_etp_assessment_root"
-              action="action_assessment_days_admin"
-              groups="etp_assessment.group_assessment_manager"
-              sequence="60"/>
-
-    <menuitem id="menu_etp_assessment_day_sessions_admin"
-              name="All Day Sessions"
-              parent="menu_etp_assessment_root"
-              action="action_assessment_day_sessions_admin"
-              groups="etp_assessment.group_assessment_manager"
-              sequence="65"/>
+              sequence="30"/>
 
     <menuitem id="menu_etp_assessment_responses"
               name="All Responses"
               parent="menu_etp_assessment_root"
               action="action_etp_assessment_response"
               groups="etp_assessment.group_assessment_manager"
-              sequence="70"/>
+              sequence="40"/>
 
-    <menuitem id="menu_etp_assessment_config"
+    <!-- Configuration: reference data + settings -->
+    <menuitem id="menu_etp_assessment_config_root"
               name="Configuration"
               parent="menu_etp_assessment_root"
-              action="action_etp_assessment_config"
               groups="etp_assessment.group_assessment_manager"
               sequence="90"/>
+
+    <menuitem id="menu_etp_assessment_skill"
+              name="Skills"
+              parent="menu_etp_assessment_config_root"
+              action="action_etp_assessment_skill"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="1"/>
+
+    <menuitem id="menu_etp_assessment_category"
+              name="Categories"
+              parent="menu_etp_assessment_config_root"
+              action="action_etp_assessment_category"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="2"/>
+
+    <menuitem id="menu_etp_assessment_dimension"
+              name="Dimensions"
+              parent="menu_etp_assessment_config_root"
+              action="action_etp_assessment_dimension"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="3"/>
+
+    <menuitem id="menu_etp_assessment_config"
+              name="Settings"
+              parent="menu_etp_assessment_config_root"
+              action="action_etp_assessment_config"
+              groups="etp_assessment.group_assessment_manager"
+              sequence="10"/>
 </odoo>

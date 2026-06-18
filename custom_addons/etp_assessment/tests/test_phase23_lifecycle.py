@@ -113,12 +113,24 @@ class _Base(TransactionCase):
             vals["category_id"] = category.id
         return self.Question.create(vals)
 
+    def _make_single_assessment(self, category, num_candidates=1, qlimit=0):
+        emps = [self._make_employee(f"Emp_{i}") for i in range(num_candidates)]
+        a = self.Assessment.create({
+            "name": "T1",
+            "assessment_mode": "single",
+            "category_id": category.id,
+            "question_limit": qlimit,
+            "duration_minutes": 30,
+            "evaluator_ids": [(6, 0, [e.id for e in emps])],
+        })
+        return a, emps
 
     def _make_multi_day(self, num_days=3, num_candidates=2, sequential=True,
                         skill=None, with_questions=True):
         emps = [self._make_employee(f"Cand_{i}") for i in range(num_candidates)]
         a = self.Assessment.create({
             "name": "Multi",
+            "assessment_mode": "multi_day",
             "num_days": num_days,
             "sequential_days": sequential,
             "evaluator_ids": [(6, 0, [e.id for e in emps])],
@@ -126,41 +138,42 @@ class _Base(TransactionCase):
         a.action_scaffold_days()
         if skill and with_questions:
             for day in a.day_ids:
-                # Mirror the UI onchange: binding skills carries the
-                # duration/count onto the day (ORM writes don't fire onchange).
-                day.skill_ids = [(6, 0, [skill.id])]
-                if not day.duration_minutes:
-                    day.duration_minutes = skill.time_minutes or 0
+                day.skill_id = skill.id
         return a, emps
 
 
 class TestAssessmentLifecycle(_Base):
 
-    def test_create_defaults(self):
-        # A fresh assessment is a draft day-plan; sequential on by default.
-        a = self.Assessment.create({"name": "S"})
+    def test_create_single_mode_defaults(self):
+        cat = self._make_category()
+        a = self.Assessment.create({
+            "name": "S", "assessment_mode": "single",
+            "category_id": cat.id,
+        })
         self.assertEqual(a.state, "draft")
         self.assertEqual(a.num_days, 0)
         self.assertFalse(a.day_ids)
-        self.assertTrue(a.sequential_days)
 
-    def test_one_off_is_single_day_plan(self):
-        # A one-off test is just a 1-day plan: scaffold 1 day, bind a skill,
-        # generate -> one day session per candidate, day 1 available.
-        skill = self._make_skill()
+    def test_single_mode_start(self):
         cat = self._make_category()
+        skill = self._make_skill()
         self._make_mcq("Q1", correct_idx=0, category=cat, skill=skill)
-        a, emps = self._make_multi_day(
-            num_days=1, num_candidates=1, skill=skill)
-        for day in a.day_ids:
-            day.question_count = 1
-        a.action_generate_plan()
+        self._make_mcq("Q2", correct_idx=1, category=cat, skill=skill)
+        a, emps = self._make_single_assessment(cat, num_candidates=1, qlimit=2)
+        a.action_start()
         self.assertEqual(a.state, "in_progress")
-        sessions = self.env["etp.assessment.day.session"].search(
-            [("assessment_id", "=", a.id)])
-        self.assertEqual(len(sessions), 1)
-        self.assertEqual(sessions.day_sequence, 1)
-        self.assertEqual(sessions.state, "available")
+        self.assertEqual(len(a.assessment_evaluator_ids), 1)
+        ev = a.assessment_evaluator_ids
+        order = json.loads(ev.question_order or "[]")
+        self.assertEqual(len(order), 2)
+        self.assertEqual(ev.total_questions, 2)
+
+    def test_single_mode_requires_category(self):
+        with self.assertRaises(ValidationError):
+            self.Assessment.create({
+                "name": "Bad", "assessment_mode": "single",
+                "category_id": False,
+            })
 
 
 class TestMultiDayPlan(_Base):
@@ -231,44 +244,6 @@ class TestMultiDayPlan(_Base):
         s0 = fut_a.day_session_ids.filtered(lambda s: s.day_sequence == 1)
         self.assertEqual(s0.state, "locked")
 
-    def test_multi_skill_union_pool(self):
-        # A day bound to multiple skills draws from the UNION of their
-        # question pools, deduped, and capped at question_count.
-        skill_a = self._make_skill(name="SkillA")
-        skill_b = self._make_skill(name="SkillB")
-        # 2 questions unique to A, 2 unique to B, 1 shared between A and B.
-        qa1, _, _ = self._make_mcq("A1", skill=skill_a)
-        qa2, _, _ = self._make_mcq("A2", correct_idx=1, skill=skill_a)
-        qb1, _, _ = self._make_mcq("B1", skill=skill_b)
-        qb2, _, _ = self._make_mcq("B2", correct_idx=1, skill=skill_b)
-        qshared, _, _ = self._make_mcq("Shared", skill=skill_a)
-        qshared.skill_ids = [(4, skill_b.id)]
-
-        a, _ = self._make_multi_day(
-            num_days=1, num_candidates=1, skill=None, with_questions=False)
-        day = a.day_ids[0]
-        day.skill_ids = [(6, 0, [skill_a.id, skill_b.id])]
-        day.duration_minutes = 20
-        day.question_count = 0  # 0 = all (no cap)
-
-        # skill_id back-compat: pinned to first.
-        self.assertEqual(day.skill_id, skill_a)
-        # available count counts the union, deduped.
-        self.assertEqual(day.available_question_count, 5)
-
-        # Resolve: must contain all 5 unique question ids exactly once.
-        resolved = day._resolve_question_ids()
-        self.assertEqual(sorted(resolved),
-                         sorted([qa1.id, qa2.id, qb1.id, qb2.id, qshared.id]))
-        self.assertEqual(len(set(resolved)), len(resolved))
-
-        # Cap respected: question_count=3 means resolved length <= 3.
-        day.question_count = 3
-        resolved3 = day._resolve_question_ids()
-        self.assertEqual(len(resolved3), 3)
-        self.assertTrue(set(resolved3).issubset(
-            {qa1.id, qa2.id, qb1.id, qb2.id, qshared.id}))
-
 
 class TestDaySessionStateMachine(_Base):
 
@@ -307,11 +282,6 @@ class TestDaySessionStateMachine(_Base):
 
     def test_action_submit_day_unlocks_next(self):
         a, skill = self._setup(num_days=2, num_candidates=1, sequential=True)
-        # Both days scheduled for today so the test exercises the unlock CHAIN,
-        # not the future-date gate (a future day stays locked by design).
-        today0 = fields.Datetime.now().replace(
-            hour=0, minute=0, second=0, microsecond=0)
-        a.day_ids.write({"scheduled_start": today0})
         day1 = a.day_session_ids.filtered(lambda s: s.day_sequence == 1)
         day2 = a.day_session_ids.filtered(lambda s: s.day_sequence == 2)
         self.assertEqual(day1.state, "available")
@@ -384,17 +354,13 @@ class TestScoring(_Base):
             question.category_id = cat.id
         emp = self._make_employee("Solo")
         a = self.Assessment.create({
-            "name": "Sc",
+            "name": "Sc", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])],
         })
-        ev = self.Evaluator.create({
-            "assessment_id": a.id, "employee_id": emp.id,
-            "question_order": json.dumps([question.id]), "total_questions": 1,
-        })
-        a.write({"state": "in_progress"})
-        return a, ev
+        a.action_start()
+        return a, a.assessment_evaluator_ids[0]
 
     def test_mcq_correct_full_score(self):
         q, dim, master = self._make_mcq("MCQ1", correct_idx=0)
@@ -453,7 +419,7 @@ class TestScoring(_Base):
         q = self._make_subjective("S1", category=cat)
         emp = self._make_employee("Cand")
         a = self.Assessment.create({
-            "name": "Sub",
+            "name": "Sub", "assessment_mode": "single",
             "category_id": cat.id,
             "question_limit": 1, "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])],
@@ -474,7 +440,7 @@ class TestScoring(_Base):
         q = self._make_subjective("S2", category=cat)
         emp = self._make_employee("Subj")
         a = self.Assessment.create({
-            "name": "AS",
+            "name": "AS", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])],
@@ -522,17 +488,13 @@ class TestScoring(_Base):
         q_subj = self._make_subjective("EVQ2", category=cat)
         emp = self._make_employee("Both")
         a = self.Assessment.create({
-            "name": "B",
+            "name": "B", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 2,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])],
         })
-        ev = self.Evaluator.create({
-            "assessment_id": a.id, "employee_id": emp.id,
-            "question_order": json.dumps([q_mcq.id, q_subj.id]),
-            "total_questions": 2,
-        })
-        a.write({"state": "in_progress"})
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
         r_mcq = self._build_response(q_mcq, ev, picks=[master[0].id])
         r_mcq.action_submit()
         r_subj = self._build_response(q_subj, ev, justification="reasoned answer")
@@ -558,7 +520,7 @@ class TestEnqueueScoring(_Base):
         q = self._make_subjective("EQ", category=cat)
         emp = self._make_employee("EnqCand")
         a = self.Assessment.create({
-            "name": "EnqA",
+            "name": "EnqA", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30, "llm_auto_score": llm_auto,
             "evaluator_ids": [(6, 0, [emp.id])],
@@ -590,16 +552,13 @@ class TestEnqueueScoring(_Base):
         q, dim, master = self._make_mcq("NoJustMCQ", category=cat)
         emp = self._make_employee("NJ")
         a = self.Assessment.create({
-            "name": "NJA",
+            "name": "NJA", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])],
         })
-        ev = self.Evaluator.create({
-            "assessment_id": a.id, "employee_id": emp.id,
-            "question_order": json.dumps([q.id]), "total_questions": 1,
-        })
-        a.write({"state": "in_progress"})
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
         r = self.Response.create({
             "assessment_id": a.id,
             "assessment_evaluator_id": ev.id,
@@ -655,35 +614,29 @@ class TestRecordRules(_Base):
         q, dim, master = self._make_mcq("RR_Q", category=cat)
 
         a1 = self.Assessment.create({
-            "name": "RR_A1",
+            "name": "RR_A1", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [e1.id])],
         })
-        ev1 = self.Evaluator.create({
-            "assessment_id": a1.id, "employee_id": e1.id,
-            "question_order": json.dumps([q.id]), "total_questions": 1,
-        })
-        a1.write({"state": "in_progress"})
+        a1.action_start()
         a2 = self.Assessment.create({
-            "name": "RR_A2",
+            "name": "RR_A2", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [e2.id])],
         })
-        ev2 = self.Evaluator.create({
-            "assessment_id": a2.id, "employee_id": e2.id,
-            "question_order": json.dumps([q.id]), "total_questions": 1,
-        })
-        a2.write({"state": "in_progress"})
+        a2.action_start()
+        ev1 = a1.assessment_evaluator_ids
+        ev2 = a2.assessment_evaluator_ids
 
         skill = self._make_skill("RRSkill")
         a3 = self.Assessment.create({
-            "name": "RR_A3",
+            "name": "RR_A3", "assessment_mode": "multi_day",
             "num_days": 1, "evaluator_ids": [(6, 0, [e1.id, e2.id])],
         })
         a3.action_scaffold_days()
-        a3.day_ids[0].skill_ids = [(6, 0, [skill.id])]
+        a3.day_ids[0].skill_id = skill.id
         self._make_mcq("RR_Q2", correct_idx=0, skill=skill, category=cat)
         a3.action_generate_plan()
 
@@ -751,16 +704,13 @@ class TestExportResults(_Base):
         q, dim, master = self._make_mcq("XQ", category=cat)
         emp = self._make_employee("XCand")
         a = self.Assessment.create({
-            "name": "ExA",
+            "name": "ExA", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
             "duration_minutes": 30,
             "evaluator_ids": [(6, 0, [emp.id])],
         })
-        ev = self.Evaluator.create({
-            "assessment_id": a.id, "employee_id": emp.id,
-            "question_order": json.dumps([q.id]), "total_questions": 1,
-        })
-        a.write({"state": "in_progress"})
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
         r = self.Response.create({
             "assessment_id": a.id,
             "assessment_evaluator_id": ev.id,
@@ -809,7 +759,7 @@ class TestPortalControllerSmoke(HttpCase, _Base):
         emp = self._make_employee("PortalCand")
         a = self.Assessment.create({
             "name": "PortalAssess",
-           
+            "assessment_mode": "multi_day",
             "num_days": 1,
             "sequential_days": True,
             "evaluator_ids": [(6, 0, [emp.id])],

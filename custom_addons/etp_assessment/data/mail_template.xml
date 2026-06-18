@@ -4,7 +4,7 @@
         <field name="name">ETP Assessment: Day Invitation</field>
         <field name="model_id" ref="model_etp_assessment_day_session"/>
         <field name="subject">Your assessment is ready: {{ object.assessment_id.name }} — Day {{ object.day_id.sequence }}</field>
-        <field name="email_from">{{ object.assessment_id.create_uid.email_formatted or user.email_formatted or (object.env['ir.config_parameter'].sudo().get_param('mail.default.from') and (object.env['ir.config_parameter'].sudo().get_param('mail.default.from') + '@' + (object.env['ir.config_parameter'].sudo().get_param('mail.catchall.domain') or ''))) or '' }}</field>
+        <field name="email_from">{{ (object.assessment_id.create_uid.email_formatted or user.email_formatted) }}</field>
         <field name="email_to">{{ object.evaluator_id.employee_id.work_email or object.evaluator_id.employee_id.user_id.email or '' }}</field>
         <field name="body_html" type="html">
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.5">
@@ -31,6 +31,40 @@
     <p style="color:#888;font-size:12px">
         Or paste this URL into your browser:<br/>
         <span t-out="(object.assessment_id.env['ir.config_parameter'].sudo().get_param('web.base.url') or 'http://localhost:8069') + '/assessment/day/' + (object.access_token or '')"/>
+    </p>
+    <p style="color:#888;font-size:12px">This link is personal to you. Do not share it.</p>
+</div>
+        </field>
+        <field name="auto_delete" eval="False"/>
+        <field name="use_default_to" eval="False"/>
+        <field name="lang">en_US</field>
+    </record>
+
+    <record id="mail_template_single_invitation" model="mail.template">
+        <field name="name">ETP Assessment: Single Test Invitation</field>
+        <field name="model_id" ref="model_etp_assessment_evaluator"/>
+        <field name="subject">Your assessment is ready: {{ object.assessment_id.name }}</field>
+        <field name="email_from">{{ (object.assessment_id.create_uid.email_formatted or user.email_formatted) }}</field>
+        <field name="email_to">{{ object.employee_id.work_email or object.employee_id.user_id.email or '' }}</field>
+        <field name="body_html" type="html">
+<div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.5">
+    <p>Hi <strong t-out="object.employee_id.name or 'there'"/>,</p>
+    <p>You have been assigned an assessment.</p>
+    <table style="border-collapse:collapse;margin:12px 0">
+        <tr><td style="padding:6px 12px"><b>Assessment:</b></td><td t-out="object.assessment_id.name"/></tr>
+        <tr><td style="padding:6px 12px"><b>Category:</b></td><td t-out="object.assessment_id.category_id.name or ''"/></tr>
+        <tr><td style="padding:6px 12px"><b>Duration:</b></td><td><span t-out="object.assessment_id.duration_minutes"/> minutes</td></tr>
+        <tr><td style="padding:6px 12px"><b>Questions:</b></td><td t-out="object.total_questions"/></tr>
+    </table>
+    <p style="margin:24px 0">
+        <a t-att-href="'/assessment/' + (object.access_token or '')"
+           style="background:#714B67;color:#fff;padding:10px 22px;text-decoration:none;border-radius:4px;font-weight:600">
+            Start Assessment
+        </a>
+    </p>
+    <p style="color:#888;font-size:12px">
+        Or paste this URL into your browser:<br/>
+        <span t-out="(object.assessment_id.env['ir.config_parameter'].sudo().get_param('web.base.url') or 'http://localhost:8069') + '/assessment/' + (object.access_token or '')"/>
     </p>
     <p style="color:#888;font-size:12px">This link is personal to you. Do not share it.</p>
 </div>

@@ -52,11 +52,22 @@ class EtpAssessment(models.Model):
 
     # The mode decides which branch of the form / lifecycle drives the
     # assessment. category_id is required only in single; skill_id on day
+    # rows is required only in multi_day — both enforced via @api.constrains
+    # so blank scaffolding never trips a NOT NULL violation on the DB.
+    assessment_mode = fields.Selection(
+        [("single", "Single Test"), ("multi_day", "Multi-Day Plan")],
+        default="multi_day",
+        required=True,
+        help="Single = one flat test from a category. Multi-day = N-day plan, "
+             "one skill per day, per-candidate per-day sessions. "
+             "NOTE: single mode is retired from the UI; all new assessments "
+             "are multi_day (num_days=1 covers the old single-test case). "
+             "The single-mode field/methods are kept dormant for data "
+             "integrity on legacy records.",
+    )
+
     # ------------------------------------------------------------------
-    # Question-source fields. Every assessment is a day-based plan now
-    # (a one-off test is simply a 1-day plan). category_id/question_limit
-    # are retained as OPTIONAL metadata (the Flutter/extension serializer
-    # still reads them); the day binds questions via skill_id.
+    # SINGLE-MODE fields (ported from reference). Inert in multi_day.
     # ------------------------------------------------------------------
     category_id = fields.Many2one(
         "etp.assessment.category",
@@ -90,7 +101,9 @@ class EtpAssessment(models.Model):
     # in assessment_day.py (loaded right after this file — both classes
     # are in the registry by the time One2many resolves).
     # ------------------------------------------------------------------
-    num_days = fields.Integer(string="Number of Days", default=0)
+    num_days = fields.Integer(
+        string="Number of Days", default=1,
+        help="1 for a single-day test, more for a multi-day plan.")
     sequential_days = fields.Boolean(
         string="Sequential Days", default=True,
         help="Days unlock in order: submitting day N opens day N+1. "
@@ -124,12 +137,11 @@ class EtpAssessment(models.Model):
     # Shared scheduling.
     start_date = fields.Datetime(string="Start Date")
     end_date = fields.Datetime(string="End Date")
-    deadline = fields.Date()
 
     # ------------------------------------------------------------------
     # Candidates: many2many evaluator_ids is the "assigned" list (admin
     # toggles before launch); assessment_evaluator_ids is the materialized
-    # row per candidate (created by action_generate_plan).
+    # row per candidate (created by action_start / action_generate_plan).
     # ------------------------------------------------------------------
     evaluator_ids = fields.Many2many(
         "hr.employee",
@@ -237,6 +249,66 @@ class EtpAssessment(models.Model):
             if rec.start_date and rec.end_date and rec.start_date >= rec.end_date:
                 raise ValidationError("End Date must be after Start Date.")
 
+    @api.constrains("assessment_mode", "category_id")
+    def _check_single_requires_category(self):
+        # Mode-specific NOT NULL surrogate: the column stays nullable so
+        # multi_day scaffolding can leave it blank, but a single-mode plan
+        # has no source of questions without it.
+        for rec in self:
+            if rec.assessment_mode == "single" and not rec.category_id:
+                raise ValidationError(
+                    "Single-mode assessments require a question category."
+                )
+
+    # ------------------------------------------------------------------
+    # SINGLE-MODE lifecycle (ported as-is from the reference).
+    # ------------------------------------------------------------------
+    def action_start(self):
+        for rec in self:
+            if rec.assessment_mode != "single":
+                raise UserError(
+                    "Single-mode action. Use 'Generate Plan' for multi-day "
+                    "assessments."
+                )
+            if rec.state != "draft":
+                raise UserError("Only draft assessments can be started.")
+            if not rec.evaluator_ids:
+                raise UserError("Please assign at least one candidate before starting.")
+            if not rec.category_id:
+                raise UserError("Please select a question category.")
+
+            available_questions = self.env["etp.assessment.question"].search([
+                ("category_id", "=", rec.category_id.id), ("active", "=", True),
+            ])
+            if not available_questions:
+                raise UserError(
+                    "No active questions found in the selected category.")
+
+            limit = rec.question_limit or len(available_questions)
+            if limit > len(available_questions):
+                raise UserError(
+                    f"Requested {limit} questions but only "
+                    f"{len(available_questions)} available in this category.")
+
+            all_question_ids = available_questions.ids
+            rec.write({
+                "question_ids": [(6, 0, all_question_ids)],
+                "state": "in_progress",
+                "start_date": rec.start_date or fields.Datetime.now(),
+            })
+
+            for evaluator in rec.evaluator_ids:
+                candidate_questions = random.sample(all_question_ids, limit)
+                random.shuffle(candidate_questions)
+                ev = self.env["etp.assessment.evaluator"].create({
+                    "assessment_id": rec.id,
+                    "employee_id": evaluator.id,
+                    "question_order": json.dumps(candidate_questions),
+                    "total_questions": len(candidate_questions),
+                    "access_token": str(uuid.uuid4()),
+                })
+                ev._send_single_invitation()
+
     def action_done(self):
         for rec in self:
             if rec.state != "in_progress":
@@ -258,6 +330,54 @@ class EtpAssessment(models.Model):
             rec.response_ids.unlink()
             rec.write({"question_ids": [(5, 0, 0)]})
         self.write({"state": "draft"})
+
+    @api.constrains("start_date", "end_date")
+    def _check_schedule_dates(self):
+        today = fields.Date.context_today(self)
+        for rec in self:
+            if rec.state != "draft":
+                continue
+            if rec.start_date and rec.start_date.date() < today:
+                raise ValidationError(
+                    "Start Date cannot be in the past.")
+            if rec.start_date and rec.end_date and rec.end_date < rec.start_date:
+                raise ValidationError(
+                    "End Date must be on or after the Start Date.")
+
+    def _ensure_portal_user(self, employee):
+        # Bind each candidate to a PORTAL (external) login so the exam guard
+        # (which matches employee.user_id) recognizes them. Idempotent and
+        # safe to re-run. Returns 'exists' | 'linked' | 'created' | 'skipped'.
+        employee = employee.sudo()
+        if employee.user_id:
+            return "exists"
+        email = (employee.work_email or "").strip()
+        if not email:
+            return "skipped"
+        Users = self.env["res.users"].sudo()
+        user = Users.with_context(active_test=False).search(
+            [("login", "=", email)], limit=1)
+        status = "linked"
+        if not user:
+            portal = self.env.ref("base.group_portal")
+            user = Users.create({
+                "name": employee.name or email,
+                "login": email,
+                "email": email,
+                "tz": self.env.user.tz or "UTC",
+                "group_ids": [(6, 0, [portal.id])],
+            })
+            status = "created"
+            try:
+                user.action_reset_password()
+            except Exception:
+                _logger.exception(
+                    "Portal signup invite failed for candidate %s (%s)",
+                    employee.name, email)
+        if not user.active:
+            user.active = True
+        employee.user_id = user.id
+        return status
 
     def action_import_candidates_csv(self):
         self.ensure_one()
@@ -315,15 +435,26 @@ class EtpAssessment(models.Model):
             "candidate_csv_filename": False,
         })
 
+        provisioned = {"created": 0, "linked": 0, "exists": 0, "skipped": 0}
+        for emp in Employee.browse(imported_ids):
+            provisioned[self._ensure_portal_user(emp)] += 1
+
+        message = (f"{len(new_ids)} new candidate(s) added. "
+                   f"{len(imported_ids) - len(new_ids)} already assigned.\n"
+                   f"Portal access: {provisioned['created']} invited, "
+                   f"{provisioned['linked']} linked, "
+                   f"{provisioned['exists']} already had one.")
+        if provisioned["skipped"]:
+            message += (f"\n\u26a0 {provisioned['skipped']} candidate(s) had no "
+                        f"email \u2014 no portal access created for them.")
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
                 "title": "Candidates Imported",
-                "message": f"{len(new_ids)} new candidate(s) added. "
-                           f"{len(imported_ids) - len(new_ids)} already assigned.",
-                "type": "success",
-                "sticky": False,
+                "message": message,
+                "type": "warning" if provisioned["skipped"] else "success",
+                "sticky": bool(provisioned["skipped"]),
             },
         }
 
@@ -630,6 +761,32 @@ class EtpAssessmentEvaluator(models.Model):
             else:
                 rec.llm_state = "pending"
 
+    def _send_single_invitation(self):
+        tpl = self.env.ref(
+            "etp_assessment.mail_template_single_invitation",
+            raise_if_not_found=False)
+        if not tpl:
+            return
+        for rec in self:
+            emp = rec.employee_id
+            to_email = (emp.work_email or
+                        (emp.user_id.email if emp.user_id else "") or "")
+            if not to_email:
+                base = self.env["ir.config_parameter"].sudo().get_param(
+                    "web.base.url") or "http://localhost:8069"
+                link = f"{base}/assessment/{rec.access_token}"
+                self.env["mail.mail"].sudo().create({
+                    "subject": f"[NO EMAIL] {rec.assessment_id.name}",
+                    "body_html": tpl._render_field("body_html", rec.ids)[rec.id],
+                    "email_to": "",
+                    "state": "cancel",
+                    "failure_reason": f"No email on candidate {emp.name!r}. "
+                                      f"Portal link: {link}",
+                    "auto_delete": False,
+                })
+                continue
+            tpl.send_mail(rec.id, force_send=False)
+
     def action_llm_score(self):
         """Trigger subjective scoring for this candidate's needs_llm
         responses. Returns the count of responses scored (informational).
@@ -778,15 +935,20 @@ class EtpAssessmentResponse(models.Model):
     @api.depends("line_ids.selected_option_id",
                  "question_id.question_dimension_ids.option_line_ids.is_correct")
     def _compute_answer_summary(self):
+        # SECURITY: candidates have no direct read on question/dimension/option
+        # (answer-key) models. The own-records record rule has already scoped
+        # `self` to their OWN responses, so sudo here is a read-only display
+        # bypass over own data — it leaks nothing about other candidates.
         for rec in self:
+            rec_s = rec.sudo()
             chosen = [
                 line.selected_option_id.name
-                for line in rec.line_ids
+                for line in rec_s.line_ids
                 if line.selected_option_id
             ]
             rec.answer_summary = ", ".join(chosen)
             correct = []
-            for qd in rec.question_id.question_dimension_ids:
+            for qd in rec_s.question_id.question_dimension_ids:
                 for ol in qd.option_line_ids.filtered("is_correct"):
                     if ol.name:
                         correct.append(ol.name)

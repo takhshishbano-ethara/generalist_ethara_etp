@@ -333,9 +333,6 @@ class EtpProjectAwsBudget(models.Model):
             rec.llm_consumed_amount = llm_consumed
             if rec.project_type == "rnd":
                 rec.total_approved_amount = envelope
-            else:
-                rec.total_approved_amount = rec.budget_amount or 0.0
-            if rec.project_type == "rnd":
                 rec.allocated_amount = 0.0
                 rec.consumed_amount = llm_consumed
                 rec.remaining_amount = envelope - llm_consumed
@@ -352,6 +349,7 @@ class EtpProjectAwsBudget(models.Model):
                     locked += batch.approved_amount or 0.0
                     consumed += batch.consumed_cost or 0.0
                 rec.allocated_amount = locked
+                rec.total_approved_amount = locked
                 rec.consumed_amount = consumed
                 rec.remaining_amount = envelope - locked
                 consumed_for_pct = consumed

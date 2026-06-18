@@ -38,30 +38,20 @@ class EtpAssessmentDay(models.Model):
     # the model level so that action_scaffold_days can create blank rows
     # before the admin assigns skills; enforced in action_generate_plan
     # via a manual check (brief §9.2).
-    # Multi-skill: a day can draw from one or more skill banks. ``skill_ids``
-    # is the source of truth; ``skill_id`` is a stored compute pinned to the
-    # first skill so every existing read site (templates, related fields,
-    # mail template, candidate views) keeps working with no edits.
-    skill_ids = fields.Many2many(
-        "etp.assessment.skill",
-        relation="etp_assessment_day_skill_rel",
-        column1="day_id", column2="skill_id",
-        string="Skills",
-        help="One or more skills whose question banks fuel this day. "
-             "The question pool is the union of all selected skills' "
-             "active questions.")
+    pool_by = fields.Selection(
+        [("skill", "Skill"), ("category", "Category")],
+        default="skill", required=True, string="Pool By",
+        help="Whether this day draws its question pool from a single Skill "
+             "or from a Category (which may span multiple skills).")
     skill_id = fields.Many2one(
-        "etp.assessment.skill", string="Primary Skill",
-        compute="_compute_skill_id", store=True, readonly=True,
-        ondelete="restrict",
-        help="First selected skill, used as the primary label everywhere "
-             "a single skill is displayed (kanban, list, emails). Derived "
-             "from skill_ids[:1].")
+        "etp.assessment.skill", string="Skill", ondelete="restrict",
+        help="The skill whose question bank fuels this day. "
+             "Required before Launch when Pool By = Skill.")
     category_id = fields.Many2one(
-        "etp.assessment.category", string="Secondary Category Filter",
-        ondelete="restrict",
-        help="Optional secondary filter. Skill is the primary binding; "
-             "category here is informational unless a future flow re-uses it.")
+        "etp.assessment.category", string="Category", ondelete="restrict",
+        help="The category whose active questions fuel this day (may span "
+             "multiple skills). Required before Launch when Pool By = "
+             "Category.")
 
     question_count = fields.Integer(string="Question Count", default=0)
     available_question_count = fields.Integer(
@@ -71,7 +61,7 @@ class EtpAssessmentDay(models.Model):
     scheduled_start = fields.Datetime(string="Scheduled Start")
 
     question_source = fields.Selection(
-        [("skill_pool", "Skill Pool (auto-shuffle)"),
+        [("skill_pool", "Auto (shuffle pool)"),
          ("manual", "Manual Pick")],
         default="skill_pool",
         required=True,
@@ -89,95 +79,82 @@ class EtpAssessmentDay(models.Model):
     day_session_ids = fields.One2many(
         "etp.assessment.day.session", "day_id", string="Day Sessions")
 
-    @api.depends("skill_ids")
-    def _compute_skill_id(self):
-        for rec in self:
-            rec.skill_id = rec.skill_ids[:1]
-
-    @api.depends("sequence", "skill_ids", "skill_ids.name")
+    @api.depends("skill_id", "sequence", "skill_id.name",
+                 "pool_by", "category_id", "category_id.name")
     def _compute_name(self):
         for rec in self:
-            skills = rec.skill_ids
-            if not skills:
-                label = "Unassigned Skill"
-            elif len(skills) == 1:
-                label = skills.name
+            if rec.pool_by == "category":
+                base = rec.category_id.name or "Unassigned Category"
             else:
-                label = f"{skills[0].name} +{len(skills) - 1}"
-            rec.name = f"Day {rec.sequence}: {label}"
+                base = rec.skill_id.name or "Unassigned Skill"
+            rec.name = f"Day {rec.sequence}: {base}"
 
-    @api.depends("skill_ids", "skill_ids.question_ids", "skill_ids.question_ids.active")
+    def _pool_questions(self):
+        """Active question pool for this day: the skill's bank, or (category
+        mode) all active questions tagged with the category, across skills."""
+        self.ensure_one()
+        Question = self.env["etp.assessment.question"]
+        if self.pool_by == "category":
+            if not self.category_id:
+                return Question.browse()
+            return Question.search([
+                ("category_id", "=", self.category_id.id),
+                ("active", "=", True)])
+        if not self.skill_id:
+            return Question.browse()
+        return self.skill_id.question_ids.filtered(lambda q: q.active)
+
+    @api.depends("pool_by", "skill_id", "skill_id.question_ids",
+                 "skill_id.question_ids.active", "category_id")
     def _compute_available_question_count(self):
         for rec in self:
-            pool = rec.skill_ids.question_ids.filtered(lambda q: q.active)
-            rec.available_question_count = len(pool)
+            rec.available_question_count = len(rec._pool_questions())
 
-    @api.onchange("skill_ids")
-    def _onchange_skill_ids(self):
-        # Auto-default count + duration from the FIRST skill the first time
-        # one is picked; admin can still override either field.
-        first = self.skill_ids[:1]
-        if first:
+    @api.onchange("skill_id")
+    def _onchange_skill_id(self):
+        # Auto-default count + duration from the skill's artifact fields
+        # the first time a skill is picked; admin can still override.
+        if self.skill_id:
             if not self.question_count:
-                self.question_count = first.question_count or 0
+                self.question_count = self.skill_id.question_count or 0
             if not self.duration_minutes:
-                self.duration_minutes = first.time_minutes or 0
+                self.duration_minutes = self.skill_id.time_minutes or 0
 
-    @staticmethod
-    def _floor_to_midnight(dt):
-        # A day "opens" at the START of its scheduled calendar day, not at an
-        # arbitrary time. Snap any scheduled_start down to 00:00:00 so the
-        # day becomes available at midnight of that date.
-        if not dt:
-            return dt
-        return dt.replace(hour=0, minute=0, second=0, microsecond=0)
-
-    @api.model_create_multi
-    def create(self, vals_list):
-        for vals in vals_list:
-            if vals.get("scheduled_start"):
-                dt = fields.Datetime.to_datetime(vals["scheduled_start"])
-                vals["scheduled_start"] = self._floor_to_midnight(dt)
-        return super().create(vals_list)
-
-    def write(self, vals):
-        if vals.get("scheduled_start"):
-            dt = fields.Datetime.to_datetime(vals["scheduled_start"])
-            vals["scheduled_start"] = self._floor_to_midnight(dt)
-        return super().write(vals)
-
-    @api.constrains("question_source", "skill_ids", "question_ids")
+    @api.constrains("question_source", "skill_id", "category_id",
+                    "question_ids", "pool_by")
     def _check_manual_questions(self):
         for rec in self:
             if rec.question_source != "manual":
                 continue
-            if not rec.skill_ids:
+            if rec.pool_by == "category" and not rec.category_id:
                 continue
-            allowed_qids = set(rec.skill_ids.question_ids.ids)
-            bad = [q.id for q in rec.question_ids if q.id not in allowed_qids]
+            if rec.pool_by == "skill" and not rec.skill_id:
+                continue
+            pool_ids = set(rec._pool_questions().ids)
+            bad = [q.id for q in rec.question_ids if q.id not in pool_ids]
             if bad:
-                names = ", ".join(rec.skill_ids.mapped("name"))
+                binding = (rec.category_id.name if rec.pool_by == "category"
+                           else rec.skill_id.name)
                 raise ValidationError(
-                    f"Manual questions {bad} are not part of the selected "
-                    f"skills ({names}). Either change the skill set or only "
-                    f"pick from those banks.")
+                    f"Manual questions {bad} are not part of "
+                    f"'{binding}'. Either change the binding or only pick "
+                    f"from its pool.")
 
     def _resolve_question_ids(self):
         """Return a shuffled list of question.ids for one candidate's session.
 
-        Skill-pool mode: union of ``skill_ids[].question_ids`` filtered to
-        active, deduplicated, shuffled, capped at ``question_count``
-        (0 = unlimited).
+        Skill-pool mode: draws from ``skill.question_ids`` filtered to
+        active, capped at ``question_count`` (0 = unlimited).
         Manual mode: uses the admin's hand-picked ``question_ids``.
         """
         self.ensure_one()
         if self.question_source == "manual":
             pool = self.question_ids.ids
         else:
-            pool = self.skill_ids.question_ids.filtered(lambda q: q.active).ids
+            pool = self._pool_questions().ids
         if not pool:
             return []
-        order = list(dict.fromkeys(pool))
+        order = list(pool)
         random.shuffle(order)
         if self.question_count and len(order) > self.question_count:
             order = order[:self.question_count]
@@ -242,6 +219,8 @@ class EtpAssessmentDaySession(models.Model):
     # ---- Candidate "My Assessments" helpers -------------------------------
     # The candidate hub groups day sessions into three buckets. Computing the
     # bucket (stored) lets the kanban/list group by it cleanly.
+    scheduled_start = fields.Datetime(
+        related="day_id.scheduled_start", store=True, string="Scheduled Start")
     duration_minutes = fields.Integer(
         related="day_id.duration_minutes", string="Duration (Minutes)")
     results_released = fields.Boolean(
@@ -520,69 +499,36 @@ class EtpAssessmentMultiDayActions(models.Model):
     _inherit = "etp.assessment"
 
     def action_scaffold_days(self):
-        # Reconciles ``day_ids`` to exactly ``num_days`` rows:
-        #   1. Drop extras whose sequence > num_days (only if they have no
-        #      generated day_sessions — safe to delete pre-plan rows).
-        #   2. Create the missing sequence numbers up to num_days.
-        # Existing day rows with sequence ≤ num_days are kept so re-running
-        # won't blow away admin-tuned skills/count/duration.
-        created_total = 0
-        dropped_total = 0
+        # Idempotent: create only the missing sequence numbers up to
+        # num_days. Existing day rows are kept (re-running won't blow
+        # away admin-tuned skill/count/duration).
         for rec in self:
+            if rec.assessment_mode != "multi_day":
+                raise UserError(
+                    "Day scaffolding is only available in multi-day mode.")
             if rec.num_days <= 0:
                 raise UserError(
                     "Set 'Number of Days' to a positive value before "
                     "scaffolding.")
-            extras = rec.day_ids.filtered(lambda d: d.sequence > rec.num_days)
-            blocking = extras.filtered(lambda d: d.day_session_ids)
-            if blocking:
-                raise UserError(
-                    "Cannot drop day(s) "
-                    f"{', '.join(str(d.sequence) for d in blocking)}: "
-                    "candidate sessions already exist for them. "
-                    "Increase 'Number of Days' or cancel the assessment "
-                    "and start over.")
-            if extras:
-                dropped_total += len(extras)
-                extras.unlink()
             existing_seqs = set(rec.day_ids.mapped("sequence"))
             Day = self.env["etp.assessment.day"]
-            # Each day opens at 00:00 of a consecutive calendar date, counting
-            # from the assessment's Start Date (or today if unset). Day 1 =
-            # start date midnight, Day 2 = next day midnight, etc. Admin can
-            # still edit any day's scheduled_start afterwards.
-            base = rec.start_date or fields.Datetime.now()
-            base = fields.Datetime.to_datetime(base).replace(
-                hour=0, minute=0, second=0, microsecond=0)
+            # Each day opens on a consecutive date at the SAME time-of-day as
+            # the assessment's Start Date (or now if unset): Day 1 = Start Date,
+            # Day 2 = +1 day, etc. Admin can edit any day's scheduled_start.
+            base = fields.Datetime.to_datetime(
+                rec.start_date or fields.Datetime.now())
             new_days = []
             for seq in range(1, rec.num_days + 1):
                 if seq in existing_seqs:
                     continue
-                offset = seq - 1 if rec.sequential_days else 0
                 new_days.append({
                     "assessment_id": rec.id,
                     "sequence": seq,
-                    "scheduled_start": base + timedelta(days=offset),
+                    "scheduled_start": base + timedelta(days=seq - 1),
                 })
             if new_days:
                 Day.create(new_days)
-                created_total += len(new_days)
-        parts = []
-        if created_total:
-            parts.append(f"{created_total} day(s) created")
-        if dropped_total:
-            parts.append(f"{dropped_total} extra day(s) removed")
-        message = " · ".join(parts) if parts else "Plan already matches the requested number of days."
-        return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": "Days Scaffolded",
-                "message": message,
-                "type": "success",
-                "sticky": False,
-            },
-        }
+        return True
 
     def action_generate_plan(self):
         # See brief §4 — exact algorithm. Idempotent: skip evaluator×day
@@ -591,34 +537,41 @@ class EtpAssessmentMultiDayActions(models.Model):
         now = fields.Datetime.now()
         notif_lines = []
         for rec in self:
+            if rec.assessment_mode != "multi_day":
+                raise UserError(
+                    "Generate Plan is only available in multi-day mode.")
             days = rec.day_ids.sorted("sequence")
             if not days:
                 raise UserError(
-                    "No days defined. Use Scaffold Days first.")
-            missing_skill = [d.sequence for d in days if not d.skill_ids]
-            if missing_skill:
-                raise UserError(
-                    "Days missing a skill: "
-                    f"{', '.join(str(s) for s in missing_skill)}. "
-                    "Assign at least one before generating the plan.")
-            empty_skill = [
-                f"Day {d.sequence} ({', '.join(d.skill_ids.mapped('name'))})"
-                for d in days
-                if d.question_source == "skill_pool"
-                and not d.skill_ids.question_ids.filtered("active")
+                    "No days defined. Use Build Day Plan first.")
+            missing_binding = [
+                d.sequence for d in days
+                if (d.pool_by == "category" and not d.category_id)
+                or (d.pool_by == "skill" and not d.skill_id)
             ]
-            if empty_skill:
+            if missing_binding:
                 raise UserError(
-                    "These days draw from skill(s) with no active questions: "
-                    f"{', '.join(empty_skill)}. Generate or import questions "
-                    "for the skill(s) first, or switch the day to manual mode "
-                    "and pick questions directly.")
+                    "Days missing a skill/category: "
+                    f"{', '.join(str(s) for s in missing_binding)}. "
+                    "Assign one before generating the plan.")
+            empty_pool = [
+                f"Day {d.sequence} ({d.name})"
+                for d in days
+                if d.question_source != "manual" and not d._pool_questions()
+            ]
+            if empty_pool:
+                raise UserError(
+                    "These days have no questions in their pool: "
+                    f"{', '.join(empty_pool)}. Generate or import questions "
+                    "first, or switch the day to manual mode and pick "
+                    "questions directly.")
             if not rec.evaluator_ids:
                 raise UserError(
                     "Assign at least one candidate before generating the plan.")
             first_seq = days[0].sequence
             sessions_created = 0
             for emp in rec.evaluator_ids:
+                rec._ensure_portal_user(emp)
                 evaluator = self.env["etp.assessment.evaluator"].search([
                     ("assessment_id", "=", rec.id),
                     ("employee_id", "=", emp.id),

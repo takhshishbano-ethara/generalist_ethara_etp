@@ -33,13 +33,16 @@
     <template id="portal_invalid_token" name="ETP Assessment — Invalid Token">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="alert alert-danger mt-4">
+                <div class="etp-exam-card etp-state is-danger">
+                    <div class="etp-state-icon"><i class="fa fa-unlink"/></div>
                     <h3>Invalid Assessment Link</h3>
                     <p>The link you followed is not valid or has expired.</p>
                     <p t-if="reason" t-out="reason"/>
-                    <a href="/my/assessments" class="btn btn-outline-secondary mt-2">
-                        Go to My Assessments
-                    </a>
+                    <div class="etp-state-actions">
+                        <a href="/my/assessments" class="btn btn-primary">
+                            Go to My Assessments
+                        </a>
+                    </div>
                 </div>
             </t>
         </t>
@@ -48,13 +51,16 @@
     <template id="portal_assessment_closed" name="ETP Assessment — Closed">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="alert alert-warning mt-4">
+                <div class="etp-exam-card etp-state is-warning">
+                    <div class="etp-state-icon"><i class="fa fa-lock"/></div>
                     <h3>Assessment Not Available</h3>
                     <p>The assessment <strong t-out="assessment.name"/> is not
                         currently open.</p>
-                    <a href="/my/assessments" class="btn btn-outline-secondary mt-2">
-                        Go to My Assessments
-                    </a>
+                    <div class="etp-state-actions">
+                        <a href="/my/assessments" class="btn btn-primary">
+                            Go to My Assessments
+                        </a>
+                    </div>
                 </div>
             </t>
         </t>
@@ -63,16 +69,16 @@
     <template id="portal_assessment_complete" name="ETP Assessment — Complete">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="text-center mt-5">
-                    <div class="o_etp_done_icon text-success mb-3">
-                        <i class="fa fa-check-circle fa-4x"/>
+                <div class="etp-exam-card etp-result-hero">
+                    <div class="etp-result-icon is-success">
+                        <i class="fa fa-check"/>
                     </div>
                     <h3>Submitted</h3>
-                    <p t-if="day_session" class="text-muted">
+                    <p t-if="day_session">
                         Day <span t-out="day_session.day_id.sequence"/> of
                         <strong t-out="assessment.name"/> is complete.
                     </p>
-                    <p t-else="" class="text-muted">
+                    <p t-else="">
                         Your assessment <strong t-out="assessment.name"/> has
                         been submitted. Thank you.
                     </p>
@@ -87,7 +93,8 @@
     <template id="portal_day_locked" name="ETP Assessment — Day Locked">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="alert alert-info mt-4">
+                <div class="etp-exam-card etp-state is-info">
+                    <div class="etp-state-icon"><i class="fa fa-hourglass-half"/></div>
                     <h3>This day is not yet available</h3>
                     <p>
                         Day <span t-out="day_session.day_id.sequence"/> of
@@ -95,14 +102,16 @@
                     </p>
                     <p t-if="day_session.day_id.scheduled_start">
                         Scheduled to open at:
-                        <strong t-out="day_session.day_id.scheduled_start"/>
+                        <strong t-field="day_session.day_id.scheduled_start"/>
                     </p>
                     <p t-else="">
                         Complete the previous day to unlock this one.
                     </p>
-                    <a href="/my/assessments" class="btn btn-outline-secondary mt-2">
-                        Back to My Assessments
-                    </a>
+                    <div class="etp-state-actions">
+                        <a href="/my/assessments" class="btn btn-primary">
+                            Back to My Assessments
+                        </a>
+                    </div>
                 </div>
             </t>
         </t>
@@ -112,25 +121,42 @@
     <template id="portal_instructions" name="ETP Assessment — Instructions">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="o_etp_card_narrow">
-                    <h2 t-out="assessment.name"/>
-                    <h5 t-if="day_session" class="text-muted">
-                        Day <span t-out="day_session.day_id.sequence"/>:
-                        <span t-out="day_session.skill_id.name"/>
-                    </h5>
-                    <div class="card my-3">
+                <div class="o_etp_card_narrow etp-instructions">
+                    <div class="etp-exam-card">
+                        <div class="etp-card-head">
+                            <span class="etp-eyebrow">Assessment</span>
+                            <h2 class="etp-title" t-out="assessment.name"/>
+                            <p t-if="day_session" class="etp-subtitle">
+                                Day <span t-out="day_session.day_id.sequence"/>:
+                                <span t-out="day_session.skill_id.name"/>
+                            </p>
+                        </div>
                         <div class="card-body">
-                            <h4>Instructions</h4>
-                            <ul class="o_etp_rules">
-                                <li>
-                                    <strong>Duration:</strong>
-                                    <t t-if="duration_minutes"><span t-out="duration_minutes"/> minutes</t>
-                                    <t t-else="">No time limit</t>
-                                </li>
-                                <li><strong>Questions:</strong>
-                                    <t t-if="day_session"><span t-out="day_session.total_questions"/></t>
-                                    <t t-else=""><span t-out="evaluator.total_questions"/></t>
-                                </li>
+                            <div class="etp-meta-grid">
+                                <div class="etp-meta-chip">
+                                    <span class="etp-meta-ico"><i class="fa fa-clock-o"/></span>
+                                    <span>
+                                        <span class="etp-meta-label d-block">Duration</span>
+                                        <span class="etp-meta-value">
+                                            <t t-if="duration_minutes"><span t-out="duration_minutes"/> min</t>
+                                            <t t-else="">No limit</t>
+                                        </span>
+                                    </span>
+                                </div>
+                                <div class="etp-meta-chip">
+                                    <span class="etp-meta-ico"><i class="fa fa-list-ol"/></span>
+                                    <span>
+                                        <span class="etp-meta-label d-block">Questions</span>
+                                        <span class="etp-meta-value">
+                                            <t t-if="day_session"><span t-out="day_session.total_questions"/></t>
+                                            <t t-else=""><span t-out="evaluator.total_questions"/></t>
+                                        </span>
+                                    </span>
+                                </div>
+                            </div>
+
+                            <h4 class="etp-section-title">Before you begin</h4>
+                            <ul class="etp-rules o_etp_rules">
                                 <li t-if="assessment.rule_block_tab_switch">Do not switch tabs or windows.</li>
                                 <li t-if="assessment.rule_block_copy_paste">Copy and paste is disabled.</li>
                                 <li t-if="assessment.rule_block_screenshot">Screenshots are not allowed.</li>
@@ -138,17 +164,32 @@
                                 <li t-if="assessment.rule_block_devtools">Developer tools are detected.</li>
                                 <li t-if="assessment.rule_fullscreen">Fullscreen is required.</li>
                                 <li t-if="assessment.rule_webcam">Webcam access may be required.</li>
+                                <li>Answers are saved as you move between questions.</li>
                             </ul>
-                            <p t-if="assessment.max_violations" class="text-danger small">
-                                Maximum violations allowed:
-                                <strong t-out="assessment.max_violations"/>.
-                                Exceeding this auto-submits your assessment.
+                            <p t-if="assessment.max_violations" class="etp-warn">
+                                <i class="fa fa-exclamation-triangle mt-1"/>
+                                <span>
+                                    Maximum violations allowed:
+                                    <strong t-out="assessment.max_violations"/>.
+                                    Exceeding this auto-submits your assessment.
+                                </span>
                             </p>
-                            <form method="post" t-att-action="submit_url">
+                            <p t-if="preview" class="etp-warn">
+                                <i class="fa fa-eye mt-1"/>
+                                <span>
+                                    Preview mode — you are not the assigned
+                                    candidate. The timer will not start and no
+                                    answers are saved.
+                                </span>
+                            </p>
+                            <form t-if="not preview" method="post" class="etp-actions"
+                                  onsubmit="return confirm(this.dataset.warn)"
+                                  t-att-data-warn="('This starts your %s-minute timer and cannot be paused once begun. Begin now?' % duration_minutes) if duration_minutes else 'This starts your assessment and cannot be paused once begun. Begin now?'"
+                                  t-att-action="submit_url if submit_url else '/assessment/%s/begin' % token">
                                 <input type="hidden" name="csrf_token"
                                        t-att-value="request.csrf_token()"/>
                                 <button type="submit" class="btn btn-primary btn-lg">
-                                    Start
+                                    <i class="fa fa-play me-2"/>Start
                                 </button>
                                 <a href="/my/assessments" class="btn btn-link">Cancel</a>
                             </form>
@@ -163,36 +204,35 @@
     <template id="portal_question_page" name="ETP Assessment — Question Page">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="d-flex justify-content-between align-items-center mb-3">
+                <div class="etp-exam-header">
                     <div>
-                        <h4 class="mb-0" t-out="assessment.name"/>
-                        <small t-if="day_session" class="text-muted">
+                        <h4 class="etp-exam-name" t-out="assessment.name"/>
+                        <small t-if="day_session" class="etp-exam-sub">
                             Day <span t-out="day_session.day_id.sequence"/>:
                             <span t-out="day_session.skill_id.name"/>
                         </small>
                     </div>
-                    <div class="text-end">
-                        <span class="badge bg-secondary">
-                            Question <span t-out="current_index"/> /
-                            <span t-out="total_questions"/>
+                    <div class="etp-header-aside">
+                        <span class="etp-qcount">
+                            <b t-out="current_index"/> / <span t-out="total_questions"/>
                         </span>
-                        <span t-if="deadline_iso" class="badge bg-warning text-dark ms-2"
+                        <span t-if="deadline_iso" class="badge bg-warning text-dark etp-timer"
                               id="etp-timer" t-att-data-deadline="deadline_iso">
                             --:--
                         </span>
                     </div>
                 </div>
-                <div class="progress mb-4" style="height: 6px;">
+                <div class="progress etp-progress">
                     <div class="progress-bar" role="progressbar"
                          t-attf-style="width: #{progress_percent}%"/>
                 </div>
 
-                <div class="card">
+                <div class="etp-exam-card">
                     <div class="card-body">
-                        <h5 t-out="question.name"/>
-                        <p t-out="question.prompt"/>
+                        <h5 class="etp-question-title" t-out="question.name"/>
+                        <p class="etp-question-prompt" t-out="question.prompt"/>
                         <p t-if="question.description"
-                           class="text-muted" t-out="question.description"/>
+                           class="etp-question-desc" t-out="question.description"/>
 
                         <form method="post" t-att-action="submit_url"
                               id="etp-response-form">
@@ -200,12 +240,16 @@
                                    t-att-value="request.csrf_token()"/>
                             <input type="hidden" name="question_id"
                                    t-att-value="question.id"/>
+                            <!-- nav intent: 'next' (default) or 'prev'.
+                                 The runner uses it to decide which question to
+                                 serve after saving this one. -->
+                            <input type="hidden" name="nav" id="etp-nav" value="next"/>
 
                             <t t-if="question.question_type == 'mcq'">
                                 <t t-foreach="dimensions" t-as="qd">
-                                    <fieldset class="my-3">
+                                    <fieldset class="etp-options">
                                         <t t-foreach="qd.option_line_ids" t-as="opt">
-                                            <div class="form-check">
+                                            <div class="form-check etp-option">
                                                 <input class="form-check-input"
                                                        type="radio"
                                                        t-att-name="'dimension_%d' % qd.dimension_id.id"
@@ -222,16 +266,16 @@
                             </t>
 
                             <t t-if="question.question_type == 'msq'">
-                                <p class="text-muted small mb-1">Select all that apply.</p>
+                                <span class="etp-msq-hint">Select all that apply</span>
                                 <t t-foreach="dimensions" t-as="qd">
-                                    <fieldset class="my-3"
+                                    <fieldset class="etp-options"
                                               t-att-data-dim-id="qd.dimension_id.id">
                                         <input type="hidden"
                                                t-att-name="'dimension_%d' % qd.dimension_id.id"
                                                value=""
                                                class="etp-msq-csv"/>
                                         <t t-foreach="qd.option_line_ids" t-as="opt">
-                                            <div class="form-check">
+                                            <div class="form-check etp-option">
                                                 <input class="form-check-input etp-msq-cb"
                                                        type="checkbox"
                                                        t-att-value="opt.master_option_id.id"
@@ -247,10 +291,10 @@
                             </t>
 
                             <t t-if="question.question_type in ('subjective_justification', 'subjective_rubric')">
-                                <div class="mb-3">
+                                <div class="etp-field">
                                     <label class="form-label">Your Answer</label>
                                     <textarea name="justification" rows="6"
-                                              class="form-control"
+                                              class="form-control etp-textarea"
                                               t-out="existing_justification or ''"/>
                                 </div>
                             </t>
@@ -259,27 +303,25 @@
                                  admin explicitly requires it. No more confusing
                                  'optional' box on every MCQ. -->
                             <t t-if="question.question_type in ('mcq', 'msq') and assessment.require_objective_justification">
-                                <div class="mb-3">
+                                <div class="etp-field">
                                     <label class="form-label">Justification</label>
                                     <textarea name="justification" rows="3"
-                                              class="form-control"
+                                              class="form-control etp-textarea"
                                               t-out="existing_justification or ''"/>
                                 </div>
                             </t>
 
-                            <div class="d-flex justify-content-between mt-4">
-                                <button type="submit" name="nav" value="prev"
-                                        class="btn btn-outline-secondary"
+                            <div class="etp-runner-footer">
+                                <button type="submit" class="btn btn-outline-secondary"
                                         id="etp-prev-btn"
                                         t-att-disabled="'disabled' if current_index &lt;= 1 else None">
                                     <i class="fa fa-arrow-left me-1"/>Previous
                                 </button>
-                                <div>
+                                <div class="d-flex align-items-center gap-2">
                                     <a t-att-href="review_url" class="btn btn-link">
                                         Review &amp; Submit
                                     </a>
-                                    <button type="submit" name="nav" value="next"
-                                            class="btn btn-primary" id="etp-next-btn">
+                                    <button type="submit" class="btn btn-primary" id="etp-next-btn">
                                         <t t-if="current_index &gt;= total_questions">Save &amp; Review</t>
                                         <t t-else="">Save &amp; Next</t>
                                         <i class="fa fa-arrow-right ms-1"/>
@@ -383,6 +425,13 @@
                             tick();
                             setInterval(tick, 1000);
                         }
+                        // Previous nav: save current answer then go back.
+                        var prevBtn = document.getElementById('etp-prev-btn');
+                        if (prevBtn) {
+                            prevBtn.addEventListener('click', function () {
+                                document.getElementById('etp-nav').value = 'prev';
+                            });
+                        }
                         // MSQ: serialize checked boxes per dimension into the
                         // hidden csv input the controller splits on ','.
                         document.addEventListener('submit', function (e) {
@@ -465,13 +514,36 @@
         </t>
     </template>
 
+    <template id="portal_day_finish_prompt" name="ETP Assessment — Day Finish">
+        <t t-call="etp_assessment.portal_exam_layout">
+            <t t-set="exam_body">
+                <div class="etp-exam-card etp-state is-success">
+                    <div class="etp-state-icon"><i class="fa fa-check"/></div>
+                    <h3>All questions answered</h3>
+                    <p>
+                        You have answered every question for day
+                        <span t-out="day_session.day_id.sequence"/>.
+                        Submit the day to finalize your score.
+                    </p>
+                    <form t-att-action="finish_url" method="post" class="etp-state-actions">
+                        <input type="hidden" name="csrf_token"
+                               t-att-value="request.csrf_token()"/>
+                        <button type="submit" class="btn btn-success">Submit Day</button>
+                        <a t-att-href="back_url" class="btn btn-link">Review answers</a>
+                    </form>
+                </div>
+            </t>
+        </t>
+    </template>
+
     <!-- ===================================================================
          WRONG CANDIDATE (login-gate: link belongs to another account)
          =================================================================== -->
     <template id="portal_wrong_candidate" name="ETP Assessment — Wrong Candidate">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="alert alert-danger">
+                <div class="etp-exam-card etp-state is-danger">
+                    <div class="etp-state-icon"><i class="fa fa-user-times"/></div>
                     <h3>This assessment isn't assigned to you</h3>
                     <p>
                         This link belongs to
@@ -483,10 +555,10 @@
                         Please sign in with the account the invitation was sent
                         to, then open the link again.
                     </p>
-                    <p>
-                        <a href="/web/session/logout?redirect=/web/login"
+                    <div class="etp-state-actions">
+                        <a t-att-href="login_url"
                            class="btn btn-primary">Switch account</a>
-                    </p>
+                    </div>
                 </div>
             </t>
         </t>
@@ -498,85 +570,53 @@
     <template id="portal_day_result" name="ETP Assessment — Day Result">
         <t t-call="etp_assessment.portal_exam_layout">
             <t t-set="exam_body">
-                <div class="d-flex justify-content-between align-items-start mb-3">
+                <div class="etp-result-header">
                     <div>
-                        <h2 class="mb-1" t-out="assessment.name"/>
-                        <h5 class="text-muted mb-0" t-if="day_session">
+                        <h2 t-out="assessment.name"/>
+                        <div class="etp-result-sub" t-if="day_session">
                             Day <span t-out="day_session.day_id.sequence"/>:
                             <span t-out="day_session.skill_id.name"/>
-                        </h5>
+                        </div>
                     </div>
                     <div class="text-end">
-                        <div class="badge bg-primary fs-6">
-                            Day Score:
-                            <span t-out="day_session.score"/> /
-                            <span t-out="day_session.max_score"/>
+                        <div class="etp-score-pill">
+                            <span class="etp-score-label">Day Score</span>
+                            <span class="etp-score-value">
+                                <span t-out="day_session.score"/> /
+                                <span t-out="day_session.max_score"/>
+                            </span>
                         </div>
-                        <div class="mt-2"
-                             t-if="evaluator.result and evaluator.result != 'pending'">
-                            <span class="badge bg-secondary me-1">
+                        <div t-if="evaluator.result and evaluator.result != 'pending'">
+                            <span class="etp-verdict is-neutral">
                                 Overall <span t-out="evaluator.score_percent"/>%
                             </span>
-                            <span t-attf-class="badge bg-{{ 'success' if evaluator.result == 'pass' else 'danger' }}"
+                            <span t-attf-class="etp-verdict {{ 'is-pass' if evaluator.result == 'pass' else 'is-fail' }}"
                                   t-out="evaluator.result.upper()"/>
                         </div>
                     </div>
                 </div>
 
                 <t t-if="not show_results">
-                    <div class="alert alert-success">
-                        <h4 class="alert-heading">
-                            <i class="fa fa-check-circle me-1"/>Day
-                            <span t-out="day_session.day_id.sequence"/> of
-                            <span t-out="total_days"/> submitted
-                        </h4>
-                        <p class="mb-2">
-                            Your responses are locked in. The administrator
-                            will release results when ready.
+                    <div class="etp-exam-card etp-result-hero">
+                        <div class="etp-result-icon is-info"><i class="fa fa-paper-plane"/></div>
+                        <h3>Responses Submitted</h3>
+                        <p>
+                            Your responses for day
+                            <span t-out="day_session.day_id.sequence"/> have been
+                            submitted. Results will be released by the
+                            administrator.
                         </p>
-                        <t t-if="next_session">
-                            <hr/>
-                            <p class="mb-0">
-                                <strong>Next up:</strong> Day
-                                <span t-out="next_session.day_id.sequence"/>
-                                (<span t-out="next_session.day_id.name"/>).
-                                <t t-if="next_session.state == 'available'">
-                                    Ready when you are — head back to My
-                                    Assessments to start.
-                                </t>
-                                <t t-elif="next_session.scheduled_start">
-                                    Opens
-                                    <span t-out="next_session.scheduled_start"
-                                          t-options="{'widget': 'datetime'}"/>.
-                                </t>
-                                <t t-else="">
-                                    Will unlock once available.
-                                </t>
-                            </p>
-                        </t>
-                        <t t-elif="all_done">
-                            <hr/>
-                            <p class="mb-0">
-                                All days submitted. You're done with this
-                                assessment.
-                            </p>
-                        </t>
-                    </div>
-                    <div class="mt-3">
-                        <a href="/my/assessments" class="btn btn-primary">
+                        <a href="/my/assessments" class="btn btn-primary mt-3">
                             Back to My Assessments
                         </a>
                     </div>
                 </t>
 
                 <t t-else="">
-                    <div class="alert alert-success">
-                        <strong>Submitted.</strong> Here is your per-question
-                        breakdown for this day.
-                    </div>
-
                     <t t-if="not responses">
-                        <p class="text-muted">No submitted responses to display.</p>
+                        <div class="etp-exam-card"><div class="card-body">
+                            <p class="text-muted mb-0">No submitted responses to display.</p>
+                        </div></div>
                     </t>
 
                     <t t-foreach="responses" t-as="response">
@@ -585,62 +625,61 @@
                            t-value="response.question_type in ('mcq', 'msq')"/>
                         <t t-set="is_correct"
                            t-value="is_objective and response.max_score &gt; 0 and response.score == response.max_score"/>
-                        <div class="card mb-3">
-                            <div class="card-header d-flex justify-content-between align-items-center">
+                        <t t-set="qstatus"
+                           t-value="('correct' if is_correct else 'incorrect') if is_objective else (('correct' if response.llm_passed else 'incorrect') if response.llm_state == 'scored' else 'pending')"/>
+                        <div t-attf-class="card etp-qresult etp-qresult--#{qstatus}">
+                            <div class="card-header">
                                 <span>
-                                    <strong>Q<span t-out="response_index + 1"/>.</strong>
+                                    <span class="etp-qnum">Q<span t-out="response_index + 1"/>.</span>
                                     <span t-out="question.name"/>
                                 </span>
-                                <span>
+                                <span class="d-inline-flex align-items-center gap-1">
                                     <t t-if="is_objective">
-                                        <span t-if="is_correct"
-                                              class="badge bg-success">Correct</span>
-                                        <span t-else=""
-                                              class="badge bg-danger">Incorrect</span>
-                                        <span class="badge bg-light text-dark ms-1">
+                                        <span t-if="is_correct" class="etp-tag is-correct">Correct</span>
+                                        <span t-else="" class="etp-tag is-wrong">Incorrect</span>
+                                        <span class="etp-tag is-score">
                                             <span t-out="response.score"/> /
                                             <span t-out="response.max_score"/>
                                         </span>
                                     </t>
                                     <t t-else="">
                                         <span t-if="response.llm_state == 'scored'">
-                                            <span t-attf-class="badge bg-{{ 'success' if response.llm_passed else 'danger' }}"
+                                            <span t-attf-class="etp-tag {{ 'is-correct' if response.llm_passed else 'is-wrong' }}"
                                                   t-out="'Pass' if response.llm_passed else 'Fail'"/>
-                                            <span class="badge bg-light text-dark ms-1">
+                                            <span class="etp-tag is-score">
                                                 <span t-out="response.llm_score"/> /
                                                 <span t-out="response.llm_max_score"/>
                                             </span>
                                         </span>
-                                        <span t-else="" class="badge bg-secondary">
+                                        <span t-else="" class="etp-tag is-pending">
                                             Scoring in progress
                                         </span>
                                     </t>
                                 </span>
                             </div>
                             <div class="card-body">
-                                <p class="text-muted" t-out="question.prompt"/>
+                                <p class="etp-question-desc" t-out="question.prompt"/>
 
                                 <t t-if="is_objective">
-                                    <p class="mb-1">
-                                        <strong>Your answer:</strong>
+                                    <p class="etp-answer-row">
+                                        <span class="etp-answer-label">Your answer:</span>
                                         <span t-if="response.answer_summary"
                                               t-out="response.answer_summary"/>
                                         <em t-else="" class="text-muted">No answer</em>
                                     </p>
-                                    <p class="mb-0" t-if="not is_correct">
-                                        <strong>Correct answer:</strong>
+                                    <p class="etp-answer-correct" t-if="not is_correct">
+                                        <span class="etp-answer-label">Correct answer:</span>
                                         <span t-out="response.correct_summary"/>
                                     </p>
                                 </t>
 
                                 <t t-else="">
-                                    <p class="mb-1">
-                                        <strong>Your answer:</strong>
+                                    <p class="etp-answer-row mb-1">
+                                        <span class="etp-answer-label">Your answer:</span>
                                     </p>
-                                    <p class="mb-2" style="white-space: pre-wrap;"
+                                    <p class="etp-justification"
                                        t-out="response.justification"/>
-                                    <div t-if="response.llm_feedback"
-                                         class="alert alert-light border mb-0">
+                                    <div t-if="response.llm_feedback" class="etp-feedback">
                                         <strong>Feedback:</strong>
                                         <span t-out="response.llm_feedback"/>
                                     </div>
@@ -654,6 +693,177 @@
                             Back to My Assessments
                         </a>
                     </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <!-- ===================================================================
+         MY ASSESSMENTS (candidate hub — portal users land here)
+         A single card renderer (portal_my_assessment_card) is reused across
+         all four buckets; the caller passes `bucket` to pick the action.
+         =================================================================== -->
+    <template id="portal_my_assessment_card" name="ETP — My Assessment Card">
+        <div t-attf-class="etp-acard etp-acard--#{item['status_kind']}">
+            <div class="etp-acard-main">
+                <div class="etp-acard-top">
+                    <span t-if="item['day_label']" class="etp-acard-chip"
+                          t-out="item['day_label']"/>
+                    <span t-else="" class="etp-acard-chip is-single">Single Test</span>
+                    <span t-attf-class="etp-status is-#{item['status_kind']}"
+                          t-out="item['state_label']"/>
+                </div>
+                <h3 class="etp-acard-title" t-out="item['name']"/>
+                <p t-if="item['skill']" class="etp-acard-sub" t-out="item['skill']"/>
+                <div class="etp-acard-meta">
+                    <span class="etp-acard-metaitem">
+                        <i class="fa fa-list-ol"/>
+                        <span t-out="item['total_questions']"/> questions
+                    </span>
+                    <span t-if="bucket == 'in_progress' and item['total_questions']"
+                          class="etp-acard-metaitem">
+                        <i class="fa fa-check-circle-o"/>
+                        <span t-out="item['answered_count']"/> answered
+                    </span>
+                    <span t-if="bucket == 'upcoming' and item['scheduled_start']"
+                          class="etp-acard-metaitem">
+                        <i class="fa fa-calendar-o"/> Opens
+                        <span t-out="item['scheduled_start']"/>
+                    </span>
+                    <span t-if="bucket in ('available', 'in_progress') and item['deadline']"
+                          class="etp-acard-metaitem">
+                        <i class="fa fa-hourglass-half"/> Due
+                        <span t-out="item['deadline']"/>
+                    </span>
+                </div>
+            </div>
+            <div class="etp-acard-aside">
+                <span t-if="item['score_display']" class="etp-acard-score"
+                      t-out="item['score_display']"/>
+                <t t-if="bucket == 'available'">
+                    <a t-att-href="item['url']" class="btn btn-primary">
+                        <i class="fa fa-play me-2"/>Start
+                    </a>
+                </t>
+                <t t-elif="bucket == 'in_progress'">
+                    <a t-att-href="item['url']" class="btn btn-primary">
+                        <i class="fa fa-arrow-right me-2"/>Resume
+                    </a>
+                </t>
+                <t t-elif="bucket == 'completed'">
+                    <a t-att-href="item['url']" class="btn btn-outline-secondary">
+                        View result
+                    </a>
+                </t>
+                <t t-else="">
+                    <span class="etp-acard-lock" title="Not yet open">
+                        <i class="fa fa-lock"/>
+                    </span>
+                </t>
+            </div>
+        </div>
+    </template>
+
+    <template id="portal_my_assessments" name="ETP — My Assessments">
+        <t t-call="etp_assessment.portal_exam_layout">
+            <a href="/web/session/logout?redirect=/web/login"
+               class="o_etp_topbar_link">
+                <i class="fa fa-sign-out me-1"/>Sign out
+            </a>
+            <t t-set="exam_body">
+                <div class="etp-my-head">
+                    <span class="etp-eyebrow">Candidate Portal</span>
+                    <h1 class="etp-my-title">My Assessments</h1>
+                    <p t-if="not no_employee and employee" class="etp-my-subtitle">
+                        Signed in as <strong t-out="employee.name"/>
+                    </p>
+                </div>
+
+                <t t-if="no_employee">
+                    <div class="etp-exam-card etp-state is-info">
+                        <div class="etp-state-icon"><i class="fa fa-user-o"/></div>
+                        <h3>No candidate profile linked</h3>
+                        <p>
+                            Your account isn't linked to an employee record yet,
+                            so there are no assessments to show. Please contact
+                            your administrator.
+                        </p>
+                    </div>
+                </t>
+                <t t-elif="total_count == 0">
+                    <div class="etp-exam-card etp-state is-info">
+                        <div class="etp-state-icon"><i class="fa fa-inbox"/></div>
+                        <h3>Nothing assigned yet</h3>
+                        <p>
+                            You have no assessments assigned right now. When an
+                            assessment is assigned to you it will appear here.
+                        </p>
+                    </div>
+                </t>
+                <t t-else="">
+                    <t t-if="available">
+                        <section class="etp-my-section">
+                            <h2 class="etp-section-title">
+                                Available now
+                                <span class="etp-count-pill" t-out="len(available)"/>
+                            </h2>
+                            <div class="etp-my-grid">
+                                <t t-foreach="available" t-as="item">
+                                    <t t-call="etp_assessment.portal_my_assessment_card">
+                                        <t t-set="bucket" t-value="'available'"/>
+                                    </t>
+                                </t>
+                            </div>
+                        </section>
+                    </t>
+
+                    <t t-if="in_progress">
+                        <section class="etp-my-section">
+                            <h2 class="etp-section-title">
+                                In progress
+                                <span class="etp-count-pill" t-out="len(in_progress)"/>
+                            </h2>
+                            <div class="etp-my-grid">
+                                <t t-foreach="in_progress" t-as="item">
+                                    <t t-call="etp_assessment.portal_my_assessment_card">
+                                        <t t-set="bucket" t-value="'in_progress'"/>
+                                    </t>
+                                </t>
+                            </div>
+                        </section>
+                    </t>
+
+                    <t t-if="upcoming">
+                        <section class="etp-my-section">
+                            <h2 class="etp-section-title">
+                                Upcoming
+                                <span class="etp-count-pill" t-out="len(upcoming)"/>
+                            </h2>
+                            <div class="etp-my-grid">
+                                <t t-foreach="upcoming" t-as="item">
+                                    <t t-call="etp_assessment.portal_my_assessment_card">
+                                        <t t-set="bucket" t-value="'upcoming'"/>
+                                    </t>
+                                </t>
+                            </div>
+                        </section>
+                    </t>
+
+                    <t t-if="completed">
+                        <section class="etp-my-section">
+                            <h2 class="etp-section-title">
+                                Completed
+                                <span class="etp-count-pill" t-out="len(completed)"/>
+                            </h2>
+                            <div class="etp-my-grid">
+                                <t t-foreach="completed" t-as="item">
+                                    <t t-call="etp_assessment.portal_my_assessment_card">
+                                        <t t-set="bucket" t-value="'completed'"/>
+                                    </t>
+                                </t>
+                            </div>
+                        </section>
+                    </t>
                 </t>
             </t>
         </t>
