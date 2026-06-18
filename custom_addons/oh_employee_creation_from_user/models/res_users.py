@@ -35,12 +35,13 @@ class ResUsers(models.Model):
 
     @api.model_create_multi
     def create(self, vals):
-        """Overrides the default 'create' method to create an employee record
-        when a new user is created."""
-        result = super(ResUsers, self).create(vals)
-        result['employee_id'] = self.env['hr.employee'].sudo().create({
-            'name': result['name'],
-            'user_id': result['id'],
-            'private_street': result['partner_id'].id
-        })
-        return result
+        users = super(ResUsers, self).create(vals)
+        portal_group = self.env.ref('base.group_portal', raise_if_not_found=False)
+        for user in users:
+            if portal_group and portal_group in user.group_ids:
+                continue
+            user.employee_id = self.env['hr.employee'].sudo().create({
+                'name': user.name,
+                'user_id': user.id,
+            })
+        return users

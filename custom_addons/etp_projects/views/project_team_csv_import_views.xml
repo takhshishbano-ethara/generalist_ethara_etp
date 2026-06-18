@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_etp_project_team_csv_import_form" model="ir.ui.view">
+        <field name="name">etp.project.team.csv.import.form</field>
+        <field name="model">etp.project.team.csv.import</field>
+        <field name="arch" type="xml">
+            <form string="Import Project Team CSV">
+                <sheet>
+                    <group>
+                        <field name="project_id" readonly="1"/>
+                        <field name="csv_file" filename="csv_filename"/>
+                        <field name="csv_filename" invisible="1"/>
+                        <field name="replace_existing"/>
+                    </group>
+                    <group string="Result" invisible="not import_summary">
+                        <field name="import_summary" nolabel="1" readonly="1"/>
+                    </group>
+                    <div class="alert alert-info" role="alert" invisible="import_summary">
+                        <p>CSV columns required: <b>Name</b>, <b>Email</b>, <b>Role</b>.</p>
+                        <p>Allowed values for <b>Role</b>: <i>Tasker</i>, <i>QR</i> (or <i>QC</i>),
+                            <i>PL</i>, <i>TPM</i>. Employees are matched by work email.</p>
+                    </div>
+                </sheet>
+                <footer>
+                    <button name="action_import" type="object" string="Import"
+                            class="btn-primary" invisible="import_summary"/>
+                    <button string="Close" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_project_team_csv_import" model="ir.actions.act_window">
+        <field name="name">Import Team CSV</field>
+        <field name="res_model">etp.project.team.csv.import</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

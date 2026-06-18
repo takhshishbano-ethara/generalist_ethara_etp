@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="hr_applicant_view_form_candidate_ext" model="ir.ui.view">
+        <field name="name">hr.applicant.form.candidate.extension</field>
+        <field name="model">hr.applicant</field>
+        <field name="inherit_id" ref="hr_recruitment.hr_applicant_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='linkedin_profile']" position="after">
+                <field name="gender"/>
+                <field name="birthday"/>
+                <field name="aadhaar_number"/>
+                <field name="experience"/>
+                <field name="experience_years" invisible="experience != 'experienced'"/>
+                <field name="college_id"/>
+                <field name="candidate_user_id" readonly="1"/>
+                <field name="aadhaar_card_url" widget="url" readonly="1"/>
+                <field name="resume_url" widget="url" readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="hr_applicant_view_tree_candidate_ext" model="ir.ui.view">
+        <field name="name">hr.applicant.list.candidate.extension</field>
+        <field name="model">hr.applicant</field>
+        <field name="inherit_id" ref="hr_recruitment.crm_case_tree_view_job"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='email_from']" position="after">
+                <field name="experience" optional="show"/>
+                <field name="experience_years" optional="hide"/>
+                <field name="college_id" optional="hide"/>
+                <field name="aadhaar_number" optional="hide"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

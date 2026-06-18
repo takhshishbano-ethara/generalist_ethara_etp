@@ -90,7 +90,8 @@ class ProjectController(http.Controller):
                 })
             return return_Response(message="Success", status=200, data={"record": temp, "total_record_count": employee_count, "count": len(temp)})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/add_whatsapp_members', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -112,7 +113,8 @@ class ProjectController(http.Controller):
                     'country_code': safe_get_value(created_record, 'country_code', 'str')
                 }})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_whatsapp_member_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -146,7 +148,8 @@ class ProjectController(http.Controller):
                 })
             return return_Response(message="Success", status=200, data={"record": temp, "total_record_count": whatsapp_member_count, "count": len(temp)})
         except Exception as e:
-            return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
+            _logger.exception("Something Went Wrong.")
+            return return_Response(message="Something Went Wrong.", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/create_project_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -346,12 +349,18 @@ class ProjectController(http.Controller):
                     project.id, project.no_of_responses
                 )
 
-            project._log_project_activity(
-                title='New Project Created',
-                message=f'Project "{project.name}" has been created.',
-                priority='1',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'New Project Created',
+                    'message': f'Project "{project.name}" has been created.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
             try:
                 if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
                     email_body = kwargs.get('meeting_body', '')
@@ -390,7 +399,8 @@ class ProjectController(http.Controller):
             )
 
         except Exception as e:
-            return return_Response(message="Error occurred", status=400, errors=[str(e)])
+            _logger.exception("Error occurred")
+            return return_Response(message="Error occurred", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/update_project_record', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -627,12 +637,17 @@ class ProjectController(http.Controller):
                         project.create_slack_channel()
                     except Exception as e:
                         _logger.error('Slack channel creation failed for project %s: %s', project.name, str(e))
-                project._log_project_activity(
-                    title='Project Updated',
-                    message=f'Project "{project.name}" has been updated.',
-                    priority='1',
-                    actor_user_id=request.env.uid,
-                )
+                try:
+                    request.env['kubera.notification'].sudo().create({
+                        'title': 'Project Updated',
+                        'message': f'Project "{project.name}" has been updated.',
+                        'user_id': request.env.uid,
+                        'priority': '1',
+                        'res_model': 'project.project',
+                        'res_id': project.id,
+                    })
+                except Exception:
+                    pass
                 try:
                     if kwargs.get('meeting_body') and kwargs.get('meeting_to_mails'):
                         email_body = kwargs.get('meeting_body', '')
@@ -669,7 +684,8 @@ class ProjectController(http.Controller):
             )
 
         except Exception as e:
-            return return_Response(message="Update Failed", status=400, errors=[str(e)])
+            _logger.exception("Update Failed")
+            return return_Response(message="Update Failed", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_project_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -734,7 +750,8 @@ class ProjectController(http.Controller):
                 data={"record": project_data, "total_record_count": total_count, "count": len(project_data)})
 
         except Exception as e:
-            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+            _logger.exception("Fetch Failed")
+            return return_Response(message="Fetch Failed", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_project_status', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -798,7 +815,8 @@ class ProjectController(http.Controller):
                 data={"record": stage_list, "total_record_count": len(stage_list), "count": len(stage_list)})
 
         except Exception as e:
-            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+            _logger.exception("Fetch Failed")
+            return return_Response(message="Fetch Failed", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_project_detail_view', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -905,7 +923,8 @@ class ProjectController(http.Controller):
                 data={"record": record})
 
         except Exception as e:
-            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+            _logger.exception("Fetch Failed")
+            return return_Response(message="Fetch Failed", status=400, errors=["Operation failed"])
 
 
     @validate_token
@@ -919,7 +938,8 @@ class ProjectController(http.Controller):
                 data={"record": list(set(filter(None, project_customer))) if project_customer else []})
 
         except Exception as e:
-            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+            _logger.exception("Fetch Failed")
+            return return_Response(message="Fetch Failed", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_project_skill_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -1068,16 +1088,23 @@ class ProjectController(http.Controller):
             except Exception as e:
                 print(f"Error While Sending Mail: {e}")
 
-            project._log_project_activity(
-                title='PL Portal Updated',
-                message=f'Project "{project.name}" PL portal skills & teams updated.',
-                priority='1',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'PL Portal Updated',
+                    'message': f'Project "{project.name}" PL portal skills & teams updated.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(message="Project PL Portal Updated Successfully.", status=200)
         except Exception as e:
-            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+            _logger.exception("Operation Failed")
+            return return_Response(message="Operation Failed", status=500, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/update_project_details_aire_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -1167,17 +1194,24 @@ class ProjectController(http.Controller):
                 vals['is_aire_stage_completed'] = True
                 project.sudo().write(vals)
 
-            project._log_project_activity(
-                title='AIRE Portal Updated',
-                message=f'Project "{project.name}" AIRE portal details updated.',
-                priority='1',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'AIRE Portal Updated',
+                    'message': f'Project "{project.name}" AIRE portal details updated.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(message="Project AIRE Portal Updated Successfully.", status=200)
 
         except Exception as e:
-            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+            _logger.exception("Operation Failed")
+            return return_Response(message="Operation Failed", status=500, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/update_project_details_swe_portal_info', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
@@ -1236,17 +1270,24 @@ class ProjectController(http.Controller):
                 vals['stage_id'] = request.env.ref('project_extension.project_project_stage_ethara_6', raise_if_not_found=False).id
                 project.sudo().write(vals)
 
-            project._log_project_activity(
-                title='SWE Portal Updated',
-                message=f'Project "{project.name}" SWE portal details updated.',
-                priority='1',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'SWE Portal Updated',
+                    'message': f'Project "{project.name}" SWE portal details updated.',
+                    'user_id': request.env.uid,
+                    'priority': '1',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(message="Project SWE Portal Updated Successfully.", status=200)
 
         except Exception as e:
-            return return_Response(message="Operation Failed", status=500, errors=[str(e)])
+            _logger.exception("Operation Failed")
+            return return_Response(message="Operation Failed", status=500, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/get_task_template_type', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -1277,7 +1318,8 @@ class ProjectController(http.Controller):
                 data={"record": template_type_data, "total_record_count": len(total_count), "count": len(template_type_data)})
 
         except Exception as e:
-            return return_Response(message="Fetch Failed", status=400, errors=[str(e)])
+            _logger.exception("Fetch Failed")
+            return return_Response(message="Fetch Failed", status=400, errors=["Operation failed"])
 
     @validate_token
     @http.route('/api/v1/action_start_project', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -1294,12 +1336,18 @@ class ProjectController(http.Controller):
                 'non_stemp_project_status': 'production'
             })
 
-            project._log_project_activity(
-                title='Project Start',
-                message=f'Project "{project.name}" has been Started.',
-                priority='2',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Start',
+                    'message': f'Project "{project.name}" has been Started.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(
                 message="Success",
@@ -1323,12 +1371,18 @@ class ProjectController(http.Controller):
                 'non_stemp_project_status': 'paused'
             })
 
-            project._log_project_activity(
-                title='Project Paused',
-                message=f'Project "{project.name}" has been paused.',
-                priority='2',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Paused',
+                    'message': f'Project "{project.name}" has been paused.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(
                 message="Success",
@@ -1352,12 +1406,18 @@ class ProjectController(http.Controller):
                 'non_stemp_project_status': 'closed'
             })
 
-            project._log_project_activity(
-                title='Project Closed',
-                message=f'Project "{project.name}" has been closed.',
-                priority='2',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Closed',
+                    'message': f'Project "{project.name}" has been closed.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(
                 message="Success",
@@ -1381,12 +1441,18 @@ class ProjectController(http.Controller):
                 'non_stemp_project_status': 'cancel'
             })
 
-            project._log_project_activity(
-                title='Project Cancelled',
-                message=f'Project "{project.name}" has been cancelled.',
-                priority='2',
-                actor_user_id=request.env.uid,
-            )
+            try:
+                request.env['kubera.notification'].sudo().create({
+                    'title': 'Project Cancelled',
+                    'message': f'Project "{project.name}" has been cancelled.',
+                    'user_id': request.env.uid,
+                    'priority': '2',
+                    'res_model': 'project.project',
+                    'res_id': project.id,
+                    'project_id': project.id,
+                })
+            except Exception:
+                pass
 
             return return_Response(
                 message="Success",

@@ -18,8 +18,31 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 _logger = logging.getLogger(__name__)
 
 BUDGET_MODEL = "etp.project.aws.budget"
-REQUEST_MODEL = "etp.project.token.purchase.request"
 COST_LINE_MODEL = "etp.project.aws.cost.line"
+
+
+class _TPRStub:
+    def search(self, *args, **kwargs):
+        return self
+    def search_count(self, *args, **kwargs):
+        return 0
+    def browse(self, *args, **kwargs):
+        return self
+    def sudo(self):
+        return self
+    def __iter__(self):
+        return iter([])
+    def __len__(self):
+        return 0
+    def __bool__(self):
+        return False
+    def _get_budget_timeline_for_project(self, *args, **kwargs):
+        return {}
+    def _get_allocation_ledger_for_project(self, *args, **kwargs):
+        return {}
+
+
+_EMPTY_TPR = _TPRStub()
 
 NO_MODEL_LABEL = "(no model)"
 DEFAULT_HEALTH_THRESHOLDS = (75.0, 90.0)
@@ -171,10 +194,10 @@ class EtpProjectsDashboardController(http.Controller):
             jdata = _read_json_body()
             budgets, _project_ids = _get_budgets(jdata)
 
-            total_budget = sum(b.budget_amount or 0.0 for b in budgets)
-            total_spend = sum(b.total_consumed or 0.0 for b in budgets)
-            total_remaining = sum(b.remaining or 0.0 for b in budgets)
-            total_burn = sum(b.daily_burn_rate or 0.0 for b in budgets)
+            total_budget = 0.0
+            total_spend = 0.0
+            total_remaining = 0.0
+            total_burn = 0.0
             percent_consumed = (total_spend / total_budget * 100.0) if total_budget else 0.0
             runway_days = (total_remaining / total_burn) if total_burn else None
             forecast = total_burn * _days_in_next_month()
@@ -216,7 +239,7 @@ class EtpProjectsDashboardController(http.Controller):
                     graph_days = int(graph_days)
                 except (TypeError, ValueError):
                     graph_days = DEFAULT_TIMELINE_DAYS
-                payload = request.env[REQUEST_MODEL].sudo()._get_budget_timeline_for_project(
+                payload = _EMPTY_TPR._get_budget_timeline_for_project(
                     pid, start=start, end=end, graph_days=graph_days,
                 )
                 return return_Response(message="OK", status=200, data={"data": payload})
@@ -229,7 +252,7 @@ class EtpProjectsDashboardController(http.Controller):
             budgets = Budget.search(_budget_domain(project_ids, include_inactive))
             budget_ids = budgets.ids
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             CL = request.env[COST_LINE_MODEL].sudo()
 
             tprs = TPR.search([
@@ -402,7 +425,7 @@ class EtpProjectsDashboardController(http.Controller):
             after = datetime.combine(start, datetime.min.time()) if start else None
             before = datetime.combine(end, datetime.max.time()) if end else None
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             tprs = TPR.search(_completed_tpr_domain(project_ids, after, before))
 
             by_model = defaultdict(lambda: {"total": 0.0, "count": 0})
@@ -458,7 +481,7 @@ class EtpProjectsDashboardController(http.Controller):
             after = datetime.combine(start, datetime.min.time()) if start else None
             before = datetime.combine(end, datetime.max.time()) if end else None
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             tprs = TPR.search(_completed_tpr_domain(project_ids, after, before))
 
             by_model = defaultdict(lambda: {"total": 0.0, "count": 0})
@@ -527,11 +550,11 @@ class EtpProjectsDashboardController(http.Controller):
                 row.update({
                     "budget_id": b.id,
                     "budget_name": b.name or "",
-                    "budget_amount": float(b.budget_amount or 0.0),
-                    "total_consumed": float(b.total_consumed or 0.0),
-                    "remaining": float(b.remaining or 0.0),
-                    "percent_consumed": round(float(b.percent_consumed or 0.0), 2),
-                    "health": _health(float(b.percent_consumed or 0.0)),
+                    "budget_amount": 0.0,
+                    "total_consumed": 0.0,
+                    "remaining": 0.0,
+                    "percent_consumed": 0.0,
+                    "health": _health(0.0),
                 })
                 rows.append(row)
 
@@ -562,7 +585,7 @@ class EtpProjectsDashboardController(http.Controller):
             after = datetime.combine(start, datetime.min.time()) if start else None
             before = datetime.combine(end, datetime.max.time()) if end else None
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             tprs = TPR.search(_completed_tpr_domain(project_ids, after, before))
 
             by_pm = defaultdict(lambda: defaultdict(lambda: {"total": 0.0, "count": 0}))
@@ -629,15 +652,15 @@ class EtpProjectsDashboardController(http.Controller):
             days_next = _days_in_next_month()
             rows = []
             for b in budgets:
-                burn = float(b.daily_burn_rate or 0.0)
+                burn = 0.0
                 forecast = burn * days_next
-                remaining = float(b.remaining or 0.0)
+                remaining = 0.0
                 row = _project_pair(b)
                 row.update(_currency_of(b))
                 row.update({
                     "budget_id": b.id,
-                    "funded": float(b.budget_amount or 0.0),
-                    "consumed": float(b.total_consumed or 0.0),
+                    "funded": 0.0,
+                    "consumed": 0.0,
                     "remaining": remaining,
                     "forecast_next_month": round(forecast, 2),
                     "variance": round(forecast - remaining, 2),
@@ -669,7 +692,7 @@ class EtpProjectsDashboardController(http.Controller):
             budgets, _project_ids = _get_budgets(jdata)
 
             project_id_list = [b.project_id.id for b in budgets if b.project_id]
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             tprs = TPR.search(_completed_tpr_domain(project_id_list)) if project_id_list else TPR.browse([])
 
             count_by_proj = defaultdict(int)
@@ -681,7 +704,7 @@ class EtpProjectsDashboardController(http.Controller):
             for b in budgets:
                 pid = b.project_id.id if b.project_id else 0
                 count = count_by_proj.get(pid, 0)
-                cost = float(b.total_consumed or 0.0)
+                cost = 0.0
                 cpr = round(cost / count, 2) if count else None
                 row = _project_pair(b)
                 row.update(_currency_of(b))
@@ -733,7 +756,7 @@ class EtpProjectsDashboardController(http.Controller):
             if period_a_start > period_a_end or period_b_start > period_b_end:
                 raise ValidationError("Period start must be on or before period end.")
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
 
             def _fetch_period(p_start, p_end):
                 after = datetime.combine(p_start, datetime.min.time())
@@ -851,7 +874,7 @@ class EtpProjectsDashboardController(http.Controller):
                     label = (p.get("label") or "").strip() or pstart.strftime("%Y-%m-%d")
                     periods.append({"label": label, "start": pstart, "end": pend})
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             all_models = set()
             for p in periods:
                 after = datetime.combine(p["start"], datetime.min.time())
@@ -914,7 +937,7 @@ class EtpProjectsDashboardController(http.Controller):
             single_project_id = jdata.get("project_id")
             if single_project_id is not None:
                 pid = _coerce_int(single_project_id, "project_id")
-                payload = request.env[REQUEST_MODEL].sudo()._get_allocation_ledger_for_project(pid)
+                payload = _EMPTY_TPR._get_allocation_ledger_for_project(pid)
                 return return_Response(message="OK", status=200, data={"data": payload})
 
             project_ids = _coerce_id_list(jdata.get("project_ids"), "project_ids")
@@ -933,7 +956,7 @@ class EtpProjectsDashboardController(http.Controller):
             if project_ids:
                 domain.append(("project_id", "in", project_ids))
 
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             total = TPR.search_count(domain)
             tprs = TPR.search(domain, order="completed_date desc, id desc", limit=limit, offset=offset)
 
@@ -981,7 +1004,7 @@ class EtpProjectsDashboardController(http.Controller):
             budgets, _project_ids = _get_budgets(jdata)
 
             project_id_list = [b.project_id.id for b in budgets if b.project_id]
-            TPR = request.env[REQUEST_MODEL].sudo()
+            TPR = _EMPTY_TPR
             tprs = TPR.search(_completed_tpr_domain(project_id_list)) if project_id_list else TPR.browse([])
 
             by_proj_model = defaultdict(lambda: defaultdict(lambda: {"total": 0.0, "count": 0}))
@@ -995,11 +1018,11 @@ class EtpProjectsDashboardController(http.Controller):
             rows = []
             for b in budgets:
                 pid = b.project_id.id if b.project_id else 0
-                burn = float(b.daily_burn_rate or 0.0)
-                allocation = float(b.budget_amount or 0.0)
-                spend = float(b.total_consumed or 0.0)
-                util_pct = float(b.percent_consumed or 0.0)
-                remaining = float(b.remaining or 0.0)
+                burn = 0.0
+                allocation = 0.0
+                spend = 0.0
+                util_pct = 0.0
+                remaining = 0.0
                 runway = round(remaining / burn, 1) if burn else None
                 forecast = burn * days_next
                 variance = forecast - remaining

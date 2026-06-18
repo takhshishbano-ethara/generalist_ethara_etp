@@ -5,18 +5,12 @@
         <field name="name">etp.project.aws.budget.list</field>
         <field name="model">etp.project.aws.budget</field>
         <field name="arch" type="xml">
-            <list string="Project AWS Budgets" decoration-warning="percent_consumed &gt;= 75 and percent_consumed &lt; 90" decoration-danger="percent_consumed &gt;= 90">
+            <list string="Project AWS Budgets">
                 <field name="project_id"/>
                 <field name="name"/>
-                <field name="tag_key"/>
-                <field name="tag_value"/>
-                <field name="project_budget" widget="monetary" sum="Project Budget" optional="show"/>
-                <field name="budget_amount" widget="monetary" sum="Final Budget"/>
-                <field name="total_consumed" widget="monetary" sum="Consumed"/>
-                <field name="remaining" widget="monetary" sum="Remaining"/>
-                <field name="daily_burn_rate" widget="monetary"/>
-                <field name="percent_consumed" widget="percentage"/>
-                <field name="currency_id" column_invisible="True"/>
+                <field name="project_type" optional="show"/>
+                <field name="budget_amount" optional="show" sum="USD"/>
+                <field name="tag_summary" optional="show"/>
                 <field name="last_fetched_at"/>
             </list>
         </field>
@@ -30,37 +24,50 @@
                 <header>
                     <button name="action_fetch_cost" type="object" string="Fetch Cost" class="btn-primary"/>
                     <button name="action_fetch_openrouter" type="object" string="Fetch OpenRouter" class="btn-secondary" invisible="not openrouter_enabled"/>
-                    <button name="action_reset_alerts" type="object" string="Reset Alerts"/>
+                    <button name="action_fetch_moonshot" type="object" string="Fetch Moonshot" class="btn-secondary" invisible="not moonshot_enabled"/>
+                    <button name="action_fetch_openai" type="object" string="Fetch OpenAI" class="btn-secondary" invisible="not openai_enabled"/>
+                    <button name="action_fetch_gcp" type="object" string="Fetch GCP" class="btn-secondary" invisible="not gcp_enabled"/>
                 </header>
                 <sheet>
-                    <div class="oe_button_box" name="button_box">
-                        <button name="action_view_purchase_requests" type="object"
-                                class="oe_stat_button" icon="fa-shopping-cart">
-                            <field name="purchase_request_count" widget="statinfo"
-                                   string="Purchase Requests"/>
-                        </button>
-                    </div>
                     <div class="oe_title">
                         <h1><field name="name" placeholder="e.g. Alpha Q3 Cloud Budget"/></h1>
                     </div>
                     <group>
                         <group string="Project">
                             <field name="project_id"/>
-                            <field name="project_budget" widget="monetary"/>
-                            <field name="budget_amount" widget="monetary"/>
-                            <field name="currency_id"/>
+                            <field name="project_type"/>
+                            <field name="budget_amount"/>
                             <field name="active"/>
                         </group>
                         <group string="Status">
-                            <field name="total_consumed" widget="monetary" readonly="1"/>
-                            <field name="remaining" widget="monetary" readonly="1"/>
-                            <field name="daily_burn_rate" widget="monetary" readonly="1"/>
-                            <field name="percent_consumed" widget="percentage" readonly="1"/>
+                            <field name="is_rnd" invisible="1"/>
                             <field name="last_fetched_at" readonly="1"/>
                             <field name="cost_line_count" readonly="1"/>
+                            <field name="total_approved_amount" readonly="1"/>
+                            <field name="topup_total_amount" readonly="1"/>
+                            <field name="batch_budget_remain" readonly="1" invisible="is_rnd"/>
+                            <field name="allocated_amount" readonly="1" invisible="is_rnd"/>
+                            <field name="consumed_amount" readonly="1" invisible="is_rnd"/>
+                            <field name="llm_consumed_amount" readonly="1" invisible="not is_rnd"/>
+                            <field name="remaining_amount" readonly="1"/>
+                            <field name="consumed_pct" readonly="1" widget="progressbar"/>
+                            <field name="health_status" widget="badge" readonly="1"
+                                   decoration-success="health_status == 'healthy'"
+                                   decoration-info="health_status == 'warning'"
+                                   decoration-warning="health_status == 'at_risk'"
+                                   decoration-danger="health_status == 'critical'"
+                                   decoration-muted="health_status == 'unknown'"/>
                         </group>
                     </group>
-                    <group string="AWS Credentials &amp; Filter">
+                    <group string="Approvals">
+                        <group>
+                            <field name="approver_user_ids" widget="many2many_tags"/>
+                        </group>
+                        <group>
+                            <field name="cto_user_id"/>
+                        </group>
+                    </group>
+                    <group string="AWS Credentials">
                         <group>
                             <field name="aws_access_key_id" password="True"/>
                             <field name="aws_secret_access_key" password="True"/>
@@ -68,8 +75,7 @@
                             <field name="fetch_months"/>
                         </group>
                         <group>
-                            <field name="tag_key" placeholder="e.g. team"/>
-                            <field name="tag_value" placeholder="e.g. alpha"/>
+                            <field name="tag_summary" readonly="1"/>
                         </group>
                     </group>
                     <group string="OpenRouter">
@@ -81,52 +87,137 @@
                             <field name="last_openrouter_fetched_at" readonly="1" invisible="not openrouter_enabled"/>
                         </group>
                     </group>
-                    <group string="Alerts">
+                    <group string="Moonshot">
                         <group>
-                            <field name="alert_75_sent" readonly="1"/>
-                            <field name="alert_90_sent" readonly="1"/>
-                            <field name="alert_100_sent" readonly="1"/>
+                            <field name="moonshot_enabled"/>
+                            <field name="moonshot_api_key" password="True" invisible="not moonshot_enabled" required="moonshot_enabled"/>
                         </group>
                         <group>
-                            <field name="notify_user_ids" widget="many2many_tags"/>
+                            <field name="last_moonshot_fetched_at" readonly="1" invisible="not moonshot_enabled"/>
+                            <field name="moonshot_last_used_usd" readonly="1" invisible="not moonshot_enabled"/>
+                            <field name="moonshot_last_used_at" readonly="1" invisible="not moonshot_enabled"/>
+                        </group>
+                    </group>
+                    <group string="OpenAI">
+                        <group>
+                            <field name="openai_enabled"/>
+                            <field name="openai_api_key" password="True" invisible="not openai_enabled" required="openai_enabled"/>
+                            <field name="openai_project_id" invisible="not openai_enabled" placeholder="proj_..."/>
+                        </group>
+                        <group>
+                            <field name="last_openai_fetched_at" readonly="1" invisible="not openai_enabled"/>
+                        </group>
+                    </group>
+                    <group string="GCP (BigQuery Billing Export)">
+                        <group>
+                            <field name="gcp_enabled"/>
+                            <field name="gcp_project_id" invisible="not gcp_enabled" required="gcp_enabled" placeholder="e.g. my-billing-project"/>
+                            <field name="gcp_bq_dataset" invisible="not gcp_enabled" required="gcp_enabled"/>
+                            <field name="gcp_bq_table" invisible="not gcp_enabled" required="gcp_enabled" placeholder="gcp_billing_export_v1_XXXXXX_YYYYYY"/>
+                        </group>
+                        <group>
+                            <field name="last_gcp_fetched_at" readonly="1" invisible="not gcp_enabled"/>
+                            <field name="gcp_service_filter" invisible="not gcp_enabled" placeholder="e.g. Generative Language API"/>
+                            <field name="gcp_label_key" invisible="not gcp_enabled" placeholder="e.g. team"/>
+                            <field name="gcp_label_value" invisible="not gcp_enabled" placeholder="e.g. alpha"/>
+                        </group>
+                        <group colspan="2" invisible="not gcp_enabled">
+                            <field name="gcp_service_account_json" required="gcp_enabled" widget="text"/>
                         </group>
                     </group>
                     <notebook>
+                        <page string="AWS Tag Filters" name="aws_tags">
+                            <p class="text-muted">
+                                Add one or more (Tag Key, Tag Value) pairs. Each active row
+                                triggers its own AWS Cost Explorer query, so a single budget
+                                can aggregate spend across multiple tags (e.g. team=alpha and
+                                env=prod).
+                            </p>
+                            <field name="tag_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="tag_key"/>
+                                    <field name="tag_value"/>
+                                    <field name="active"/>
+                                    <field name="last_fetched_at" readonly="1"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Models" name="models" invisible="project_type != 'operations'">
+                            <field name="model_line_ids">
+                                <list editable="bottom">
+                                    <field name="ai_model_id"/>
+                                    <field name="per_task_cost" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Infrastructure" name="infrastructure" invisible="project_type != 'operations'">
+                            <field name="infra_line_ids">
+                                <list editable="bottom">
+                            <field name="infra_type_id"/>
+                            <field name="description"/>
+                            <field name="budget_amount" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Batches" name="batches" invisible="is_rnd">
+                            <field name="batch_budget_ids" readonly="1">
+                                <list create="0" delete="0" edit="0">
+                                    <field name="name"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="total_tasks"/>
+                                    <field name="batch_budget" sum="USD" optional="hide"/>
+                                    <field name="approved_amount" sum="USD"/>
+                                    <field name="consumed_cost" sum="USD"/>
+                                    <field name="remaining_cost" sum="USD"/>
+                                    <field name="health_status" widget="badge"
+                                           decoration-success="health_status == 'healthy'"
+                                           decoration-info="health_status == 'warning'"
+                                           decoration-warning="health_status == 'at_risk'"
+                                           decoration-danger="health_status == 'critical'"
+                                           decoration-muted="health_status == 'unknown'"/>
+                                    <field name="state" widget="badge"
+                                           decoration-success="state in ('approved','delivered')"
+                                           decoration-primary="state == 'in_progress'"
+                                           decoration-danger="state == 'rejected'"
+                                           decoration-muted="state in ('draft','withdrawn','closed')"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Top-ups" name="topups">
+                            <field name="topup_ids" readonly="1">
+                                <list create="0" delete="0" edit="0">
+                                    <field name="name"/>
+                                    <field name="amount" sum="USD"/>
+                                    <field name="requester_id"/>
+                                    <field name="approver_id" optional="show"/>
+                                    <field name="approval_date" optional="show"/>
+                                    <field name="state" widget="badge"
+                                           decoration-info="state == 'pending'"
+                                           decoration-success="state == 'approved'"
+                                           decoration-danger="state == 'rejected'"
+                                           decoration-muted="state == 'draft'"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Cost Lines (Service Breakdown)" name="cost_lines">
                             <field name="cost_line_ids" readonly="1">
                                 <list>
                                     <field name="period"/>
+                                    <field name="granularity" optional="show"/>
                                     <field name="service_name"/>
+                                    <field name="model_name" optional="show"/>
+                                    <field name="token_type" optional="show"/>
+                                    <field name="usage_quantity" optional="hide" sum="Usage"/>
+                                    <field name="usage_unit" optional="hide"/>
+                                    <field name="is_model_breakdown" optional="hide"/>
                                     <field name="source" optional="show"/>
-                                    <field name="amount_source" widget="monetary" sum="USD"/>
-                                    <field name="currency_id" column_invisible="True"/>
-                                    <field name="amount_inr" widget="monetary" sum="INR"/>
-                                    <field name="inr_currency_id" column_invisible="True"/>
-                                </list>
-                            </field>
-                        </page>
-                        <page string="Token Purchase Requests" name="purchase_requests">
-                            <field name="purchase_request_ids" readonly="1">
-                                <list decoration-info="state == 'pending'"
-                                      decoration-success="state == 'approved' or state == 'completed'"
-                                      decoration-danger="state == 'rejected'"
-                                      decoration-muted="state == 'draft'">
-                                    <field name="name"/>
-                                    <field name="model_name"/>
-                                    <field name="requested_amount" widget="monetary"/>
-                                    <field name="approved_amount" widget="monetary"/>
-                                    <field name="currency_id" column_invisible="True"/>
-                                    <field name="requester_id"/>
-                                    <field name="approver_id"/>
-                                    <field name="state" widget="badge"
-                                           decoration-info="state == 'pending'"
-                                           decoration-success="state == 'approved' or state == 'completed'"
-                                           decoration-danger="state == 'rejected'"/>
+                                    <field name="amount_source" sum="USD"/>
                                 </list>
                             </field>
                         </page>
                         <page string="Fetch History" name="fetch_history">
-                            <field name="fetch_log_count" invisible="1"/>
                             <field name="fetch_log_ids" readonly="1">
                                 <list create="0" edit="0" delete="0"
                                       decoration-success="status == 'success'"
@@ -142,11 +233,6 @@
                                     <field name="tag_key" optional="hide"/>
                                     <field name="tag_value" optional="hide"/>
                                     <field name="fetch_months" optional="hide"/>
-                                    <field name="currency_id" column_invisible="True"/>
-                                    <field name="total_consumed" widget="monetary" optional="show"/>
-                                    <field name="remaining" widget="monetary" optional="show"/>
-                                    <field name="percent_consumed" widget="percentage" optional="show"/>
-                                    <field name="daily_burn_rate" widget="monetary" optional="hide"/>
                                     <field name="api_hit_count" sum="API Hits" optional="show"/>
                                     <field name="api_hit_cost_usd" sum="API Cost (USD)" optional="show"/>
                                     <field name="error_message" optional="show"/>
@@ -167,15 +253,16 @@
             <search string="Project AWS Budgets">
                 <field name="name"/>
                 <field name="project_id"/>
-                <field name="tag_key"/>
-                <field name="tag_value"/>
-                <filter name="filter_alerted_75" string="75% Alert Sent" domain="[('alert_75_sent','=',True)]"/>
-                <filter name="filter_alerted_90" string="90% Alert Sent" domain="[('alert_90_sent','=',True)]"/>
-                <filter name="filter_alerted_100" string="100% Alert Sent" domain="[('alert_100_sent','=',True)]"/>
+                <field name="project_type"/>
+                <field name="tag_ids"/>
+                <field name="tag_summary"/>
+                <filter name="filter_project_type_rnd" string="R&amp;D" domain="[('project_type','=','rnd')]"/>
+                <filter name="filter_project_type_ops" string="Operations" domain="[('project_type','=','operations')]"/>
+                <separator/>
                 <filter name="filter_archived" string="Archived" domain="[('active','=',False)]"/>
                 <group>
                     <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
-                    <filter name="group_tag_key" string="Tag Key" context="{'group_by':'tag_key'}"/>
+                    <filter name="group_project_type" string="Project Type" context="{'group_by':'project_type'}"/>
                 </group>
             </search>
         </field>
@@ -188,8 +275,8 @@
         <field name="search_view_id" ref="view_etp_project_aws_budget_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create a project AWS budget</p>
-            <p>Set the project, budget, AWS keys, and a tag key + value. Click <b>Fetch Cost</b>
-            to pull spend from Cost Explorer. Alerts fire at 75%, 90%, and 100%.</p>
+            <p>Set the project, AWS keys, and one or more tag filters (Tag Key + Value).
+            Click <b>Fetch Cost</b> to pull per-tag, per-service spend from Cost Explorer.</p>
         </field>
     </record>
 
@@ -199,15 +286,19 @@
         <field name="arch" type="xml">
             <list string="AWS Cost by Service" create="0">
                 <field name="period"/>
+                <field name="granularity" optional="show"/>
                 <field name="project_id"/>
                 <field name="tag_key"/>
                 <field name="tag_value"/>
                 <field name="service_name"/>
+                <field name="model_name" optional="show"/>
+                <field name="token_type" optional="show"/>
+                <field name="usage_quantity" optional="hide" sum="Usage"/>
+                <field name="usage_unit" optional="hide"/>
+                <field name="usage_type" optional="hide"/>
+                <field name="is_model_breakdown" optional="hide"/>
                 <field name="source" optional="show"/>
-                <field name="amount_source" widget="monetary" sum="USD"/>
-                <field name="currency_id" column_invisible="True"/>
-                <field name="amount_inr" widget="monetary" sum="INR"/>
-                <field name="inr_currency_id" column_invisible="True"/>
+                <field name="amount_source" sum="USD"/>
             </list>
         </field>
     </record>
@@ -218,8 +309,10 @@
         <field name="arch" type="xml">
             <pivot string="AWS Cost by Service" sample="1">
                 <field name="service_name" type="row"/>
+                <field name="model_name" type="row"/>
                 <field name="period" type="col" interval="month"/>
-                <field name="amount_inr" type="measure"/>
+                <field name="amount_source" type="measure"/>
+                <field name="usage_quantity" type="measure"/>
             </pivot>
         </field>
     </record>
@@ -230,7 +323,7 @@
         <field name="arch" type="xml">
             <graph string="AWS Cost by Service" type="bar" stacked="1" sample="1">
                 <field name="service_name"/>
-                <field name="amount_inr" type="measure"/>
+                <field name="amount_source" type="measure"/>
             </graph>
         </field>
     </record>
@@ -242,18 +335,32 @@
             <search string="AWS Cost by Service">
                 <field name="project_id"/>
                 <field name="service_name"/>
+                <field name="model_name"/>
+                <field name="usage_type"/>
                 <field name="tag_key"/>
                 <field name="tag_value"/>
                 <field name="source"/>
+                <field name="granularity"/>
+                <field name="token_type"/>
                 <filter name="filter_this_month" string="This Month"
                         domain="[('period','&gt;=', (context_today().replace(day=1)).strftime('%Y-%m-%d'))]"/>
+                <separator/>
+                <filter name="filter_service_rows" string="Service Rows" domain="[('is_model_breakdown','=',False)]"/>
+                <filter name="filter_model_rows" string="Model Breakdown" domain="[('is_model_breakdown','=',True)]"/>
+                <separator/>
                 <filter name="filter_aws_source" string="AWS" domain="[('source','=','aws')]"/>
                 <filter name="filter_openrouter_source" string="OpenRouter" domain="[('source','=','openrouter')]"/>
+                <filter name="filter_moonshot_source" string="Moonshot" domain="[('source','=','moonshot')]"/>
+                <filter name="filter_openai_source" string="OpenAI" domain="[('source','=','openai')]"/>
+                <filter name="filter_gcp_source" string="GCP" domain="[('source','=','gcp')]"/>
                 <group>
                     <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
                     <filter name="group_service" string="Service" context="{'group_by':'service_name'}"/>
+                    <filter name="group_model" string="Model" context="{'group_by':'model_name'}"/>
+                    <filter name="group_token_type" string="Token Type" context="{'group_by':'token_type'}"/>
                     <filter name="group_period" string="Period" context="{'group_by':'period:month'}"/>
                     <filter name="group_source" string="Source" context="{'group_by':'source'}"/>
+                    <filter name="group_granularity" string="Granularity" context="{'group_by':'granularity'}"/>
                 </group>
             </search>
         </field>
@@ -269,5 +376,7 @@
     <menuitem id="menu_etp_project_aws_root" name="AWS Budgets" parent="project.menu_main_pm" sequence="80"/>
     <menuitem id="menu_etp_project_aws_budget" name="Project Budgets" parent="menu_etp_project_aws_root" action="action_etp_project_aws_budget" sequence="10"/>
     <menuitem id="menu_etp_project_aws_cost_line" name="AWS Cost by Service" parent="menu_etp_project_aws_root" action="action_etp_project_aws_cost_line" sequence="20"/>
+    <menuitem id="menu_etp_batch_budget" name="Batch Budgets" parent="menu_etp_project_aws_root" action="action_etp_batch_budget" sequence="15"/>
+    <menuitem id="menu_etp_ai_model" name="AI Models" parent="menu_etp_project_aws_root" action="action_etp_ai_model" sequence="30"/>
 
 </odoo>

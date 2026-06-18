@@ -125,7 +125,9 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Passwords do not match")
 
         birthday_value = False
-        if birthday_raw:
+        if not birthday_raw:
+            errors.append("Date of birth is required")
+        else:
             try:
                 birthday_value = datetime.strptime(birthday_raw, '%Y-%m-%d').date()
             except ValueError:
@@ -349,7 +351,7 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         admin_env = request.env(user=SUPERUSER_ID)
         ResUsers = admin_env['res.users']
-        Candidate = admin_env['employee.candidate']
+        Applicant = admin_env['hr.applicant']
         College = admin_env['employee.college']
 
         if college_id and not College.browse(college_id).exists():
@@ -357,9 +359,9 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         if ResUsers.search_count([('login', '=', personal_email)]):
             return return_Response(message=f"An account already exists for {personal_email}", status=400)
-        if Candidate.search_count([('personal_email', '=ilike', personal_email)]):
+        if Applicant.search_count([('email_from', '=ilike', personal_email)]):
             return return_Response(message=f"A candidate profile already exists for {personal_email}", status=400)
-        if aadhaar_number and Candidate.search_count([('aadhaar_number', '=', aadhaar_number)]):
+        if aadhaar_number and Applicant.search_count([('aadhaar_number', '=', aadhaar_number)]):
             return return_Response(message="Aadhaar number already registered as a candidate", status=400)
 
         company = (
@@ -387,24 +389,31 @@ class EmployeeSelfRegistrationController(http.Controller):
             tracking_disable=True,
         ).create(user_vals)
 
-        candidate = Candidate.create({
-            'name': name,
+        applicant_vals = {
+            'partner_name': name,
+            'partner_id': new_user.partner_id.id,
+            'email_from': personal_email,
+            'partner_phone': phone or False,
+            'company_id': company.id,
             'gender': gender or False,
-            'phone': phone or False,
-            'personal_email': personal_email,
-            'aadhaar_number': aadhaar_number,
             'birthday': birthday_value or False,
+            'aadhaar_number': aadhaar_number,
             'experience': experience,
             'experience_years': experience_years if experience == 'experienced' else 0.0,
             'college_id': college_id or False,
-            'user_id': new_user.id,
-        })
+            'candidate_user_id': new_user.id,
+        }
+        applicant = Applicant.with_company(company).with_context(
+            mail_create_nosubscribe=True,
+            mail_create_nolog=True,
+            tracking_disable=True,
+        ).create(applicant_vals)
 
         aadhaar_b64 = base64.b64encode(aadhaar_bytes).decode('utf-8')
         aadhaar_url = generate_s3_link(
             aadhaar_b64,
             prefix='candidate/aadhaar',
-            uid=candidate.id,
+            uid=applicant.id,
             filename=aadhaar_filename or 'aadhaar',
         )
         if not aadhaar_url:
@@ -414,13 +423,13 @@ class EmployeeSelfRegistrationController(http.Controller):
         resume_url = generate_s3_link(
             resume_b64,
             prefix='candidate/resume',
-            uid=candidate.id,
+            uid=applicant.id,
             filename=resume_filename or 'resume',
         )
         if not resume_url:
             return return_Response(message="Failed to upload resume to storage", status=500)
 
-        candidate.write({
+        applicant.write({
             'aadhaar_card_url': aadhaar_url,
             'resume_url': resume_url,
         })
@@ -430,11 +439,11 @@ class EmployeeSelfRegistrationController(http.Controller):
             status=200,
             data={'data': {
                 'type': 'candidate',
-                'candidate_id': candidate.id,
+                'applicant_id': applicant.id,
                 'user_id': new_user.id,
                 'personal_email': personal_email,
                 'experience': experience,
-                'experience_years': candidate.experience_years,
+                'experience_years': applicant.experience_years,
                 'aadhaar_card_url': aadhaar_url,
                 'resume_url': resume_url,
             }},
@@ -511,6 +520,147 @@ class EmployeeSelfRegistrationController(http.Controller):
             )
         except Exception as e:
             _logger.exception("colleges endpoint failed")
+            return self._safe_response(str(e) or "Internal error", status=500)
+
+    @http.route(
+        '/api/v2/employees/colleges/import',
+        methods=['POST'], type='http', auth='public', csrf=False, cors='*',
+    )
+    def import_colleges(self, **kwargs):
+        try:
+            data, err_resp = self._read_json_body(kwargs)
+            if err_resp is not None:
+                return err_resp
+
+            excel_url = (data.get('excel_url') or '').strip()
+            excel_b64 = data.get('excel_file_base64')
+
+            if not excel_url and not excel_b64:
+                return self._safe_response(
+                    "Provide either 'excel_url' or 'excel_file_base64'", status=400,
+                )
+
+            try:
+                from openpyxl import load_workbook
+            except ImportError:
+                return self._safe_response("Server is missing the 'openpyxl' library", status=500)
+
+            import io
+
+            if excel_b64:
+                excel_bytes, err_resp = self._decode_b64(excel_b64, 'excel_file_base64')
+                if err_resp is not None:
+                    return err_resp
+            else:
+                if not (excel_url.startswith('http://') or excel_url.startswith('https://')):
+                    return self._safe_response("excel_url must be a valid http(s) URL", status=400)
+                import urllib.request
+                try:
+                    with urllib.request.urlopen(excel_url, timeout=60) as resp:
+                        excel_bytes = resp.read()
+                except Exception as e:
+                    return self._safe_response(f"Failed to download Excel: {e}", status=400)
+
+            if len(excel_bytes) > 50 * 1024 * 1024:
+                return self._safe_response("Excel file exceeds 50 MB limit", status=413)
+
+            try:
+                wb = load_workbook(filename=io.BytesIO(excel_bytes), read_only=True, data_only=True)
+            except Exception as e:
+                return self._safe_response(f"Could not parse Excel: {e}", status=400)
+
+            ws = wb.active
+            rows_iter = ws.iter_rows(values_only=True)
+            header_row = next(rows_iter, None)
+            if not header_row:
+                return self._safe_response("Excel is empty", status=400)
+            header = [str(h or '').strip().lower() for h in header_row]
+            if 'name' not in header:
+                return self._safe_response("Excel must have a 'name' column", status=400)
+
+            idx_name = header.index('name')
+            idx_code = header.index('code') if 'code' in header else None
+            idx_city = header.index('city') if 'city' in header else None
+            idx_active = header.index('active') if 'active' in header else None
+
+            admin_env = request.env(user=SUPERUSER_ID)
+            if 'employee.college' not in admin_env:
+                return self._safe_response("College model not available", status=500)
+
+            College = admin_env['employee.college']
+            existing = College.with_context(active_test=False).search_read(
+                [], ['name', 'code']
+            )
+            existing_codes = {(c['code'] or '').strip().lower() for c in existing if c.get('code')}
+            existing_names = {(c['name'] or '').strip().lower() for c in existing if c.get('name')}
+
+            to_create = []
+            skipped_duplicates = 0
+            skipped_blank = 0
+
+            for row in rows_iter:
+                if row is None:
+                    continue
+
+                def cell(i):
+                    if i is None or i >= len(row):
+                        return ''
+                    return str(row[i]).strip() if row[i] is not None else ''
+
+                name = cell(idx_name)
+                code = cell(idx_code)
+                city = cell(idx_city)
+
+                active = True
+                if idx_active is not None and idx_active < len(row):
+                    v = row[idx_active]
+                    if isinstance(v, bool):
+                        active = v
+                    elif isinstance(v, (int, float)):
+                        active = bool(v)
+                    elif isinstance(v, str):
+                        active = v.strip().lower() in ('1', 'true', 'yes', 'y')
+
+                if not name:
+                    skipped_blank += 1
+                    continue
+
+                code_key = code.lower()
+                if code and code_key in existing_codes:
+                    skipped_duplicates += 1
+                    continue
+                if not code and name.lower() in existing_names:
+                    skipped_duplicates += 1
+                    continue
+
+                to_create.append({
+                    'name': name,
+                    'code': code or False,
+                    'city': city or False,
+                    'active': active,
+                })
+                if code:
+                    existing_codes.add(code_key)
+                existing_names.add(name.lower())
+
+            created_count = 0
+            if to_create:
+                batch_size = 1000
+                for i in range(0, len(to_create), batch_size):
+                    College.create(to_create[i:i + batch_size])
+                    created_count += len(to_create[i:i + batch_size])
+
+            return return_Response(
+                message=f"Imported {created_count} colleges. Skipped {skipped_duplicates} duplicates, {skipped_blank} blank rows.",
+                status=200,
+                data={'data': {
+                    'created': created_count,
+                    'skipped_duplicates': skipped_duplicates,
+                    'skipped_blank': skipped_blank,
+                }},
+            )
+        except Exception as e:
+            _logger.exception("import_colleges failed")
             return self._safe_response(str(e) or "Internal error", status=500)
 
     @http.route(

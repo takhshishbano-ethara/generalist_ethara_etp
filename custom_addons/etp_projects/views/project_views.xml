@@ -29,6 +29,43 @@
         </field>
     </record>
 
+    <!-- Project form: role-filter domains, TPM field, CSV import button -->
+    <record id="edit_project_team_assignment" model="ir.ui.view">
+        <field name="name">project.project.form.team.assignment</field>
+        <field name="model">project.project</field>
+        <field name="inherit_id" ref="project_extension.edit_project_inherit_extension"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='technical_team']" position="attributes">
+                <attribute name="string">Project Team</attribute>
+            </xpath>
+            <xpath expr="//page[@name='technical_team']/group" position="before">
+                <div class="oe_button_box">
+                    <button name="%(action_etp_project_team_csv_import)d"
+                            type="action"
+                            string="Import Team CSV"
+                            class="btn-primary"
+                            icon="fa-upload"
+                            context="{'default_project_id': id}"/>
+                </div>
+            </xpath>
+            <xpath expr="//field[@name='project_tasker']" position="attributes">
+                <attribute name="domain">[('user_id.user_role.name', '=', 'Tasker')]</attribute>
+            </xpath>
+            <xpath expr="//field[@name='project_qc_reviewer']" position="attributes">
+                <attribute name="domain">[('user_id.user_role.name', 'in', ['QC', 'QR'])]</attribute>
+            </xpath>
+            <xpath expr="//field[@name='project_lead']" position="attributes">
+                <attribute name="domain">[('user_id.user_role.name', '=', 'PL')]</attribute>
+            </xpath>
+            <xpath expr="//field[@name='project_lead']" position="before">
+                <field name="project_tpm"
+                       widget="many2many_tags"
+                       domain="[('user_id.user_role.name', '=', 'TPM')]"
+                       options="{'color_field': 'color'}"/>
+            </xpath>
+        </field>
+    </record>
+
     <!-- Restrict the base Project app to internal projects only -->
     <record id="project.open_view_project_all" model="ir.actions.act_window">
         <field name="domain">[("is_template", "=", False), ("project_classification", "=", "internal")]</field>

@@ -104,13 +104,6 @@ class EtpProjectsAwsCostController(http.Controller):
                     api_hit_cost_usd = round(
                         float(fetch_result.get('api_hit_cost_usd', 0.0)), 4,
                     )
-                    try:
-                        budget._maybe_alert_thresholds()
-                    except Exception:
-                        _logger.exception(
-                            "Threshold alert failed for budget id=%s name=%s; fetch succeeded.",
-                            budget.id, budget.name,
-                        )
                     success_count += 1
                     total_created += created
                     total_updated += updated
@@ -121,18 +114,18 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
-                        "tag_key": budget.tag_key or "",
-                        "tag_value": budget.tag_value or "",
+                        "tag_key": budget.tag_summary or "",
+                        "tag_value": budget.tag_summary or "",
                         "status": "success",
                         "created": created,
                         "updated": updated,
                         "api_hit_count": api_hit_count,
                         "api_hit_cost_usd": api_hit_cost_usd,
-                        "budget_amount": float(budget.budget_amount or 0.0),
-                        "total_consumed": float(budget.total_consumed or 0.0),
-                        "remaining": float(budget.remaining or 0.0),
-                        "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
-                        "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                        "budget_amount": 0.0,
+                        "total_consumed": 0.0,
+                        "remaining": 0.0,
+                        "percent_consumed": 0.0,
+                        "daily_burn_rate": 0.0,
                         "last_fetched_at": (
                             budget.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S")
                             if budget.last_fetched_at else ""
@@ -157,19 +150,19 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
-                        "tag_key": budget.tag_key or "",
-                        "tag_value": budget.tag_value or "",
+                        "tag_key": budget.tag_summary or "",
+                        "tag_value": budget.tag_summary or "",
                         "status": "error",
                         "error": str(e),
                         "created": 0,
                         "updated": 0,
                         "api_hit_count": api_hit_count,
                         "api_hit_cost_usd": api_hit_cost_usd,
-                        "budget_amount": float(budget.budget_amount or 0.0),
-                        "total_consumed": float(budget.total_consumed or 0.0),
-                        "remaining": float(budget.remaining or 0.0),
-                        "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
-                        "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                        "budget_amount": 0.0,
+                        "total_consumed": 0.0,
+                        "remaining": 0.0,
+                        "percent_consumed": 0.0,
+                        "daily_burn_rate": 0.0,
                         "last_fetched_at": (
                             budget.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S")
                             if budget.last_fetched_at else ""
@@ -198,19 +191,19 @@ class EtpProjectsAwsCostController(http.Controller):
                         "budget_name": budget.name or "",
                         "project_id": budget.project_id.id if budget.project_id else False,
                         "project_name": budget.project_id.name if budget.project_id else "",
-                        "tag_key": budget.tag_key or "",
-                        "tag_value": budget.tag_value or "",
+                        "tag_key": budget.tag_summary or "",
+                        "tag_value": budget.tag_summary or "",
                         "status": "error",
                         "error": str(e),
                         "created": 0,
                         "updated": 0,
                         "api_hit_count": api_hit_count,
                         "api_hit_cost_usd": api_hit_cost_usd,
-                        "budget_amount": float(budget.budget_amount or 0.0),
-                        "total_consumed": float(budget.total_consumed or 0.0),
-                        "remaining": float(budget.remaining or 0.0),
-                        "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
-                        "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                        "budget_amount": 0.0,
+                        "total_consumed": 0.0,
+                        "remaining": 0.0,
+                        "percent_consumed": 0.0,
+                        "daily_burn_rate": 0.0,
                         "last_fetched_at": fields.Datetime.to_string(budget.last_fetched_at) if budget.last_fetched_at else "",
                     })
  
@@ -291,16 +284,16 @@ class EtpProjectsAwsCostController(http.Controller):
                     "budget_name": budget.name or "",
                     "project_id": budget.project_id.id if budget.project_id else False,
                     "project_name": budget.project_id.name if budget.project_id else "",
-                    "tag_key": budget.tag_key or "",
-                    "tag_value": budget.tag_value or "",
+                    "tag_key": budget.tag_summary or "",
+                    "tag_value": budget.tag_summary or "",
                     "status": "success",
                     "created": 0,
                     "updated": 0,
-                    "budget_amount": float(budget.budget_amount or 0.0),
-                    "total_consumed": float(budget.total_consumed or 0.0),
-                    "remaining": float(budget.remaining or 0.0),
-                    "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
-                    "daily_burn_rate": float(budget.daily_burn_rate or 0.0),
+                    "budget_amount": 0.0,
+                    "total_consumed": 0.0,
+                    "remaining": 0.0,
+                    "percent_consumed": 0.0,
+                    "daily_burn_rate": 0.0,
                     "last_fetched_at": (
                         budget.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S")
                         if budget.last_fetched_at else ""
@@ -362,24 +355,22 @@ class EtpProjectsAwsCostController(http.Controller):
 
             records = []
             for budget in budgets:
-                # Real-data burn/runway snapshot from the budget's cost lines.
-                snapshot = budget._budget_snapshot()
                 records.append({
                     "id": budget.id,
                     "seq": budget.name or "",
                     "project_id": budget.project_id.id if budget.project_id else False,
                     "project_name": budget.project_id.name if budget.project_id else "",
-                    "project_budget": float(budget.project_budget or 0.0),
-                    "final_budget": float(budget.budget_amount or 0.0),
-                    "total_used_cost": float(budget.total_consumed or 0.0),
-                    "remaining_cost": float(budget.remaining or 0.0),
-                    "percent_consumed": round(float(budget.percent_consumed or 0.0), 2),
-                    "currency": budget.currency_id.name if budget.currency_id else "",
-                    "currency_symbol": snapshot["currency_symbol"],
-                    "daily_burn_rate": snapshot["daily_burn_rate"],
-                    "runway_days": snapshot["runway_days"],
-                    "runway_days_exact": snapshot["runway_days_exact"],
-                    "runway_depletes_on": snapshot["runway_depletes_on"],
+                    "project_budget": 0.0,
+                    "final_budget": 0.0,
+                    "total_used_cost": 0.0,
+                    "remaining_cost": 0.0,
+                    "percent_consumed": 0.0,
+                    "currency": "",
+                    "currency_symbol": "",
+                    "daily_burn_rate": 0.0,
+                    "runway_days": 0,
+                    "runway_days_exact": 0.0,
+                    "runway_depletes_on": "",
                 })
 
             return return_Response(
@@ -514,9 +505,9 @@ class EtpProjectsAwsCostController(http.Controller):
             project_set = set()
 
             for b in budgets:
-                total_budget += float(b.budget_amount or 0.0)
-                total_consumed += float(b.total_consumed or 0.0)
-                total_remaining += float(b.remaining or 0.0)
+                total_budget += 0.0
+                total_consumed += 0.0
+                total_remaining += 0.0
                 if b.project_id:
                     project_set.add(b.project_id.id)
 
@@ -546,22 +537,21 @@ class EtpProjectsAwsCostController(http.Controller):
 
             data_start = header_row + 1
             for idx, b in enumerate(budgets, 1):
-                snapshot = b._budget_snapshot()
                 row = data_start + idx - 1
                 ws.write_number(row, 0, idx, f_int)
                 ws.write(row, 1, b.name or "", f_text)
                 ws.write(row, 2, b.project_id.name if b.project_id else "", f_text)
                 ws.write(row, 3, 'USD', f_text)
-                ws.write_number(row, 4, float(b.project_budget or 0.0), f_money)
-                ws.write_number(row, 5, float(b.budget_amount or 0.0), f_money)
-                ws.write_number(row, 6, float(b.total_consumed or 0.0), f_money)
-                ws.write_number(row, 7, float(b.remaining or 0.0), f_money)
-                ws.write_number(row, 8, round(float(b.percent_consumed or 0.0), 2), f_pct)
-                ws.write_number(row, 9, float(snapshot.get("daily_burn_rate") or 0.0), f_money)
-                ws.write_number(row, 10, int(snapshot.get("runway_days") or 0), f_int)
-                ws.write(row, 11, snapshot.get("runway_depletes_on") or "", f_text)
-                ws.write(row, 12, b.tag_key or "", f_text)
-                ws.write(row, 13, b.tag_value or "", f_text)
+                ws.write_number(row, 4, 0.0, f_money)
+                ws.write_number(row, 5, 0.0, f_money)
+                ws.write_number(row, 6, 0.0, f_money)
+                ws.write_number(row, 7, 0.0, f_money)
+                ws.write_number(row, 8, 0.0, f_pct)
+                ws.write_number(row, 9, 0.0, f_money)
+                ws.write_number(row, 10, 0, f_int)
+                ws.write(row, 11, "", f_text)
+                ws.write(row, 12, b.tag_summary or "", f_text)
+                ws.write(row, 13, b.tag_summary or "", f_text)
                 ws.write(
                     row, 14,
                     b.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S") if b.last_fetched_at else "",
@@ -603,9 +593,11 @@ class EtpProjectsAwsCostController(http.Controller):
             for b in budgets:
                 project_name = b.project_id.name if b.project_id else ""
                 budget_seq = b.name or ""
-                budget_amount_b = float(b.budget_amount or 0.0)
+                budget_amount_b = 0.0
                 per_service = {}
                 for line in b.cost_line_ids:
+                    if line.is_model_breakdown:
+                        continue
                     svc = (line.service_name or "Unknown").strip() or "Unknown"
                     agg = per_service.setdefault(svc, {'usd': 0.0})
                     agg['usd'] += float(line.amount_source or 0.0)
