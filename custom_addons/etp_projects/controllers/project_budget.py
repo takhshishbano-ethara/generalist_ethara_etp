@@ -22,6 +22,16 @@ def _budget_types():
     return field["project_type"]["selection"]
 
 
+def _missing_ids(model, ids):
+    """Return any ids that don't exist in `model` (so we can reject with a
+    clean 400 instead of letting a DB foreign-key violation surface as a
+    confusing 422)."""
+    if not ids:
+        return []
+    found = set(request.env[model].sudo().browse(ids).exists().ids)
+    return [i for i in ids if i not in found]
+
+
 def _budget_to_dict(budget):
     return {
         "id": budget.id,
@@ -105,16 +115,24 @@ class EtpProjectBudgetController(http.Controller):
             return return_Response(message="'name' is required.", status=400)
         if not isinstance(project_id, int):
             return return_Response(message="'project_id' is required.", status=400)
+        if not request.env[PROJECT_MODEL].sudo().browse(project_id).exists():
+            return return_Response(
+                message="Project %s not found." % project_id, status=400,
+            )
         if budget_type not in dict(_budget_types()):
             return return_Response(message="'budget_type' is invalid.", status=400)
 
-        # One budget per project — block a second create for the same project.
+        # One budget per (project, budget type) — a project may have one R&D
+        # budget AND one Operations budget, but not two of the same type.
         existing = request.env[BUDGET_MODEL].sudo().search(
-            [("project_id", "=", project_id)], limit=1,
+            [("project_id", "=", project_id), ("project_type", "=", budget_type)],
+            limit=1,
         )
         if existing:
             return return_Response(
-                message="A budget already exists for this project.", status=400,
+                message="A %s budget already exists for this project."
+                % dict(_budget_types()).get(budget_type, budget_type),
+                status=400,
             )
 
         vals = {
@@ -130,6 +148,11 @@ class EtpProjectBudgetController(http.Controller):
             if not all(isinstance(x, int) for x in approver_ids):
                 return return_Response(
                     message="'approver_ids' must be a list of user ids.", status=400,
+                )
+            missing = _missing_ids("res.users", approver_ids)
+            if missing:
+                return return_Response(
+                    message="Approver user(s) not found: %s" % missing, status=400,
                 )
             vals["approver_user_ids"] = [(6, 0, approver_ids)]
 
@@ -147,6 +170,13 @@ class EtpProjectBudgetController(http.Controller):
                 "ai_model_id": ai_model_id,
                 "per_task_cost": line.get("per_task_cost") or 0.0,
             }))
+        missing = _missing_ids(
+            "etp.ai.model", [c[2]["ai_model_id"] for c in line_cmds],
+        )
+        if missing:
+            return return_Response(
+                message="Model(s) not found: %s" % missing, status=400,
+            )
         if line_cmds:
             vals["model_line_ids"] = line_cmds
 
@@ -165,6 +195,13 @@ class EtpProjectBudgetController(http.Controller):
                 "description": line.get("description") or "",
                 "budget_amount": line.get("budget_amount") or 0.0,
             }))
+        missing = _missing_ids(
+            "etp.infra.type", [c[2]["infra_type_id"] for c in infra_cmds],
+        )
+        if missing:
+            return return_Response(
+                message="Infrastructure type(s) not found: %s" % missing, status=400,
+            )
         if infra_cmds:
             vals["infra_line_ids"] = infra_cmds
 
@@ -196,6 +233,11 @@ class EtpProjectBudgetController(http.Controller):
         if jdata.get("name"):
             vals["name"] = jdata["name"].strip()
         if isinstance(jdata.get("project_id"), int):
+            if not request.env[PROJECT_MODEL].sudo().browse(jdata["project_id"]).exists():
+                return return_Response(
+                    message="Project %s not found." % jdata["project_id"],
+                    status=400,
+                )
             vals["project_id"] = jdata["project_id"]
         if jdata.get("budget_type"):
             if jdata["budget_type"] not in dict(_budget_types()):
@@ -210,6 +252,11 @@ class EtpProjectBudgetController(http.Controller):
             if not all(isinstance(x, int) for x in approver_ids):
                 return return_Response(
                     message="'approver_ids' must be a list of user ids.", status=400,
+                )
+            missing = _missing_ids("res.users", approver_ids)
+            if missing:
+                return return_Response(
+                    message="Approver user(s) not found: %s" % missing, status=400,
                 )
             vals["approver_user_ids"] = [(6, 0, approver_ids)]
 
@@ -227,6 +274,13 @@ class EtpProjectBudgetController(http.Controller):
                     "ai_model_id": ai_model_id,
                     "per_task_cost": line.get("per_task_cost") or 0.0,
                 }))
+            missing = _missing_ids(
+                "etp.ai.model", [c[2]["ai_model_id"] for c in line_cmds[1:]],
+            )
+            if missing:
+                return return_Response(
+                    message="Model(s) not found: %s" % missing, status=400,
+                )
             vals["model_line_ids"] = line_cmds
 
         # Step 4 — Infrastructure (send the key to replace all infra lines)
@@ -244,6 +298,14 @@ class EtpProjectBudgetController(http.Controller):
                     "description": line.get("description") or "",
                     "budget_amount": line.get("budget_amount") or 0.0,
                 }))
+            missing = _missing_ids(
+                "etp.infra.type", [c[2]["infra_type_id"] for c in infra_cmds[1:]],
+            )
+            if missing:
+                return return_Response(
+                    message="Infrastructure type(s) not found: %s" % missing,
+                    status=400,
+                )
             vals["infra_line_ids"] = infra_cmds
 
         budget.write(vals)
