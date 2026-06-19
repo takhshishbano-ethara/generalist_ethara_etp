@@ -537,6 +537,110 @@ class EtpProjectsAwsCostController(http.Controller):
                 errors=[str(e)],
             )
 
+    def _parse_int_csv(self, raw):
+        if raw is None or raw == '':
+            return []
+        parts = [p.strip() for p in str(raw).split(',') if p.strip()]
+        out = []
+        for p in parts:
+            try:
+                out.append(int(p))
+            except ValueError:
+                return None
+        return out
+
+    def _parse_str_csv(self, raw):
+        if raw is None or raw == '':
+            return []
+        return [p.strip() for p in str(raw).split(',') if p.strip()]
+
+    def _parse_bool(self, raw):
+        if raw is None or raw == '':
+            return False
+        return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    @http.route(
+        '/api/v1/etp_projects/batch_budget/list',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def list_batch_budgets(self, **params):
+        try:
+            domain = []
+            if not self._parse_bool(params.get('include_inactive')):
+                domain.append(('active', '=', True))
+
+            batch_ids = self._parse_int_csv(params.get('batch_ids'))
+            if batch_ids is None:
+                return return_Response(
+                    message="'batch_ids' must be a comma-separated list of integers.",
+                    status=400,
+                )
+            if batch_ids:
+                domain.append(('id', 'in', batch_ids))
+
+            project_budget_ids = self._parse_int_csv(params.get('project_budget_ids'))
+            if project_budget_ids is None:
+                return return_Response(
+                    message="'project_budget_ids' must be a comma-separated list of integers.",
+                    status=400,
+                )
+            if project_budget_ids:
+                domain.append(('project_budget_id', 'in', project_budget_ids))
+
+            project_ids = self._parse_int_csv(params.get('project_ids'))
+            if project_ids is None:
+                return return_Response(
+                    message="'project_ids' must be a comma-separated list of integers.",
+                    status=400,
+                )
+            if project_ids:
+                domain.append(('project_id', 'in', project_ids))
+
+            states = self._parse_str_csv(params.get('states'))
+            if states:
+                domain.append(('state', 'in', states))
+
+            try:
+                limit = int(params.get('limit') or 50)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'limit' must be an integer.", status=400,
+                )
+            try:
+                offset = int(params.get('offset') or 0)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'offset' must be an integer.", status=400,
+                )
+            limit = max(1, min(limit, 500))
+            offset = max(0, offset)
+
+            Batch = request.env['etp.batch.budget'].sudo()
+            total = Batch.search_count(domain)
+            batches = Batch.search(
+                domain, limit=limit, offset=offset,
+                order='create_date desc, id desc',
+            )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "records": [self._serialize_batch_budget(b) for b in batches],
+                }},
+            )
+        except Exception as e:
+            _logger.exception("list_batch_budgets failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
     @http.route(
         '/api/v1/etp_projects/aws_budget/export',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
