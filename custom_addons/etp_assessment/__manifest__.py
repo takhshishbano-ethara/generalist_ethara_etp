@@ -1,12 +1,12 @@
 {
     "name": "ETP Assessment",
-    "version": "19.0.2.0.0",
+    "version": "19.0.3.0.0",
     "summary": "Skill Bank + Question Bank + Assessment lifecycle (LLM-driven, Vertex AI)",
     "author": "Ethara",
     "website": "https://www.ethara.com",
     "category": "Human Resources",
     "license": "LGPL-3",
-    "depends": ["base", "mail", "hr", "website"],
+    "depends": ["base", "mail", "hr", "hr_recruitment", "employee_extension", "website"],
     "data": [
         "security/etp_assessment_security.xml",
         "security/ir.model.access.csv",

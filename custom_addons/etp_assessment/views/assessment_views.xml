@@ -175,7 +175,7 @@
                               invisible="assessment_mode != 'multi_day' or day_session_count == 0">
                             <field name="day_session_ids" readonly="1">
                                 <list>
-                                    <field name="employee_id"/>
+                                    <field name="applicant_id"/>
                                     <field name="day_sequence" string="Day #"/>
                                     <field name="skill_id"/>
                                     <field name="state" widget="badge"
@@ -196,7 +196,7 @@
                         <page string="Candidates" invisible="state == 'draft'">
                             <field name="assessment_evaluator_ids" readonly="1">
                                 <list>
-                                    <field name="employee_id"/>
+                                    <field name="applicant_id"/>
                                     <field name="state" widget="badge"
                                            decoration-info="state == 'pending'"
                                            decoration-warning="state == 'in_progress'"
@@ -229,7 +229,7 @@
                                       decoration-success="result == 'pass'"
                                       decoration-danger="result == 'fail'"
                                       decoration-muted="result == 'pending'">
-                                    <field name="employee_id"/>
+                                    <field name="applicant_id"/>
                                     <field name="day_progress_label"
                                            string="Days Progress"/>
                                     <field name="total_score" string="Objective"/>
@@ -329,7 +329,7 @@
         <field name="arch" type="xml">
             <list>
                 <field name="assessment_id"/>
-                <field name="employee_id"/>
+                <field name="applicant_id"/>
                 <field name="state" widget="badge"
                        decoration-info="state == 'pending'"
                        decoration-warning="state == 'in_progress'"
@@ -377,7 +377,7 @@
                     <group>
                         <group>
                             <field name="assessment_id"/>
-                            <field name="employee_id"/>
+                            <field name="applicant_id"/>
                             <field name="access_token"/>
                             <field name="started_at"/>
                             <field name="deadline_datetime"/>

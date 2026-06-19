@@ -144,10 +144,10 @@ class EtpAssessment(models.Model):
     # row per candidate (created by action_start / action_generate_plan).
     # ------------------------------------------------------------------
     evaluator_ids = fields.Many2many(
-        "hr.employee",
-        "etp_assessment_evaluator_rel",
+        "hr.applicant",
+        "etp_assessment_applicant_rel",
         "assessment_id",
-        "employee_id",
+        "applicant_id",
         string="Candidates",
     )
     assessment_evaluator_ids = fields.One2many(
@@ -302,7 +302,7 @@ class EtpAssessment(models.Model):
                 random.shuffle(candidate_questions)
                 ev = self.env["etp.assessment.evaluator"].create({
                     "assessment_id": rec.id,
-                    "employee_id": evaluator.id,
+                    "applicant_id": evaluator.id,
                     "question_order": json.dumps(candidate_questions),
                     "total_questions": len(candidate_questions),
                     "access_token": str(uuid.uuid4()),
@@ -344,14 +344,17 @@ class EtpAssessment(models.Model):
                 raise ValidationError(
                     "End Date must be on or after the Start Date.")
 
-    def _ensure_portal_user(self, employee):
-        # Bind each candidate to a PORTAL (external) login so the exam guard
-        # (which matches employee.user_id) recognizes them. Idempotent and
-        # safe to re-run. Returns 'exists' | 'linked' | 'created' | 'skipped'.
-        employee = employee.sudo()
-        if employee.user_id:
+    def _ensure_candidate_user(self, applicant):
+        # Bind each candidate (hr.applicant) to a PORTAL (external) login so
+        # the exam guard (which matches applicant.candidate_user_id) recognizes
+        # them. Replicates the team's self-registration pattern: gmail lives in
+        # hr.applicant.email_from, so the @ethara.ai hr.employee constraint is
+        # NEVER triggered. Idempotent + safe to re-run.
+        # Returns 'exists' | 'linked' | 'created' | 'skipped'.
+        applicant = applicant.sudo()
+        if applicant.candidate_user_id:
             return "exists"
-        email = (employee.work_email or "").strip()
+        email = (applicant.email_from or "").strip()
         if not email:
             return "skipped"
         Users = self.env["res.users"].sudo()
@@ -359,24 +362,37 @@ class EtpAssessment(models.Model):
             [("login", "=", email)], limit=1)
         status = "linked"
         if not user:
+            company = (
+                self.env.ref("base.main_company", raise_if_not_found=False)
+                or self.env["res.company"].search([], limit=1, order="id asc")
+            )
             portal = self.env.ref("base.group_portal")
-            user = Users.create({
-                "name": employee.name or email,
+            user_vals = {
+                "name": applicant.partner_name or email,
                 "login": email,
                 "email": email,
-                "tz": self.env.user.tz or "UTC",
+                "company_id": company.id,
+                "company_ids": [(6, 0, [company.id])],
                 "group_ids": [(6, 0, [portal.id])],
-            })
+            }
+            user = Users.with_company(company).with_context(
+                no_reset_password=True,
+                mail_create_nosubscribe=True,
+                mail_create_nolog=True,
+                tracking_disable=True,
+            ).create(user_vals)
             status = "created"
             try:
                 user.action_reset_password()
             except Exception:
                 _logger.exception(
                     "Portal signup invite failed for candidate %s (%s)",
-                    employee.name, email)
+                    applicant.partner_name, email)
         if not user.active:
             user.active = True
-        employee.user_id = user.id
+        applicant.candidate_user_id = user.id
+        if not applicant.partner_id and user.partner_id:
+            applicant.partner_id = user.partner_id.id
         return status
 
     def action_import_candidates_csv(self):
@@ -397,7 +413,7 @@ class EtpAssessment(models.Model):
                 "CSV must contain 'name' and 'email' columns. "
                 f"Found columns: {', '.join(reader.fieldnames or [])}")
 
-        Employee = self.env["hr.employee"].sudo()
+        Applicant = self.env["hr.applicant"].sudo()
         imported_ids = []
         errors = []
 
@@ -407,20 +423,16 @@ class EtpAssessment(models.Model):
             if not name or not email:
                 errors.append(f"Row {row_num}: name and email are required.")
                 continue
-            employee = Employee.search([("work_email", "=", email)], limit=1)
-            if not employee:
-                emp_vals = {"name": name, "work_email": email}
-                job_title = (row.get("job_title") or "").strip()
-                department = (row.get("department") or "").strip()
-                if job_title:
-                    emp_vals["job_title"] = job_title
-                if department:
-                    dept = self.env["hr.department"].sudo().search(
-                        [("name", "=", department)], limit=1)
-                    if dept:
-                        emp_vals["department_id"] = dept.id
-                employee = Employee.create(emp_vals)
-            imported_ids.append(employee.id)
+            applicant = Applicant.search(
+                [("email_from", "=ilike", email)], limit=1)
+            if not applicant:
+                applicant = Applicant.create({
+                    "partner_name": name,
+                    "email_from": email,
+                })
+            elif not applicant.partner_name:
+                applicant.partner_name = name
+            imported_ids.append(applicant.id)
 
         if errors:
             raise UserError(
@@ -429,15 +441,21 @@ class EtpAssessment(models.Model):
         existing_ids = self.evaluator_ids.ids
         new_ids = list(set(imported_ids) - set(existing_ids))
         if new_ids:
-            self.write({"evaluator_ids": [(4, eid) for eid in new_ids]})
+            self.write({"evaluator_ids": [(4, aid) for aid in new_ids]})
         self.write({
             "candidate_csv_file": False,
             "candidate_csv_filename": False,
         })
 
         provisioned = {"created": 0, "linked": 0, "exists": 0, "skipped": 0}
-        for emp in Employee.browse(imported_ids):
-            provisioned[self._ensure_portal_user(emp)] += 1
+        for applicant in Applicant.browse(imported_ids):
+            try:
+                provisioned[self._ensure_candidate_user(applicant)] += 1
+            except Exception:
+                _logger.exception(
+                    "Portal provisioning failed for candidate %s",
+                    applicant.partner_name)
+                provisioned["skipped"] += 1
 
         message = (f"{len(new_ids)} new candidate(s) added. "
                    f"{len(imported_ids) - len(new_ids)} already assigned.\n"
@@ -460,9 +478,9 @@ class EtpAssessment(models.Model):
 
     def action_download_candidate_template(self):
         self.ensure_one()
-        csv_content = "name,email,job_title,department\n"
-        csv_content += "John Doe,john.doe@example.com,Evaluator,Engineering\n"
-        csv_content += "Jane Smith,jane.smith@example.com,Senior Evaluator,Design\n"
+        csv_content = "name,email\n"
+        csv_content += "John Doe,john.doe@gmail.com\n"
+        csv_content += "Jane Smith,jane.smith@gmail.com\n"
         csv_bytes = base64.b64encode(csv_content.encode("utf-8"))
         attachment = self.env["ir.attachment"].create({
             "name": "candidate_import_template.csv",
@@ -550,17 +568,17 @@ class EtpAssessment(models.Model):
             "score_percent", "result",
         ])
         ranked = self.assessment_evaluator_ids.sorted(
-            key=lambda e: (-e.score_percent, e.employee_id.name or ""))
+            key=lambda e: (-e.score_percent, e.applicant_id.partner_name or ""))
         for idx, ev in enumerate(ranked, start=1):
-            emp = ev.employee_id
+            emp = ev.applicant_id
             obj_score = ev.total_score or 0
             obj_max = ev.max_possible_score or 0
             subj_score = ev.llm_total_score or 0
             subj_max = ev.llm_max_score or 0
             w.writerow([
                 idx,
-                emp.name or "",
-                emp.work_email or emp.private_email or "",
+                emp.partner_name or "",
+                emp.email_from or "",
                 ev.day_progress_label or "",
                 obj_score, obj_max,
                 subj_score, subj_max,
@@ -598,12 +616,22 @@ class EtpAssessmentEvaluator(models.Model):
     _name = "etp.assessment.evaluator"
     _description = "Assessment Candidate Assignment"
     _order = "create_date desc"
-    _rec_name = "employee_id"
+    _rec_name = "applicant_id"
 
     assessment_id = fields.Many2one(
         "etp.assessment", required=True, ondelete="cascade")
-    employee_id = fields.Many2one(
-        "hr.employee", string="Candidate", required=True, ondelete="restrict")
+    applicant_id = fields.Many2one(
+        "hr.applicant", string="Candidate", required=True, ondelete="restrict")
+
+    def _candidate_user(self):
+        # Resolve the candidate's portal login: the direct applicant link,
+        # falling back to a partner-matched user when the link is unset.
+        self.ensure_one()
+        user = self.applicant_id.candidate_user_id
+        if not user and self.applicant_id.partner_id:
+            user = self.env["res.users"].sudo().search(
+                [("partner_id", "=", self.applicant_id.partner_id.id)], limit=1)
+        return user
     access_token = fields.Char(
         string="Access Token", index=True, copy=False,
         default=lambda self: str(uuid.uuid4()))
@@ -768,9 +796,10 @@ class EtpAssessmentEvaluator(models.Model):
         if not tpl:
             return
         for rec in self:
-            emp = rec.employee_id
-            to_email = (emp.work_email or
-                        (emp.user_id.email if emp.user_id else "") or "")
+            emp = rec.applicant_id
+            to_email = (emp.email_from or
+                        (emp.candidate_user_id.email
+                         if emp.candidate_user_id else "") or "")
             if not to_email:
                 base = self.env["ir.config_parameter"].sudo().get_param(
                     "web.base.url") or "http://localhost:8069"
@@ -780,7 +809,8 @@ class EtpAssessmentEvaluator(models.Model):
                     "body_html": tpl._render_field("body_html", rec.ids)[rec.id],
                     "email_to": "",
                     "state": "cancel",
-                    "failure_reason": f"No email on candidate {emp.name!r}. "
+                    "failure_reason": f"No email on candidate "
+                                      f"{emp.partner_name!r}. "
                                       f"Portal link: {link}",
                     "auto_delete": False,
                 })
@@ -801,8 +831,8 @@ class EtpAssessmentEvaluator(models.Model):
         for rec in self:
             if rec.state != "submitted":
                 raise UserError(
-                    f"Candidate '{rec.employee_id.name}' has not submitted "
-                    f"— scoring runs on submitted assessments only.")
+                    f"Candidate '{rec.applicant_id.partner_name}' has not "
+                    f"submitted — scoring runs on submitted assessments only.")
             rec.write({"llm_state": "scoring", "llm_error": False})
             try:
                 scored += scoring_svc.score_evaluator(self.env, rec)
@@ -872,7 +902,7 @@ class EtpAssessmentResponse(models.Model):
         "etp.assessment.day.session", string="Day Session",
         ondelete="cascade", index=True)
     evaluator_id = fields.Many2one(
-        "hr.employee", string="Candidate", required=True)
+        "hr.applicant", string="Candidate", required=True)
     question_id = fields.Many2one(
         "etp.assessment.question", required=True, ondelete="cascade")
     justification = fields.Text()

@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 from unittest.mock import patch
+from uuid import uuid4
 
 from odoo import fields
 from odoo.exceptions import UserError, ValidationError
@@ -19,17 +20,27 @@ class _Base(TransactionCase):
         self.DaySession = self.env["etp.assessment.day.session"]
         self.Response = self.env["etp.assessment.response"]
         self.ResponseLine = self.env["etp.assessment.response.line"]
-        self.Employee = self.env["hr.employee"]
+        self.Applicant = self.env["hr.applicant"]
+        self.Users = self.env["res.users"]
         self.Skill = self.env["etp.assessment.skill"]
         self.Category = self.env["etp.assessment.category"]
         self.Question = self.env["etp.assessment.question"]
         self.QDim = self.env["etp.assessment.question.dimension"]
         self.Dimension = self.env["etp.assessment.dimension"]
 
-    def _make_employee(self, name):
-        return self.Employee.create({
-            "name": name,
-            "work_email": f"{name.lower().replace(' ', '_')}@x.com",
+    def _make_applicant(self, name):
+        slug = name.lower().replace(" ", "_")
+        email = f"{slug}_{uuid4().hex[:8]}@x.com"
+        portal = self.env.ref("base.group_portal")
+        user = self.env["res.users"].with_context(no_reset_password=True).create({
+            "name": name, "login": email, "email": email,
+            "group_ids": [(6, 0, [portal.id])],
+        })
+        return self.env["hr.applicant"].create({
+            "partner_name": name,
+            "email_from": email,
+            "partner_id": user.partner_id.id,
+            "candidate_user_id": user.id,
         })
 
     def _make_dimension(self, name="D1", opt_names=("A", "B", "C")):
@@ -114,7 +125,7 @@ class _Base(TransactionCase):
         return self.Question.create(vals)
 
     def _make_single_assessment(self, category, num_candidates=1, qlimit=0):
-        emps = [self._make_employee(f"Emp_{i}") for i in range(num_candidates)]
+        emps = [self._make_applicant(f"Emp_{i}") for i in range(num_candidates)]
         a = self.Assessment.create({
             "name": "T1",
             "assessment_mode": "single",
@@ -127,7 +138,7 @@ class _Base(TransactionCase):
 
     def _make_multi_day(self, num_days=3, num_candidates=2, sequential=True,
                         skill=None, with_questions=True):
-        emps = [self._make_employee(f"Cand_{i}") for i in range(num_candidates)]
+        emps = [self._make_applicant(f"Cand_{i}") for i in range(num_candidates)]
         a = self.Assessment.create({
             "name": "Multi",
             "assessment_mode": "multi_day",
@@ -136,9 +147,18 @@ class _Base(TransactionCase):
             "evaluator_ids": [(6, 0, [e.id for e in emps])],
         })
         a.action_scaffold_days()
-        if skill and with_questions:
-            for day in a.day_ids:
-                day.skill_id = skill.id
+        # The model auto-assigns each day a consecutive scheduled_start (Day N
+        # at +N-1 days) and leaves duration_minutes at 0 (the UI onchange that
+        # copies skill.time_minutes does not fire on a programmatic write).
+        # Normalize both here so the state-machine tests exercise lock/unlock
+        # sequencing rather than calendar scheduling; tests that need a
+        # future/past schedule set scheduled_start explicitly afterwards.
+        for day in a.day_ids:
+            vals = {"scheduled_start": False}
+            if skill and with_questions:
+                vals["skill_id"] = skill.id
+                vals["duration_minutes"] = skill.time_minutes or 15
+            day.write(vals)
         return a, emps
 
 
@@ -151,7 +171,7 @@ class TestAssessmentLifecycle(_Base):
             "category_id": cat.id,
         })
         self.assertEqual(a.state, "draft")
-        self.assertEqual(a.num_days, 0)
+        self.assertEqual(a.num_days, 1)
         self.assertFalse(a.day_ids)
 
     def test_single_mode_start(self):
@@ -341,7 +361,7 @@ class TestScoring(_Base):
         return self.Response.create({
             "assessment_id": evaluator.assessment_id.id,
             "assessment_evaluator_id": evaluator.id,
-            "evaluator_id": evaluator.employee_id.id,
+            "evaluator_id": evaluator.applicant_id.id,
             "question_id": question.id,
             "justification": justification,
             "line_ids": line_vals,
@@ -352,7 +372,7 @@ class TestScoring(_Base):
         if not cat:
             cat = self._make_category()
             question.category_id = cat.id
-        emp = self._make_employee("Solo")
+        emp = self._make_applicant("Solo")
         a = self.Assessment.create({
             "name": "Sc", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
@@ -417,7 +437,7 @@ class TestScoring(_Base):
     def test_subjective_justification_needs_llm(self):
         cat = self._make_category()
         q = self._make_subjective("S1", category=cat)
-        emp = self._make_employee("Cand")
+        emp = self._make_applicant("Cand")
         a = self.Assessment.create({
             "name": "Sub", "assessment_mode": "single",
             "category_id": cat.id,
@@ -427,7 +447,7 @@ class TestScoring(_Base):
         a.write({"question_ids": [(6, 0, [q.id])]})
         ev = self.Evaluator.create({
             "assessment_id": a.id,
-            "employee_id": emp.id,
+            "applicant_id": emp.id,
             "question_order": json.dumps([q.id]),
             "total_questions": 1,
         })
@@ -438,7 +458,7 @@ class TestScoring(_Base):
     def _subj_setup(self, justification="My reasoned answer."):
         cat = self._make_category()
         q = self._make_subjective("S2", category=cat)
-        emp = self._make_employee("Subj")
+        emp = self._make_applicant("Subj")
         a = self.Assessment.create({
             "name": "AS", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
@@ -447,7 +467,7 @@ class TestScoring(_Base):
         })
         ev = self.Evaluator.create({
             "assessment_id": a.id,
-            "employee_id": emp.id,
+            "applicant_id": emp.id,
             "question_order": json.dumps([q.id]),
             "total_questions": 1,
             "state": "submitted",
@@ -486,7 +506,7 @@ class TestScoring(_Base):
         cat = self._make_category()
         q_mcq, dim, master = self._make_mcq("EVQ1", correct_idx=0, category=cat)
         q_subj = self._make_subjective("EVQ2", category=cat)
-        emp = self._make_employee("Both")
+        emp = self._make_applicant("Both")
         a = self.Assessment.create({
             "name": "B", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 2,
@@ -518,7 +538,7 @@ class TestEnqueueScoring(_Base):
     def _ctx(self, llm_auto=False, justification="Answer text"):
         cat = self._make_category()
         q = self._make_subjective("EQ", category=cat)
-        emp = self._make_employee("EnqCand")
+        emp = self._make_applicant("EnqCand")
         a = self.Assessment.create({
             "name": "EnqA", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
@@ -528,7 +548,7 @@ class TestEnqueueScoring(_Base):
         a.write({"question_ids": [(6, 0, [q.id])]})
         ev = self.Evaluator.create({
             "assessment_id": a.id,
-            "employee_id": emp.id,
+            "applicant_id": emp.id,
             "question_order": json.dumps([q.id]),
             "total_questions": 1,
         })
@@ -550,7 +570,7 @@ class TestEnqueueScoring(_Base):
     def test_response_action_submit_skips_no_justification_subjective(self):
         cat = self._make_category()
         q, dim, master = self._make_mcq("NoJustMCQ", category=cat)
-        emp = self._make_employee("NJ")
+        emp = self._make_applicant("NJ")
         a = self.Assessment.create({
             "name": "NJA", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
@@ -591,23 +611,26 @@ class TestEnqueueScoring(_Base):
 
 class TestRecordRules(_Base):
 
-    def _user_with_employee(self, name, login, group_xmlid):
+    def _user_with_applicant(self, name, login, group_xmlid):
         grp = self.env.ref(group_xmlid)
         user = self.env["res.users"].with_context(no_reset_password=True).create({
             "name": name, "login": login, "email": f"{login}@x.com",
             "group_ids": [(4, grp.id)],
         })
-        emp = self.Employee.create({
-            "name": name, "work_email": f"{login}@x.com", "user_id": user.id,
+        emp = self.Applicant.create({
+            "partner_name": name,
+            "email_from": f"{login}@x.com",
+            "partner_id": user.partner_id.id,
+            "candidate_user_id": user.id,
         })
         return user, emp
 
     def _full_setup(self):
-        u1, e1 = self._user_with_employee(
+        u1, e1 = self._user_with_applicant(
             "Cand1", "rcand1", "etp_assessment.group_assessment_evaluator")
-        u2, e2 = self._user_with_employee(
+        u2, e2 = self._user_with_applicant(
             "Cand2", "rcand2", "etp_assessment.group_assessment_evaluator")
-        mgr_user, _ = self._user_with_employee(
+        mgr_user, _ = self._user_with_applicant(
             "Mgr", "rmgr", "etp_assessment.group_assessment_manager")
 
         cat = self._make_category()
@@ -678,7 +701,7 @@ class TestRecordRules(_Base):
         e1_sessions = self.DaySession.with_user(s["u1"]).search([
             ("assessment_id", "=", s["a3"].id),
         ])
-        emp_ids = e1_sessions.mapped("employee_id.id")
+        emp_ids = e1_sessions.mapped("applicant_id.id")
         self.assertEqual(emp_ids, [s["e1"].id])
 
     def test_evaluator_sees_only_own_response(self):
@@ -702,7 +725,7 @@ class TestExportResults(_Base):
     def _setup(self):
         cat = self._make_category()
         q, dim, master = self._make_mcq("XQ", category=cat)
-        emp = self._make_employee("XCand")
+        emp = self._make_applicant("XCand")
         a = self.Assessment.create({
             "name": "ExA", "assessment_mode": "single",
             "category_id": cat.id, "question_limit": 1,
@@ -756,7 +779,7 @@ class TestPortalControllerSmoke(HttpCase, _Base):
             "Portal_Q", correct_idx=0, skill=skill,
             opt_names=("Red", "Green", "Blue"))
 
-        emp = self._make_employee("PortalCand")
+        emp = self._make_applicant("PortalCand")
         a = self.Assessment.create({
             "name": "PortalAssess",
             "assessment_mode": "multi_day",

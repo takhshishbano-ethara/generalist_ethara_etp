@@ -547,7 +547,7 @@
                     <h3>This assessment isn't assigned to you</h3>
                     <p>
                         This link belongs to
-                        <strong t-out="candidate.name or 'another candidate'"/>.
+                        <strong t-out="candidate.partner_name or 'another candidate'"/>.
                         You are signed in as
                         <strong t-out="current_user.name"/>.
                     </p>
@@ -775,7 +775,7 @@
                     <span class="etp-eyebrow">Candidate Portal</span>
                     <h1 class="etp-my-title">My Assessments</h1>
                     <p t-if="not no_employee and employee" class="etp-my-subtitle">
-                        Signed in as <strong t-out="employee.name"/>
+                        Signed in as <strong t-out="employee.partner_name"/>
                     </p>
                 </div>
 
@@ -784,7 +784,7 @@
                         <div class="etp-state-icon"><i class="fa fa-user-o"/></div>
                         <h3>No candidate profile linked</h3>
                         <p>
-                            Your account isn't linked to an employee record yet,
+                            Your account isn't linked to a candidate record yet,
                             so there are no assessments to show. Please contact
                             your administrator.
                         </p>
