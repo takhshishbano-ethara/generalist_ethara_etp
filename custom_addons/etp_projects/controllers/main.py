@@ -389,6 +389,349 @@ class EtpProjectsAwsCostController(http.Controller):
                 errors=[str(e)],
             )
 
+    def _serialize_batch_budget(self, batch):
+        batch.ensure_one()
+        return {
+            "id": batch.id,
+            "name": batch.name or "",
+            "project_budget_id": batch.project_budget_id.id,
+            "project_id": batch.project_id.id if batch.project_id else False,
+            "project_name": batch.project_id.name if batch.project_id else "",
+            "connected_model": batch.connected_model or "",
+            "total_tasks": batch.total_tasks or 0,
+            "buffer_pct": batch.buffer_pct or 0.0,
+            "estimated_cost": batch.estimated_cost or 0.0,
+            "batch_budget": batch.batch_budget or 0.0,
+            "approved_amount": batch.approved_amount or 0.0,
+            "carried_over_amount": batch.carried_over_amount or 0.0,
+            "start_date": str(batch.start_date) if batch.start_date else "",
+            "end_date": str(batch.end_date) if batch.end_date else "",
+            "state": batch.state or "draft",
+            "model_lines": [
+                {
+                    "id": line.id,
+                    "ai_model_id": line.ai_model_id.id,
+                    "ai_model": line.ai_model_id.name or "",
+                    "per_task_cost": line.per_task_cost or 0.0,
+                }
+                for line in batch.model_line_ids
+            ],
+        }
+
+    @http.route(
+        '/api/v1/etp_projects/batch_budget/create',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def create_batch_budget(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            project_budget_id = jdata.get('project_budget_id')
+            if not isinstance(project_budget_id, int):
+                return return_Response(
+                    message="'project_budget_id' (int) is required.",
+                    status=400,
+                )
+            budget = request.env[BUDGET_MODEL].sudo().browse(project_budget_id)
+            if not budget.exists():
+                return return_Response(
+                    message="Project budget %s not found." % project_budget_id,
+                    status=404,
+                )
+            # Matches the Odoo form domain. # TODO: confirm with reviewer.
+            if budget.project_type != 'operations':
+                return return_Response(
+                    message="Project budget must be an Operations budget.",
+                    status=400,
+                )
+
+            total_tasks = jdata.get('total_tasks')
+            if not isinstance(total_tasks, int) or total_tasks <= 0:
+                return return_Response(
+                    message="'total_tasks' must be a positive integer.",
+                    status=400,
+                )
+
+            start_date = (jdata.get('start_date') or '').strip()
+            end_date = (jdata.get('end_date') or '').strip()
+            if not start_date or not end_date:
+                return return_Response(
+                    message="'start_date' and 'end_date' (YYYY-MM-DD) are required.",
+                    status=400,
+                )
+            if end_date < start_date:
+                return return_Response(
+                    message="'end_date' cannot be before 'start_date'.",
+                    status=400,
+                )
+
+            buffer_pct = jdata.get('buffer_pct') or 0.0
+            try:
+                buffer_pct = float(buffer_pct)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'buffer_pct' must be a number.",
+                    status=400,
+                )
+            if buffer_pct < 0:
+                return return_Response(
+                    message="'buffer_pct' cannot be negative.",
+                    status=400,
+                )
+
+            vals = {
+                'project_budget_id': project_budget_id,
+                'total_tasks': total_tasks,
+                'buffer_pct': buffer_pct,
+                'start_date': start_date,
+                'end_date': end_date,
+            }
+
+            model_lines = jdata.get('model_lines')
+            if model_lines:
+                if not isinstance(model_lines, list):
+                    return return_Response(
+                        message="'model_lines' must be a list.",
+                        status=400,
+                    )
+                line_cmds = []
+                for ln in model_lines:
+                    if not isinstance(ln, dict):
+                        return return_Response(
+                            message="Each model line must be an object.",
+                            status=400,
+                        )
+                    ai_model_id = ln.get('ai_model_id')
+                    if not isinstance(ai_model_id, int):
+                        return return_Response(
+                            message="Each model line needs an int 'ai_model_id'.",
+                            status=400,
+                        )
+                    per_task_cost = ln.get('per_task_cost') or 0.0
+                    try:
+                        per_task_cost = float(per_task_cost)
+                    except (TypeError, ValueError):
+                        return return_Response(
+                            message="'per_task_cost' must be a number.",
+                            status=400,
+                        )
+                    line_cmds.append((0, 0, {
+                        'ai_model_id': ai_model_id,
+                        'per_task_cost': per_task_cost,
+                    }))
+                vals['model_line_ids'] = line_cmds
+
+            batch = request.env['etp.batch.budget'].sudo().create(vals)
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_batch_budget(batch)},
+            )
+        except Exception as e:
+            _logger.exception("create_batch_budget failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
+    def _parse_int_csv(self, raw):
+        if raw is None or raw == '':
+            return []
+        parts = [p.strip() for p in str(raw).split(',') if p.strip()]
+        out = []
+        for p in parts:
+            try:
+                out.append(int(p))
+            except ValueError:
+                return None
+        return out
+
+    def _parse_str_csv(self, raw):
+        if raw is None or raw == '':
+            return []
+        return [p.strip() for p in str(raw).split(',') if p.strip()]
+
+    def _parse_bool(self, raw):
+        if raw is None or raw == '':
+            return False
+        return str(raw).strip().lower() in ('1', 'true', 'yes', 'on')
+
+    @http.route(
+        '/api/v1/etp_projects/batch_budget/list',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def list_batch_budgets(self, **params):
+        try:
+            domain = []
+            if not self._parse_bool(params.get('include_inactive')):
+                domain.append(('active', '=', True))
+
+            batch_ids = self._parse_int_csv(params.get('batch_ids'))
+            if batch_ids is None:
+                return return_Response(
+                    message="'batch_ids' must be a comma-separated list of integers.",
+                    status=400,
+                )
+            if batch_ids:
+                domain.append(('id', 'in', batch_ids))
+
+            project_budget_ids = self._parse_int_csv(params.get('project_budget_ids'))
+            if project_budget_ids is None:
+                return return_Response(
+                    message="'project_budget_ids' must be a comma-separated list of integers.",
+                    status=400,
+                )
+            if project_budget_ids:
+                domain.append(('project_budget_id', 'in', project_budget_ids))
+
+            project_ids = self._parse_int_csv(params.get('project_ids'))
+            if project_ids is None:
+                return return_Response(
+                    message="'project_ids' must be a comma-separated list of integers.",
+                    status=400,
+                )
+            if project_ids:
+                domain.append(('project_id', 'in', project_ids))
+
+            states = self._parse_str_csv(params.get('states'))
+            if states:
+                domain.append(('state', 'in', states))
+
+            try:
+                limit = int(params.get('limit') or 50)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'limit' must be an integer.", status=400,
+                )
+            try:
+                offset = int(params.get('offset') or 0)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'offset' must be an integer.", status=400,
+                )
+            limit = max(1, min(limit, 500))
+            offset = max(0, offset)
+
+            Batch = request.env['etp.batch.budget'].sudo()
+            total = Batch.search_count(domain)
+            batches = Batch.search(
+                domain, limit=limit, offset=offset,
+                order='create_date desc, id desc',
+            )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                    "records": [self._serialize_batch_budget(b) for b in batches],
+                }},
+            )
+        except Exception as e:
+            _logger.exception("list_batch_budgets failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
+    def _serialize_topup(self, topup):
+        topup.ensure_one()
+        return {
+            "id": topup.id,
+            "name": topup.name or "",
+            "project_budget_id": topup.project_budget_id.id,
+            "project_budget_name": topup.project_budget_id.name or "",
+            "project_id": topup.project_id.id if topup.project_id else False,
+            "project_name": topup.project_id.name if topup.project_id else "",
+            "amount": topup.amount or 0.0,
+            "justification": topup.justification or "",
+            "state": topup.state or "draft",
+            "requester_id": topup.requester_id.id if topup.requester_id else False,
+            "requester_name": topup.requester_id.name if topup.requester_id else "",
+            "approver_id": topup.approver_id.id if topup.approver_id else False,
+            "approver_name": topup.approver_id.name if topup.approver_id else "",
+            "approval_date": (
+                topup.approval_date.strftime("%Y-%m-%d %H:%M:%S")
+                if topup.approval_date else ""
+            ),
+            "rejection_reason": topup.rejection_reason or "",
+        }
+
+    @http.route(
+        '/api/v1/etp_projects/topup/create',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def create_topup(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            project_budget_id = jdata.get('project_budget_id')
+            if not isinstance(project_budget_id, int):
+                return return_Response(
+                    message="'project_budget_id' (int) is required.", status=400,
+                )
+            budget = request.env[BUDGET_MODEL].sudo().browse(project_budget_id)
+            if not budget.exists():
+                return return_Response(
+                    message="Project budget %s not found." % project_budget_id,
+                    status=404,
+                )
+
+            amount = jdata.get('amount')
+            try:
+                amount = float(amount)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'amount' must be a positive number.", status=400,
+                )
+            if amount <= 0:
+                return return_Response(
+                    message="'amount' must be greater than zero.", status=400,
+                )
+
+            justification = (jdata.get('justification') or '').strip()
+            if not justification:
+                return return_Response(
+                    message="'justification' is required.", status=400,
+                )
+
+            submit = jdata.get('submit')
+            submit = True if submit is None else bool(submit)
+
+            vals = {
+                'project_budget_id': project_budget_id,
+                'amount': amount,
+                'justification': justification,
+            }
+            topup = request.env['etp.project.budget.topup'].sudo().create(vals)
+
+            if submit:
+                try:
+                    topup.sudo().action_submit()
+                except UserError as e:
+                    return return_Response(
+                        message=str(e), status=400, errors=[str(e)],
+                    )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_topup(topup)},
+            )
+        except Exception as e:
+            _logger.exception("create_topup failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
     @http.route(
         '/api/v1/etp_projects/aws_budget/export',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',

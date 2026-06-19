@@ -50,6 +50,7 @@
                             <field name="consumed_amount" readonly="1" invisible="is_rnd"/>
                             <field name="llm_consumed_amount" readonly="1" invisible="not is_rnd"/>
                             <field name="remaining_amount" readonly="1"/>
+                            <field name="allocatable_amount" readonly="1" invisible="is_rnd"/>
                             <field name="consumed_pct" readonly="1" widget="progressbar"/>
                             <field name="health_status" widget="badge" readonly="1"
                                    decoration-success="health_status == 'healthy'"

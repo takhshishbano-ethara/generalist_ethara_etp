@@ -22,7 +22,7 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
     )
     project_remaining_amount = fields.Float(
         string="Project Remaining (USD)",
-        related="batch_id.project_budget_id.remaining_amount",
+        related="batch_id.project_budget_id.allocatable_amount",
         readonly=True,
     )
     is_first_request = fields.Boolean(
@@ -146,7 +146,7 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             raise UserError(_(
                 "Project Budget has no approvers configured."
             ))
-        remaining = project_budget.remaining_amount or 0.0
+        remaining = project_budget.allocatable_amount or 0.0
         if (self.requested_total or 0.0) > remaining:
             raise UserError(_(
                 "Requested amount (USD %(req).2f) exceeds remaining project "

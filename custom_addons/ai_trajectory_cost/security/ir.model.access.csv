@@ -1,0 +1,3 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_trajectory_cost_user,trajectory.cost.user,model_trajectory_cost,base.group_user,1,1,1,1
+access_trajectory_cost_model_usage_user,trajectory.cost.model.usage.user,model_trajectory_cost_model_usage,base.group_user,1,1,1,1

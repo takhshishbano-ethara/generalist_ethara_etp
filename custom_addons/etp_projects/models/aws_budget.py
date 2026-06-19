@@ -259,7 +259,9 @@ class EtpProjectAwsBudget(models.Model):
     allocated_amount = fields.Float(
         string="Allocated to Batches (USD)",
         compute="_compute_batch_totals", store=False,
-        help="Sum of Approved Amount across all approved/in-progress/delivered/closed batches.",
+        help="Unallocated leftover from delivered batches, waiting to be "
+             "carried into the next new or restarted batch (becomes zero "
+             "once carried over).",
     )
     consumed_amount = fields.Float(
         string="Consumed by Batches (USD)",
@@ -272,6 +274,12 @@ class EtpProjectAwsBudget(models.Model):
     remaining_amount = fields.Float(
         string="Remaining (USD)",
         compute="_compute_batch_totals", store=False,
+    )
+    allocatable_amount = fields.Float(
+        string="Available to Allocate (USD)",
+        compute="_compute_batch_totals", store=False,
+        help="Project funding (initial budget + approved top-ups) not yet "
+             "allocated to batches. New batch requests draw from this.",
     )
     consumed_pct = fields.Float(
         string="Consumed %",
@@ -301,7 +309,8 @@ class EtpProjectAwsBudget(models.Model):
     total_approved_amount = fields.Float(
         string="Total Approved Budget (USD)",
         compute="_compute_batch_totals", store=False,
-        help="Initial budget plus all approved top-ups.",
+        help="Sum of the Approved Amount across all batches (batch-wise "
+             "approved budget).",
     )
     batch_budget_remain = fields.Float(
         string="Delivered Leftover Pool (USD)",
@@ -363,6 +372,7 @@ class EtpProjectAwsBudget(models.Model):
         "batch_budget_ids.carried_over_amount",
         "batch_budget_ids.consumed_cost",
         "batch_budget_ids.closed_remaining",
+        "batch_budget_remain",
         "topup_ids.state",
         "topup_ids.amount",
         "cost_line_ids.amount_source",
@@ -386,30 +396,38 @@ class EtpProjectAwsBudget(models.Model):
             rec.llm_consumed_amount = llm_consumed
             if rec.project_type == "rnd":
                 rec.total_approved_amount = envelope
-            else:
-                rec.total_approved_amount = rec.budget_amount or 0.0
-            if rec.project_type == "rnd":
                 rec.allocated_amount = 0.0
                 rec.consumed_amount = llm_consumed
                 rec.remaining_amount = envelope - llm_consumed
+                rec.allocatable_amount = envelope - llm_consumed
                 consumed_for_pct = llm_consumed
+                base_for_pct = envelope
             else:
-                locked = 0.0
+                # Total Approved Budget = sum of batch-wise Approved Amount
+                # (each batch's Approved Amount already includes any leftover
+                #  carried over into it from a delivered batch).
+                approved_total = 0.0
                 consumed = 0.0
                 for batch in rec.batch_budget_ids:
                     if batch.state in ("rejected", "withdrawn"):
                         continue
-                    if batch.state == "draft":
-                        locked += batch.carried_over_amount or 0.0
-                        continue
-                    locked += batch.approved_amount or 0.0
+                    approved_total += batch.approved_amount or 0.0
                     consumed += batch.consumed_cost or 0.0
-                rec.allocated_amount = locked
+                rec.total_approved_amount = approved_total
+                # Allocated to Batches = unallocated delivered-leftover pool,
+                # waiting to be carried into the next new/restarted batch.
+                rec.allocated_amount = rec.batch_budget_remain or 0.0
                 rec.consumed_amount = consumed
-                rec.remaining_amount = envelope - locked
+                # Remaining = Total Approved Budget - Consumed by Batches.
+                rec.remaining_amount = approved_total - consumed
+                # Available to Allocate = funding envelope not yet approved
+                # to batches. New batch requests are guarded against this.
+                rec.allocatable_amount = envelope - approved_total
                 consumed_for_pct = consumed
-            pct = (consumed_for_pct / envelope * 100.0) if envelope else 0.0
+                base_for_pct = approved_total
+            pct = (consumed_for_pct / base_for_pct * 100.0) if base_for_pct else 0.0
             rec.consumed_pct = pct
+            envelope = base_for_pct
             if not envelope:
                 rec.health_status = "unknown"
             elif pct < 60.0:
