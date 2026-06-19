@@ -1,6 +1,7 @@
 import logging
 
 from odoo import fields, http
+from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
@@ -14,6 +15,7 @@ _logger = logging.getLogger(__name__)
 
 BUDGET_MODEL = "etp.project.aws.budget"
 PROJECT_MODEL = "project.project"
+REQUEST_MODEL = "etp.batch.budget.request"
 
 
 def _budget_types():
@@ -57,6 +59,62 @@ def _resolve_budget(params):
             message="Budget %s not found." % budget_id, status=404,
         )
     return budget, None
+
+
+def _request_to_dict(req):
+    """Serialize a batch budget request."""
+    return {
+        "id": req.id,
+        "name": req.name or "",
+        "sequence_number": req.sequence_number or 0,
+        "state": req.state or "",
+        "state_label": dict(req._fields["state"].selection).get(req.state, ""),
+        "batch_id": _m2o(req.batch_id),
+        "project_budget_id": _m2o(req.project_budget_id),
+        "project_id": _m2o(req.project_id),
+        "requester_id": _m2o(req.requester_id),
+        "approver_id": _m2o(req.approver_id),
+        "request_date": _dt(req.request_date),
+        "approval_date": _dt(req.approval_date),
+        "priority": req.priority or "",
+        "justification": req.justification or "",
+        "subject": req.subject or "",
+        "message": req.message or "",
+        "total_tasks": req.total_tasks or 0,
+        "buffer_pct": req.buffer_pct or 0.0,
+        "requested_total": req.requested_total or 0.0,
+        "approved_total": req.approved_total or 0.0,
+        "rejection_reason": req.rejection_reason or "",
+        "attachments": [
+            {
+                "id": a.id,
+                "name": a.name or "",
+                "mimetype": a.mimetype or "",
+            }
+            for a in req.attachment_ids
+        ],
+        "model_lines": [
+            {
+                "id": line.id,
+                "ai_model_id": _m2o(line.ai_model_id),
+                "description": line.description or "",
+                "per_task_cost": line.per_task_cost or 0.0,
+                "requested_amount": line.requested_amount or 0.0,
+                "approved_amount": line.approved_amount or 0.0,
+            }
+            for line in req.model_line_ids
+        ],
+        "infra_lines": [
+            {
+                "id": line.id,
+                "infra_type_id": _m2o(line.infra_type_id),
+                "description": line.description or "",
+                "requested_amount": line.requested_amount or 0.0,
+                "approved_amount": line.approved_amount or 0.0,
+            }
+            for line in req.infra_line_ids
+        ],
+    }
 
 
 def _batch_summary(batch):
@@ -595,6 +653,241 @@ class EtpProjectBudgetController(http.Controller):
                 "total": total, "limit": limit, "offset": offset,
                 "records": [log.to_api_dict() for log in logs],
             }},
+        )
+
+    # GET — list of batch budget requests.  Optional filters:
+    #   ?state=<state>  ?batch_id=<int>  ?budget_id=<int>(project budget)
+    #   ?project_id=<int>  ?search=<text>  ?limit=  ?offset=
+    @http.route(
+        "/api/v1/etp_projects/budget_request/list",
+        methods=["GET"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_token
+    def budget_request_list(self, **params):
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
+        Request = request.env[REQUEST_MODEL].sudo()
+        domain = []
+        state = params.get("state")
+        if state:
+            valid_states = dict(Request._fields["state"].selection)
+            if state not in valid_states:
+                return return_Response(
+                    message="'state' must be one of %s." % list(valid_states),
+                    status=400,
+                )
+            domain.append(("state", "=", state))
+        for key, field in (
+            ("batch_id", "batch_id"),
+            ("budget_id", "project_budget_id"),
+            ("project_id", "project_id"),
+        ):
+            if params.get(key):
+                try:
+                    domain.append((field, "=", int(params.get(key))))
+                except (TypeError, ValueError):
+                    return return_Response(
+                        message="'%s' must be an integer." % key, status=400,
+                    )
+        search = (params.get("search") or "").strip()
+        if search:
+            domain.append(("name", "ilike", search))
+        total = Request.search_count(domain)
+        requests = Request.search(
+            domain, order="request_date desc, id desc", limit=limit, offset=offset,
+        )
+        return return_Response(
+            message="OK", status=200,
+            data={"data": {
+                "total": total, "limit": limit, "offset": offset,
+                "records": [_request_to_dict(r) for r in requests],
+            }},
+        )
+
+    # POST — create a batch budget request AND send it for approval (pending).
+    #   Mirrors the Odoo wizard (etp.batch.budget.request.wizard.action_submit).
+    #   body: {
+    #     "batch_id": <int>, "justification": "<text>",
+    #     "total_tasks": <int>, "buffer_pct": <num>, "priority": "low|normal|high|urgent",
+    #     "subject": "<text>", "message": "<html/text>",
+    #     "model_lines": [ {"ai_model_id": int, "description": str, "per_task_cost": num} ],
+    #     "infra_lines": [ {"infra_type_id": int, "description": str, "requested_amount": num} ],
+    #     "attachment_ids": [int]
+    #   }
+    @http.route(
+        "/api/v1/etp_projects/budget_request/create",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_token
+    def budget_request_create(self, **params):
+        jdata = _read_json_body()
+
+        batch_id = jdata.get("batch_id")
+        if not isinstance(batch_id, int):
+            return return_Response(
+                message="'batch_id' is required and must be an integer.", status=400,
+            )
+        batch = request.env["etp.batch.budget"].sudo().browse(batch_id)
+        if not batch.exists():
+            return return_Response(
+                message="Batch %s not found." % batch_id, status=400,
+            )
+
+        justification = (jdata.get("justification") or "").strip()
+        if not justification:
+            return return_Response(
+                message="'justification' is required.", status=400,
+            )
+
+        # Build wizard line commands, validating referenced ids up front.
+        model_lines = jdata.get("model_lines") or []
+        model_cmds = []
+        for line in model_lines:
+            ai_model_id = line.get("ai_model_id")
+            if not isinstance(ai_model_id, int):
+                return return_Response(
+                    message="Each model line needs an integer 'ai_model_id'.",
+                    status=400,
+                )
+            model_cmds.append((0, 0, {
+                "ai_model_id": ai_model_id,
+                "description": line.get("description") or False,
+                "per_task_cost": line.get("per_task_cost") or 0.0,
+            }))
+        missing = _missing_ids(
+            "etp.ai.model", [c[2]["ai_model_id"] for c in model_cmds],
+        )
+        if missing:
+            return return_Response(
+                message="Model(s) not found: %s" % missing, status=400,
+            )
+
+        infra_lines = jdata.get("infra_lines") or []
+        infra_cmds = []
+        for line in infra_lines:
+            infra_type_id = line.get("infra_type_id")
+            if not isinstance(infra_type_id, int):
+                return return_Response(
+                    message="Each infra line needs an integer 'infra_type_id'.",
+                    status=400,
+                )
+            infra_cmds.append((0, 0, {
+                "infra_type_id": infra_type_id,
+                "description": line.get("description") or False,
+                "requested_amount": line.get("requested_amount") or 0.0,
+            }))
+        missing = _missing_ids(
+            "etp.infra.type", [c[2]["infra_type_id"] for c in infra_cmds],
+        )
+        if missing:
+            return return_Response(
+                message="Infrastructure type(s) not found: %s" % missing, status=400,
+            )
+
+        if not (model_cmds or infra_cmds):
+            return return_Response(
+                message="Add at least one model or infrastructure line.", status=400,
+            )
+
+        wiz_vals = {
+            "batch_id": batch_id,
+            "justification": justification,
+            "subject": jdata.get("subject") or False,
+            "message": jdata.get("message") or False,
+            "priority": jdata.get("priority") or "normal",
+            "total_tasks": jdata.get("total_tasks") or 0,
+            "buffer_pct": jdata.get("buffer_pct") or 0.0,
+            "model_line_ids": model_cmds,
+            "infra_line_ids": infra_cmds,
+        }
+        attachment_ids = jdata.get("attachment_ids") or []
+        if attachment_ids:
+            if not all(isinstance(x, int) for x in attachment_ids):
+                return return_Response(
+                    message="'attachment_ids' must be a list of integers.", status=400,
+                )
+            wiz_vals["attachment_ids"] = [(6, 0, attachment_ids)]
+
+        try:
+            wizard = request.env["etp.batch.budget.request.wizard"].sudo().create(
+                wiz_vals
+            )
+            result = wizard.action_submit()
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400)
+        except Exception as e:
+            _logger.exception("budget_request_create failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+        # action_submit returns an act_window dict pointing at the new request.
+        new_id = result.get("res_id") if isinstance(result, dict) else None
+        req = request.env[REQUEST_MODEL].sudo().browse(new_id) if new_id else None
+        if not req or not req.exists():
+            return return_Response(
+                message="Request submitted but could not be located.", status=400,
+            )
+        return return_Response(
+            message="Budget request submitted for approval.",
+            status=200,
+            data={"data": _request_to_dict(req)},
+        )
+
+    # POST — approve or reject a batch budget request.
+    #   body: { "request_id": <int>, "action": "approve"|"reject",
+    #           "rejection_reason": "<text, required for reject>" }
+    @http.route(
+        "/api/v1/etp_projects/budget_request/action",
+        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_token
+    def budget_request_action(self, **params):
+        jdata = _read_json_body()
+        request_id = jdata.get("request_id")
+        action = (jdata.get("action") or "").strip().lower()
+
+        if not isinstance(request_id, int):
+            return return_Response(
+                message="'request_id' is required and must be an integer.",
+                status=400,
+            )
+        if action not in ("approve", "reject"):
+            return return_Response(
+                message="'action' must be 'approve' or 'reject'.", status=400,
+            )
+
+        req = request.env[REQUEST_MODEL].sudo().browse(request_id)
+        if not req.exists():
+            return return_Response(
+                message="Budget request %s not found." % request_id, status=404,
+            )
+
+        try:
+            if action == "approve":
+                req.action_approve()
+            else:
+                reason = (jdata.get("rejection_reason") or "").strip()
+                if not reason:
+                    return return_Response(
+                        message="'rejection_reason' is required to reject.",
+                        status=400,
+                    )
+                req._do_reject(reason)
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400)
+        except Exception as e:
+            _logger.exception("budget_request_action failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+        verb = "approved" if action == "approve" else "rejected"
+        return return_Response(
+            message="Budget request %s." % verb,
+            status=200,
+            data={"data": _request_to_dict(req)},
         )
 
     # POST — create a project budget (whole 5-step wizard in one call)
