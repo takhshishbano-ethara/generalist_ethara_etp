@@ -1,8 +1,9 @@
 from odoo import http
 from odoo.http import request
 from .utility import validate_request, validate_token, return_Response, safe_get_value, generate_s3_link, is_valid_email, is_valid_mobile
-from datetime import timedelta
+from datetime import datetime, timedelta
 import logging
+import re
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
 _logger = logging.getLogger(__name__)
@@ -256,9 +257,277 @@ class ApiAuthController(http.Controller):
             if access_token:
                 for token in access_token:
                     token.sudo().unlink()
+            # Notify the user that their password changed. Runs only after the
+            # DB update succeeds and never blocks/breaks the API response.
+            self._send_password_changed_email(user_id)
         except Exception as e:
             return return_Response(message="Something Went Wrong.", status=400, errors=[str(e)])
         return return_Response(message="Profile Updated Successfully", status=200)
+
+    # Basic RFC-5322-ish sanity check; intentionally permissive.
+    _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+
+    def _send_password_changed_email(self, user):
+        """Send a 'password changed' confirmation email to ``user``.
+
+        Fired only after the password has been updated successfully. Every step
+        of the flow is logged (prefix ``PWD-CHANGE-EMAIL``) so that delivery can
+        be audited per-user and any failure is attributable to an exact stage
+        (recipient lookup, template lookup, mail creation, SMTP send). Every
+        failure is logged and swallowed so it can never affect the password
+        update outcome.
+
+        Delivery model: the mail record is persisted (``auto_delete=False``) as
+        a security audit trail, then an immediate send is attempted so problems
+        surface at request time instead of silently sitting in the hourly mail
+        queue. The send is isolated with ``raise_exception=False`` and a
+        surrounding ``try`` so SMTP issues never bubble up.
+        """
+        lp = 'PWD-CHANGE-EMAIL [user_id=%s login=%s]' % (user.id, user.login)
+        try:
+            _logger.info('%s step=START', lp)
+
+            # -- Step 1: resolve the recipient --
+            # `login` is the email in this system, so it is a safe fallback when
+            # the dedicated `email` field was never populated.
+            recipient = (user.email or '').strip() or (user.login or '').strip()
+            _logger.info(
+                '%s step=RECIPIENT_LOOKUP email_field=%r login=%r resolved=%r',
+                lp, user.email, user.login, recipient)
+            if not recipient:
+                _logger.error(
+                    '%s step=ABORT reason=NO_RECIPIENT (no email and no login)',
+                    lp)
+                return
+            if not self._EMAIL_RE.match(recipient):
+                _logger.error(
+                    '%s step=ABORT reason=INVALID_EMAIL_FORMAT recipient=%r',
+                    lp, recipient)
+                return
+
+            # -- Step 2: collect request metadata (device / IP / time) --
+            httprequest = getattr(request, 'httprequest', None)
+            ip_address = 'Unknown'
+            device_info = 'Unknown'
+            if httprequest is not None:
+                ip_address = (
+                    httprequest.headers.get('X-Forwarded-For')
+                    or httprequest.remote_addr
+                    or 'Unknown'
+                )
+                device_info = httprequest.headers.get('User-Agent') or 'Unknown'
+            change_time = (datetime.utcnow() + IST_OFFSET).strftime(
+                '%d %b %Y, %I:%M %p IST')
+            _logger.info(
+                '%s step=METADATA ip=%s device=%s when=%s',
+                lp, ip_address, device_info, change_time)
+
+            # -- Step 3: outgoing-mail-server sanity check --
+            # Explains "queued but never delivered" before we even try to send.
+            mail_server = request.env['ir.mail_server'].sudo().search(
+                [], limit=1)
+            if not mail_server:
+                _logger.warning(
+                    '%s step=NO_MAIL_SERVER no ir.mail_server configured; the '
+                    'mail will be queued but CANNOT be delivered until an '
+                    'outgoing SMTP server is set up.', lp)
+            else:
+                _logger.info(
+                    '%s step=MAIL_SERVER name=%s host=%s:%s',
+                    lp, mail_server.name, mail_server.smtp_host,
+                    mail_server.smtp_port)
+
+            ctx = {
+                'user_name': user.name,
+                'change_time': change_time,
+                'ip_address': ip_address,
+                'device_info': device_info,
+            }
+            email_from = request.env['ir.config_parameter'].sudo().get_param(
+                'mail.catchall.email', 'no-reply@kuberha.ai')
+
+            # -- Step 4: locate the template --
+            template = request.env.ref(
+                'api_auth_gateway.email_template_password_changed',
+                raise_if_not_found=False,
+            )
+            _logger.info('%s step=TEMPLATE_LOOKUP found=%s', lp, bool(template))
+
+            # -- Step 5: create + queue the mail (persisted for audit) --
+            if template:
+                # Force a single recipient via ``email_to`` and explicitly clear
+                # ``recipient_ids``. Otherwise the template also resolves the
+                # user's partner, and a mail carrying BOTH email_to and a
+                # partner recipient is delivered twice (once per channel).
+                mail_id = template.sudo().with_context(**ctx).send_mail(
+                    user.id,
+                    force_send=False,
+                    email_values={
+                        'email_to': recipient,
+                        'recipient_ids': [(5, 0, 0)],
+                        'auto_delete': False,
+                    },
+                )
+            else:
+                # Fallback if the template record is missing (e.g. not upgraded).
+                _logger.warning(
+                    '%s step=TEMPLATE_FALLBACK building inline body', lp)
+                body_html = '''
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #333;">Password Changed Successfully</h2>
+                        <p>Hi %s,</p>
+                        <p>This is a confirmation that the password for your Ethara account was changed successfully.</p>
+                        <p><strong>Date &amp; Time:</strong> %s<br/>
+                           <strong>IP Address:</strong> %s<br/>
+                           <strong>Device / Browser:</strong> %s</p>
+                        <p style="background-color: #fff4f4; border-left: 4px solid #d9534f; padding: 12px 16px; color: #a94442;">
+                            <strong>If you did not make this change, please contact support immediately.</strong>
+                        </p>
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;"/>
+                        <p style="color: #999; font-size: 11px;">Ethara Team</p>
+                    </div>
+                ''' % (user.name, change_time, ip_address, device_info)
+                mail = request.env['mail.mail'].sudo().create({
+                    'subject': 'Your Ethara password was changed',
+                    'email_from': email_from,
+                    'email_to': recipient,
+                    'body_html': body_html,
+                    'auto_delete': False,
+                })
+                mail_id = mail.id
+            _logger.info(
+                '%s step=MAIL_QUEUED mail_id=%s recipient=%s via=%s',
+                lp, mail_id, recipient, 'template' if template else 'fallback')
+
+            # -- Step 6: attempt immediate delivery (isolated) --
+            mail_rec = request.env['mail.mail'].sudo().browse(mail_id)
+            try:
+                mail_rec.send(raise_exception=False)
+                _logger.info(
+                    '%s step=SEND_ATTEMPT mail_id=%s state=%s failure=%s',
+                    lp, mail_id, mail_rec.state,
+                    (mail_rec.failure_reason or '')[:200])
+                if mail_rec.state == 'sent':
+                    _logger.info(
+                        '%s step=SUCCESS delivered to %s', lp, recipient)
+                else:
+                    _logger.error(
+                        '%s step=NOT_SENT mail_id=%s state=%s reason=%s '
+                        '(will be retried by the mail queue cron)',
+                        lp, mail_id, mail_rec.state,
+                        (mail_rec.failure_reason or 'unknown')[:200])
+            except Exception as send_err:
+                _logger.error(
+                    '%s step=SEND_ERROR mail_id=%s err=%s',
+                    lp, mail_id, send_err, exc_info=True)
+
+            _logger.info('%s step=DONE', lp)
+        except Exception as e:
+            # Never let an email failure break the password change flow.
+            _logger.error(
+                '%s step=EXCEPTION err=%s', lp, str(e), exc_info=True)
+
+    def _send_password_reset_email(self, user, recipient, reset_link):
+        """Send the password-reset link email.
+
+        Returns ``True`` only if the mail was actually accepted by the SMTP
+        server, ``False`` otherwise. Mirrors the recipient/logging hardening of
+        :meth:`_send_password_changed_email` (prefix ``PWD-RESET-EMAIL``).
+        Unlike the change notification, the reset link IS the deliverable, so
+        the caller surfaces failures to the user based on this boolean.
+
+        ``recipient`` is forced via ``email_to`` (with partner
+        ``recipient_ids`` cleared) so the link reaches the validated address
+        even when the user's partner ``email`` field is blank, and is never
+        delivered twice.
+        """
+        lp = 'PWD-RESET-EMAIL [user_id=%s login=%s]' % (user.id, user.login)
+        try:
+            _logger.info('%s step=START recipient=%s', lp, recipient)
+
+            mail_server = request.env['ir.mail_server'].sudo().search(
+                [('active', '=', True)], limit=1)
+            if not mail_server:
+                _logger.warning(
+                    '%s step=NO_MAIL_SERVER no active ir.mail_server; reset '
+                    'email CANNOT be delivered until an outgoing SMTP server '
+                    'is configured.', lp)
+            else:
+                _logger.info(
+                    '%s step=MAIL_SERVER name=%s host=%s:%s', lp,
+                    mail_server.name, mail_server.smtp_host,
+                    mail_server.smtp_port)
+
+            email_from = request.env['ir.config_parameter'].sudo().get_param(
+                'mail.catchall.email', 'no-reply@kuberha.ai')
+
+            template = request.env.ref(
+                'api_auth_gateway.email_template_password_reset',
+                raise_if_not_found=False)
+            _logger.info('%s step=TEMPLATE_LOOKUP found=%s', lp, bool(template))
+
+            if template:
+                mail_id = template.sudo().with_context(
+                    reset_link=reset_link,
+                    user_name=user.name,
+                ).send_mail(
+                    user.id,
+                    force_send=False,
+                    email_values={
+                        'email_to': recipient,
+                        'recipient_ids': [(5, 0, 0)],
+                        'auto_delete': False,
+                    },
+                )
+            else:
+                _logger.warning(
+                    '%s step=TEMPLATE_FALLBACK building inline body', lp)
+                body_html = '''
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                        <h2 style="color: #333;">Password Reset Request</h2>
+                        <p>Hi %s,</p>
+                        <p>We received a request to reset your password. Click the button below to set a new password:</p>
+                        <p style="text-align: center; margin: 30px 0;">
+                            <a href="%s" style="background-color: #007bff; color: white; padding: 12px 30px;
+                               text-decoration: none; border-radius: 5px; font-size: 16px;">
+                               Reset Password
+                            </a>
+                        </p>
+                        <p style="color: #666; font-size: 13px;">This link will expire in <strong>1 hour</strong>.</p>
+                        <p style="color: #666; font-size: 13px;">If you did not request a password reset, please ignore this email.</p>
+                        <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
+                        <p style="color: #999; font-size: 11px;">Ethara Team</p>
+                    </div>
+                ''' % (user.name, reset_link)
+                mail = request.env['mail.mail'].sudo().create({
+                    'subject': 'Password Reset Request - Ethara',
+                    'email_from': email_from,
+                    'email_to': recipient,
+                    'body_html': body_html,
+                    'auto_delete': False,
+                })
+                mail_id = mail.id
+            _logger.info(
+                '%s step=MAIL_QUEUED mail_id=%s recipient=%s via=%s',
+                lp, mail_id, recipient, 'template' if template else 'fallback')
+
+            mail_rec = request.env['mail.mail'].sudo().browse(mail_id)
+            mail_rec.send(raise_exception=False)
+            _logger.info(
+                '%s step=SEND_ATTEMPT mail_id=%s state=%s failure=%s',
+                lp, mail_id, mail_rec.state,
+                (mail_rec.failure_reason or '')[:200])
+            if mail_rec.state == 'sent':
+                _logger.info('%s step=SUCCESS delivered to %s', lp, recipient)
+                return True
+            _logger.error(
+                '%s step=NOT_SENT mail_id=%s state=%s reason=%s',
+                lp, mail_id, mail_rec.state,
+                (mail_rec.failure_reason or 'unknown')[:200])
+            return False
+        except Exception as e:
+            _logger.error('%s step=EXCEPTION err=%s', lp, str(e), exc_info=True)
+            return False
 
     @validate_token
     @http.route('/api/v1/get_logged_user_details', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
@@ -355,40 +624,13 @@ class ApiAuthController(http.Controller):
             )
             reset_link = '%s?token=%s' % (base_url, token)
 
-            try:
-                template = request.env.ref('api_auth_gateway.email_template_password_reset', raise_if_not_found=False)
-                if template:
-                    template.sudo().with_context(
-                        reset_link=reset_link,
-                        user_name=user.name,
-                    ).send_mail(user.id, force_send=True)
-                else:
-                    mail_values = {
-                        'subject': 'Password Reset Request - Ethara',
-                        'email_from': request.env['ir.config_parameter'].sudo().get_param('mail.catchall.email', 'noreply@ethara.com'),
-                        'email_to': email,
-                        'body_html': '''
-                            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                                <h2 style="color: #333;">Password Reset Request</h2>
-                                <p>Hi %s,</p>
-                                <p>We received a request to reset your password. Click the button below to set a new password:</p>
-                                <p style="text-align: center; margin: 30px 0;">
-                                    <a href="%s" style="background-color: #007bff; color: white; padding: 12px 30px;
-                                       text-decoration: none; border-radius: 5px; font-size: 16px;">
-                                       Reset Password
-                                    </a>
-                                </p>
-                                <p style="color: #666; font-size: 13px;">This link will expire in <strong>1 hour</strong>.</p>
-                                <p style="color: #666; font-size: 13px;">If you did not request a password reset, please ignore this email.</p>
-                                <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
-                                <p style="color: #999; font-size: 11px;">Ethara Team</p>
-                            </div>
-                        ''' % (user.name, reset_link),
-                    }
-                    request.env['mail.mail'].sudo().create(mail_values).send()
-            except Exception as e:
-                _logger.error('Failed to send password reset email to %s: %s', email, str(e))
-                return return_Response(message="Failed to send reset email. Please try again later.", status=400)
+            # `email` is the validated login; force it as the recipient so the
+            # link is delivered even if the partner email field is blank.
+            sent = self._send_password_reset_email(user, email, reset_link)
+            if not sent:
+                return return_Response(
+                    message="Failed to send reset email. Please try again later.",
+                    status=400)
 
             return return_Response(
                 message="If an account exists with this email, a password reset link has been sent.",
