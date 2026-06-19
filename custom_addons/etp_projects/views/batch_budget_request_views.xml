@@ -160,7 +160,7 @@
                 <filter name="filter_my_requests" string="My Requests"
                         domain="[('requester_id','=', uid)]"/>
                 <filter name="filter_to_approve" string="To Approve"
-                        domain="[('state','=','pending'), ('project_budget_id.approver_user_ids','in', uid), ('requester_id','!=', uid)]"/>
+                        domain="[('state','=','pending'), ('project_budget_id.approver_user_ids','in', uid)]"/>
                 <group>
                     <filter name="group_batch" string="Batch" context="{'group_by':'batch_id'}"/>
                     <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
