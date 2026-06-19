@@ -641,6 +641,97 @@ class EtpProjectsAwsCostController(http.Controller):
                 errors=[str(e)],
             )
 
+    def _serialize_topup(self, topup):
+        topup.ensure_one()
+        return {
+            "id": topup.id,
+            "name": topup.name or "",
+            "project_budget_id": topup.project_budget_id.id,
+            "project_budget_name": topup.project_budget_id.name or "",
+            "project_id": topup.project_id.id if topup.project_id else False,
+            "project_name": topup.project_id.name if topup.project_id else "",
+            "amount": topup.amount or 0.0,
+            "justification": topup.justification or "",
+            "state": topup.state or "draft",
+            "requester_id": topup.requester_id.id if topup.requester_id else False,
+            "requester_name": topup.requester_id.name if topup.requester_id else "",
+            "approver_id": topup.approver_id.id if topup.approver_id else False,
+            "approver_name": topup.approver_id.name if topup.approver_id else "",
+            "approval_date": (
+                topup.approval_date.strftime("%Y-%m-%d %H:%M:%S")
+                if topup.approval_date else ""
+            ),
+            "rejection_reason": topup.rejection_reason or "",
+        }
+
+    @http.route(
+        '/api/v1/etp_projects/topup/create',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def create_topup(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            project_budget_id = jdata.get('project_budget_id')
+            if not isinstance(project_budget_id, int):
+                return return_Response(
+                    message="'project_budget_id' (int) is required.", status=400,
+                )
+            budget = request.env[BUDGET_MODEL].sudo().browse(project_budget_id)
+            if not budget.exists():
+                return return_Response(
+                    message="Project budget %s not found." % project_budget_id,
+                    status=404,
+                )
+
+            amount = jdata.get('amount')
+            try:
+                amount = float(amount)
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'amount' must be a positive number.", status=400,
+                )
+            if amount <= 0:
+                return return_Response(
+                    message="'amount' must be greater than zero.", status=400,
+                )
+
+            justification = (jdata.get('justification') or '').strip()
+            if not justification:
+                return return_Response(
+                    message="'justification' is required.", status=400,
+                )
+
+            submit = jdata.get('submit')
+            submit = True if submit is None else bool(submit)
+
+            vals = {
+                'project_budget_id': project_budget_id,
+                'amount': amount,
+                'justification': justification,
+            }
+            topup = request.env['etp.project.budget.topup'].sudo().create(vals)
+
+            if submit:
+                try:
+                    topup.sudo().action_submit()
+                except UserError as e:
+                    return return_Response(
+                        message=str(e), status=400, errors=[str(e)],
+                    )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_topup(topup)},
+            )
+        except Exception as e:
+            _logger.exception("create_topup failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
     @http.route(
         '/api/v1/etp_projects/aws_budget/export',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
