@@ -36,8 +36,8 @@ class EtpAssessmentOverride(models.Model):
         index=True,
     )
     candidate_id = fields.Many2one(
-        related="evaluator_id.employee_id",
-        store=True,
+        "hr.applicant",
+        related="evaluator_id.applicant_id",
         readonly=True,
         string="Candidate",
     )
