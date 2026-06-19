@@ -209,10 +209,6 @@ class EtpBatchBudgetRequest(models.Model):
             raise UserError(_(
                 "You are not in the approver pool for this Project Budget."
             ))
-        if self.env.user == self.requester_id:
-            raise UserError(_(
-                "You cannot approve a request you submitted yourself."
-            ))
 
     def _approver_partner_ids(self):
         self.ensure_one()
@@ -284,7 +280,7 @@ class EtpBatchBudgetRequest(models.Model):
                     "Approved total must be greater than zero. "
                     "Use 'Reject' if you want to deny the request entirely."
                 ))
-            remaining = rec.project_budget_id.remaining_amount or 0.0
+            remaining = rec.project_budget_id.allocatable_amount or 0.0
             if (rec.approved_total or 0.0) > remaining:
                 raise UserError(_(
                     "Approved amount (USD %(app).2f) exceeds remaining project "
