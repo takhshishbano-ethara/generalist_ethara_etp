@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_trajectory_cost_root"
+              name="AI Trajectory Cost"
+              sequence="56"/>
+
+    <menuitem id="menu_trajectory_cost_trajectories"
+              name="Trajectories"
+              parent="menu_trajectory_cost_root"
+              action="action_trajectory_cost"
+              sequence="10"/>
+
+    <menuitem id="menu_trajectory_cost_model_usage"
+              name="Per-Model Usage"
+              parent="menu_trajectory_cost_root"
+              action="action_trajectory_cost_model_usage"
+              sequence="20"/>
+
+</odoo>
