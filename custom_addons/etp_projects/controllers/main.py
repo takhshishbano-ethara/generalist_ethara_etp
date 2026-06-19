@@ -733,6 +733,90 @@ class EtpProjectsAwsCostController(http.Controller):
             )
 
     @http.route(
+        '/api/v1/etp_projects/topup/approve',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def approve_topup(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            topup_id = jdata.get('topup_id')
+            if not isinstance(topup_id, int):
+                return return_Response(
+                    message="'topup_id' (int) is required.", status=400,
+                )
+
+            topup = request.env['etp.project.budget.topup'].sudo().browse(topup_id)
+            if not topup.exists():
+                return return_Response(
+                    message="Top-up %s not found." % topup_id, status=404,
+                )
+
+            try:
+                topup.with_user(request.env.user).action_approve()
+            except UserError as e:
+                return return_Response(
+                    message=str(e), status=400, errors=[str(e)],
+                )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_topup(topup)},
+            )
+        except Exception as e:
+            _logger.exception("approve_topup failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+    @http.route(
+        '/api/v1/etp_projects/topup/reject',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def reject_topup(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            topup_id = jdata.get('topup_id')
+            if not isinstance(topup_id, int):
+                return return_Response(
+                    message="'topup_id' (int) is required.", status=400,
+                )
+
+            reason = (jdata.get('reason') or '').strip()
+            if not reason:
+                return return_Response(
+                    message="'reason' is required.", status=400,
+                )
+
+            topup = request.env['etp.project.budget.topup'].sudo().browse(topup_id)
+            if not topup.exists():
+                return return_Response(
+                    message="Top-up %s not found." % topup_id, status=404,
+                )
+
+            try:
+                topup.with_user(request.env.user)._do_reject(reason)
+            except UserError as e:
+                return return_Response(
+                    message=str(e), status=400, errors=[str(e)],
+                )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_topup(topup)},
+            )
+        except Exception as e:
+            _logger.exception("reject_topup failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+    @http.route(
         '/api/v1/etp_projects/aws_budget/export',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
     )
