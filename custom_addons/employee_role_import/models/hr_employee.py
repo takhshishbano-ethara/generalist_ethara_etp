@@ -39,6 +39,20 @@ ROLE_DEFAULT_PARENT_ROLE = {
     "tpm": "cto",
 }
 
+# TPM/CTO sit at the top - no hierarchy fields. dm/hr_admin/it_admin are
+# off-hierarchy and intentionally empty (not a bug).
+ROLE_HIERARCHY_FIELDS = {
+    "tasker": ("ql", "pl", "tpm"),
+    "qr": ("ql", "pl", "tpm"),
+    "ql": ("pl", "tpm"),
+    "pl": ("tpm",),
+    "tpm": (),
+    "cto": (),
+    "dm": (),
+    "hr_admin": (),
+    "it_admin": (),
+}
+
 
 class HrEmployee(models.Model):
     _inherit = "hr.employee"

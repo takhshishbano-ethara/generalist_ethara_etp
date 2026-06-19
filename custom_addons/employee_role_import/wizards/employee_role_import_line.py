@@ -2,7 +2,7 @@ import re
 
 from odoo import api, fields, models
 
-from ..models.hr_employee import ROLE_LEVEL, ROLE_SELECTION
+from ..models.hr_employee import ROLE_HIERARCHY_FIELDS, ROLE_LEVEL, ROLE_SELECTION
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -27,6 +27,25 @@ class EmployeeRoleImportLine(models.TransientModel):
         string="Role",
         help="Role applied for this row. Override per-row if needed.",
     )
+    job_title = fields.Char(string="Job Title")
+    assigned_ql_id = fields.Many2one(
+        "hr.employee",
+        string="Assigned QL",
+        domain="[('role', '=', 'ql')]",
+        help="Quality Lead this person reports to in the Task Forge hierarchy.",
+    )
+    assigned_pl_id = fields.Many2one(
+        "hr.employee",
+        string="Assigned PL",
+        domain="[('role', '=', 'pl')]",
+        help="Project Lead this person reports to in the Task Forge hierarchy.",
+    )
+    assigned_tpm_id = fields.Many2one(
+        "hr.employee",
+        string="Assigned TPM",
+        domain="[('role', '=', 'tpm')]",
+        help="TPM this person reports to in the Task Forge hierarchy.",
+    )
     manager_email = fields.Char(
         string="Reports To (email)",
         help="Email of the manager from the CSV. Used to resolve the Reports To employee.",
@@ -39,13 +58,21 @@ class EmployeeRoleImportLine(models.TransientModel):
     status = fields.Selection(
         [
             ("ready", "Ready"),
-            ("issue", "Issue"),
-            ("exists", "Already Exists"),
-            ("exists_archived", "Archived (Deleted)"),
+            ("exists", "Exists"),
         ],
         compute="_compute_status",
         store=True,
         string="Status",
+    )
+    has_issues = fields.Boolean(
+        compute="_compute_status",
+        store=True,
+        string="Has Issues",
+    )
+    issue_text = fields.Text(
+        compute="_compute_status",
+        store=True,
+        string="Issue Details",
     )
     existing_employee_id = fields.Many2one(
         "hr.employee", compute="_compute_status", store=True, string="Existing Employee"
@@ -56,6 +83,10 @@ class EmployeeRoleImportLine(models.TransientModel):
     existing_archived = fields.Boolean(
         compute="_compute_status", store=True, string="Existing Record Archived"
     )
+
+    @api.onchange("email", "employee_code", "name", "role")
+    def _onchange_revalidate(self):
+        self._compute_status()
 
     @api.depends("name", "email", "role", "employee_code", "parent_id", "parent_id.role")
     def _compute_status(self):
@@ -94,9 +125,6 @@ class EmployeeRoleImportLine(models.TransientModel):
             line.existing_user_id = existing_user.id if existing_user else False
             line.existing_archived = archived
 
-            if issues:
-                line.status = "issue"
-            elif existing_emp or existing_user:
-                line.status = "exists_archived" if archived else "exists"
-            else:
-                line.status = "ready"
+            line.status = "exists" if (existing_emp or existing_user) else "ready"
+            line.has_issues = bool(issues)
+            line.issue_text = "; ".join(issues) if issues else False

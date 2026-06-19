@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="ir_cron_gc_import_sessions" model="ir.cron">
+            <field name="name">Employee Role Import: GC old import sessions</field>
+            <field name="model_id" ref="model_employee_import_session"/>
+            <field name="state">code</field>
+            <field name="code">model._gc_old_sessions()</field>
+            <field name="interval_number">6</field>
+            <field name="interval_type">hours</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

@@ -160,9 +160,8 @@
                             </div>
                             <field name="line_ids" nolabel="1">
                                 <list editable="bottom" multi_edit="1"
-                                      decoration-danger="status == 'issue'"
-                                      decoration-warning="status == 'exists'"
-                                      decoration-info="status == 'exists_archived'">
+                                      decoration-danger="has_issues"
+                                      decoration-warning="status == 'exists'">
                                     <field name="sequence" string="#" readonly="1"
                                            decoration-muted="1" optional="show"/>
                                     <field name="name" required="1"
@@ -171,21 +170,32 @@
                                     <field name="email" required="1"
                                            decoration-danger="not email"/>
                                     <field name="role" decoration-danger="not role"/>
-                                    <field name="parent_id"
-                                           string="Reports To"
-                                           options="{'no_create': True, 'no_create_edit': True}"/>
-                                    <field name="manager_email"
-                                           string="Manager Email"
-                                           optional="hide"/>
+                                    <field name="job_title" string="Job Title"/>
+                                    <field name="assigned_ql_id"
+                                           string="Assigned QL"
+                                           options="{'no_create': True, 'no_create_edit': True}"
+                                           readonly="role in ('pl','tpm','cto','dm','hr_admin','it_admin')"/>
+                                    <field name="assigned_pl_id"
+                                           string="Assigned PL"
+                                           options="{'no_create': True, 'no_create_edit': True}"
+                                           readonly="role in ('tpm','cto','dm','hr_admin','it_admin')"/>
+                                    <field name="assigned_tpm_id"
+                                           string="Assigned TPM"
+                                           options="{'no_create': True, 'no_create_edit': True}"
+                                           readonly="role in ('tpm','cto','dm','hr_admin','it_admin')"/>
                                     <field name="status"
                                            widget="badge"
                                            decoration-success="status == 'ready'"
-                                           decoration-danger="status == 'issue'"
                                            decoration-warning="status == 'exists'"
-                                           decoration-info="status == 'exists_archived'"
                                            readonly="1"/>
-                                    <field name="existing_archived" optional="hide" readonly="1"/>
-                                    <field name="existing_employee_id" optional="hide" readonly="1"/>
+                                    <field name="has_issues" column_invisible="1"/>
+                                    <field name="issue_text" optional="hide" readonly="1"/>
+                                    <button name="unlink"
+                                            type="object"
+                                            icon="fa-trash"
+                                            string="Delete"
+                                            class="btn-link text-danger"
+                                            confirm="Remove this row from the import preview?"/>
                                 </list>
                             </field>
                         </page>
@@ -215,27 +225,33 @@
         <field name="model">employee.role.import.line</field>
         <field name="arch" type="xml">
             <list editable="bottom" multi_edit="1" string="Preview Rows"
-                  decoration-danger="status == 'issue'"
-                  decoration-warning="status == 'exists'"
-                  decoration-info="status == 'exists_archived'">
+                  decoration-danger="has_issues"
+                  decoration-warning="status == 'exists'">
                 <field name="sequence" string="#" readonly="1" decoration-muted="1"/>
                 <field name="name" required="1" decoration-danger="not name"/>
                 <field name="employee_code" string="Employee ID"/>
                 <field name="email" required="1" decoration-danger="not email"/>
                 <field name="role" decoration-danger="not role"/>
-                <field name="parent_id"
-                       string="Reports To"
+                <field name="job_title" string="Job Title"/>
+                <field name="assigned_ql_id" string="Assigned QL"
                        options="{'no_create': True, 'no_create_edit': True}"/>
-                <field name="manager_email" string="Manager Email" optional="hide"/>
+                <field name="assigned_pl_id" string="Assigned PL"
+                       options="{'no_create': True, 'no_create_edit': True}"/>
+                <field name="assigned_tpm_id" string="Assigned TPM"
+                       options="{'no_create': True, 'no_create_edit': True}"/>
                 <field name="status"
                        widget="badge"
                        decoration-success="status == 'ready'"
-                       decoration-danger="status == 'issue'"
                        decoration-warning="status == 'exists'"
-                       decoration-info="status == 'exists_archived'"
                        readonly="1"/>
-                <field name="existing_archived" optional="hide" readonly="1"/>
-                <field name="existing_employee_id" optional="hide" readonly="1"/>
+                <field name="has_issues" column_invisible="1"/>
+                <field name="issue_text" optional="hide" readonly="1"/>
+                <button name="unlink"
+                        type="object"
+                        icon="fa-trash"
+                        string="Delete"
+                        class="btn-link text-danger"
+                        confirm="Remove this row from the import preview?"/>
             </list>
         </field>
     </record>
@@ -249,26 +265,23 @@
                 <field name="employee_code" string="Employee ID"/>
                 <field name="email"/>
                 <field name="role"/>
-                <field name="parent_id" string="Reports To"/>
+                <field name="job_title" string="Job Title"/>
+                <field name="assigned_ql_id" string="Assigned QL"/>
+                <field name="assigned_pl_id" string="Assigned PL"/>
+                <field name="assigned_tpm_id" string="Assigned TPM"/>
                 <filter name="filter_ready" string="Ready"
                         domain="[('status', '=', 'ready')]"/>
-                <filter name="filter_exists" string="Already Exists"
+                <filter name="filter_exists" string="Exists"
                         domain="[('status', '=', 'exists')]"/>
-                <filter name="filter_archived" string="Archived (Deleted)"
-                        domain="[('status', '=', 'exists_archived')]"/>
                 <filter name="filter_issues" string="With Issues"
-                        domain="[('status', '=', 'issue')]"/>
+                        domain="[('has_issues', '=', True)]"/>
                 <filter name="filter_empty_role" string="Empty Role"
                         domain="[('role', '=', False)]"/>
-                <filter name="filter_no_manager" string="No Manager"
-                        domain="[('parent_id', '=', False)]"/>
                 <separator/>
                 <filter name="group_by_role" string="Group by Role"
                         context="{'group_by': 'role'}"/>
                 <filter name="group_by_status" string="Group by Status"
                         context="{'group_by': 'status'}"/>
-                <filter name="group_by_manager" string="Group by Manager"
-                        context="{'group_by': 'parent_id'}"/>
             </search>
         </field>
     </record>
