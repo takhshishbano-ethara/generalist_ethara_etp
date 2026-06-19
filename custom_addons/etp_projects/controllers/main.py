@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import logging
+from datetime import date, timedelta
 
 from odoo import fields, http
 from odoo.exceptions import UserError
@@ -733,6 +734,90 @@ class EtpProjectsAwsCostController(http.Controller):
             )
 
     @http.route(
+        '/api/v1/etp_projects/topup/approve',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def approve_topup(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            topup_id = jdata.get('topup_id')
+            if not isinstance(topup_id, int):
+                return return_Response(
+                    message="'topup_id' (int) is required.", status=400,
+                )
+
+            topup = request.env['etp.project.budget.topup'].sudo().browse(topup_id)
+            if not topup.exists():
+                return return_Response(
+                    message="Top-up %s not found." % topup_id, status=404,
+                )
+
+            try:
+                topup.with_user(request.env.user).action_approve()
+            except UserError as e:
+                return return_Response(
+                    message=str(e), status=400, errors=[str(e)],
+                )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_topup(topup)},
+            )
+        except Exception as e:
+            _logger.exception("approve_topup failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+    @http.route(
+        '/api/v1/etp_projects/topup/reject',
+        methods=['POST'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def reject_topup(self, **params):
+        try:
+            jdata = self._read_json_body()
+
+            topup_id = jdata.get('topup_id')
+            if not isinstance(topup_id, int):
+                return return_Response(
+                    message="'topup_id' (int) is required.", status=400,
+                )
+
+            reason = (jdata.get('reason') or '').strip()
+            if not reason:
+                return return_Response(
+                    message="'reason' is required.", status=400,
+                )
+
+            topup = request.env['etp.project.budget.topup'].sudo().browse(topup_id)
+            if not topup.exists():
+                return return_Response(
+                    message="Top-up %s not found." % topup_id, status=404,
+                )
+
+            try:
+                topup.with_user(request.env.user)._do_reject(reason)
+            except UserError as e:
+                return return_Response(
+                    message=str(e), status=400, errors=[str(e)],
+                )
+
+            return return_Response(
+                message="OK",
+                status=200,
+                data={"data": self._serialize_topup(topup)},
+            )
+        except Exception as e:
+            _logger.exception("reject_topup failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+    @http.route(
         '/api/v1/etp_projects/aws_budget/export',
         methods=['POST'], type='http', auth='none', csrf=False, cors='*',
     )
@@ -773,9 +858,15 @@ class EtpProjectsAwsCostController(http.Controller):
             Budget = request.env[BUDGET_MODEL].sudo()
             budgets = Budget.search(domain, order='project_id, name')
 
+            run_rate_end = date.today()
+            run_rate_start = run_rate_end - timedelta(days=6)
+            run_rate_days = 7.0
+
             output = io.BytesIO()
             wb = xlsxwriter.Workbook(output, {'in_memory': True})
-            ws = wb.add_worksheet('AWS Budgets')
+            ws = wb.add_worksheet('Projects — Budget by Project')
+            # Place outline +/- symbols on the parent row (above the group)
+            ws.outline_settings(True, False, True, False)
 
             f_title = wb.add_format({
                 'bold': True, 'font_size': 14, 'font_color': '#ffffff',
@@ -802,9 +893,22 @@ class EtpProjectsAwsCostController(http.Controller):
                 'bg_color': '#374151', 'align': 'center', 'valign': 'vcenter',
                 'border': 1, 'border_color': '#1f2937',
             })
+            f_project = wb.add_format({
+                'bold': True, 'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'left', 'valign': 'vcenter',
+            })
             f_text = wb.add_format({
                 'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
                 'align': 'left', 'valign': 'vcenter',
+            })
+            f_text_model = wb.add_format({
+                'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'left', 'valign': 'vcenter', 'indent': 2,
+                'italic': True, 'font_color': '#4b5563',
+            })
+            f_blank = wb.add_format({
+                'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'right', 'valign': 'vcenter',
             })
             f_int = wb.add_format({
                 'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
@@ -814,110 +918,191 @@ class EtpProjectsAwsCostController(http.Controller):
                 'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
                 'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0.00',
             })
+            f_money_actual = wb.add_format({
+                'bold': True, 'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0.00',
+            })
+            f_money_child = wb.add_format({
+                'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0.00',
+                'font_color': '#4b5563', 'italic': True,
+            })
             f_pct = wb.add_format({
                 'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
                 'align': 'right', 'valign': 'vcenter', 'num_format': '0.00"%"',
             })
+            f_pct_child = wb.add_format({
+                'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'right', 'valign': 'vcenter', 'num_format': '0.00"%"',
+                'font_color': '#4b5563', 'italic': True,
+            })
+            f_runrate = wb.add_format({
+                'font_size': 10, 'border': 1, 'border_color': '#e5e7eb',
+                'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0.00" /day"',
+            })
             f_total_label = wb.add_format({
                 'bold': True, 'font_size': 10, 'bg_color': '#f9fafb',
                 'border': 1, 'border_color': '#d1d5db',
-                'align': 'right', 'valign': 'vcenter',
+                'align': 'left', 'valign': 'vcenter',
             })
             f_total_money = wb.add_format({
                 'bold': True, 'font_size': 10, 'bg_color': '#f9fafb',
                 'border': 1, 'border_color': '#d1d5db',
                 'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0.00',
             })
+            f_total_pct = wb.add_format({
+                'bold': True, 'font_size': 10, 'bg_color': '#f9fafb',
+                'border': 1, 'border_color': '#d1d5db',
+                'align': 'right', 'valign': 'vcenter', 'num_format': '0.00"%"',
+            })
+            f_total_runrate = wb.add_format({
+                'bold': True, 'font_size': 10, 'bg_color': '#f9fafb',
+                'border': 1, 'border_color': '#d1d5db',
+                'align': 'right', 'valign': 'vcenter', 'num_format': '#,##0.00" /day"',
+            })
 
             headers = [
-                '#', 'Budget Seq', 'Project', 'Currency',
-                'Project Budget', 'Final Budget', 'Total Used Cost', 'Remaining',
-                '% Consumed', 'Daily Burn Rate', 'Runway Days', 'Runway Depletes On',
-                'Tag Key', 'Tag Value', 'Last Fetched At',
+                'Project', 'Estimated cost', 'Actual', 'Remaining',
+                'Budget', 'Util %', 'Run rate', 'Top Model / Share',
             ]
-            widths = [5, 22, 28, 10, 16, 16, 18, 16, 13, 18, 14, 22, 14, 18, 22]
+            widths = [40, 16, 16, 16, 16, 10, 16, 22]
             for i, w in enumerate(widths):
                 ws.set_column(i, i, w)
 
             ws.set_row(0, 28)
-            ws.merge_range(0, 0, 0, len(headers) - 1, 'AWS Budget Consolidation', f_title)
+            ws.merge_range(0, 0, 0, len(headers) - 1, 'Projects — Budget by Project', f_title)
 
-            total_budget = 0.0
-            total_consumed = 0.0
-            total_remaining = 0.0
-            project_set = set()
-
-            for b in budgets:
-                total_budget += 0.0
-                total_consumed += 0.0
-                total_remaining += 0.0
-                if b.project_id:
-                    project_set.add(b.project_id.id)
-
-            overall_pct = (total_consumed / total_budget * 100.0) if total_budget else 0.0
+            project_set = {b.project_id.id for b in budgets if b.project_id}
+            total_est = sum(b.total_approved_amount or 0.0 for b in budgets)
+            total_actual = sum(b.consumed_amount or 0.0 for b in budgets)
+            total_remaining = sum(b.remaining_amount or 0.0 for b in budgets)
+            total_budget = sum(b.budget_amount or 0.0 for b in budgets)
+            overall_pct = (total_actual / total_est * 100.0) if total_est else 0.0
 
             ws.write(2, 0, 'Total Budgets', f_kpi_label)
             ws.write_number(2, 1, len(budgets), f_kpi_value)
             ws.write(2, 2, 'Projects', f_kpi_label)
             ws.write_number(2, 3, len(project_set), f_kpi_value)
             ws.write(2, 4, 'Currency', f_kpi_label)
-            ws.write(2, 5, 'USD', f_kpi_value_text)
+            ws.merge_range(2, 5, 2, 7, 'USD', f_kpi_value_text)
 
-            ws.write(3, 0, 'Total Budget', f_kpi_label)
-            ws.write_number(3, 1, total_budget, f_kpi_value)
-            ws.write(3, 2, 'Total Consumed', f_kpi_label)
-            ws.write_number(3, 3, total_consumed, f_kpi_value)
+            ws.write(3, 0, 'Total Estimated', f_kpi_label)
+            ws.write_number(3, 1, round(total_est, 2), f_kpi_value)
+            ws.write(3, 2, 'Total Actual', f_kpi_label)
+            ws.write_number(3, 3, round(total_actual, 2), f_kpi_value)
             ws.write(3, 4, 'Total Remaining', f_kpi_label)
-            ws.write_number(3, 5, total_remaining, f_kpi_value)
+            ws.merge_range(3, 5, 3, 7, round(total_remaining, 2), f_kpi_value)
 
-            ws.write(4, 0, 'Overall % Consumed', f_kpi_label)
+            ws.write(4, 0, 'Overall Util %', f_kpi_label)
             ws.write_number(4, 1, round(overall_pct, 2), f_kpi_value)
+            ws.write(4, 2, 'Run-rate Window', f_kpi_label)
+            ws.merge_range(
+                4, 3, 4, 7,
+                '%s → %s (7-day daily avg)' % (
+                    run_rate_start.strftime('%Y-%m-%d'),
+                    run_rate_end.strftime('%Y-%m-%d'),
+                ),
+                f_kpi_value_text,
+            )
 
             header_row = 6
             for col, h in enumerate(headers):
                 ws.write(header_row, col, h, f_header)
             ws.set_row(header_row, 22)
 
-            data_start = header_row + 1
-            for idx, b in enumerate(budgets, 1):
-                row = data_start + idx - 1
-                ws.write_number(row, 0, idx, f_int)
-                ws.write(row, 1, b.name or "", f_text)
-                ws.write(row, 2, b.project_id.name if b.project_id else "", f_text)
-                ws.write(row, 3, 'USD', f_text)
-                ws.write_number(row, 4, 0.0, f_money)
-                ws.write_number(row, 5, 0.0, f_money)
-                ws.write_number(row, 6, 0.0, f_money)
-                ws.write_number(row, 7, 0.0, f_money)
-                ws.write_number(row, 8, 0.0, f_pct)
-                ws.write_number(row, 9, 0.0, f_money)
-                ws.write_number(row, 10, 0, f_int)
-                ws.write(row, 11, "", f_text)
-                ws.write(row, 12, b.tag_key or "", f_text)
-                ws.write(row, 13, b.tag_value or "", f_text)
-                ws.write(
-                    row, 14,
-                    b.last_fetched_at.strftime("%Y-%m-%d %H:%M:%S") if b.last_fetched_at else "",
-                    f_text,
+            row_cursor = header_row + 1
+            portfolio_run_rate_total = 0.0
+
+            for b in budgets:
+                project_name = b.project_id.name if b.project_id else "(no project)"
+                budget_label = b.name or ""
+                row_label = (
+                    project_name
+                    if budget_label in ("", project_name)
+                    else "%s · %s" % (project_name, budget_label)
                 )
 
-            if budgets:
-                total_row = data_start + len(budgets)
-                ws.merge_range(total_row, 0, total_row, 3, 'Totals', f_total_label)
-                ws.write_number(total_row, 4, total_budget, f_total_money)
-                ws.write_number(total_row, 5, total_budget, f_total_money)
-                ws.write_number(total_row, 6, total_consumed, f_total_money)
-                ws.write_number(total_row, 7, total_remaining, f_total_money)
-                ws.write_number(total_row, 8, round(overall_pct, 2), wb.add_format({
-                    'bold': True, 'font_size': 10, 'bg_color': '#f9fafb',
-                    'border': 1, 'border_color': '#d1d5db',
-                    'align': 'right', 'valign': 'vcenter', 'num_format': '0.00"%"',
-                }))
-                for col in range(9, len(headers)):
-                    ws.write(total_row, col, "", f_total_label)
+                model_actual = {}
+                model_quantity = {}
+                run_rate_total = 0.0
+                for line in b.cost_line_ids:
+                    if line.granularity != "day":
+                        continue
+                    if line.is_model_breakdown:
+                        model = (line.model_name or "").strip() or "(no model)"
+                        amt = float(line.amount_source or 0.0)
+                        qty = float(line.usage_quantity or 0.0)
+                        if amt:
+                            model_actual[model] = model_actual.get(model, 0.0) + amt
+                        if qty:
+                            model_quantity[model] = model_quantity.get(model, 0.0) + qty
+                    else:
+                        if line.period and run_rate_start <= line.period <= run_rate_end:
+                            run_rate_total += float(line.amount_source or 0.0)
 
-                ws.autofilter(header_row, 0, data_start + len(budgets) - 1, len(headers) - 1)
-                ws.freeze_panes(header_row + 1, 2)
+                portfolio_run_rate_total += run_rate_total
+                run_rate_per_day = run_rate_total / run_rate_days
+
+                top_model = ""
+                if model_actual:
+                    top_model = max(model_actual.items(), key=lambda kv: kv[1])[0]
+                elif model_quantity:
+                    # Cost-only providers (e.g. OpenAI) ship per-model rows with token
+                    # quantities but no per-model USD; fall back to highest-volume model
+                    # so the column reflects activity rather than being blank.
+                    top_model = max(model_quantity.items(), key=lambda kv: kv[1])[0]
+
+                ws.write(row_cursor, 0, row_label, f_project)
+                ws.write_number(row_cursor, 1, round(b.total_approved_amount or 0.0, 2), f_money)
+                ws.write_number(row_cursor, 2, round(b.consumed_amount or 0.0, 2), f_money_actual)
+                ws.write_number(row_cursor, 3, round(b.remaining_amount or 0.0, 2), f_money)
+                ws.write_number(row_cursor, 4, round(b.budget_amount or 0.0, 2), f_money)
+                ws.write_number(row_cursor, 5, round(b.consumed_pct or 0.0, 2), f_pct)
+                ws.write_number(row_cursor, 6, round(run_rate_per_day, 2), f_runrate)
+                ws.write(row_cursor, 7, top_model or "—", f_text)
+                row_cursor += 1
+
+                project_actual = b.consumed_amount or 0.0
+                model_keys = set(model_actual.keys()) | set(model_quantity.keys())
+                child_models = sorted(
+                    model_keys,
+                    key=lambda m: (
+                        -model_actual.get(m, 0.0),
+                        -model_quantity.get(m, 0.0),
+                        m,
+                    ),
+                )
+                for model in child_models:
+                    m_actual = model_actual.get(model, 0.0)
+                    share_pct = (m_actual / project_actual * 100.0) if project_actual else 0.0
+                    ws.write(row_cursor, 0, model, f_text_model)
+                    ws.write(row_cursor, 1, '', f_blank)
+                    ws.write_number(row_cursor, 2, round(m_actual, 2), f_money_child)
+                    ws.write(row_cursor, 3, '', f_blank)
+                    ws.write(row_cursor, 4, '', f_blank)
+                    ws.write(row_cursor, 5, '', f_blank)
+                    ws.write(row_cursor, 6, '', f_blank)
+                    ws.write_number(row_cursor, 7, round(share_pct, 2), f_pct_child)
+                    ws.set_row(row_cursor, None, None, {'level': 1, 'hidden': True})
+                    row_cursor += 1
+
+            if budgets:
+                total_row = row_cursor
+                ws.write(total_row, 0, 'Portfolio total', f_total_label)
+                ws.write_number(total_row, 1, round(total_est, 2), f_total_money)
+                ws.write_number(total_row, 2, round(total_actual, 2), f_total_money)
+                ws.write_number(total_row, 3, round(total_remaining, 2), f_total_money)
+                ws.write_number(total_row, 4, round(total_budget, 2), f_total_money)
+                ws.write_number(total_row, 5, round(overall_pct, 2), f_total_pct)
+                ws.write_number(
+                    total_row, 6,
+                    round(portfolio_run_rate_total / run_rate_days, 2),
+                    f_total_runrate,
+                )
+                ws.write(total_row, 7, '—', f_total_label)
+
+                ws.autofilter(header_row, 0, total_row - 1, len(headers) - 1)
+                ws.freeze_panes(header_row + 1, 1)
 
             ws2 = wb.add_worksheet('Service Spend')
             s_headers = [
@@ -936,7 +1121,7 @@ class EtpProjectsAwsCostController(http.Controller):
             for b in budgets:
                 project_name = b.project_id.name if b.project_id else ""
                 budget_seq = b.name or ""
-                budget_amount_b = 0.0
+                envelope = b.total_approved_amount or 0.0
                 per_service = {}
                 for line in b.cost_line_ids:
                     if line.is_model_breakdown:
@@ -945,7 +1130,7 @@ class EtpProjectsAwsCostController(http.Controller):
                     agg = per_service.setdefault(svc, {'usd': 0.0})
                     agg['usd'] += float(line.amount_source or 0.0)
                 for svc, agg in per_service.items():
-                    pct = (agg['usd'] / budget_amount_b * 100.0) if budget_amount_b else 0.0
+                    pct = (agg['usd'] / envelope * 100.0) if envelope else 0.0
                     service_rows.append({
                         'project': project_name,
                         'budget_seq': budget_seq,
@@ -967,9 +1152,9 @@ class EtpProjectsAwsCostController(http.Controller):
             ws2.write(2, 0, 'Total Services', f_kpi_label)
             ws2.write_number(2, 1, len({(r['budget_seq'], r['service']) for r in service_rows}), f_kpi_value)
             ws2.write(2, 2, 'Top Service', f_kpi_label)
-            ws2.merge_range(2, 3, 2, 4, top_service_label or '—', f_kpi_value_text)
-            ws2.write(2, 5, 'Top Spend (USD)', f_kpi_label)
-            ws2.write_number(2, 6, round(top_service_spend, 2), f_kpi_value)
+            ws2.write(2, 3, top_service_label or '—', f_kpi_value_text)
+            ws2.write(2, 4, 'Top Spend (USD)', f_kpi_label)
+            ws2.write_number(2, 5, round(top_service_spend, 2), f_kpi_value)
 
             s_header_row = 4
             for col, h in enumerate(s_headers):

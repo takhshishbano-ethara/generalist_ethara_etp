@@ -15,6 +15,11 @@ class HrEmployee(models.Model):
         string='Task Forge QR',
         help='Quality Reviewer this person reports to in Task Forge hierarchy',
     )
+    task_forge_ql_id = fields.Many2one(
+        'hr.employee',
+        string='Task Forge QL',
+        help='Quality Lead this person reports to in Task Forge hierarchy',
+    )
     task_forge_tpm_id = fields.Many2one(
         'hr.employee',
         string='Task Forge TPM',
