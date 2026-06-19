@@ -83,11 +83,32 @@ class EtpProjectAwsBudget(models.Model):
              "to auto-pick the right budget once a project + project type are chosen.",
     )
     active = fields.Boolean(default=True)
+    state = fields.Selection(
+        [
+            ("draft", "Draft"),
+            ("approved", "Approved"),
+            ("in_progress", "In Progress"),
+            ("delivered", "Delivered"),
+            ("closed", "Closed"),
+            ("rejected", "Rejected"),
+            ("withdrawn", "Withdrawn"),
+        ],
+        string="Status",
+        default="draft",
+        tracking=True,
+        copy=False,
+    )
 
     budget_amount = fields.Float(
         string="Budget (USD)",
         tracking=True,
         help="Top-level budget envelope for this project (USD).",
+    )
+    buffer_pct = fields.Float(
+        string="Buffer %",
+        default=0.0,
+        tracking=True,
+        help="Buffer percentage applied on top of the budget.",
     )
     model_line_ids = fields.One2many(
         "etp.project.budget.model.line",

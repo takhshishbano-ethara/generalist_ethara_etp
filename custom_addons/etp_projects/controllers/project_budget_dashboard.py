@@ -39,98 +39,6 @@ HEALTH_AT_RISK_PCT = 100.0
 ACCURACY_GOOD_PCT = 110.0
 UNHEALTHY_HEALTHS = ("warning", "at_risk", "critical")
 
-BURN_VIEWS = ("daily", "weekly", "monthly")
-DEFAULT_BURN_VIEW = "daily"
-BUCKET_UNITS = {"daily": "4h", "weekly": "day", "monthly": "week"}
-DAILY_HOUR_SLOTS = (0, 4, 8, 12, 16, 20)
-
-
-def _burn_resolve_window(jdata, view):
-    start = _coerce_date(jdata.get("start"), "start")
-    end = _coerce_date(jdata.get("end"), "end")
-    if start and end:
-        if start > end:
-            raise ValidationError("'start' must be on or before 'end'.")
-        return start, end, "date_range"
-    if start or end:
-        raise ValidationError("Provide both 'start' and 'end' for a date range.")
-    month_str = jdata.get("month")
-    if month_str:
-        if not isinstance(month_str, str):
-            raise ValidationError("'month' must be a string in 'YYYY-MM' format.")
-        try:
-            mdate = datetime.strptime(month_str, "%Y-%m").date()
-        except ValueError:
-            raise ValidationError("'month' must be a string in 'YYYY-MM' format.")
-        m_start = mdate.replace(day=1)
-        m_end = (m_start + relativedelta(months=1)) - timedelta(days=1)
-        return m_start, m_end, "month"
-    today = date.today()
-    if view == "weekly":
-        return today - timedelta(days=6), today, "view_default"
-    if view == "monthly":
-        m_start = today.replace(day=1)
-        m_end = (m_start + relativedelta(months=1)) - timedelta(days=1)
-        return m_start, m_end, "view_default"
-    return today, today, "view_default"
-
-
-def _enumerate_burn_buckets(start, end, view):
-    buckets = []
-    if view == "daily":
-        d = start
-        while d <= end:
-            for h in DAILY_HOUR_SLOTS:
-                key = f"{d.isoformat()}T{h:02d}"
-                label = f"{d.isoformat()} {h:02d}:00-{(h + 4):02d}:00"
-                buckets.append({
-                    "key": key,
-                    "label": label,
-                    "bucket_start": f"{d.isoformat()}T{h:02d}:00:00",
-                    "bucket_end": f"{d.isoformat()}T{(h + 4) % 24:02d}:00:00",
-                })
-            d += timedelta(days=1)
-        return buckets
-    if view == "weekly":
-        d = start
-        while d <= end:
-            key = d.isoformat()
-            buckets.append({
-                "key": key,
-                "label": key,
-                "bucket_start": key,
-                "bucket_end": key,
-            })
-            d += timedelta(days=1)
-        return buckets
-    d = start
-    seen = set()
-    while d <= end:
-        iy, iw, idow = d.isocalendar()
-        key = f"{iy}-W{iw:02d}"
-        if key not in seen:
-            wk_start = d - timedelta(days=idow - 1)
-            wk_end = wk_start + timedelta(days=6)
-            buckets.append({
-                "key": key,
-                "label": f"{key} ({wk_start.isoformat()}..{wk_end.isoformat()})",
-                "bucket_start": wk_start.isoformat(),
-                "bucket_end": wk_end.isoformat(),
-            })
-            seen.add(key)
-        d += timedelta(days=1)
-    return buckets
-
-
-def _bucket_assignments(period, view):
-    if view == "daily":
-        weight = 1.0 / len(DAILY_HOUR_SLOTS)
-        return [(f"{period.isoformat()}T{h:02d}", weight) for h in DAILY_HOUR_SLOTS]
-    if view == "weekly":
-        return [(period.isoformat(), 1.0)]
-    iy, iw, _ = period.isocalendar()
-    return [(f"{iy}-W{iw:02d}", 1.0)]
-
 
 def _round2(value):
     try:
@@ -621,7 +529,6 @@ class EtpProjectBudgetDashboardController(http.Controller):
         try:
             jdata = _read_json_body()
             start, end, filter_type = _resolve_window(jdata)
-            days = max(1, (end - start).days + 1)
             budgets = request.env[BUDGET_MODEL].sudo().search([("active", "=", True)])
             bids = budgets.ids
             spend = _spend_by_budget(bids, start, end)
@@ -633,19 +540,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     continue
                 bucket = batches.get(b.id) or {"estimated": 0.0, "approved": 0.0}
                 estimated = float(bucket["estimated"])
-                approved = float(bucket["approved"])
                 actual = float(spend.get(b.id, 0.0))
-                remaining = approved - actual
-                used_pct = (actual / approved * 100.0) if approved > 0 else 0.0
-                avg_burn_rate = actual / days
-
-                if approved > 0 and actual > approved:
-                    health = "over_budget"
-                elif estimated > 0 and actual >= estimated * 0.9:
-                    health = "watch"
-                else:
-                    health = "under_budget"
-
                 rows.append({
                     "project_id": b.project_id.id if b.project_id else False,
                     "project_name": b.project_id.display_name if b.project_id else "",
@@ -653,32 +548,15 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     "budget_name": b.name,
                     "actual": _round2(actual),
                     "estimated": _round2(estimated),
-                    "approved": _round2(approved),
                     "delta": _round2(actual - estimated),
                     "actual_vs_estimated_pct": (
                         _round2((actual / estimated) * 100.0) if estimated > 0 else 0.0
                     ),
-                    "remaining_budget": _round2(remaining),
-                    "used_pct": _round2(used_pct),
-                    "avg_burn_rate": _round2(avg_burn_rate),
-                    "health": health,
                 })
             rows.sort(key=lambda r: r["actual"], reverse=True)
 
             total_actual = sum(r["actual"] for r in rows)
             total_estimated = sum(r["estimated"] for r in rows)
-            total_approved = sum(r["approved"] for r in rows)
-            total_remaining = sum(r["remaining_budget"] for r in rows)
-            total_used_pct = (
-                (total_actual / total_approved * 100.0) if total_approved else 0.0
-            )
-            total_burn_rate = total_actual / days if days else 0.0
-
-            health_counts = {
-                "under_budget": sum(1 for r in rows if r["health"] == "under_budget"),
-                "watch": sum(1 for r in rows if r["health"] == "watch"),
-                "over_budget": sum(1 for r in rows if r["health"] == "over_budget"),
-            }
 
             payload = {
                 **_portfolio_currency(budgets),
@@ -686,23 +564,17 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     "filter_type": filter_type,
                     "start": start.isoformat(),
                     "end": end.isoformat(),
-                    "days": days,
                 },
                 "row_count": len(rows),
                 "rows": rows,
-                "health_counts": health_counts,
                 "totals": {
                     "actual": _round2(total_actual),
                     "estimated": _round2(total_estimated),
-                    "approved": _round2(total_approved),
-                    "remaining_budget": _round2(total_remaining),
                     "delta": _round2(total_actual - total_estimated),
                     "actual_vs_estimated_pct": (
                         _round2((total_actual / total_estimated) * 100.0)
                         if total_estimated > 0 else 0.0
                     ),
-                    "used_pct": _round2(total_used_pct),
-                    "avg_burn_rate": _round2(total_burn_rate),
                 },
             }
             return return_Response(message="OK", status=200, data={"data": payload})
@@ -723,69 +595,10 @@ class EtpProjectBudgetDashboardController(http.Controller):
         try:
             jdata = _read_json_body()
             start, end, filter_type = _resolve_window(jdata)
-            prev_start, prev_end = _previous_window(start, end)
             budgets = request.env[BUDGET_MODEL].sudo().search([("active", "=", True)])
             bids = budgets.ids
             models_cur = _model_spend_by_budget(bids, start, end)
-            models_prev = _model_spend_by_budget(bids, prev_start, prev_end)
-            budget_by_id = {b.id: b for b in budgets}
-
-            current_by_model = defaultdict(float)
-            previous_by_model = defaultdict(float)
-            for bid_models in models_cur.values():
-                for mn, amt in bid_models.items():
-                    current_by_model[mn] += float(amt or 0.0)
-            for bid_models in models_prev.values():
-                for mn, amt in bid_models.items():
-                    previous_by_model[mn] += float(amt or 0.0)
-
-            total_current = sum(current_by_model.values())
-            total_previous = sum(previous_by_model.values())
-            all_models = set(current_by_model) | set(previous_by_model)
-
-            rows = []
-            for mn in sorted(all_models, key=lambda k: current_by_model.get(k, 0.0), reverse=True):
-                cur = current_by_model.get(mn, 0.0)
-                prev = previous_by_model.get(mn, 0.0)
-                change = (
-                    ((cur - prev) / prev * 100.0) if prev
-                    else (100.0 if cur else 0.0)
-                )
-                share = (cur / total_current * 100.0) if total_current else 0.0
-
-                project_breakdown = []
-                for bid, bid_models in models_cur.items():
-                    amt = float(bid_models.get(mn, 0.0))
-                    if amt <= 0:
-                        continue
-                    budget = budget_by_id.get(bid)
-                    if not budget:
-                        continue
-                    project_breakdown.append({
-                        "project_id": budget.project_id.id if budget.project_id else False,
-                        "project_name": budget.project_id.display_name if budget.project_id else "",
-                        "budget_id": bid,
-                        "budget_name": budget.name,
-                        "budget_type": budget.project_type or False,
-                        "spend": _round2(amt),
-                        "share_in_model_pct": _round2((amt / cur * 100.0) if cur else 0.0),
-                    })
-                project_breakdown.sort(key=lambda r: r["spend"], reverse=True)
-
-                rows.append({
-                    "model_name": mn,
-                    "spend": _round2(cur),
-                    "share_pct": _round2(share),
-                    "last_month_spend": _round2(prev),
-                    "change_pct_vs_last_month": _round2(change),
-                    "project_count": len(project_breakdown),
-                    "project_breakdown": project_breakdown,
-                })
-
-            total_change_pct = (
-                ((total_current - total_previous) / total_previous * 100.0)
-                if total_previous else (100.0 if total_current else 0.0)
-            )
+            chart = _spend_by_model_chart(models_cur)
 
             payload = {
                 **_portfolio_currency(budgets),
@@ -793,14 +606,10 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     "filter_type": filter_type,
                     "start": start.isoformat(),
                     "end": end.isoformat(),
-                    "previous_start": prev_start.isoformat(),
-                    "previous_end": prev_end.isoformat(),
                 },
-                "row_count": len(rows),
-                "rows": rows,
-                "total_spend": _round2(total_current),
-                "total_last_month_spend": _round2(total_previous),
-                "total_change_pct_vs_last_month": _round2(total_change_pct),
+                "row_count": len(chart["rows"]),
+                "rows": chart["rows"],
+                "total_spend": chart["total_spend"],
             }
             return return_Response(message="OK", status=200, data={"data": payload})
         except (UserError, ValidationError) as e:
@@ -858,280 +667,6 @@ class EtpProjectBudgetDashboardController(http.Controller):
             return return_Response(message=str(e), status=400)
         except Exception as e:
             _logger.exception("project_budget_dashboard.phase_budget failed")
-            return return_Response(
-                message="Something went wrong.", status=400, errors=[str(e)],
-            )
-
-    @http.route(
-        BASE_ROUTE + "/burn_rate",
-        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
-    )
-    @validate_token
-    def burn_rate(self, **params):
-        try:
-            jdata = _read_json_body()
-            view = (jdata.get("view") or DEFAULT_BURN_VIEW).lower()
-            if view not in BURN_VIEWS:
-                raise ValidationError(
-                    "'view' must be one of: %s" % ", ".join(BURN_VIEWS)
-                )
-            start, end, filter_type = _burn_resolve_window(jdata, view)
-            days = max(1, (end - start).days + 1)
-            budgets = request.env[BUDGET_MODEL].sudo().search([("active", "=", True)])
-            bids = budgets.ids
-
-            project_meta = {}
-            for b in budgets:
-                pid = b.project_id.id if b.project_id else False
-                if pid not in project_meta:
-                    project_meta[pid] = {
-                        "project_id": pid,
-                        "project_name": (
-                            b.project_id.display_name if b.project_id else "(no project)"
-                        ),
-                    }
-
-            budget_to_project = {
-                b.id: (b.project_id.id if b.project_id else False) for b in budgets
-            }
-
-            groups = request.env[COST_LINE_MODEL].sudo()._read_group(
-                [
-                    ("budget_id", "in", list(bids)),
-                    ("granularity", "=", "day"),
-                    ("is_model_breakdown", "=", False),
-                    ("period", ">=", start),
-                    ("period", "<=", end),
-                ],
-                groupby=["budget_id", "period:day"],
-                aggregates=["amount_source:sum"],
-            )
-
-            buckets = _enumerate_burn_buckets(start, end, view)
-            bucket_keys = [b["key"] for b in buckets]
-            bucket_index = {k: i for i, k in enumerate(bucket_keys)}
-
-            bucket_total = defaultdict(float)
-            bucket_project = defaultdict(lambda: defaultdict(float))
-            project_total = defaultdict(float)
-            grand_total = 0.0
-
-            for (bx, period, amount) in groups:
-                amt = float(amount or 0.0)
-                if amt <= 0:
-                    continue
-                pid = budget_to_project.get(bx.id, False)
-                for bkey, weight in _bucket_assignments(period, view):
-                    if bkey not in bucket_index:
-                        continue
-                    contrib = amt * weight
-                    bucket_total[bkey] += contrib
-                    bucket_project[bkey][pid] += contrib
-                    project_total[pid] += contrib
-                    grand_total += contrib
-
-            bucket_rows = []
-            for b in buckets:
-                k = b["key"]
-                total_in_bucket = bucket_total.get(k, 0.0)
-                proj_rows = []
-                for pid, spend in bucket_project.get(k, {}).items():
-                    meta = project_meta.get(pid) or {
-                        "project_id": pid,
-                        "project_name": "(no project)",
-                    }
-                    proj_rows.append({
-                        **meta,
-                        "spend": _round2(spend),
-                        "share_pct_in_bucket": _round2(
-                            (spend / total_in_bucket * 100.0) if total_in_bucket else 0.0
-                        ),
-                    })
-                proj_rows.sort(key=lambda r: r["spend"], reverse=True)
-                bucket_rows.append({
-                    "bucket_key": k,
-                    "bucket_label": b["label"],
-                    "bucket_start": b["bucket_start"],
-                    "bucket_end": b["bucket_end"],
-                    "total": _round2(total_in_bucket),
-                    "share_pct_of_total": _round2(
-                        (total_in_bucket / grand_total * 100.0) if grand_total else 0.0
-                    ),
-                    "project_count": len(proj_rows),
-                    "projects": proj_rows,
-                })
-
-            project_totals = []
-            for pid, spend in project_total.items():
-                meta = project_meta.get(pid) or {
-                    "project_id": pid,
-                    "project_name": "(no project)",
-                }
-                project_totals.append({
-                    **meta,
-                    "spend": _round2(spend),
-                    "share_pct": _round2(
-                        (spend / grand_total * 100.0) if grand_total else 0.0
-                    ),
-                })
-            project_totals.sort(key=lambda r: r["spend"], reverse=True)
-
-            avg_per_bucket = (
-                _round2(grand_total / len(bucket_rows)) if bucket_rows else 0.0
-            )
-            avg_per_day = _round2(grand_total / days) if days else 0.0
-
-            payload = {
-                **_portfolio_currency(budgets),
-                "filters": {
-                    "view": view,
-                    "filter_type": filter_type,
-                    "start": start.isoformat(),
-                    "end": end.isoformat(),
-                    "days": days,
-                    "bucket_unit": BUCKET_UNITS[view],
-                    "data_source_granularity": "day",
-                },
-                "row_count": len(bucket_rows),
-                "buckets": bucket_rows,
-                "totals": {
-                    "total_spend": _round2(grand_total),
-                    "bucket_count": len(bucket_rows),
-                    "avg_per_bucket": avg_per_bucket,
-                    "avg_per_day": avg_per_day,
-                    "projects": project_totals,
-                },
-            }
-            return return_Response(message="OK", status=200, data={"data": payload})
-        except (UserError, ValidationError) as e:
-            return return_Response(message=str(e), status=400)
-        except Exception as e:
-            _logger.exception("project_budget_dashboard.burn_rate failed")
-            return return_Response(
-                message="Something went wrong.", status=400, errors=[str(e)],
-            )
-
-    @http.route(
-        BASE_ROUTE + "/project_table",
-        methods=["POST"], type="http", auth="none", csrf=False, cors="*",
-    )
-    @validate_token
-    def project_table(self, **params):
-        try:
-            jdata = _read_json_body()
-            start, end, filter_type = _resolve_window(jdata)
-            days = max(1, (end - start).days + 1)
-            budgets = request.env[BUDGET_MODEL].sudo().search([("active", "=", True)])
-            bids = budgets.ids
-            spend = _spend_by_budget(bids, start, end)
-            model_spend = _model_spend_by_budget(bids, start, end)
-            topups = _topups_by_budget(bids)
-            batches = _batches_by_budget(bids, start, end)
-
-            projects = defaultdict(list)
-            for b in budgets:
-                pid = b.project_id.id if b.project_id else 0
-                projects[pid].append(b)
-
-            rows = []
-            for pid, project_budgets in projects.items():
-                project_name = ""
-                actual = 0.0
-                estimated = 0.0
-                project_budget_total = 0.0
-                model_totals = defaultdict(float)
-                for b in project_budgets:
-                    if b.project_id:
-                        project_name = b.project_id.display_name
-                    bid = b.id
-                    budget_amt = float(b.budget_amount or 0.0)
-                    topup_amt = float(topups.get(bid, 0.0))
-                    project_budget_total += budget_amt + topup_amt
-                    actual += float(spend.get(bid, 0.0))
-                    bucket = batches.get(bid) or {"estimated": 0.0}
-                    estimated += float(bucket["estimated"])
-                    for mn, amt in (model_spend.get(bid) or {}).items():
-                        model_totals[mn] += float(amt or 0.0)
-
-                remaining = project_budget_total - actual
-                used_until_pct = (
-                    (actual / project_budget_total * 100.0)
-                    if project_budget_total > 0 else 0.0
-                )
-                run_rate = actual / days
-
-                model_rows = []
-                for mn, m_actual in sorted(
-                    model_totals.items(), key=lambda kv: kv[1], reverse=True,
-                ):
-                    m_remaining = project_budget_total - m_actual
-                    m_used_pct = (
-                        (m_actual / project_budget_total * 100.0)
-                        if project_budget_total > 0 else 0.0
-                    )
-                    m_run_rate = m_actual / days
-                    m_share = (m_actual / actual * 100.0) if actual > 0 else 0.0
-                    model_rows.append({
-                        "model_name": mn,
-                        "estimated_cost": None,
-                        "actual_cost": _round2(m_actual),
-                        "remaining": _round2(m_remaining),
-                        "project_budget": _round2(project_budget_total),
-                        "used_until_pct": _round2(m_used_pct),
-                        "run_rate": _round2(m_run_rate),
-                        "share_pct": _round2(m_share),
-                    })
-
-                top_model = model_rows[0]["model_name"] if model_rows else None
-
-                rows.append({
-                    "project_id": pid,
-                    "project_name": project_name,
-                    "estimated_cost": _round2(estimated),
-                    "actual_cost": _round2(actual),
-                    "remaining": _round2(remaining),
-                    "project_budget": _round2(project_budget_total),
-                    "used_until_pct": _round2(used_until_pct),
-                    "run_rate": _round2(run_rate),
-                    "top_model": top_model,
-                    "model_count": len(model_rows),
-                    "models": model_rows,
-                })
-            rows.sort(key=lambda r: r["actual_cost"], reverse=True)
-
-            total_estimated = sum(r["estimated_cost"] for r in rows)
-            total_actual = sum(r["actual_cost"] for r in rows)
-            total_budget = sum(r["project_budget"] for r in rows)
-            total_remaining = total_budget - total_actual
-            total_used_pct = (
-                (total_actual / total_budget * 100.0) if total_budget > 0 else 0.0
-            )
-            total_run_rate = total_actual / days if days else 0.0
-
-            payload = {
-                **_portfolio_currency(budgets),
-                "filters": {
-                    "filter_type": filter_type,
-                    "start": start.isoformat(),
-                    "end": end.isoformat(),
-                    "days": days,
-                },
-                "row_count": len(rows),
-                "rows": rows,
-                "totals": {
-                    "estimated_cost": _round2(total_estimated),
-                    "actual_cost": _round2(total_actual),
-                    "remaining": _round2(total_remaining),
-                    "project_budget": _round2(total_budget),
-                    "used_until_pct": _round2(total_used_pct),
-                    "run_rate": _round2(total_run_rate),
-                },
-            }
-            return return_Response(message="OK", status=200, data={"data": payload})
-        except (UserError, ValidationError) as e:
-            return return_Response(message=str(e), status=400)
-        except Exception as e:
-            _logger.exception("project_budget_dashboard.project_table failed")
             return return_Response(
                 message="Something went wrong.", status=400, errors=[str(e)],
             )
