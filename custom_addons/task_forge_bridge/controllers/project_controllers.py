@@ -366,6 +366,31 @@ class TaskForgeProjectController(http.Controller):
                 for item in throughput_grouped if item['end_time_count']
             ]
 
+            Budget = request.env['etp.project.aws.budget'].sudo()
+            budgets = Budget.search([
+                ('project_id', '=', project_id),
+                ('active', '=', True),
+            ])
+            project_budget_list = [{
+                'id': b.id,
+                'name': b.name or "",
+                'project_type': b.project_type or "",
+                'budget_amount': b.budget_amount or 0.0,
+                'model_list': [{
+                    'id': m.id,
+                    'model_id': m.ai_model_id.id if m.ai_model_id else 0,
+                    'model_name': m.ai_model_id.name if m.ai_model_id else "",
+                    'per_task_cost': m.per_task_cost or 0.0,
+                } for m in b.model_line_ids],
+                'infrastructure_list': [{
+                    'id': i.id,
+                    'infra_type_id': i.infra_type_id.id if i.infra_type_id else 0,
+                    'infra_type': i.infra_type_id.name if i.infra_type_id else "",
+                    'description': i.description or "",
+                    'budget_amount': i.budget_amount or 0.0,
+                } for i in b.infra_line_ids],
+            } for b in budgets]
+
             return return_Response(
                 message="Project dashboard",
                 status=200,
@@ -392,6 +417,7 @@ class TaskForgeProjectController(http.Controller):
                     'category_url': project.category_url if project.category_url else "",
                     'budget_refresh_url': project.budget_refresh_url if project.budget_refresh_url else "",
                     'tasker_url': project.tasker_url if project.tasker_url else "",
+                    'project_budget_list': project_budget_list,
                 }
             )
         except Exception as e:

@@ -356,6 +356,25 @@ class EtpProjectsAwsCostController(http.Controller):
 
             records = []
             for budget in budgets:
+                model_lines = []
+                for ml in budget.model_line_ids:
+                    model_lines.append({
+                        "id": ml.id,
+                        "ai_model_id": ml.ai_model_id.id if ml.ai_model_id else False,
+                        "ai_model_name": ml.ai_model_id.name if ml.ai_model_id else "",
+                        "per_task_cost": ml.per_task_cost or 0.0,
+                    })
+
+                infra_lines = []
+                for il in budget.infra_line_ids:
+                    infra_lines.append({
+                        "id": il.id,
+                        "infra_type_id": il.infra_type_id.id if il.infra_type_id else False,
+                        "infra_type_name": il.infra_type_id.name if il.infra_type_id else "",
+                        "description": il.description or "",
+                        "budget_amount": il.budget_amount or 0.0,
+                    })
+
                 records.append({
                     "id": budget.id,
                     "seq": budget.name or "",
@@ -372,6 +391,8 @@ class EtpProjectsAwsCostController(http.Controller):
                     "runway_days": 0,
                     "runway_days_exact": 0.0,
                     "runway_depletes_on": "",
+                    "model_lines": model_lines,
+                    "infra_lines": infra_lines,
                 })
 
             return return_Response(
