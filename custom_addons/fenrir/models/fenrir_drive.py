@@ -150,6 +150,34 @@ class FenrirDriveService(models.AbstractModel):
                 break
 
     @staticmethod
+    def _find_folders_by_name(service, name, parent_id):
+        """Return ids of all non-trashed folders named `name` under parent_id."""
+        safe = name.replace("\\", "\\\\").replace("'", "\\'")
+        q = (f"name = '{safe}' and '{parent_id}' in parents "
+             f"and mimeType = '{DRIVE_FOLDER_MIME}' and trashed = false")
+        ids, page_token = [], None
+        while True:
+            resp = service.files().list(
+                q=q, spaces="drive",
+                fields="nextPageToken, files(id)",
+                pageToken=page_token,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+            ids.extend(f["id"] for f in resp.get("files", []))
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return ids
+
+    @staticmethod
+    def _trash_folder(service, folder_id):
+        """Move a folder to Drive trash (recoverable for ~30 days)."""
+        service.files().update(
+            fileId=folder_id, body={"trashed": True},
+            supportsAllDrives=True).execute()
+
+    @staticmethod
     def _upload_bytes(service, name, parent_id, data, mime=DEFAULT_FILE_MIME):
         """Upload bytes to Drive using resumable chunked upload.
 
@@ -210,15 +238,41 @@ class FenrirDriveService(models.AbstractModel):
         s3_prefix = f"{s3_folder}/{task.code or f'task_{task.id}'}" if s3_folder \
             else f"{task.code or f'task_{task.id}'}"
 
-        task_folder_id = task.drive_folder_id or ""
-        if task_folder_id and not self._folder_exists(service, task_folder_id):
-            task_folder_id = ""
+        folder_name = task.code or f"task_{task.id}"
 
-        if task_folder_id:
-            self._delete_folder_children(service, task_folder_id)
+        # Resolve the task's Drive folder idempotently by name. A previous
+        # upload that failed mid-way leaves a real folder in Drive but rolls
+        # back the drive_folder_id write, so on retry we look the folder up by
+        # name instead of blindly creating a duplicate "ghost" folder.
+        existing = self._find_folders_by_name(service, folder_name, parent_id)
+        stored = (task.drive_folder_id or "").strip()
+
+        if stored and stored in existing:
+            task_folder_id, reused = stored, True
+        elif stored and self._folder_exists(service, stored):
+            task_folder_id, reused = stored, True   # valid but renamed/moved
+        elif existing:
+            task_folder_id, reused = existing[0], True
         else:
-            task_folder_id = self._create_folder(
-                service, task.code or f"task_{task.id}", parent_id)
+            task_folder_id = self._create_folder(service, folder_name, parent_id)
+            reused = False
+
+        # Trash any other same-named folders under the parent — these are
+        # ghost duplicates left behind by an earlier interrupted upload.
+        for ghost_id in existing:
+            if ghost_id != task_folder_id:
+                try:
+                    self._trash_folder(service, ghost_id)
+                    _logger.info(
+                        "Fenrir: trashed duplicate Drive folder %s for %s",
+                        ghost_id, folder_name)
+                except Exception as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "Fenrir: could not trash duplicate Drive folder %s: %s",
+                        ghost_id, exc)
+
+        if reused:
+            self._delete_folder_children(service, task_folder_id)
 
         # NOTE: we no longer wholesale-wipe the task's S3 prefix here —
         # attachments are pushed to S3 at attach time (see
@@ -235,6 +289,11 @@ class FenrirDriveService(models.AbstractModel):
             folder_id = self._create_folder(service, dir_parts[-1], parent)
             folder_cache[dir_parts] = folder_id
             return folder_id
+
+        # Always create the standard package sub-folders, even if no file lands
+        # in them this run, so the Drive tree layout stays consistent.
+        for base in task._EXPORT_BASE_DIRS:
+            ensure_path((base,))
 
         for rel_path, content, mime, is_binary_upload, existing_s3_key in \
                 task._collect_export_files():

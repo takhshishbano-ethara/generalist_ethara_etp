@@ -123,7 +123,6 @@ class FenrirSellerOffer(models.Model):
         tracking=True,
     )
 
-    deliverables_link = fields.Char(string="Deliverables Link")
     deliverable_attachment_ids = fields.Many2many(
         comodel_name="ir.attachment",
         relation="fenrir_seller_offer_deliverable_rel",
@@ -148,14 +147,8 @@ class FenrirSellerOffer(models.Model):
     def _compute_deliverable_count(self):
         for rec in self:
             rec.deliverable_count = len(rec.deliverable_file_ids)
-    data_media = fields.Char(string="Data (Media)")
-    resources = fields.Char(string="Resources",
-                            help="References and supporting documents")
-    environment = fields.Char(string="Environment")
-    test_unit_tests = fields.Char(string="Test (Unit Tests)")
-    license_ref = fields.Char(string="License")
+
     metadata_json = fields.Text(string="Metadata.json")
-    automated_checks = fields.Text(string="Automated Checks")
 
     rubric_score_ids = fields.One2many(
         comodel_name="fenrir.rubric.score",

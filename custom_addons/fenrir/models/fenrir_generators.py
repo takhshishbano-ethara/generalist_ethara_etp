@@ -88,7 +88,7 @@ set -e
 RUNTIME_DIR="{mount_path}"
 
 case "$1" in
-  test)
+  test|validate)
     shift
     DELIVERABLES_DIR="${{1:-$RUNTIME_DIR}}"
     echo "Running validation tests against: $DELIVERABLES_DIR"
@@ -102,9 +102,9 @@ case "$1" in
     exec nginx -g "daemon off;"
     ;;
   *)
-    echo "Usage: docker run <image> [test|serve]"
-    echo "  test [dir]  - run unit tests against deliverables directory"
-    echo "  serve       - serve build on port 80"
+    echo "Usage: docker run <image> [test|validate|serve]"
+    echo "  test|validate [dir] - run unit tests against the deliverables directory"
+    echo "  serve               - serve build on port 80"
     exit 1
     ;;
 esac
@@ -138,6 +138,133 @@ server {{
         add_header Content-Type text/plain;
     }}
 }}
+"""
+
+
+# Default general-purpose image, used when NO runtime is selected on the task.
+# Ubuntu base with broad, lightweight tooling so a reviewer can inspect /
+# validate / run the common freelance deliverable types (documents, images,
+# audio/video, archives, web + code projects). Heavyweight engines
+# (Blender, Unity, Unreal, LibreOffice) are intentionally excluded — pick a
+# dedicated runtime for those.
+DOCKERFILE_UBUNTU_DEFAULT_TEMPLATE = """\
+FROM ubuntu:24.04
+
+# Default general-purpose sandbox (no runtime selected on the task).
+# Broad tooling to inspect / validate / run typical freelance
+# deliverables: documents (pdf, docx, pptx, md), raster + vector images
+# (png, jpg, svg, ai/eps), audio + video (mp4, mov, wav), archives
+# (zip, tar, 7z) and web / code projects (html, css, js, python, node).
+ENV DEBIAN_FRONTEND=noninteractive \\
+    PIP_BREAK_SYSTEM_PACKAGES=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+        bash coreutils ca-certificates curl wget git make jq \\
+        unzip zip xz-utils p7zip-full unar \\
+        file \\
+        poppler-utils ghostscript libreoffice-nogui \\
+        imagemagick librsvg2-bin \\
+        ffmpeg mediainfo \\
+        assimp-utils \\
+        fonts-liberation fonts-dejavu-core fonts-noto-core fontconfig \\
+        python3 python3-pip python3-venv \\
+        nodejs npm \\
+    && rm -rf /var/lib/apt/lists/*
+
+# Non-root user (idempotent: skips if the base already defines one)
+RUN getent passwd appuser >/dev/null \\
+    || useradd --create-home --uid 1001 --shell /usr/bin/bash appuser
+
+# Own the work/volume dir so the non-root user (and `shell` mode) can write
+# to it. Applies to anonymous volumes; bind mounts keep host ownership — run
+# with `--user $(id -u)` to match a host-owned deliverables directory.
+RUN mkdir -p {mount_path} && chown appuser:appuser {mount_path}
+
+WORKDIR {mount_path}
+
+COPY {test_filename} /opt/tests/{test_filename}
+RUN chmod +x /opt/tests/{test_filename}
+
+COPY setup.sh /setup.sh
+RUN chmod +x /setup.sh
+
+VOLUME ["{mount_path}"]
+
+# Optional HTTP preview port (used by the `serve` mode of setup.sh)
+EXPOSE 8000
+
+USER appuser
+
+ENTRYPOINT ["/setup.sh"]
+CMD ["test"]
+"""
+
+
+ENTRYPOINT_UBUNTU_TEMPLATE = """\
+#!/bin/bash
+# Deliberately NO `set -e`: dependency install and build are best-effort. A
+# missing manifest or a failed optional step must NEVER crash the container -
+# `serve` always degrades to a plain static file server (python3 is always
+# present in this image), so the Dockerfile/container can't break.
+
+RUNTIME_DIR="{mount_path}"
+export PORT="${{PORT:-8000}}"
+
+case "$1" in
+  test|validate)
+    shift
+    DELIVERABLES_DIR="${{1:-$RUNTIME_DIR}}"
+    echo "Running validation tests against: $DELIVERABLES_DIR"
+    exec /opt/tests/{test_filename} "$DELIVERABLES_DIR"
+    ;;
+  serve)
+    cd "$RUNTIME_DIR" 2>/dev/null || echo "[serve] Warning: $RUNTIME_DIR not present."
+    if [ -f package.json ]; then
+      echo "[serve] Node project detected - installing dependencies..."
+      if [ -f yarn.lock ]; then yarn install --frozen-lockfile || yarn install
+      elif [ -f pnpm-lock.yaml ]; then corepack enable 2>/dev/null; pnpm install || npm install
+      elif [ -f package-lock.json ]; then npm ci || npm install
+      else npm install
+      fi
+      if grep -q '"build"' package.json 2>/dev/null; then
+        echo "[serve] Running build..."; npm run build || echo "[serve] build failed; serving source as-is."
+      fi
+      if grep -q '"start"' package.json 2>/dev/null; then
+        echo "[serve] Starting via 'npm start' on port $PORT..."; exec npm start
+      fi
+      for d in dist build out public .next .; do
+        if [ -d "$d" ] && [ -n "$(ls -A "$d" 2>/dev/null)" ]; then cd "$d"; break; fi
+      done
+      echo "[serve] Static-serving $(pwd) on 0.0.0.0:$PORT ..."; exec python3 -m http.server "$PORT"
+    elif [ -f requirements.txt ] || [ -f pyproject.toml ] || [ -f setup.py ]; then
+      echo "[serve] Python project detected - installing dependencies..."
+      if [ -f requirements.txt ]; then pip3 install --no-cache-dir -r requirements.txt || true; fi
+      if [ -f pyproject.toml ] || [ -f setup.py ]; then pip3 install --no-cache-dir . || true; fi
+      if [ -f manage.py ]; then echo "[serve] Django detected"; exec python3 manage.py runserver "0.0.0.0:$PORT"
+      elif [ -f app.py ]; then exec python3 app.py
+      elif [ -f main.py ]; then exec python3 main.py
+      else echo "[serve] No app entrypoint; static-serving $RUNTIME_DIR ..."; exec python3 -m http.server "$PORT"
+      fi
+    else
+      if [ -f index.html ]; then echo "[serve] Static site (index.html) detected."
+      else echo "[serve] No recognised manifest - static-serving the deliverables as-is."
+      fi
+      exec python3 -m http.server "$PORT"
+    fi
+    ;;
+  shell|bash)
+    cd "$RUNTIME_DIR" 2>/dev/null || true
+    exec bash
+    ;;
+  *)
+    echo "Usage: docker run <image> [test|validate|serve|shell]"
+    echo "  test|validate [dir] - mechanical validation against the deliverables dir"
+    echo "  serve               - auto-detect Node/Python/static, install+build+run; with"
+    echo "                        no manifest it falls back to a static server (never errors)"
+    echo "  shell               - open a bash shell in $RUNTIME_DIR"
+    exit 1
+    ;;
+esac
 """
 
 
@@ -297,16 +424,6 @@ def _split_packages(raw):
     return [p.strip() for p in raw.split(",") if p.strip()]
 
 
-def _parse_price_bracket(raw):
-    """Best-effort parse of '$50-$100' or '$0-$50' style strings."""
-    if not raw:
-        return None
-    m = re.match(r"\$?(\d+)\s*-\s*\$?(\d+)", raw.strip())
-    if not m:
-        return None
-    return {"low": int(m.group(1)), "high": int(m.group(2))}
-
-
 def build_task_metadata(task):
     """Schema-compliant task_metadata.json per the requirements doc."""
     return {
@@ -317,6 +434,14 @@ def build_task_metadata(task):
         "price_bracket": task.price_tier or task.price_bracket or "",
         "recreation_notes": task.recreation_notes or "",
         "input_asset_licenses": [
+            {
+                "asset": lic.asset or "",
+                "source": lic.source or "",
+                "license": lic.license_label(),
+                "url": lic.url or "",
+            }
+            for lic in task.input_asset_license_ids
+        ] + [
             {
                 "asset": att.file_name or "",
                 "source": att.source_url or "",
@@ -363,9 +488,11 @@ def build_environment_files(task):
     Auto mode (no manual slots set) generates one Dockerfile per
     selected runtime via lib/dockerfile_builder.py. Single runtime →
     "Dockerfile"; multiple → "Dockerfile.<variant_id>" per runtime.
-    setup.sh + nginx.conf are emitted from the static templates.
-    Falls back to the legacy static Dockerfile when no runtimes are
-    picked so submit-time generation never fails.
+    When runtimes are selected, setup.sh + nginx.conf are emitted from
+    the static templates. When NO runtime is selected, a general-purpose
+    Ubuntu sandbox (DOCKERFILE_UBUNTU_DEFAULT_TEMPLATE + the Ubuntu
+    setup.sh, no nginx.conf) is emitted instead, so submit-time
+    generation always produces a usable environment.
     """
     manual_active = bool(
         task.dockerfile_attachment
@@ -384,6 +511,7 @@ def build_environment_files(task):
 
     if runtimes:
         multi = len(runtimes) > 1
+        needs_nginx = False
         for runtime in runtimes:
             vid = _runtime_variant_id(runtime.name)
             info = {
@@ -394,19 +522,29 @@ def build_environment_files(task):
             content = dockerfile_builder.render(vid, info)
             filename = f"Dockerfile.{vid}" if multi else "Dockerfile"
             files.append((filename, content))
+            if dockerfile_builder.profile_for(runtime.name).get("role") == "static-server":
+                needs_nginx = True
+        # Runtime-built images keep the static serve helper. nginx.conf is only
+        # emitted when a static-server (nginx) runtime is selected — the
+        # Dockerfile COPYs it only for that role, so other runtimes don't need it.
+        files.append(("setup.sh", ENTRYPOINT_STATIC_TEMPLATE.format(
+            mount_path=mount_path,
+            test_filename=test_filename,
+        )))
+        if needs_nginx:
+            files.append(("nginx.conf", NGINX_CONF_TEMPLATE.format(mount_path=mount_path)))
     else:
-        base_image = task.environment_base_runtime or "nginx:1.25-alpine"
-        files.append(("Dockerfile", DOCKERFILE_STATIC_TEMPLATE.format(
-            base_image=base_image,
+        # No runtime selected → general-purpose Ubuntu sandbox with broad
+        # tooling for the common deliverable types. No nginx.conf — the
+        # serve mode uses `python3 -m http.server` instead.
+        files.append(("Dockerfile", DOCKERFILE_UBUNTU_DEFAULT_TEMPLATE.format(
             test_filename=test_filename,
             mount_path=mount_path,
         )))
-
-    files.append(("setup.sh", ENTRYPOINT_STATIC_TEMPLATE.format(
-        mount_path=mount_path,
-        test_filename=test_filename,
-    )))
-    files.append(("nginx.conf", NGINX_CONF_TEMPLATE.format(mount_path=mount_path)))
+        files.append(("setup.sh", ENTRYPOINT_UBUNTU_TEMPLATE.format(
+            mount_path=mount_path,
+            test_filename=test_filename,
+        )))
     return files
 
 

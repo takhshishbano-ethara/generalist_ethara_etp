@@ -23,11 +23,9 @@ class FenrirEnvironmentRuntime(models.Model):
         string="Dependencies",
         compute="_compute_dependency_count")
 
-    _sql_constraints = [
-        ("fenrir_runtime_name_unique",
-         "unique(name)",
-         "Runtime name must be unique."),
-    ]
+    # NOTE: runtime name is intentionally NOT unique — the same base image can
+    # be registered several times for different uses, each with its own
+    # description and its own set of key dependencies.
 
     def _compute_dependency_count(self):
         for rec in self:

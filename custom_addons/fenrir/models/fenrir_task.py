@@ -104,6 +104,11 @@ class FenrirTask(models.Model):
     overview = fields.Text(string="Overview")
     scope_of_work = fields.Text(string="Scope of Work")
     company_details = fields.Text(string="Company Details")
+    input_asset_license_ids = fields.One2many(
+        comodel_name="fenrir.input.asset.license",
+        inverse_name="task_id",
+        string="Input Asset Licenses",
+    )
 
     assets_url = fields.Char(string="Project Requirements Document (PRD)")
     assets_file = fields.Binary(string="Project Requirements Document (PRD)", attachment=True,
@@ -244,7 +249,7 @@ class FenrirTask(models.Model):
         drive = self.env["fenrir.drive.service"]
         for rec in self:
             drive.upload_task(rec)
-            rec.status = "completed"
+            rec.status = "approved"
 
     def action_reapprove_task(self):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
@@ -260,6 +265,12 @@ class FenrirTask(models.Model):
     def action_reject_task(self):
         if not self.env.user.has_group("fenrir.group_fenrir_manager"):
             raise UserError("Only managers can reject tasks.")
+        for rec in self:
+            rec.status = "rejected"
+
+    def action_complete_task(self):
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise UserError("Only managers can complete tasks.")
         for rec in self:
             rec.status = "completed"
 
@@ -388,13 +399,12 @@ class FenrirTask(models.Model):
     #                        help="Buyer-side pricing")
     price_tier = fields.Selection(
         selection=[
-            ("0-50", "0-50"),
-            ("50-100", "50-100"),
-            ("100-150", "100-150"),
-            ("150-200", "150-200"),
-            ("200+", "200+"),
+            ("$0-$50", "$0-$50"),
+            ("$50-$100", "$50-$100"),
+            ("$100-$150", "$100-$150"),
+            ("$150-$200", "$150-$200"),
         ],
-        default="0-50",
+        default="$0-$50",
         string="Price Tier",
         tracking=True,
     )
@@ -509,8 +519,15 @@ class FenrirTask(models.Model):
             return f"{_slug(tasks.code)}.zip"
         return f"{fallback}_{len(tasks)}.zip"
 
+    # Standard package sub-folders, always present in an export even when empty.
+    _EXPORT_BASE_DIRS = ("resources", "data", "environment", "tests", "submissions")
+
     def _write_rich_export(self, zf, root):
         self.ensure_one()
+        # Always materialise the standard package sub-folders, even when empty,
+        # via explicit zero-byte directory entries.
+        for base in self._EXPORT_BASE_DIRS:
+            zf.writestr(f"{root}/{base}/", b"")
         # ZIP includes the actual binary content (no S3 indirection); just
         # ignore the is_binary_upload / existing_s3_key flags.
         for rel_path, content, _mime, _is_binary, _s3 in self._collect_export_files():
@@ -627,7 +644,6 @@ class FenrirTask(models.Model):
                     "currency": offer.final_payment_currency or "",
                     "delivery_received": offer.delivery_received,
                     "accepted_delivery": offer.accepted_delivery,
-                    "deliverables_link": offer.deliverables_link or "",
                     "order_date": offer.order_date.isoformat() if offer.order_date else None,
                     "notes": offer.notes or "",
                 }
@@ -637,14 +653,6 @@ class FenrirTask(models.Model):
             files.append((f"{seller_dir}/ratings.json",
                           json.dumps(self._build_ratings(offer), indent=2, default=str).encode("utf-8"),
                           "application/json", GENERATED, None))
-            if offer.conversation:
-                files.append((f"{seller_dir}/conversation.txt",
-                              offer.conversation.encode("utf-8"),
-                              "text/plain", GENERATED, None))
-            if offer.automated_checks:
-                files.append((f"{seller_dir}/automated_checks.txt",
-                              offer.automated_checks.encode("utf-8"),
-                              "text/plain", GENERATED, None))
 
             for att in offer.deliverable_attachment_ids:
                 if not att.datas:

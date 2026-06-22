@@ -86,6 +86,7 @@
                     <separator string="Conversation"/>
                     <group>
                         <field name="conversation" nolabel="1"
+                               class="fenrir-conversation"
                                placeholder="Paste Fiverr / chat transcript here..."/>
                     </group>
 
@@ -95,9 +96,6 @@
                             <field name="delivery_received"/>
                             <field name="accepted_delivery"/>
                         </group>
-                        <group>
-                            <field name="deliverables_link" widget="url"/>
-                        </group>
                     </group>
                     <field name="deliverable_attachment_ids"
                            widget="many2many_binary" nolabel="1"
@@ -105,29 +103,10 @@
                            readonly="1"
                            string="Legacy deliverables (local filestore)"/>
 
-                    <separator string="Artifacts"/>
-                    <group>
-                        <group>
-                            <field name="data_media"/>
-                            <field name="resources"/>
-                            <field name="environment"/>
-                        </group>
-                        <group>
-                            <field name="test_unit_tests"/>
-                            <field name="license_ref"/>
-                        </group>
-                    </group>
-
                     <separator string="Metadata.json"/>
                     <group>
                         <field name="metadata_json" nolabel="1"
                                placeholder='{"key": "value"}'/>
-                    </group>
-
-                    <separator string="Automated Checks"/>
-                    <group>
-                        <field name="automated_checks" nolabel="1"
-                               placeholder="Automated QC results..."/>
                     </group>
 
                     <separator string="Notes"/>

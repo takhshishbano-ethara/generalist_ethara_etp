@@ -15,6 +15,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     is_valid_mobile,
     generate_s3_link,
 )
+from odoo.addons.employee_extension.services.aadhaar_extractor import (
+    extract_aadhaar,
+    mask_aadhaar,
+    verify_against_input,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -151,6 +156,24 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         if errors:
             return return_Response(message=errors[0], status=400, errors=errors)
+
+        extracted = extract_aadhaar(aadhaar_bytes, aadhaar_filename)
+        if extracted.get('error'):
+            return return_Response(message=extracted['error'], status=400)
+        ok, verify_msg, _ = verify_against_input(
+            extracted,
+            aadhaar_number,
+            birthday_value.isoformat() if birthday_value else None,
+            name or None,
+        )
+        if not ok:
+            _logger.info(
+                "Employee registration blocked: extracted=%s entered=%s reason=%s",
+                mask_aadhaar(extracted.get('aadhaar_number')),
+                mask_aadhaar(aadhaar_number),
+                verify_msg,
+            )
+            return return_Response(message=verify_msg, status=400)
 
         admin_env = request.env(user=SUPERUSER_ID)
         ResUsers = admin_env['res.users']
@@ -349,6 +372,24 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         if errors:
             return return_Response(message=errors[0], status=400, errors=errors)
+
+        extracted = extract_aadhaar(aadhaar_bytes, aadhaar_filename)
+        if extracted.get('error'):
+            return return_Response(message=extracted['error'], status=400)
+        ok, verify_msg, _ = verify_against_input(
+            extracted,
+            aadhaar_number,
+            birthday_value.isoformat() if birthday_value else None,
+            name or None,
+        )
+        if not ok:
+            _logger.info(
+                "Candidate registration blocked: extracted=%s entered=%s reason=%s",
+                mask_aadhaar(extracted.get('aadhaar_number')),
+                mask_aadhaar(aadhaar_number),
+                verify_msg,
+            )
+            return return_Response(message=verify_msg, status=400)
 
         admin_env = request.env(user=SUPERUSER_ID)
         ResUsers = admin_env['res.users']
@@ -674,6 +715,104 @@ class EmployeeSelfRegistrationController(http.Controller):
             )
         except Exception as e:
             _logger.exception("import_colleges failed")
+            return self._safe_response(str(e) or "Internal error", status=500)
+
+    @http.route(
+        '/api/v2/employees/aadhaar/verify',
+        methods=['POST'], type='http', auth='public', csrf=False, cors='*',
+    )
+    def verify_aadhaar(self, **kwargs):
+        try:
+            content_length = request.httprequest.content_length or 0
+            if content_length > (MAX_FILE_SIZE + 64 * 1024):
+                return self._safe_response(
+                    "Aadhaar file must be <= 10 MB", status=413,
+                )
+
+            data, err_resp = self._read_json_body(kwargs)
+            if err_resp is not None:
+                return err_resp
+
+            entered_aadhaar = (data.get('aadhaar_number') or '').strip()
+            entered_dob = (data.get('birthday') or '').strip() or None
+            entered_name = (data.get('name') or '').strip() or None
+            aadhaar_b64 = data.get('aadhaar_file_base64')
+            aadhaar_filename = (data.get('aadhaar_file_name') or 'aadhaar.pdf').strip()
+
+            errors = []
+            if not is_valid_aadhaar(entered_aadhaar):
+                errors.append("Aadhaar number must be 12 digits and start with 2-9")
+            if not aadhaar_b64:
+                errors.append("Aadhaar card upload is required")
+            if entered_dob:
+                try:
+                    datetime.strptime(entered_dob, '%Y-%m-%d')
+                except ValueError:
+                    errors.append("Date of birth must be in YYYY-MM-DD format")
+            if errors:
+                return return_Response(message=errors[0], status=400, errors=errors)
+
+            aadhaar_bytes, err_resp = self._decode_b64(aadhaar_b64, 'aadhaar_file_base64')
+            if err_resp is not None:
+                return err_resp
+
+            ext = _ext_of(aadhaar_filename)
+            if ext not in AADHAAR_ALLOWED_EXT:
+                return self._safe_response(
+                    "Aadhaar card must be PDF, JPG, PNG or WEBP", status=400,
+                )
+            if len(aadhaar_bytes) > MAX_FILE_SIZE:
+                return self._safe_response(
+                    "Aadhaar file exceeds 10 MB limit", status=413,
+                )
+
+            extracted = extract_aadhaar(aadhaar_bytes, aadhaar_filename)
+            if extracted.get('error'):
+                return return_Response(
+                    message=extracted['error'],
+                    status=400,
+                    data={'data': {
+                        'verified': False,
+                        'extracted': None,
+                        'checks': None,
+                        'source': None,
+                    }},
+                )
+
+            verified, message, checks = verify_against_input(
+                extracted, entered_aadhaar, entered_dob, entered_name,
+            )
+
+            full = extracted.get('aadhaar_number')
+            last4 = extracted.get('aadhaar_last4')
+            _logger.info(
+                "Aadhaar verify: entered=%s extracted=%s verified=%s source=%s",
+                mask_aadhaar(entered_aadhaar),
+                mask_aadhaar(full) if full else (f"XXXX XXXX {last4}" if last4 else "?"),
+                verified, extracted.get('source'),
+            )
+
+            return return_Response(
+                message=message,
+                status=200,
+                data={'data': {
+                    'verified': verified,
+                    'extracted': {
+                        'aadhaar_number': full,
+                        'aadhaar_number_masked': mask_aadhaar(full) if full else (
+                            f"XXXX XXXX {last4}" if last4 else None
+                        ),
+                        'aadhaar_last4': last4,
+                        'dob': extracted.get('dob'),
+                        'name': extracted.get('name'),
+                        'gender': extracted.get('gender'),
+                    },
+                    'checks': checks,
+                    'source': extracted.get('source'),
+                }},
+            )
+        except Exception as e:
+            _logger.exception("verify_aadhaar failed")
             return self._safe_response(str(e) or "Internal error", status=500)
 
     @http.route(

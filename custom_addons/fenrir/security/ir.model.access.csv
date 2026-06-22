@@ -22,3 +22,5 @@ access_fenrir_key_dependency_user,fenrir.key.dependency.user,model_fenrir_key_de
 access_fenrir_key_dependency_manager,fenrir.key.dependency.manager,model_fenrir_key_dependency,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_seller_deliverable_user,fenrir.seller.deliverable.user,model_fenrir_seller_deliverable,base.group_user,1,1,1,1
 access_fenrir_seller_deliverable_manager,fenrir.seller.deliverable.manager,model_fenrir_seller_deliverable,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_input_asset_license_user,fenrir.input.asset.license.user,model_fenrir_input_asset_license,base.group_user,1,1,1,1
+access_fenrir_input_asset_license_manager,fenrir.input.asset.license.manager,model_fenrir_input_asset_license,fenrir.group_fenrir_manager,1,1,1,1
