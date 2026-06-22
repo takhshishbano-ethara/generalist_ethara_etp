@@ -74,7 +74,11 @@ class ProjectProject(models.Model):
         for record, vals in zip(records, vals_list):
             if not skip_defaults and not vals.get('api_map_ids'):
                 ApiMap.sudo().create([
-                    {**mapping, 'project_id': record.id}
+                    {
+                        **mapping,
+                        'project_id': record.id,
+                        'api_prefix': f"{mapping['api_prefix']}{record.id}",
+                    }
                     for mapping in DEFAULT_API_MAPPINGS
                 ])
             changed = {f for f in TEAM_FIELDS if f in vals}

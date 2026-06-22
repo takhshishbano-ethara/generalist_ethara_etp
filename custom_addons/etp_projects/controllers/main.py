@@ -562,9 +562,9 @@ class EtpProjectsAwsCostController(http.Controller):
             cls._budget_info_budget_domain(project_id, include_inactive)
         )
 
-        total_budget = sum(b.budget_amount or 0.0 for b in budgets)
-        total_consumed = sum(b.consumed_amount or 0.0 for b in budgets)
-        total_remaining = total_budget - total_consumed
+        total_budget = sum(b.total_approved_amount or 0.0 for b in budgets)
+        total_consumed = sum(b.llm_consumed_amount or 0.0 for b in budgets)
+        total_remaining = sum(b.remaining_amount or 0.0 for b in budgets)
 
         today = date.today()
         burn_window_start = today - timedelta(days=6)
