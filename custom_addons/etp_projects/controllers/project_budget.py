@@ -9,7 +9,7 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     validate_token,
 )
 
-from .dashboard import _read_json_body
+from .dashboard import _coerce_date, _read_json_body
 
 _logger = logging.getLogger(__name__)
 
@@ -1008,10 +1008,102 @@ class EtpProjectBudgetController(http.Controller):
         if infra_cmds:
             vals["infra_line_ids"] = infra_cmds
 
-        budget = request.env[BUDGET_MODEL].sudo().create(vals)
+        # Step 5 — Optional batch + budget request (Operations only, best-effort)
+        try:
+            budget = request.env[BUDGET_MODEL].sudo().create(vals)
+        except (UserError, ValidationError) as e:
+            request.env.cr.rollback()
+            return return_Response(message=str(e), status=400)
+        except Exception as e:
+            request.env.cr.rollback()
+            _logger.exception("project_budget_create failed")
+            return return_Response(
+                message="Something went wrong.", status=400, errors=[str(e)],
+            )
+
+        batch = None
+        req = None
+        if budget_type == "operations":
+            today = fields.Date.context_today(request.env.user)
+            raw_tc = jdata.get("task_count")
+            task_count = raw_tc if isinstance(raw_tc, int) and raw_tc > 0 else 1
+            try:
+                start_date = _coerce_date(jdata.get("start_date"), "start_date") or today
+            except ValidationError:
+                start_date = today
+            try:
+                end_date = _coerce_date(jdata.get("end_date"), "end_date") or today
+            except ValidationError:
+                end_date = today
+            if end_date < start_date:
+                end_date = start_date
+            justification = (jdata.get("justification") or "").strip() or "Auto-generated batch budget request."
+            raw_priority = jdata.get("priority")
+            priority = raw_priority if raw_priority in ("low", "normal", "high", "urgent") else "normal"
+            buffer_pct = float(vals.get("buffer_pct") or 0.0)
+
+            try:
+                with request.env.cr.savepoint():
+                    batch = request.env["etp.batch.budget"].sudo().create({
+                        "project_budget_id": budget.id,
+                        "total_tasks": task_count,
+                        "start_date": start_date,
+                        "end_date": end_date,
+                        "buffer_pct": buffer_pct,
+                    })
+                    if budget.model_line_ids:
+                        wiz_model_cmds = [
+                            (0, 0, {
+                                "ai_model_id": line.ai_model_id.id,
+                                "per_task_cost": line.per_task_cost or 0.0,
+                            })
+                            for line in budget.model_line_ids
+                        ]
+                        try:
+                            with request.env.cr.savepoint():
+                                wizard = request.env["etp.batch.budget.request.wizard"].sudo().create({
+                                    "batch_id": batch.id,
+                                    "justification": justification,
+                                    "priority": priority,
+                                    "total_tasks": task_count,
+                                    "buffer_pct": buffer_pct,
+                                    "model_line_ids": wiz_model_cmds,
+                                })
+                                result = wizard.action_submit()
+                                new_req_id = result.get("res_id") if isinstance(result, dict) else None
+                                if new_req_id:
+                                    candidate = request.env[REQUEST_MODEL].sudo().browse(new_req_id)
+                                    if candidate.exists():
+                                        req = candidate
+                        except Exception as wexc:
+                            _logger.warning(
+                                "project_budget_create: batch budget request skipped for budget %s: %s",
+                                budget.id, wexc,
+                            )
+                            req = None
+            except Exception as bexc:
+                _logger.warning(
+                    "project_budget_create: batch creation skipped for budget %s: %s",
+                    budget.id, bexc,
+                )
+                batch = None
+                req = None
+
+        inner_data = _budget_to_dict(budget)
+        if batch is not None and batch.exists():
+            inner_data["batch"] = _batch_summary(batch)
+        if req is not None and req.exists():
+            inner_data["request"] = _request_to_dict(req)
+
+        if req is not None and req.exists():
+            message = "Project budget, batch and budget request created."
+        elif batch is not None and batch.exists():
+            message = "Project budget and batch created."
+        else:
+            message = "Project budget created."
+
         return return_Response(
-            message="Project budget created.", status=200,
-            data={"data": _budget_to_dict(budget)},
+            message=message, status=200, data={"data": inner_data},
         )
 
     # PATCH — update a project budget
