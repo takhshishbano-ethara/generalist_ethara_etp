@@ -37,7 +37,7 @@
                             invisible="status not in (False, 'draft')"/>
                     <button name="action_submit_task" type="object"
                             string="Re-Submit" class="btn-warning"
-                            invisible="status != 'pending_review'"/>
+                            invisible="status not in ('pending_review', 'approved', 'completed', 'rejected')"/>
                     <button name="action_approve_task" type="object"
                             string="Approve" class="btn-primary"
                             groups="fenrir.group_fenrir_manager"
@@ -46,13 +46,17 @@
                             string="Reject" class="btn-danger"
                             groups="fenrir.group_fenrir_manager"
                             invisible="not id or status != 'pending_review'"/>
+                    <button name="action_complete_task" type="object"
+                            string="Complete" class="btn-primary"
+                            groups="fenrir.group_fenrir_manager"
+                            invisible="not id or status != 'approved'"/>
                     <button name="action_reapprove_task" type="object"
                             string="Re-approve" class="btn-warning"
                             groups="fenrir.group_fenrir_manager"
                             invisible="not id or status not in ('approved', 'completed')"
                             confirm="Re-approve will regenerate and overwrite this task's files in Google Drive. Continue?"/>
                     <field name="status" widget="statusbar"
-                           statusbar_visible="draft,pending_review,completed"/>
+                           statusbar_visible="draft,pending_review,approved,completed"/>
                 </header>
                 <sheet>
                     <div class="oe_button_box" name="button_box">
@@ -113,6 +117,17 @@
                     <separator string="Company Details" name="sep_company"/>
                     <field name="company_details" nolabel="1"
                            placeholder="Company name, location, contact..."/>
+
+                    <separator string="Input Asset Licenses" name="sep_input_licenses"/>
+                    <field name="input_asset_license_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="asset"/>
+                            <field name="source"/>
+                            <field name="license"/>
+                            <field name="url" widget="url"/>
+                        </list>
+                    </field>
 
                     <separator string="Resources" name="sep_resources"/>
                     <!-- <group>
@@ -516,6 +531,7 @@
 
                                 <separator string="Conversation"/>
                                 <field name="conversation" nolabel="1"
+                                       class="fenrir-conversation"
                                        placeholder="Paste chat transcript here..."/>
 
                                 <separator string="Delivery"/>
@@ -524,10 +540,6 @@
                                         <field name="delivery_received"/>
                                         <field name="accepted_delivery"/>
                                     </group>
-                                    <group>
-                                        <field name="deliverables_link"
-                                               widget="url"/>
-                                    </group>
                                 </group>
                                 <field name="deliverable_attachment_ids"
                                        widget="many2many_binary" nolabel="1"
@@ -535,26 +547,9 @@
                                        readonly="1"
                                        string="Legacy deliverables (local filestore)"/>
 
-                                <separator string="Artifacts"/>
-                                <group>
-                                    <group>
-                                        <field name="data_media"/>
-                                        <field name="resources"/>
-                                        <field name="environment"/>
-                                    </group>
-                                    <group>
-                                        <field name="test_unit_tests"/>
-                                        <field name="license_ref"/>
-                                    </group>
-                                </group>
-
                                 <separator string="Metadata.json"/>
                                 <field name="metadata_json" nolabel="1"
                                        placeholder='{"key": "value"}'/>
-
-                                <separator string="Automated Checks"/>
-                                <field name="automated_checks" nolabel="1"
-                                       placeholder="Automated QC results..."/>
 
                                 <separator string="Notes"/>
                                 <field name="notes" nolabel="1"/>

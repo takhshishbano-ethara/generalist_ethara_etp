@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Secrets / credentials (Google Drive OAuth, etc.)
+credentials.json
+client_secrets.json
+token.json
+
+# Editor / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store

@@ -44,6 +44,7 @@
             "fenrir/static/src/views/widgets/attachment_uploader/attachment_uploader.xml",
             "fenrir/static/src/views/widgets/attachment_uploader/attachment_uploader.scss",
             "fenrir/static/src/views/fenrir_seller_stacked.scss",
+            "fenrir/static/src/views/fenrir_conversation.scss",
         ],
     },
 }

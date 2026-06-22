@@ -8,6 +8,7 @@ from . import fenrir_generators
 from . import fenrir_drive
 from . import fenrir_s3
 from . import fenrir_task
+from . import fenrir_input_asset_license
 from . import fenrir_seller_offer
 from . import fenrir_seller_deliverable
 from . import fenrir_drive_config

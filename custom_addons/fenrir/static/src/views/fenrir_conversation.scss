@@ -1,0 +1,22 @@
+// Keep the seller "Conversation" field a fixed, internally-scrolling box.
+// Odoo's text widget auto-grows to fit the whole pasted transcript, which
+// stretches the form (blank area under the chat). We pin BOTH the field wrapper
+// (Odoo sets name="conversation" on it) and the textarea to a fixed 20rem.
+// The textarea needs a DEFINITE height (not %) for overflow-y to produce a real
+// scrollbar — a percentage height collapses to content height and just gets
+// clipped by the wrapper, killing the scroll.
+.o_field_widget[name="conversation"] {
+    height: 20rem !important;
+    max-height: 20rem !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+.o_field_widget[name="conversation"] textarea {
+    height: 20rem !important;
+    max-height: 20rem !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    resize: none !important;
+    box-sizing: border-box !important;
+}

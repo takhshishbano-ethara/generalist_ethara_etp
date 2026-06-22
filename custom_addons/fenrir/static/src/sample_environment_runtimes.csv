@@ -1,16 +1,18 @@
-runtime,runtime_description,dependency,dependency_description
+name,description,key_dependency_ids/name,key_dependency_ids/description
 nginx:1.25-alpine,Static file server (HTML5 games / SPAs),bash,Shell required by entrypoint.sh
-nginx:1.25-alpine,Static file server (HTML5 games / SPAs),file,Detect deliverable file types
-nginx:1.25-alpine,Static file server (HTML5 games / SPAs),unzip,Extract HTML5 export archives
-nginx:1.25-alpine,Static file server (HTML5 games / SPAs),curl,Health check HTTP client
+,,file,Detect deliverable file types
+,,unzip,Extract HTML5 export archives
+,,curl,Health check HTTP client
+nginx:1.25-alpine,Reverse proxy for backend APIs,curl,Forward requests upstream
+,,openssl,TLS termination
 debian:bookworm-slim,Debian base for graphic-design validation,imagemagick,Image conversion + dimension check
-debian:bookworm-slim,Debian base for graphic-design validation,librsvg2-bin,SVG rendering CLI (rsvg-convert)
-debian:bookworm-slim,Debian base for graphic-design validation,file,Detect file types
+,,librsvg2-bin,SVG rendering CLI (rsvg-convert)
+,,file,Detect file types
 python:3.11-slim,Python with 3D mesh tools,admesh,STL integrity check
-python:3.11-slim,Python with 3D mesh tools,python3,Python interpreter
+,,python3,Python interpreter
 node:20-alpine,Node.js runtime for SSR or build steps,bash,Shell
-node:20-alpine,Node.js runtime for SSR or build steps,git,Clone source repositories
+,,git,Clone source repositories
 python:3.12-alpine,Python runtime for backend APIs,bash,Shell
-python:3.12-alpine,Python runtime for backend APIs,gcc,Compile native Python extensions
+,,gcc,Compile native Python extensions
 ffmpeg:7-alpine,Video processing for video-editing tasks,ffmpeg,Convert / inspect video files
-ffmpeg:7-alpine,Video processing for video-editing tasks,ffprobe,Read video metadata
+,,ffprobe,Read video metadata
