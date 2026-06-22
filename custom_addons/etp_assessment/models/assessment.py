@@ -304,7 +304,6 @@ class EtpAssessment(models.Model):
                     "assessment_id": rec.id,
                     "applicant_id": evaluator.id,
                     "question_order": json.dumps(candidate_questions),
-                    "total_questions": len(candidate_questions),
                     "access_token": str(uuid.uuid4()),
                 })
                 ev._send_single_invitation()
@@ -649,7 +648,9 @@ class EtpAssessmentEvaluator(models.Model):
         default="pending",
         required=True,
     )
-    total_questions = fields.Integer()
+    total_questions = fields.Integer(
+        compute="_compute_total_questions", store=True,
+        string="Total Questions")
     answered_count = fields.Integer(
         compute="_compute_progress", store=True, string="Answered")
     total_score = fields.Integer(
@@ -846,6 +847,22 @@ class EtpAssessmentEvaluator(models.Model):
                 continue
             rec._compute_subjective_rollup()
         return scored
+
+    @api.depends("day_session_ids.total_questions", "question_order")
+    def _compute_total_questions(self):
+        # Multi-day rolls up from day sessions; single-mode has none, so fall
+        # back to question_order length (else the roll-up reads 0 for flat tests
+        # and breaks _check_all_submitted).
+        for rec in self:
+            if rec.day_session_ids:
+                rec.total_questions = sum(
+                    rec.day_session_ids.mapped("total_questions"))
+            else:
+                try:
+                    rec.total_questions = len(
+                        json.loads(rec.question_order or "[]"))
+                except (ValueError, TypeError):
+                    rec.total_questions = 0
 
     @api.depends("response_ids", "response_ids.state", "response_ids.score")
     def _compute_progress(self):

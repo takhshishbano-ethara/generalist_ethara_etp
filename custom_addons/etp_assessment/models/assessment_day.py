@@ -188,7 +188,7 @@ class EtpAssessmentDaySession(models.Model):
         string="Access Token", index=True, copy=False,
         default=lambda self: str(uuid.uuid4()))
     question_order = fields.Text(string="Shuffled Question Order (JSON)")
-    total_questions = fields.Integer()
+    total_questions = fields.Integer(string="Total Questions")
     answered_count = fields.Integer(
         compute="_compute_progress", store=True, string="Answered")
     started_at = fields.Datetime(string="Started At")
@@ -214,7 +214,7 @@ class EtpAssessmentDaySession(models.Model):
     score = fields.Integer(
         compute="_compute_score", store=True, string="Day Score")
     max_score = fields.Integer(
-        compute="_compute_score", store=True, string="Day Max")
+        compute="_compute_score", store=True, string="Max Score")
 
     # ---- Candidate "My Assessments" helpers -------------------------------
     # The candidate hub groups day sessions into three buckets. Computing the
