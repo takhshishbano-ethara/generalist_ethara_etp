@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_etp_assessment" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.etp_assessment</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="50"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="ETP Assessment Pro"
+                     string="ETP Assessment Pro"
+                     name="etp_assessment_pro"
+                     groups="etp_assessment_pro.group_assessment_manager">
+
+                    <block title="Vertex AI" name="etp_vertex_section">
+                        <setting id="etp_vertex_project_id"
+                                 string="Vertex Project ID"
+                                 help="GCP project ID hosting the Vertex AI / Gemini deployment.">
+                            <field name="etp_assessment_pro_vertex_project_id"
+                                   placeholder="my-gcp-project"/>
+                        </setting>
+                        <setting id="etp_vertex_location"
+                                 string="Vertex Location"
+                                 help="Region for Vertex AI (us-central1, europe-west1, or 'global').">
+                            <field name="etp_assessment_pro_vertex_location"
+                                   placeholder="us-central1"/>
+                        </setting>
+                        <setting id="etp_vertex_model"
+                                 string="Model"
+                                 help="Gemini model used for skill extraction and question generation.">
+                            <field name="etp_assessment_pro_vertex_model"
+                                   placeholder="gemini-2.5-pro"/>
+                        </setting>
+                        <setting id="etp_vertex_api_key"
+                                 string="API Key"
+                                 help="AIza... (Gemini Developer API) or AQ... (Vertex Express).">
+                            <field name="etp_assessment_pro_vertex_api_key"
+                                   password="True"
+                                   placeholder="AIza... or AQ..."/>
+                        </setting>
+                        <setting id="etp_vertex_access_token"
+                                 string="Static OAuth Bearer (optional)"
+                                 help="Static aiplatform OAuth bearer. Leave empty to use SA JSON.">
+                            <field name="etp_assessment_pro_vertex_access_token"
+                                   password="True"/>
+                        </setting>
+                        <setting id="etp_vertex_sa"
+                                 string="Service Account JSON"
+                                 help="Upload a GCP service-account JSON. The module signs JWTs and auto-refreshes 1h bearers.">
+                            <field name="vertex_sa_upload"
+                                   widget="binary"
+                                   filename="vertex_sa_upload_filename"/>
+                            <field name="vertex_sa_upload_filename" invisible="1"/>
+                            <div invisible="not etp_assessment_pro_vertex_service_account_filename"
+                                 class="text-muted mt-1">
+                                Current: <field name="etp_assessment_pro_vertex_service_account_filename"
+                                                readonly="1" nolabel="1"/>
+                            </div>
+                        </setting>
+                    </block>
+
+                    <block title="S3 Storage" name="etp_s3_section">
+                        <setting id="etp_s3_bucket"
+                                 string="S3 Bucket"
+                                 help="Target bucket. Leave empty to disable S3.">
+                            <field name="etp_assessment_pro_s3_bucket"/>
+                        </setting>
+                        <setting id="etp_s3_region"
+                                 string="S3 Region"
+                                 help="AWS region for the bucket.">
+                            <field name="etp_assessment_pro_s3_region"/>
+                        </setting>
+                        <setting id="etp_s3_access_key_id"
+                                 string="S3 Access Key ID"
+                                 help="AWS access key with PutObject/DeleteObject permissions.">
+                            <field name="etp_assessment_pro_s3_access_key_id"/>
+                        </setting>
+                        <setting id="etp_s3_secret_key"
+                                 string="S3 Secret Key"
+                                 help="AWS secret matching the access key ID.">
+                            <field name="etp_assessment_pro_s3_secret_key"
+                                   password="True"/>
+                        </setting>
+                        <setting id="etp_s3_folder"
+                                 string="S3 Key Prefix"
+                                 help="Folder under the bucket where uploads land.">
+                            <field name="etp_assessment_pro_s3_folder"/>
+                        </setting>
+                        <setting id="etp_s3_cdn_url"
+                                 string="CDN Base URL"
+                                 help="Optional. Returned URLs use this base instead of the virtual-hosted S3 URL.">
+                            <field name="etp_assessment_pro_s3_cdn_url"
+                                   placeholder="https://cdn.example.com"/>
+                        </setting>
+                        <setting id="etp_s3_max_retries"
+                                 string="Max Upload Retries"
+                                 help="put_object retry count on transient errors.">
+                            <field name="etp_assessment_pro_s3_max_retries"/>
+                        </setting>
+                    </block>
+
+                    <block title="System Prompts" name="etp_prompts_section">
+                        <setting id="etp_skill_gen_prompt"
+                                 string="Skill Generation Prompt (.md upload)"
+                                 help="Upload a .md to override the bundled prompts/skill_gen.md. Empty = use bundled.">
+                            <field name="skill_gen_prompt_upload"
+                                   widget="binary"
+                                   filename="skill_gen_prompt_upload_filename"/>
+                            <field name="skill_gen_prompt_upload_filename" invisible="1"/>
+                            <field name="etp_assessment_pro_skill_gen_prompt" invisible="1"/>
+                            <field name="etp_assessment_pro_skill_gen_prompt_filename" invisible="1"/>
+                            <div invisible="not etp_assessment_pro_skill_gen_prompt"
+                                 class="text-muted mt-1">
+                                Current: <field name="etp_assessment_pro_skill_gen_prompt_filename"
+                                              readonly="1" nolabel="1" class="d-inline-block"/>
+                                <br/>
+                                Custom override active. Clear at Technical → System
+                                Parameters → etp_assessment_pro.skill_gen_prompt to revert.
+                            </div>
+                        </setting>
+                        <setting id="etp_question_prompt"
+                                 string="Question Generation Prompt (.md upload)"
+                                 help="Upload a .md to override the bundled prompts/question.md. Empty = use bundled.">
+                            <field name="question_prompt_upload"
+                                   widget="binary"
+                                   filename="question_prompt_upload_filename"/>
+                            <field name="question_prompt_upload_filename" invisible="1"/>
+                            <field name="etp_assessment_pro_question_prompt" invisible="1"/>
+                            <field name="etp_assessment_pro_question_prompt_filename" invisible="1"/>
+                            <div invisible="not etp_assessment_pro_question_prompt"
+                                 class="text-muted mt-1">
+                                Current: <field name="etp_assessment_pro_question_prompt_filename"
+                                              readonly="1" nolabel="1" class="d-inline-block"/>
+                                <br/>
+                                Custom override active. Clear at Technical → System
+                                Parameters → etp_assessment_pro.question_prompt to revert.
+                            </div>
+                        </setting>
+                    </block>
+
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_config" model="ir.actions.act_window">
+        <field name="name">ETP Assessment Pro Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'etp_assessment'}</field>
+    </record>
+</odoo>

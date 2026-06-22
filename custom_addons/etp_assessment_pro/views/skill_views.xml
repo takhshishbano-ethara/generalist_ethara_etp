@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="etp_assessment_pro_skill_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.skill.tree</field>
+        <field name="model">etp.assessment.pro.skill</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="tags"/>
+                <field name="question_type"/>
+                <field name="time_minutes"/>
+                <field name="difficulty"/>
+                <field name="bank_question_count"/>
+                <field name="active" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_skill_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.skill.form</field>
+        <field name="model">etp.assessment.pro.skill</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_generate_questions" type="object"
+                            string="Generate Questions" class="oe_highlight"
+                            invisible="not extracted_from_prompt_id"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Skill Name"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="tags"/>
+                            <field name="question_type"/>
+                            <field name="difficulty"/>
+                        </group>
+                        <group>
+                            <field name="question_count"/>
+                            <field name="time_minutes"/>
+                            <field name="extracted_from_prompt_id" readonly="1"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <field name="description" placeholder="What this skill covers..."/>
+                    <notebook>
+                        <page string="Source Resources">
+                            <field name="source_resource_ids">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="char_count"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Bank Questions">
+                            <field name="question_ids">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="question_type"/>
+                                    <field name="category_id"/>
+                                    <field name="difficulty"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_skill_search" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.skill.search</field>
+        <field name="model">etp.assessment.pro.skill</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="tags"/>
+                <field name="description"/>
+                <separator/>
+                <filter name="filter_mcq" string="MCQ" domain="[('question_type','=','mcq')]"/>
+                <filter name="filter_msq" string="MSQ" domain="[('question_type','=','msq')]"/>
+                <filter name="filter_subj_just" string="Subjective Justification"
+                        domain="[('question_type','=','subjective_justification')]"/>
+                <filter name="filter_subj_rubric" string="Subjective Rubric"
+                        domain="[('question_type','=','subjective_rubric')]"/>
+                <separator/>
+                <filter name="filter_easy" string="Easy" domain="[('difficulty','=','easy')]"/>
+                <filter name="filter_medium" string="Medium" domain="[('difficulty','=','medium')]"/>
+                <filter name="filter_hard" string="Hard" domain="[('difficulty','=','hard')]"/>
+                <filter name="group_question_type" string="Type"
+                        context="{'group_by':'question_type'}"/>
+                <filter name="group_difficulty" string="Difficulty"
+                        context="{'group_by':'difficulty'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_skill" model="ir.actions.act_window">
+        <field name="name">Skill Bank</field>
+        <field name="res_model">etp.assessment.pro.skill</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="etp_assessment_pro_skill_search"/>
+    </record>
+
+    <record id="action_generate_skill_questions" model="ir.actions.server">
+        <field name="name">Generate Questions</field>
+        <field name="model_id" ref="model_etp_assessment_pro_skill"/>
+        <field name="binding_model_id" ref="model_etp_assessment_pro_skill"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_generate_questions()</field>
+    </record>
+</odoo>

@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="rule_assessment_evaluator_own_records_evaluator" model="ir.rule">
+            <field name="name">etp.assessment.pro.evaluator: candidate sees only own row</field>
+            <field name="model_id" ref="model_etp_assessment_pro_evaluator"/>
+            <field name="groups" eval="[(4, ref('etp_assessment_pro.group_assessment_evaluator'))]"/>
+            <field name="domain_force">[('applicant_id.candidate_user_id','=',user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_assessment_evaluator_all_manager" model="ir.rule">
+            <field name="name">etp.assessment.pro.evaluator: manager full access</field>
+            <field name="model_id" ref="model_etp_assessment_pro_evaluator"/>
+            <field name="groups" eval="[(4, ref('etp_assessment_pro.group_assessment_manager'))]"/>
+            <field name="domain_force">[(1,'=',1)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_assessment_day_session_own_evaluator" model="ir.rule">
+            <field name="name">etp.assessment.pro.day.session: candidate sees only own</field>
+            <field name="model_id" ref="model_etp_assessment_pro_day_session"/>
+            <field name="groups" eval="[(4, ref('etp_assessment_pro.group_assessment_evaluator'))]"/>
+            <field name="domain_force">[('evaluator_id.applicant_id.candidate_user_id','=',user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_assessment_day_session_all_manager" model="ir.rule">
+            <field name="name">etp.assessment.pro.day.session: manager full access</field>
+            <field name="model_id" ref="model_etp_assessment_pro_day_session"/>
+            <field name="groups" eval="[(4, ref('etp_assessment_pro.group_assessment_manager'))]"/>
+            <field name="domain_force">[(1,'=',1)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+        <record id="rule_assessment_response_own_evaluator" model="ir.rule">
+            <field name="name">etp.assessment.pro.response: candidate sees only own</field>
+            <field name="model_id" ref="model_etp_assessment_pro_response"/>
+            <field name="groups" eval="[(4, ref('etp_assessment_pro.group_assessment_evaluator'))]"/>
+            <field name="domain_force">[('evaluator_id.candidate_user_id','=',user.id)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+
+        <record id="rule_assessment_response_all_manager" model="ir.rule">
+            <field name="name">etp.assessment.pro.response: manager full access</field>
+            <field name="model_id" ref="model_etp_assessment_pro_response"/>
+            <field name="groups" eval="[(4, ref('etp_assessment_pro.group_assessment_manager'))]"/>
+            <field name="domain_force">[(1,'=',1)]</field>
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="True"/>
+            <field name="perm_create" eval="True"/>
+            <field name="perm_unlink" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

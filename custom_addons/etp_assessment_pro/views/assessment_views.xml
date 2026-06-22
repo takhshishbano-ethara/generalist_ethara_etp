@@ -1,0 +1,572 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="etp_assessment_pro_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.tree</field>
+        <field name="model">etp.assessment.pro</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="num_days" string="Days" optional="show"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'draft'"
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'in_progress'"
+                       decoration-danger="state == 'cancelled'"/>
+                <field name="response_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.form</field>
+        <field name="model">etp.assessment.pro</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <!-- Single-mode Start Assessment retired from UI; button hidden
+                         (action_start kept dormant in the model). -->
+                    <button name="action_start" string="Start Assessment" type="object"
+                            class="oe_highlight"
+                            invisible="1"/>
+                    <button name="action_scaffold_days" string="Build Day Plan" type="object"
+                            invisible="state != 'draft' or assessment_mode != 'multi_day'"/>
+                    <button name="action_generate_plan" string="Launch &amp; Invite" type="object"
+                            class="oe_highlight"
+                            invisible="assessment_mode != 'multi_day' or state == 'done'"/>
+                    <button name="action_done" string="Mark Done" type="object"
+                            invisible="state != 'in_progress'"/>
+                    <button name="action_llm_score_all" string="Score Subjective (All)"
+                            type="object" icon="fa-magic"
+                            invisible="state == 'draft'"/>
+                    <button name="action_export_results" string="Export Results"
+                            type="object" icon="fa-download"
+                            invisible="state == 'draft'"/>
+                    <button name="action_release_all_results" string="Release Results"
+                            type="object" icon="fa-unlock"
+                            invisible="state == 'draft' or results_release != 'manual'"/>
+                    <button name="action_cancel" string="Cancel" type="object"
+                            invisible="state in ('done', 'cancelled')"/>
+                    <button name="action_reset_draft" string="Reset to Draft" type="object"
+                            invisible="state not in ('cancelled',)"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,in_progress,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="Assessment Name"/>
+                        </h1>
+                    </div>
+                    <!-- assessment_mode is forced to multi_day for all new records
+                         and kept invisible so the multi-day groups/pages below
+                         (invisible="assessment_mode != 'multi_day'") still evaluate
+                         true. Admins no longer pick a mode. -->
+                    <field name="assessment_mode" invisible="1"/>
+                    <group>
+                        <group string="Schedule">
+                            <field name="start_date" readonly="state != 'draft'"/>
+                            <field name="end_date" readonly="state != 'draft'"/>
+                            <field name="response_count"/>
+                        </group>
+                    </group>
+
+                    <group string="Assessment Configuration"
+                           invisible="assessment_mode != 'multi_day'">
+                        <group>
+                            <field name="num_days" readonly="state != 'draft'"
+                                   help="1 for a single-day test, more for a multi-day plan."/>
+                            <field name="sequential_days" readonly="state != 'draft'"/>
+                            <field name="results_release"/>
+                        </group>
+                        <group>
+                            <field name="day_count"/>
+                            <field name="day_session_count"/>
+                        </group>
+                    </group>
+
+                    <group>
+                        <group string="Rules &amp; Proctoring">
+                            <field name="rule_block_tab_switch"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_screenshot"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_copy_paste"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_right_click"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_block_devtools"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_watermark"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_fullscreen"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="rule_webcam"
+                                   readonly="state in ('done', 'cancelled')"/>
+                        </group>
+                        <group string="Violations &amp; Scoring">
+                            <field name="violation_action" widget="radio"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="max_violations"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="require_justification_image_comparison"
+                                   readonly="state in ('done', 'cancelled')"/>
+                            <field name="llm_auto_score"
+                                   readonly="state in ('done', 'cancelled')"/>
+                        </group>
+                    </group>
+
+                    <notebook>
+                        <page string="Assign Candidates" invisible="state != 'draft'">
+                            <group string="Manual Assignment">
+                                <field name="evaluator_ids" widget="many2many_tags"
+                                       nolabel="1"/>
+                            </group>
+                            <group string="Import from CSV">
+                                <group>
+                                    <field name="candidate_csv_file"
+                                           filename="candidate_csv_filename"/>
+                                    <field name="candidate_csv_filename" invisible="1"/>
+                                </group>
+                                <group>
+                                    <button name="action_import_candidates_csv"
+                                            string="Import Candidates" type="object"
+                                            class="oe_highlight" icon="fa-upload"/>
+                                    <button name="action_download_candidate_template"
+                                            string="Download Template" type="object"
+                                            icon="fa-download"/>
+                                </group>
+                            </group>
+                        </page>
+                        <page string="Day Plan"
+                              invisible="assessment_mode != 'multi_day'">
+                            <field name="day_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="pool_by"/>
+                                    <field name="skill_id" invisible="pool_by == 'category'"/>
+                                    <field name="category_id" invisible="pool_by == 'skill'"/>
+                                    <field name="question_count"/>
+                                    <field name="available_question_count"/>
+                                    <field name="duration_minutes"/>
+                                    <field name="scheduled_start"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <group>
+                                                <field name="sequence"/>
+                                                <field name="pool_by"/>
+                                                <field name="skill_id" invisible="pool_by == 'category'"/>
+                                                <field name="category_id" invisible="pool_by == 'skill'"/>
+                                                <field name="question_count"/>
+                                                <field name="available_question_count"
+                                                       readonly="1"/>
+                                            </group>
+                                            <group>
+                                                <field name="duration_minutes"/>
+                                                <field name="scheduled_start"/>
+                                            </group>
+                                        </group>
+                                    </sheet>
+                                </form>
+                            </field>
+                        </page>
+                        <page string="Day Sessions"
+                              invisible="assessment_mode != 'multi_day' or day_session_count == 0">
+                            <field name="day_session_ids" readonly="1">
+                                <list>
+                                    <field name="applicant_id"/>
+                                    <field name="day_sequence" string="Day #"/>
+                                    <field name="skill_id"/>
+                                    <field name="state" widget="badge"
+                                           decoration-muted="state == 'locked'"
+                                           decoration-info="state == 'available'"
+                                           decoration-warning="state == 'in_progress'"
+                                           decoration-success="state in ('submitted','scored')"
+                                           decoration-danger="state == 'missed'"/>
+                                    <field name="answered_count"/>
+                                    <field name="total_questions"/>
+                                    <field name="score"/>
+                                    <field name="max_score"/>
+                                    <field name="started_at"/>
+                                    <field name="deadline_datetime"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Candidates" invisible="state == 'draft'">
+                            <field name="assessment_evaluator_ids" readonly="1">
+                                <list>
+                                    <field name="applicant_id"/>
+                                    <field name="state" widget="badge"
+                                           decoration-info="state == 'pending'"
+                                           decoration-warning="state == 'in_progress'"
+                                           decoration-success="state == 'submitted'"/>
+                                    <field name="day_progress_label" optional="show"/>
+                                    <field name="started_at"/>
+                                    <field name="answered_count"/>
+                                    <field name="total_questions"/>
+                                    <field name="total_score"/>
+                                    <field name="llm_total_score"
+                                           string="Subjective Points" optional="show"/>
+                                    <field name="llm_state" widget="badge"
+                                           optional="show"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-danger="llm_state == 'failed'"/>
+                                    <field name="score_percent"
+                                           string="Final Score /100" optional="show"/>
+                                    <field name="result" widget="badge"
+                                           decoration-success="result == 'pass'"
+                                           decoration-danger="result == 'fail'"
+                                           decoration-muted="result == 'pending'"/>
+                                    <field name="is_locked"/>
+                                    <field name="violation_count" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Leaderboard" invisible="state == 'draft'">
+                            <field name="assessment_evaluator_ids" readonly="1">
+                                <list default_order="score_percent desc"
+                                      decoration-success="result == 'pass'"
+                                      decoration-danger="result == 'fail'"
+                                      decoration-muted="result == 'pending'">
+                                    <field name="applicant_id"/>
+                                    <field name="day_progress_label"
+                                           string="Days Progress"/>
+                                    <field name="total_score" string="Objective"/>
+                                    <field name="llm_total_score" string="Subjective"/>
+                                    <field name="score_percent" string="Final %"
+                                           widget="progressbar"/>
+                                    <field name="pass_threshold" string="Threshold"
+                                           optional="hide"/>
+                                    <field name="result" widget="badge"
+                                           decoration-success="result == 'pass'"
+                                           decoration-danger="result == 'fail'"
+                                           decoration-muted="result == 'pending'"/>
+                                    <field name="llm_state" widget="badge"
+                                           string="Subjective Scoring"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-danger="llm_state == 'failed'"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Selected Questions"
+                              invisible="state == 'draft' or assessment_mode != 'single'">
+                            <field name="question_ids" readonly="1">
+                                <list>
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="prompt"/>
+                                    <field name="category_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Responses">
+                            <field name="response_ids" readonly="1">
+                                <list>
+                                    <field name="evaluator_id" string="Candidate"/>
+                                    <field name="question_id"/>
+                                    <field name="objective_score" string="Objective"/>
+                                    <field name="objective_max" string="Objective Max"
+                                           optional="hide"/>
+                                    <field name="needs_llm" string="Subjective?"
+                                           widget="boolean"/>
+                                    <field name="subjective_result" widget="badge"
+                                           string="Subjective"
+                                           decoration-success="subjective_result == 'pass'"
+                                           decoration-danger="subjective_result == 'fail'"/>
+                                    <field name="subjective_score" string="Subjective Points"
+                                           optional="show"/>
+                                    <field name="llm_state" widget="badge"
+                                           string="Subjective State" optional="hide"
+                                           decoration-info="llm_state in ('pending','queued')"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-muted="llm_state == 'not_needed'"
+                                           decoration-danger="llm_state == 'failed'"/>
+                                    <field name="state" widget="badge"
+                                           decoration-info="state == 'draft'"
+                                           decoration-success="state == 'submitted'"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_search" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.search</field>
+        <field name="model">etp.assessment.pro</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="evaluator_ids"/>
+                <separator/>
+                <filter name="filter_draft" string="Draft"
+                        domain="[('state','=','draft')]"/>
+                <filter name="filter_in_progress" string="In Progress"
+                        domain="[('state','=','in_progress')]"/>
+                <filter name="filter_done" string="Done"
+                        domain="[('state','=','done')]"/>
+                <group>
+                    <filter name="group_state" string="State"
+                            context="{'group_by':'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment" model="ir.actions.act_window">
+        <field name="name">Assessments</field>
+        <field name="res_model">etp.assessment.pro</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="etp_assessment_pro_search"/>
+    </record>
+
+    <record id="etp_assessment_pro_evaluator_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.evaluator.tree</field>
+         <field name="model">etp.assessment.pro.evaluator</field>
+        <field name="arch" type="xml">
+            <list>
+                <header>
+                    <button name="action_release_results" type="object"
+                            string="Release Results"/>
+                </header>
+                <field name="assessment_id"/>
+                <field name="applicant_id"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'pending'"
+                       decoration-warning="state == 'in_progress'"
+                       decoration-success="state == 'submitted'"/>
+                <field name="day_progress_label" optional="show"/>
+                <field name="answered_count"/>
+                <field name="total_questions"/>
+                <field name="total_score"/>
+                <field name="llm_total_score" string="Subjective Points" optional="show"/>
+                <field name="score_percent" string="Final Score /100" optional="show"/>
+                <field name="result" widget="badge"
+                       decoration-success="result == 'pass'"
+                       decoration-danger="result == 'fail'"
+                       decoration-muted="result == 'pending'"/>
+                <field name="llm_state" widget="badge" string="Subjective State" optional="show"
+                       decoration-success="llm_state == 'scored'"
+                       decoration-danger="llm_state == 'failed'"/>
+                <field name="is_locked"/>
+                <field name="is_violated" widget="boolean"
+                       decoration-danger="is_violated"/>
+                <field name="violation_count" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_evaluator_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.evaluator.form</field>
+        <field name="model">etp.assessment.pro.evaluator</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_llm_score" string="Score Subjective"
+                            type="object" icon="fa-magic"
+                            invisible="state != 'submitted'"/>
+                    <button name="action_release_results" string="Release Results"
+                            type="object" icon="fa-unlock" class="oe_highlight"
+                            invisible="results_released"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="pending,in_progress,submitted"/>
+                </header>
+                <div class="alert alert-danger" invisible="not is_violated" role="alert">
+                    <strong>Violation:</strong>
+                    <field name="violation_reason" readonly="1"/> —
+                    <field name="violation_datetime" readonly="1"/>
+                    (count: <field name="violation_count" readonly="1"/>)
+                </div>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="assessment_id"/>
+                            <field name="applicant_id"/>
+                            <field name="access_token"/>
+                            <field name="started_at"/>
+                            <field name="deadline_datetime"/>
+                        </group>
+                        <group>
+                            <field name="total_questions"/>
+                            <field name="answered_count"/>
+                            <field name="total_score"/>
+                            <field name="max_possible_score"/>
+                            <field name="llm_total_score" string="Subjective Total"/>
+                            <field name="llm_max_score" string="Subjective Max"/>
+                            <field name="subjective_pending"/>
+                            <field name="llm_state"/>
+                            <field name="score_percent" string="Score %"/>
+                            <field name="result" widget="badge"
+                                   decoration-success="result == 'pass'"
+                                   decoration-danger="result == 'fail'"
+                                   decoration-muted="result == 'pending'"/>
+                            <field name="day_progress_label"/>
+                            <field name="results_released"/>
+                            <field name="is_locked"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Day Sessions" invisible="not day_session_ids">
+                            <field name="day_session_ids" readonly="1"/>
+                        </page>
+                        <page string="Score Details">
+                            <field name="response_ids" readonly="1">
+                                <list>
+                                    <field name="question_id"/>
+                                    <field name="question_type"
+                                           string="Type" optional="show"/>
+                                    <field name="answer_summary"
+                                           string="Candidate Answer"/>
+                                    <field name="correct_summary"
+                                           string="Correct Answer" optional="show"/>
+                                    <field name="score" string="Objective"/>
+                                    <field name="max_score" string="Objective Max"/>
+                                    <field name="llm_score" string="Subjective"/>
+                                    <field name="llm_max_score" string="Subjective Max"/>
+                                    <field name="llm_passed" widget="boolean"
+                                           string="Subjective Pass"/>
+                                    <field name="llm_feedback"
+                                           string="Subjective Feedback" optional="hide"/>
+                                    <field name="llm_state" widget="badge"
+                                           string="Subjective State"
+                                           decoration-info="llm_state in ('pending','queued')"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-muted="llm_state == 'not_needed'"
+                                           decoration-danger="llm_state == 'failed'"/>
+                                    <field name="state" widget="badge"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_evaluator" model="ir.actions.act_window">
+        <field name="name">Candidate Assignments</field>
+        <field name="res_model">etp.assessment.pro.evaluator</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="etp_assessment_pro_response_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.response.tree</field>
+        <field name="model">etp.assessment.pro.response</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="assessment_id"/>
+                <field name="evaluator_id" string="Candidate"/>
+                <field name="question_id"/>
+                <field name="objective_score" string="Objective" sum="Total Objective"/>
+                <field name="needs_llm" string="Subjective?" widget="boolean"/>
+                <field name="subjective_result" widget="badge" string="Subjective"
+                       decoration-success="subjective_result == 'pass'"
+                       decoration-danger="subjective_result == 'fail'"/>
+                <field name="subjective_score" string="Subjective Points" optional="show"
+                       sum="Total Subjective Points"/>
+                <field name="llm_state" widget="badge" string="Subjective State" optional="hide"
+                       decoration-info="llm_state in ('pending','queued')"
+                       decoration-success="llm_state == 'scored'"
+                       decoration-muted="llm_state == 'not_needed'"
+                       decoration-danger="llm_state == 'failed'"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'draft'"
+                       decoration-success="state == 'submitted'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_response_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.response.form</field>
+        <field name="model">etp.assessment.pro.response</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_submit" string="Submit" type="object"
+                            class="oe_highlight" invisible="state != 'draft'"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="assessment_id" readonly="1"/>
+                            <field name="evaluator_id" readonly="1"/>
+                            <field name="question_id" readonly="1"/>
+                            <field name="day_session_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="objective_score" string="Objective Score"/>
+                            <field name="objective_max" string="Objective Max"/>
+                            <field name="needs_llm" string="Needs Subjective"/>
+                            <field name="subjective_result" widget="badge"
+                                   string="Subjective Result"
+                                   decoration-success="subjective_result == 'pass'"
+                                   decoration-danger="subjective_result == 'fail'"/>
+                            <field name="subjective_score" string="Subjective Points"/>
+                            <field name="llm_max_score" string="Subjective Max"/>
+                            <field name="llm_state" string="Subjective State"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Dimension Answers">
+                            <field name="line_ids" readonly="state == 'submitted'">
+                                <list editable="bottom">
+                                    <field name="dimension_id"/>
+                                    <field name="selected_option_id"
+                                           domain="[('dimension_id', '=', dimension_id)]"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Justification">
+                            <field name="justification" nolabel="1"
+                                   readonly="state == 'submitted'"/>
+                        </page>
+                        <page string="Subjective Reasoning"
+                              invisible="llm_state in ('not_needed', 'pending', 'queued')">
+                            <field name="llm_feedback" nolabel="1" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_response_search" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.response.search</field>
+        <field name="model">etp.assessment.pro.response</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="assessment_id"/>
+                <field name="evaluator_id" string="Candidate"/>
+                <field name="question_id"/>
+                <separator/>
+                <filter name="submitted" string="Submitted"
+                        domain="[('state', '=', 'submitted')]"/>
+                <filter name="draft" string="Draft"
+                        domain="[('state', '=', 'draft')]"/>
+                <separator/>
+                <filter name="group_by_assessment" string="Assessment"
+                        context="{'group_by': 'assessment_id'}"/>
+                <filter name="group_by_candidate" string="Candidate"
+                        context="{'group_by': 'evaluator_id'}"/>
+                <filter name="group_by_state" string="State"
+                        context="{'group_by': 'state'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_response" model="ir.actions.act_window">
+        <field name="name">Responses</field>
+        <field name="res_model">etp.assessment.pro.response</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="etp_assessment_pro_response_search"/>
+        <field name="context">{'search_default_group_by_assessment': 1, 'search_default_group_by_candidate': 1}</field>
+    </record>
+
+</odoo>

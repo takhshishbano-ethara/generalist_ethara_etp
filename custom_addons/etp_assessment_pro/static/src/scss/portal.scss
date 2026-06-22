@@ -1,0 +1,954 @@
+/* ETP Assessment — candidate-facing portal styles.
+   Chrome-free, proctored exam runner: instructions, question runner,
+   review, result and state pages. Everything is scoped under
+   `.o_etp_exam_root` so these rules never leak into the rest of the
+   website frontend bundle. */
+
+.o_etp_exam_root {
+    /* ---- design tokens -------------------------------------------------- */
+    --etp-accent:        #714B67;
+    --etp-accent-600:    #5d3d54;
+    --etp-accent-700:    #4a3043;
+    --etp-accent-soft:   #f4eef2;
+    --etp-accent-ring:   rgba(113, 75, 103, 0.28);
+
+    --etp-bg:            #f4f3f6;
+    --etp-surface:       #ffffff;
+    --etp-text:          #1f2330;
+    --etp-muted:         #6b7180;
+    --etp-faint:         #9aa0ad;
+    --etp-border:        #e7e4ec;
+    --etp-border-strong: #d9d5e1;
+
+    --etp-success:       #1f9d6b;
+    --etp-success-soft:  #e7f6ef;
+    --etp-danger:        #d6453f;
+    --etp-danger-soft:   #fdecec;
+    --etp-warning:       #d98a1f;
+    --etp-warning-soft:  #fcf2e1;
+    --etp-info:          #2f74c0;
+    --etp-info-soft:     #eaf2fb;
+
+    --etp-radius:        16px;
+    --etp-radius-sm:     11px;
+    --etp-shadow:        0 1px 2px rgba(20, 14, 24, 0.05),
+                         0 12px 30px -16px rgba(20, 14, 24, 0.25);
+    --etp-shadow-sm:     0 1px 2px rgba(20, 14, 24, 0.06),
+                         0 4px 12px -8px rgba(20, 14, 24, 0.18);
+
+    --etp-font: "Inter", "Segoe UI", system-ui, -apple-system,
+                "Helvetica Neue", Arial, sans-serif;
+
+    min-height: 100vh;
+    background:
+        radial-gradient(1100px 480px at 50% -8%, var(--etp-accent-soft) 0%, rgba(244, 243, 246, 0) 60%),
+        var(--etp-bg);
+    color: var(--etp-text);
+    font-family: var(--etp-font);
+    -webkit-font-smoothing: antialiased;
+
+    /* ---- topbar --------------------------------------------------------- */
+    .o_etp_exam_topbar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 28px;
+        background: linear-gradient(100deg, var(--etp-accent-700) 0%, var(--etp-accent) 60%, var(--etp-accent-600) 100%);
+        color: #fff;
+        box-shadow: 0 2px 18px -6px rgba(74, 48, 67, 0.6);
+        position: sticky;
+        top: 0;
+        z-index: 30;
+    }
+
+    .o_etp_brand {
+        font-weight: 700;
+        letter-spacing: 0.2px;
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+
+        &::before {
+            content: "";
+            width: 9px;
+            height: 9px;
+            border-radius: 3px;
+            background: #fff;
+            box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.18);
+        }
+    }
+
+    .o_etp_topbar_spacer { flex: 1 1 auto; }
+
+    /* ---- body / layout -------------------------------------------------- */
+    .o_etp_exam_body {
+        max-width: 880px;
+        padding-top: 36px;
+        padding-bottom: 64px;
+    }
+
+    .o_etp_card_narrow {
+        max-width: 720px;
+        margin: 0 auto;
+    }
+
+    /* ---- generic card surface (also lifts the untouched review page) ---- */
+    .etp-exam-card,
+    .card {
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow);
+        overflow: hidden;
+    }
+
+    .card-body { padding: 26px 28px; }
+
+    .card-header {
+        background: #fbfafc;
+        border-bottom: 1px solid var(--etp-border);
+        padding: 16px 22px;
+        font-weight: 600;
+    }
+
+    /* ---- typography ----------------------------------------------------- */
+    h1, h2, h3, h4, h5 {
+        color: var(--etp-text);
+        letter-spacing: -0.01em;
+    }
+
+    .etp-eyebrow {
+        display: inline-block;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+        color: var(--etp-accent);
+        margin-bottom: 6px;
+    }
+
+    .etp-title {
+        font-size: 1.7rem;
+        font-weight: 750;
+        margin: 0;
+    }
+
+    .etp-subtitle {
+        color: var(--etp-muted);
+        font-weight: 500;
+        margin: 6px 0 0;
+    }
+
+    .etp-section-title {
+        font-size: 0.82rem;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--etp-faint);
+        margin: 0 0 14px;
+    }
+
+    /* keep the legacy helper from leaking weird borders */
+    .o_etp_section_title {
+        border-bottom: 2px solid currentColor;
+        padding-bottom: 4px;
+        margin-bottom: 16px;
+        font-size: 1.05rem;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        display: inline-block;
+    }
+
+    /* ===================================================================
+       INSTRUCTIONS PAGE
+       =================================================================== */
+    .etp-instructions {
+        .etp-card-head {
+            padding: 28px 28px 22px;
+            background: linear-gradient(180deg, var(--etp-accent-soft) 0%, #fff 100%);
+            border-bottom: 1px solid var(--etp-border);
+        }
+    }
+
+    .etp-meta-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 14px;
+        margin-bottom: 26px;
+    }
+
+    .etp-meta-chip {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        background: #fcfbfd;
+
+        .etp-meta-ico {
+            display: grid;
+            place-items: center;
+            width: 38px;
+            height: 38px;
+            flex: 0 0 38px;
+            border-radius: 10px;
+            background: var(--etp-accent-soft);
+            color: var(--etp-accent);
+            font-size: 1rem;
+        }
+        .etp-meta-label {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--etp-faint);
+            font-weight: 700;
+        }
+        .etp-meta-value {
+            font-size: 1.05rem;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+    }
+
+    .etp-rules {
+        list-style: none;
+        margin: 0 0 8px;
+        padding: 0;
+
+        li {
+            position: relative;
+            padding: 9px 0 9px 30px;
+            border-bottom: 1px dashed var(--etp-border);
+            color: var(--etp-text);
+
+            &:last-child { border-bottom: 0; }
+
+            &::before {
+                content: "\f00c"; /* fa-check */
+                font-family: "FontAwesome";
+                position: absolute;
+                left: 0;
+                top: 9px;
+                color: var(--etp-accent);
+                font-size: 0.85rem;
+            }
+        }
+    }
+
+    .etp-warn {
+        display: flex;
+        gap: 10px;
+        align-items: flex-start;
+        margin: 18px 0 0;
+        padding: 12px 14px;
+        border-radius: var(--etp-radius-sm);
+        background: var(--etp-danger-soft);
+        color: #97302c;
+        border: 1px solid rgba(214, 69, 63, 0.2);
+        font-size: 0.9rem;
+    }
+
+    .etp-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px solid var(--etp-border);
+    }
+
+    /* ===================================================================
+       QUESTION RUNNER
+       =================================================================== */
+    .etp-exam-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 16px;
+        margin-bottom: 18px;
+    }
+
+    .etp-exam-header .etp-exam-name {
+        font-size: 1.15rem;
+        font-weight: 700;
+        margin: 0;
+    }
+    .etp-exam-header .etp-exam-sub {
+        color: var(--etp-muted);
+        font-size: 0.85rem;
+    }
+
+    .etp-header-aside {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-shrink: 0;
+    }
+
+    .etp-qcount {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 4px;
+        padding: 7px 13px;
+        border-radius: 999px;
+        background: #fff;
+        border: 1px solid var(--etp-border-strong);
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: var(--etp-muted);
+
+        b { color: var(--etp-text); font-size: 0.95rem; }
+    }
+
+    /* ---- timer badge: prominent; JS swaps bg-warning -> bg-danger ------- */
+    .etp-timer {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 8px 15px 8px 13px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.98rem;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.02em;
+        line-height: 1;
+        border: 1px solid transparent;
+        box-shadow: var(--etp-shadow-sm);
+
+        &::before {
+            content: "\f017"; /* fa-clock-o */
+            font-family: "FontAwesome";
+            font-size: 0.95rem;
+            opacity: 0.85;
+        }
+
+        /* running / plenty of time (the template ships bg-warning, which the
+           runner JS keeps until the deadline). We override Bootstrap's raw
+           yellow with a calmer amber that reads clearly on this surface. */
+        &.bg-warning {
+            background: var(--etp-warning-soft) !important;
+            color: #8a5a12 !important;
+            border-color: rgba(217, 138, 31, 0.32);
+        }
+
+        /* time up — JS adds bg-danger + text-white */
+        &.bg-danger {
+            background: var(--etp-danger) !important;
+            color: #fff !important;
+            border-color: transparent;
+            animation: etp-timer-pulse 1s ease-in-out infinite;
+        }
+    }
+
+    @keyframes etp-timer-pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(214, 69, 63, 0.45); }
+        50%      { box-shadow: 0 0 0 7px rgba(214, 69, 63, 0); }
+    }
+
+    /* ---- progress ------------------------------------------------------- */
+    .etp-progress {
+        height: 8px;
+        background: #e9e6ee;
+        border-radius: 999px;
+        overflow: hidden;
+        margin-bottom: 26px;
+
+        .progress-bar {
+            background: linear-gradient(90deg, var(--etp-accent) 0%, #9a6f8e 100%);
+            border-radius: 999px;
+            transition: width 0.45s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+    }
+
+    /* ---- question body -------------------------------------------------- */
+    .etp-question-title {
+        font-size: 1.18rem;
+        font-weight: 700;
+        margin: 0 0 6px;
+    }
+    .etp-question-prompt {
+        font-size: 1.02rem;
+        line-height: 1.6;
+        margin: 0 0 4px;
+    }
+    .etp-question-desc {
+        color: var(--etp-muted);
+        font-size: 0.92rem;
+    }
+
+    .etp-msq-hint {
+        display: inline-block;
+        font-size: 0.78rem;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--etp-accent);
+        background: var(--etp-accent-soft);
+        padding: 3px 10px;
+        border-radius: 999px;
+        margin-bottom: 4px;
+    }
+
+    .etp-options {
+        border: 0;
+        padding: 0;
+        margin: 18px 0;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    }
+
+    /* large click targets; selected/hover/focus states via :has + :focus-within */
+    .etp-option {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 13px;
+        margin: 0;
+        padding: 15px 17px;
+        min-height: 56px;
+        border: 1.5px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+        background: var(--etp-surface);
+        cursor: pointer;
+        transition: border-color 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+
+        .form-check-input {
+            float: none;
+            margin: 0;
+            flex: 0 0 auto;
+            width: 20px;
+            height: 20px;
+            cursor: pointer;
+            border-color: var(--etp-border-strong);
+
+            &:checked {
+                background-color: var(--etp-accent);
+                border-color: var(--etp-accent);
+            }
+            &:focus {
+                border-color: var(--etp-accent);
+                box-shadow: 0 0 0 0.2rem var(--etp-accent-ring);
+            }
+        }
+
+        .form-check-label {
+            flex: 1 1 auto;
+            cursor: pointer;
+            font-size: 0.98rem;
+            line-height: 1.4;
+            color: var(--etp-text);
+        }
+
+        &:hover {
+            border-color: var(--etp-accent);
+            background: #fcfbfd;
+        }
+
+        /* selected state (modern browsers) */
+        &:has(.form-check-input:checked) {
+            border-color: var(--etp-accent);
+            background: var(--etp-accent-soft);
+            box-shadow: 0 0 0 1px var(--etp-accent) inset;
+        }
+
+        /* keyboard focus ring on the whole row */
+        &:focus-within {
+            border-color: var(--etp-accent);
+            box-shadow: 0 0 0 4px var(--etp-accent-ring);
+        }
+    }
+
+    /* ---- free-text answer ----------------------------------------------- */
+    .etp-field {
+        margin: 18px 0 4px;
+
+        .form-label {
+            font-weight: 600;
+            font-size: 0.88rem;
+            color: var(--etp-text);
+            margin-bottom: 7px;
+        }
+    }
+
+    textarea.form-control,
+    .etp-textarea {
+        border: 1.5px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius-sm);
+        padding: 13px 15px;
+        font-size: 0.98rem;
+        line-height: 1.6;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        resize: vertical;
+
+        &:focus {
+            border-color: var(--etp-accent);
+            box-shadow: 0 0 0 0.2rem var(--etp-accent-ring);
+            outline: none;
+        }
+    }
+
+    /* ---- runner footer / nav ------------------------------------------- */
+    .etp-runner-footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-top: 28px;
+        padding-top: 22px;
+        border-top: 1px solid var(--etp-border);
+    }
+
+    /* ===================================================================
+       BUTTONS (scoped polish on top of Bootstrap)
+       =================================================================== */
+    .btn {
+        border-radius: 11px;
+        font-weight: 600;
+        padding: 0.62rem 1.25rem;
+        transition: transform 0.06s ease, box-shadow 0.15s ease, background 0.15s ease;
+
+        &:active { transform: translateY(1px); }
+        &:focus-visible {
+            outline: none;
+            box-shadow: 0 0 0 4px var(--etp-accent-ring);
+        }
+    }
+    .btn-lg { padding: 0.8rem 1.7rem; font-size: 1.02rem; }
+    .btn-sm { padding: 0.4rem 0.85rem; }
+
+    .btn-primary {
+        background: var(--etp-accent);
+        border-color: var(--etp-accent);
+        box-shadow: 0 8px 18px -10px var(--etp-accent);
+
+        &:hover, &:focus {
+            background: var(--etp-accent-600);
+            border-color: var(--etp-accent-600);
+        }
+    }
+
+    .btn-outline-secondary {
+        border-color: var(--etp-border-strong);
+        color: var(--etp-text);
+        background: #fff;
+
+        &:hover {
+            background: #f6f5f8;
+            border-color: var(--etp-muted);
+            color: var(--etp-text);
+        }
+        &:disabled { opacity: 0.45; }
+    }
+
+    .btn-success {
+        background: var(--etp-success);
+        border-color: var(--etp-success);
+        &:hover, &:focus { background: #18855a; border-color: #18855a; }
+    }
+
+    .btn-link {
+        color: var(--etp-accent);
+        font-weight: 600;
+        text-decoration: none;
+        &:hover { color: var(--etp-accent-700); text-decoration: underline; }
+    }
+
+    /* ===================================================================
+       RESULT PAGES (complete + per-question day result)
+       =================================================================== */
+    .etp-result-hero {
+        text-align: center;
+        max-width: 540px;
+        margin: 24px auto 0;
+        padding: 40px 32px;
+
+        .etp-result-icon {
+            width: 86px;
+            height: 86px;
+            margin: 0 auto 20px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-size: 2.4rem;
+
+            &.is-success { background: var(--etp-success-soft); color: var(--etp-success); }
+            &.is-info    { background: var(--etp-info-soft);    color: var(--etp-info); }
+        }
+        h3 { font-size: 1.5rem; font-weight: 750; margin: 0 0 8px; }
+        p  { color: var(--etp-muted); margin: 0 0 4px; }
+    }
+
+    .etp-result-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 24px 26px;
+        margin-bottom: 22px;
+        border-radius: var(--etp-radius);
+        background: linear-gradient(120deg, var(--etp-accent-700), var(--etp-accent));
+        color: #fff;
+        box-shadow: var(--etp-shadow);
+
+        h2 { color: #fff; margin: 0; font-size: 1.55rem; font-weight: 750; }
+        .etp-result-sub { color: rgba(255, 255, 255, 0.8); font-weight: 500; }
+    }
+
+    .etp-score-pill {
+        display: inline-flex;
+        flex-direction: column;
+        align-items: flex-end;
+        padding: 10px 18px;
+        border-radius: 14px;
+        background: rgba(255, 255, 255, 0.16);
+        backdrop-filter: blur(2px);
+
+        .etp-score-label {
+            font-size: 0.7rem;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            opacity: 0.85;
+        }
+        .etp-score-value { font-size: 1.45rem; font-weight: 750; line-height: 1.05; }
+    }
+
+    .etp-verdict {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 0.82rem;
+        letter-spacing: 0.04em;
+
+        &.is-pass { background: var(--etp-success-soft); color: #137a52; }
+        &.is-fail { background: var(--etp-danger-soft);  color: #aa322d; }
+        &.is-neutral { background: rgba(255,255,255,0.2); color: #fff; }
+    }
+
+    /* per-question result card */
+    .etp-qresult {
+        border-radius: var(--etp-radius-sm) !important;
+        border-left-width: 5px !important;
+        margin-bottom: 16px;
+
+        &--correct  { border-left-color: var(--etp-success) !important; }
+        &--incorrect { border-left-color: var(--etp-danger) !important; }
+        &--pending  { border-left-color: var(--etp-warning) !important; }
+
+        .card-header {
+            background: #fff;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+        .etp-qnum { color: var(--etp-accent); font-weight: 750; }
+    }
+
+    .etp-tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 4px 11px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+
+        &.is-correct { background: var(--etp-success-soft); color: #137a52; }
+        &.is-wrong   { background: var(--etp-danger-soft);  color: #aa322d; }
+        &.is-pending { background: var(--etp-warning-soft); color: #8a5a12; }
+        &.is-score   { background: #f1eff4; color: var(--etp-muted); }
+
+        &::before { font-family: "FontAwesome"; }
+        &.is-correct::before { content: "\f00c"; }
+        &.is-wrong::before   { content: "\f00d"; }
+    }
+
+    .etp-answer-row {
+        margin: 0 0 6px;
+        .etp-answer-label { font-weight: 700; color: var(--etp-text); margin-right: 6px; }
+    }
+    .etp-answer-correct {
+        margin: 8px 0 0;
+        padding: 10px 13px;
+        border-radius: 10px;
+        background: var(--etp-success-soft);
+        color: #137a52;
+        font-size: 0.92rem;
+        .etp-answer-label { color: #137a52; }
+    }
+    .etp-justification {
+        white-space: pre-wrap;
+        background: #faf9fb;
+        border: 1px solid var(--etp-border);
+        border-radius: 10px;
+        padding: 12px 14px;
+        margin: 6px 0 0;
+    }
+    .etp-feedback {
+        margin: 12px 0 0;
+        padding: 12px 14px;
+        border-radius: 10px;
+        background: var(--etp-info-soft);
+        border: 1px solid rgba(47, 116, 192, 0.18);
+        color: #1f4f86;
+    }
+
+    /* ===================================================================
+       STATE PAGES (locked / closed / invalid / wrong / finish)
+       =================================================================== */
+    .etp-state {
+        max-width: 560px;
+        margin: 30px auto 0;
+        text-align: center;
+        padding: 44px 36px;
+
+        .etp-state-icon {
+            width: 78px;
+            height: 78px;
+            margin: 0 auto 22px;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            font-size: 2.1rem;
+        }
+        h3 { font-size: 1.45rem; font-weight: 750; margin: 0 0 10px; }
+        p  { color: var(--etp-muted); margin: 0 0 8px; line-height: 1.6; }
+
+        .etp-state-actions {
+            margin-top: 24px;
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        form { margin: 0; }
+
+        &.is-danger  .etp-state-icon { background: var(--etp-danger-soft);  color: var(--etp-danger); }
+        &.is-warning .etp-state-icon { background: var(--etp-warning-soft); color: var(--etp-warning); }
+        &.is-info    .etp-state-icon { background: var(--etp-info-soft);    color: var(--etp-info); }
+        &.is-success .etp-state-icon { background: var(--etp-success-soft); color: var(--etp-success); }
+    }
+
+    /* legacy done icon (kept harmless) */
+    .o_etp_done_icon { line-height: 1; }
+
+    /* ===================================================================
+       MY ASSESSMENTS (candidate hub)
+       =================================================================== */
+    .o_etp_topbar_link {
+        color: rgba(255, 255, 255, 0.92);
+        font-weight: 600;
+        font-size: 0.9rem;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        padding: 6px 12px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.28);
+        transition: background 0.15s ease;
+
+        &:hover { background: rgba(255, 255, 255, 0.14); color: #fff; }
+    }
+
+    .etp-my-head {
+        margin-bottom: 28px;
+
+        .etp-my-title {
+            font-size: 1.9rem;
+            font-weight: 780;
+            margin: 0;
+        }
+        .etp-my-subtitle {
+            color: var(--etp-muted);
+            margin: 6px 0 0;
+            font-weight: 500;
+        }
+    }
+
+    .etp-my-section {
+        margin-bottom: 34px;
+
+        .etp-section-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+    }
+
+    .etp-count-pill {
+        display: inline-grid;
+        place-items: center;
+        min-width: 24px;
+        height: 24px;
+        padding: 0 8px;
+        border-radius: 999px;
+        background: var(--etp-accent-soft);
+        color: var(--etp-accent);
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0;
+    }
+
+    .etp-my-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+
+    .etp-acard {
+        display: flex;
+        align-items: stretch;
+        gap: 18px;
+        padding: 20px 22px;
+        background: var(--etp-surface);
+        border: 1px solid var(--etp-border);
+        border-left: 4px solid var(--etp-border-strong);
+        border-radius: var(--etp-radius);
+        box-shadow: var(--etp-shadow-sm);
+        transition: box-shadow 0.15s ease, transform 0.06s ease;
+
+        &:hover { box-shadow: var(--etp-shadow); }
+
+        &--available  { border-left-color: var(--etp-accent); }
+        &--progress   { border-left-color: var(--etp-info); }
+        &--locked     { border-left-color: var(--etp-faint); }
+        &--done       { border-left-color: var(--etp-success); }
+        &--missed     { border-left-color: var(--etp-danger); }
+    }
+
+    .etp-acard-main { flex: 1 1 auto; min-width: 0; }
+
+    .etp-acard-top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 8px;
+        flex-wrap: wrap;
+    }
+
+    .etp-acard-chip {
+        display: inline-flex;
+        align-items: center;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        padding: 3px 10px;
+        border-radius: 999px;
+        background: var(--etp-accent-soft);
+        color: var(--etp-accent);
+
+        &.is-single { background: #eef1f6; color: #51607a; }
+    }
+
+    .etp-acard-title {
+        font-size: 1.12rem;
+        font-weight: 700;
+        margin: 0;
+        line-height: 1.3;
+    }
+    .etp-acard-sub {
+        color: var(--etp-muted);
+        margin: 3px 0 0;
+        font-size: 0.92rem;
+    }
+
+    .etp-acard-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 18px;
+        margin-top: 12px;
+    }
+    .etp-acard-metaitem {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 0.84rem;
+        color: var(--etp-muted);
+
+        i { color: var(--etp-faint); }
+    }
+
+    .etp-acard-aside {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        justify-content: center;
+        gap: 10px;
+        flex: 0 0 auto;
+        text-align: right;
+    }
+
+    .etp-acard-score {
+        font-weight: 700;
+        font-size: 0.95rem;
+        color: var(--etp-text);
+    }
+
+    .etp-acard-lock {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: #f1eff4;
+        color: var(--etp-faint);
+        font-size: 1rem;
+    }
+
+    /* status badge — palette keyed by status_kind */
+    .etp-status {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 11px;
+        border-radius: 999px;
+        font-size: 0.74rem;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+
+        &.is-available { background: var(--etp-accent-soft); color: var(--etp-accent); }
+        &.is-progress  { background: var(--etp-info-soft);    color: #1f4f86; }
+        &.is-locked    { background: #f1eff4;                 color: var(--etp-faint); }
+        &.is-done      { background: var(--etp-success-soft);  color: #137a52; }
+        &.is-missed    { background: var(--etp-danger-soft);   color: #aa322d; }
+    }
+
+    /* ===================================================================
+       RESPONSIVE
+       =================================================================== */
+    @media (max-width: 576px) {
+        .o_etp_exam_body { padding-left: 14px; padding-right: 14px; padding-top: 24px; }
+        .o_etp_exam_topbar { padding: 12px 18px; }
+        .card-body { padding: 20px 18px; }
+        .etp-exam-header { flex-direction: column; }
+        .etp-header-aside { width: 100%; justify-content: space-between; }
+        .etp-result-header { flex-direction: column; }
+        .etp-runner-footer { flex-direction: column-reverse; align-items: stretch; }
+        .etp-runner-footer > * { width: 100%; }
+        .etp-runner-footer .btn { width: 100%; }
+        .etp-actions { flex-wrap: wrap; }
+
+        .etp-acard { flex-direction: column; gap: 14px; }
+        .etp-acard-aside {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            text-align: left;
+        }
+        .etp-acard-aside .btn { flex: 0 0 auto; }
+    }
+}
+
+/* Preserve the backend "My Assessments" hover used outside the exam root. */
+.o_etp_my .card { transition: box-shadow 0.15s ease; }
+.o_etp_my .card:hover { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }

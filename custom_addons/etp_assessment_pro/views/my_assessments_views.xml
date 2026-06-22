@@ -1,0 +1,141 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- =====================================================================
+         DAY SESSION views for model etp.assessment.pro.day.session.
+         These list/form/search views are the model defaults and back the
+         manager "Day Sessions" action (action_assessment_day_sessions_admin).
+         The former candidate kanban + action_my_assessments backend menu were
+         removed — candidates are PORTAL users (see /my/pro_assessments).
+         ===================================================================== -->
+    <record id="etp_assessment_pro_day_session_my_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.day.session.my.tree</field>
+        <field name="model">etp.assessment.pro.day.session</field>
+        <field name="arch" type="xml">
+            <list create="0" edit="0" default_order="assessment_id, day_sequence"
+                  decoration-muted="state == 'locked'"
+                  decoration-info="state == 'available'"
+                  decoration-warning="state == 'in_progress'"
+                  decoration-success="state in ('submitted','scored')"
+                  decoration-danger="state == 'missed'">
+                <field name="assessment_id"/>
+                <field name="day_sequence" string="Day #"/>
+                <field name="skill_id"/>
+                <field name="state" widget="badge"
+                       decoration-muted="state == 'locked'"
+                       decoration-info="state == 'available'"
+                       decoration-warning="state == 'in_progress'"
+                       decoration-success="state in ('submitted','scored')"
+                       decoration-danger="state == 'missed'"/>
+                <field name="answered_count" string="Answered"/>
+                <field name="total_questions" string="Questions"/>
+                <field name="duration_minutes" string="Duration (min)" optional="show"/>
+                <field name="score_admin_display" string="Result"/>
+                <field name="score" string="Score" optional="hide"/>
+                <field name="max_score" string="Max Score" optional="hide"/>
+                <field name="scheduled_start" optional="show"/>
+                <field name="started_at" optional="hide"/>
+                <field name="deadline_datetime" optional="hide"/>
+                <button name="action_open_test" type="object" string="Start / Resume"
+                        class="btn-link" icon="fa-play"
+                        invisible="state not in ('available','in_progress')"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_day_session_my_form" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.day.session.my.form</field>
+        <field name="model">etp.assessment.pro.day.session</field>
+        <field name="arch" type="xml">
+            <form create="0">
+                <header>
+                    <button name="action_open_test" string="Start / Resume Test"
+                            type="object" class="oe_highlight"
+                            invisible="state not in ('available','in_progress')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="locked,available,in_progress,submitted,scored"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="assessment_id" readonly="1"/>
+                            <field name="day_id" readonly="1"/>
+                            <field name="skill_id" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="total_questions" readonly="1"/>
+                            <field name="answered_count" readonly="1"/>
+                            <field name="duration_minutes" readonly="1"/>
+                            <field name="scheduled_start" readonly="1"/>
+                            <field name="score_admin_display" string="Score" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_day_session_my_search" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.day.session.my.search</field>
+        <field name="model">etp.assessment.pro.day.session</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="assessment_id"/>
+                <field name="skill_id"/>
+                <separator/>
+                <filter name="filter_upcoming" string="Upcoming"
+                        domain="[('state','=','locked')]"/>
+                <filter name="filter_available" string="Available"
+                        domain="[('state','=','available')]"/>
+                <filter name="filter_in_progress" string="In Progress"
+                        domain="[('state','=','in_progress')]"/>
+                <filter name="filter_completed" string="Completed"
+                        domain="[('state','in',('submitted','scored'))]"/>
+                <filter name="filter_missed" string="Missed"
+                        domain="[('state','=','missed')]"/>
+                <separator/>
+                <group>
+                    <filter name="group_state" string="Status"
+                            context="{'group_by':'state'}"/>
+                    <filter name="group_assessment" string="Assessment"
+                            context="{'group_by':'assessment_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_day_admin_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.day.admin.tree</field>
+        <field name="model">etp.assessment.pro.day</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="sequence"/>
+                <field name="assessment_id"/>
+                <field name="skill_id"/>
+                <field name="question_source"/>
+                <field name="question_count"/>
+                <field name="available_question_count"/>
+                <field name="duration_minutes"/>
+                <field name="scheduled_start"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_assessment_days_admin" model="ir.actions.act_window">
+        <field name="name">Day Plans</field>
+        <field name="res_model">etp.assessment.pro.day</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('etp_assessment_pro_day_admin_tree')})]"/>
+    </record>
+
+    <record id="action_assessment_day_sessions_admin" model="ir.actions.act_window">
+        <field name="name">All Day Sessions</field>
+        <field name="res_model">etp.assessment.pro.day.session</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

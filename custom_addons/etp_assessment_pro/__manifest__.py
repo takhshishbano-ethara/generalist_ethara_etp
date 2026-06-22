@@ -1,0 +1,38 @@
+{
+    "name": "ETP Assessment Pro",
+    "version": "19.0.1.0.0",
+    "summary": "Skill Bank + Question Bank + Assessment lifecycle (LLM-driven, Vertex AI)",
+    "author": "Ethara",
+    "website": "https://www.ethara.com",
+    "category": "Human Resources",
+    "license": "LGPL-3",
+    "depends": ["base", "mail", "hr", "hr_recruitment", "employee_extension", "website"],
+    "data": [
+        "security/etp_assessment_security.xml",
+        "security/ir.model.access.csv",
+        "security/etp_assessment_record_rules.xml",
+        "data/llm_config_parameters.xml",
+        "views/skill_views.xml",
+        "views/category_views.xml",
+        "views/dimension_views.xml",
+        "views/question_views.xml",
+        "views/prompt_views.xml",
+        "views/res_config_settings_views.xml",
+        "views/assessment_views.xml",
+        "views/my_assessments_views.xml",
+        "views/portal_templates.xml",
+        "data/cron.xml",
+        "data/mail_template.xml",
+        "views/menus.xml",
+    ],
+    "external_dependencies": {
+        "python": ["PyJWT", "httpx", "boto3", "cryptography"],
+    },
+    "assets": {
+        "web.assets_frontend": [
+            "etp_assessment_pro/static/src/scss/portal.scss",
+        ],
+    },
+    "installable": True,
+    "application": True,
+}
