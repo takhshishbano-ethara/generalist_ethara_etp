@@ -224,6 +224,71 @@ def _model_spend_by_budget(budget_ids, start, end):
     return out
 
 
+def _effective_model_spend_by_budget(budget_ids, start, end):
+    out = defaultdict(lambda: defaultdict(float))
+    if not budget_ids:
+        return out
+    Lines = request.env[COST_LINE_MODEL].sudo()
+    base_domain = [
+        ("budget_id", "in", list(budget_ids)),
+        ("granularity", "=", "day"),
+        ("period", ">=", start),
+        ("period", "<=", end),
+    ]
+    breakdown_groups = Lines._read_group(
+        base_domain + [("is_model_breakdown", "=", True)],
+        groupby=["budget_id", "model_name"],
+        aggregates=["amount_source:sum"],
+    )
+    breakdown_services = set()
+    for (b, mn, amt) in breakdown_groups:
+        key = mn or NO_MODEL_LABEL
+        out[b.id][key] += float(amt or 0.0)
+    bd_service_rows = Lines._read_group(
+        base_domain + [("is_model_breakdown", "=", True)],
+        groupby=["budget_id", "service_name"],
+        aggregates=["amount_source:sum"],
+    )
+    for (b, sn, _amt) in bd_service_rows:
+        breakdown_services.add((b.id, sn or ""))
+    service_groups = Lines._read_group(
+        base_domain + [("is_model_breakdown", "=", False)],
+        groupby=["budget_id", "service_name", "model_name"],
+        aggregates=["amount_source:sum"],
+    )
+    for (b, sn, mn, amt) in service_groups:
+        if (b.id, sn or "") in breakdown_services:
+            continue
+        key = mn or sn or NO_MODEL_LABEL
+        out[b.id][key] += float(amt or 0.0)
+    return out
+
+
+def _estimated_by_model_for_budgets(budget_ids, start, end):
+    out = defaultdict(lambda: defaultdict(float))
+    if not budget_ids:
+        return out
+    domain = [
+        ("project_budget_id", "in", list(budget_ids)),
+        ("state", "in", list(ACTIVE_BATCH_STATES)),
+    ]
+    if start and end:
+        domain += [
+            ("start_date", "<=", end),
+            ("end_date", ">=", start),
+        ]
+    batches = request.env[BATCH_MODEL].sudo().search(domain)
+    for bx in batches:
+        bid = bx.project_budget_id.id
+        total_tasks = float(bx.total_tasks or 0)
+        for ml in bx.model_line_ids:
+            if not ml.ai_model_id:
+                continue
+            name = ml.ai_model_id.name or NO_MODEL_LABEL
+            out[bid][name] += total_tasks * float(ml.per_task_cost or 0.0)
+    return out
+
+
 def _model_breakdown_rows(current_models, previous_models, current_total):
     keys = sorted(set(current_models) | set(previous_models))
     rows = []
@@ -1024,7 +1089,8 @@ class EtpProjectBudgetDashboardController(http.Controller):
             budgets = request.env[BUDGET_MODEL].sudo().search([("active", "=", True)])
             bids = budgets.ids
             spend = _spend_by_budget(bids, start, end)
-            model_spend = _model_spend_by_budget(bids, start, end)
+            model_spend = _effective_model_spend_by_budget(bids, start, end)
+            model_estimated = _estimated_by_model_for_budgets(bids, start, end)
             topups = _topups_by_budget(bids)
             batches = _batches_by_budget(bids, start, end)
 
@@ -1039,7 +1105,8 @@ class EtpProjectBudgetDashboardController(http.Controller):
                 actual = 0.0
                 estimated = 0.0
                 project_budget_total = 0.0
-                model_totals = defaultdict(float)
+                model_actuals = defaultdict(float)
+                model_estimates = defaultdict(float)
                 for b in project_budgets:
                     if b.project_id:
                         project_name = b.project_id.display_name
@@ -1051,7 +1118,9 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     bucket = batches.get(bid) or {"estimated": 0.0}
                     estimated += float(bucket["estimated"])
                     for mn, amt in (model_spend.get(bid) or {}).items():
-                        model_totals[mn] += float(amt or 0.0)
+                        model_actuals[mn] += float(amt or 0.0)
+                    for mn, amt in (model_estimated.get(bid) or {}).items():
+                        model_estimates[mn] += float(amt or 0.0)
 
                 remaining = project_budget_total - actual
                 used_until_pct = (
@@ -1060,27 +1129,31 @@ class EtpProjectBudgetDashboardController(http.Controller):
                 )
                 run_rate = actual / days
 
+                model_names = set(model_actuals) | set(model_estimates)
                 model_rows = []
-                for mn, m_actual in sorted(
-                    model_totals.items(), key=lambda kv: kv[1], reverse=True,
-                ):
-                    m_remaining = project_budget_total - m_actual
-                    m_used_pct = (
-                        (m_actual / project_budget_total * 100.0)
-                        if project_budget_total > 0 else 0.0
-                    )
+                for mn in model_names:
+                    m_actual = float(model_actuals.get(mn, 0.0))
+                    m_estimated = float(model_estimates.get(mn, 0.0))
                     m_run_rate = m_actual / days
                     m_share = (m_actual / actual * 100.0) if actual > 0 else 0.0
+                    m_used_pct = (
+                        (m_actual / m_estimated * 100.0)
+                        if m_estimated > 0 else 0.0
+                    )
                     model_rows.append({
                         "model_name": mn,
-                        "estimated_cost": None,
+                        "estimated_cost": _round2(m_estimated),
                         "actual_cost": _round2(m_actual),
-                        "remaining": _round2(m_remaining),
+                        "remaining": 0.0,
                         "project_budget": _round2(project_budget_total),
                         "used_until_pct": _round2(m_used_pct),
                         "run_rate": _round2(m_run_rate),
                         "share_pct": _round2(m_share),
                     })
+                model_rows.sort(
+                    key=lambda r: (r["actual_cost"], r["estimated_cost"]),
+                    reverse=True,
+                )
 
                 top_model = model_rows[0]["model_name"] if model_rows else None
 

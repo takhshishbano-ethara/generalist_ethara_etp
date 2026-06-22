@@ -70,3 +70,23 @@ class EtpProjectAwsCostLine(models.Model):
                 rec.period_label = rec.period.strftime("%Y-%m-%d")
             else:
                 rec.period_label = rec.period.strftime("%Y-%m")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        records._ensure_ai_models_from_lines()
+        return records
+
+    def _ensure_ai_models_from_lines(self):
+        names = set()
+        for rec in self:
+            effective = (rec.model_name or rec.service_name or "").strip()
+            if effective:
+                names.add(effective)
+        if not names:
+            return
+        Model = self.env["etp.ai.model"].sudo().with_context(active_test=False)
+        existing = set(Model.search([("name", "in", list(names))]).mapped("name"))
+        to_create = [{"name": n} for n in sorted(names - existing)]
+        if to_create:
+            Model.create(to_create)
