@@ -2,7 +2,7 @@ import base64
 import io
 import json
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from odoo import fields, http
 from odoo.exceptions import UserError
@@ -285,8 +285,8 @@ class EtpProjectsAwsCostController(http.Controller):
                     "budget_name": budget.name or "",
                     "project_id": budget.project_id.id if budget.project_id else False,
                     "project_name": budget.project_id.name if budget.project_id else "",
-                    "tag_key": budget.tag_key or "",
-                    "tag_value": budget.tag_value or "",
+                    "tag_key": budget.tag_summary or "",
+                    "tag_value": budget.tag_summary or "",
                     "status": "success",
                     "created": 0,
                     "updated": 0,
@@ -411,6 +411,412 @@ class EtpProjectsAwsCostController(http.Controller):
                 errors=[str(e)],
             )
 
+    DEFAULT_BURN_GRAPH_DAYS = 30
+    MAX_BURN_GRAPH_DAYS = 365
+
+    @staticmethod
+    def _pct(part, whole):
+        if not whole:
+            return 0.0
+        return round((part / whole) * 100.0, 2)
+
+    @staticmethod
+    def _round2(value):
+        return round(float(value or 0.0), 2)
+
+    @staticmethod
+    def _parse_date_param(raw, label):
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d").date(), None
+        except ValueError:
+            return None, return_Response(
+                message=f"Invalid {label} '{raw}'. Expected YYYY-MM-DD.",
+                status=400,
+            )
+
+    @classmethod
+    def _parse_positive_int_param(cls, raw, label, default, maximum):
+        if not raw:
+            return default, None
+        if not str(raw).isdigit():
+            return None, return_Response(
+                message=f"Invalid {label} '{raw}'. Expected a positive integer.",
+                status=400,
+            )
+        value = int(raw)
+        if value <= 0:
+            return None, return_Response(
+                message=f"{label} must be greater than zero.",
+                status=400,
+            )
+        if value > maximum:
+            return None, return_Response(
+                message=f"{label} must be <= {maximum}.",
+                status=400,
+            )
+        return value, None
+
+    @staticmethod
+    def _parse_positive_float_param(raw, label):
+        if not raw:
+            return None, None
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None, return_Response(
+                message=f"Invalid {label} '{raw}'. Expected a number.",
+                status=400,
+            )
+        if value <= 0:
+            return None, return_Response(
+                message=f"{label} must be greater than zero.",
+                status=400,
+            )
+        return value, None
+
+    @classmethod
+    def _resolve_budget_info_filters(cls, params):
+        raw_start = (params.get("start_date") or "").strip()
+        raw_end = (params.get("end_date") or "").strip()
+        start = end = None
+        if raw_start:
+            start, error = cls._parse_date_param(raw_start, "start_date")
+            if error is not None:
+                return None, error
+        if raw_end:
+            end, error = cls._parse_date_param(raw_end, "end_date")
+            if error is not None:
+                return None, error
+        if start and end and start > end:
+            return None, return_Response(
+                message="Invalid date range: start_date must be on or before end_date.",
+                status=400,
+            )
+
+        days, error = cls._parse_positive_int_param(
+            (params.get("graph_days") or "").strip(),
+            "graph_days",
+            cls.DEFAULT_BURN_GRAPH_DAYS,
+            cls.MAX_BURN_GRAPH_DAYS,
+        )
+        if error is not None:
+            return None, error
+
+        target_aht, error = cls._parse_positive_float_param(
+            (params.get("target_aht_minutes") or "").strip(),
+            "target_aht_minutes",
+        )
+        if error is not None:
+            return None, error
+
+        return {
+            "start": start,
+            "end": end,
+            "graph_days": days,
+            "target_aht": target_aht,
+        }, None
+
+    @staticmethod
+    def _resolve_budget_info_project_id(env, params):
+        raw = (params.get("project_id") or "").strip()
+        if not raw:
+            return None, None
+        if not raw.isdigit():
+            return None, return_Response(
+                message=f"Invalid project_id '{raw}'. Expected an integer.",
+                status=400,
+            )
+        project_id = int(raw)
+        if not env["project.project"].sudo().browse(project_id).exists():
+            return None, return_Response(
+                message=f"Project '{project_id}' not found.",
+                status=404,
+            )
+        return project_id, None
+
+    @staticmethod
+    def _budget_info_budget_domain(project_id, include_inactive):
+        domain = []
+        if not include_inactive:
+            domain.append(("active", "=", True))
+        if project_id:
+            domain.append(("project_id", "=", project_id))
+        return domain
+
+    @staticmethod
+    def _budget_info_cost_line_domain(budgets, filters):
+        domain = [
+            ("budget_id", "in", budgets.ids),
+            ("is_model_breakdown", "=", False),
+        ]
+        if filters["start"]:
+            domain.append(("period", ">=", filters["start"].replace(day=1)))
+        if filters["end"]:
+            domain.append(("period", "<=", filters["end"]))
+        return domain
+
+    @classmethod
+    def _build_budget_info_kpi(cls, env, project_id, include_inactive):
+        Budget = env["etp.project.aws.budget"].sudo()
+        budgets = Budget.search(
+            cls._budget_info_budget_domain(project_id, include_inactive)
+        )
+
+        total_budget = sum(b.budget_amount or 0.0 for b in budgets)
+        total_consumed = sum(b.consumed_amount or 0.0 for b in budgets)
+        total_remaining = total_budget - total_consumed
+
+        today = date.today()
+        burn_window_start = today - timedelta(days=6)
+        Line = env["etp.project.aws.cost.line"].sudo()
+        recent_lines = Line.search([
+            ("budget_id", "in", budgets.ids),
+            ("is_model_breakdown", "=", False),
+            ("granularity", "=", "day"),
+            ("period", ">=", burn_window_start),
+            ("period", "<=", today),
+        ]) if budgets else Line.browse()
+        recent_total = sum(line.amount_source or 0.0 for line in recent_lines)
+        daily_burn = recent_total / 7.0 if recent_total else 0.0
+
+        runway_days = None
+        if daily_burn > 0:
+            runway_days = int(total_remaining / daily_burn) if total_remaining > 0 else 0
+
+        return {
+            "budget_count": len(budgets),
+            "total_budget": {
+                "amount": cls._round2(total_budget),
+                "percentage": 100.0 if total_budget else 0.0,
+            },
+            "total_consumed": {
+                "amount": cls._round2(total_consumed),
+                "percentage": cls._pct(total_consumed, total_budget),
+            },
+            "total_remaining": {
+                "amount": cls._round2(total_remaining),
+                "percentage": cls._pct(total_remaining, total_budget),
+            },
+            "daily_burn_rate": {
+                "amount": cls._round2(daily_burn),
+                "percentage": cls._pct(daily_burn, total_budget),
+            },
+            "runway_days": runway_days,
+        }, budgets
+
+    @classmethod
+    def _build_budget_info_service_costs(cls, env, budgets, filters):
+        if not budgets:
+            return {"total_amount": 0.0, "services": []}
+        Line = env["etp.project.aws.cost.line"].sudo()
+        lines = Line.search(cls._budget_info_cost_line_domain(budgets, filters))
+
+        totals = {}
+        grand_total = 0.0
+        for line in lines:
+            amount = line.amount_source or 0.0
+            if not amount:
+                continue
+            grand_total += amount
+            key = line.service_name or "Unknown"
+            totals[key] = totals.get(key, 0.0) + amount
+
+        breakdown = [
+            {
+                "service_name": name,
+                "amount": cls._round2(amount),
+                "percentage": cls._pct(amount, grand_total),
+            }
+            for name, amount in sorted(totals.items(), key=lambda item: -item[1])
+        ]
+        return {
+            "total_amount": cls._round2(grand_total),
+            "services": breakdown,
+        }
+
+    @classmethod
+    def _build_budget_info_aht_overview(cls, filters):
+        target = filters["target_aht"]
+        return {
+            "aht_measured_count": 0,
+            "aht_total_minutes": 0.0,
+            "aht_average_minutes": 0.0,
+            "target_aht_minutes": cls._round2(target) if target else None,
+            "target_indicator": "no_target" if not target else "no_data",
+        }
+
+    @classmethod
+    def _build_budget_info_daily_burn_graph(cls, env, budgets, filters):
+        today = date.today()
+        end = filters["end"] or today
+        if filters["start"]:
+            start = filters["start"]
+        else:
+            start = end - timedelta(days=filters["graph_days"] - 1)
+
+        series = []
+        if not budgets:
+            cursor = start
+            while cursor <= end:
+                series.append({"date": cursor.isoformat(), "amount": 0.0})
+                cursor += timedelta(days=1)
+            return {
+                "window": {"start": start.isoformat(), "end": end.isoformat()},
+                "total_amount": 0.0,
+                "average_per_day": 0.0,
+                "peak_day": None,
+                "series": series,
+            }
+
+        Line = env["etp.project.aws.cost.line"].sudo()
+        lines = Line.search([
+            ("budget_id", "in", budgets.ids),
+            ("is_model_breakdown", "=", False),
+            ("granularity", "=", "day"),
+            ("period", ">=", start),
+            ("period", "<=", end),
+        ])
+
+        daily_by_date = {}
+        for line in lines:
+            day = line.period
+            if not day or not (start <= day <= end):
+                continue
+            amount = float(line.amount_source or 0.0)
+            if amount <= 0:
+                continue
+            daily_by_date[day] = daily_by_date.get(day, 0.0) + amount
+
+        cursor = start
+        while cursor <= end:
+            amount = daily_by_date.get(cursor, 0.0)
+            series.append({"date": cursor.isoformat(), "amount": cls._round2(amount)})
+            cursor += timedelta(days=1)
+
+        total = sum(point["amount"] for point in series)
+        peak = max(series, key=lambda p: p["amount"]) if series else None
+        if peak and peak["amount"] == 0.0:
+            peak = None
+        average = total / len(series) if series else 0.0
+        return {
+            "window": {"start": start.isoformat(), "end": end.isoformat()},
+            "total_amount": cls._round2(total),
+            "average_per_day": cls._round2(average),
+            "peak_day": peak,
+            "series": series,
+        }
+
+    @classmethod
+    def _build_budget_info_burn_per_batch(cls, budgets):
+        batches = budgets.mapped("batch_budget_ids") if budgets else None
+        rows = []
+        for batch in (batches or []):
+            if batch.state in ("rejected", "withdrawn"):
+                continue
+            approved = batch.approved_amount or 0.0
+            consumed = batch.consumed_cost or 0.0
+            rate = round((consumed / approved) * 100) if approved else 0
+            if rate >= 80:
+                status = "approved"
+            elif rate >= 50:
+                status = "partial"
+            else:
+                status = "pending"
+            rows.append({
+                "batch_id": batch.name or "",
+                "videos": batch.total_tasks or 0,
+                "burn": cls._round2(consumed),
+                "approval": {"rate": rate, "status": status},
+                "feedback": "",
+                "tasks": [],
+            })
+        return {
+            "title": "Burn per batch",
+            "batches": rows,
+        }
+
+    @staticmethod
+    def _budget_info_max_last_fetched_at(budgets):
+        if not budgets:
+            return ""
+        ts = max((b.last_fetched_at for b in budgets if b.last_fetched_at), default=None)
+        return ts.strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+
+    @staticmethod
+    def _budget_info_latest_fetch_log(env, budgets):
+        if not budgets:
+            return None
+        log = env["etp.project.aws.cost.fetch.log"].sudo().search(
+            [("budget_id", "in", budgets.ids)],
+            order="fetched_at desc, id desc",
+            limit=1,
+        )
+        return log.to_api_dict() if log else None
+
+    @classmethod
+    def _build_budget_info_payload(cls, env, project_id, include_inactive, filters):
+        kpi, budgets = cls._build_budget_info_kpi(env, project_id, include_inactive)
+        service_costs = cls._build_budget_info_service_costs(env, budgets, filters)
+        aht_overview = cls._build_budget_info_aht_overview(filters)
+        burn_graph = cls._build_budget_info_daily_burn_graph(env, budgets, filters)
+
+        return {
+            "filters": {
+                "project_id": project_id,
+                "include_inactive": include_inactive,
+                "start_date": filters["start"].isoformat() if filters["start"] else None,
+                "end_date": filters["end"].isoformat() if filters["end"] else None,
+                "graph_days": filters["graph_days"],
+                "target_aht_minutes": (
+                    cls._round2(filters["target_aht"]) if filters["target_aht"] else None
+                ),
+            },
+            "kpi": kpi,
+            "service_costs": service_costs,
+            "aht_overview": aht_overview,
+            "daily_burn_graph": burn_graph,
+            "budget_timeline": {},
+            "burn_per_batch": cls._build_budget_info_burn_per_batch(budgets),
+            "allocation_ledger": {},
+            "last_fetched_at": cls._budget_info_max_last_fetched_at(budgets),
+            "last_fetch_log": cls._budget_info_latest_fetch_log(env, budgets),
+        }
+
+    @http.route(
+        '/api/v1/etp_projects/budget/info',
+        methods=['GET'], type='http', auth='none', csrf=False, cors='*',
+    )
+    @validate_token
+    def etp_project_budget_info(self, **kwargs):
+        env = request.env
+        params = request.params or {}
+
+        project_id, error = self._resolve_budget_info_project_id(env, params)
+        if error is not None:
+            return error
+
+        filters, error = self._resolve_budget_info_filters(params)
+        if error is not None:
+            return error
+
+        include_inactive = (params.get("include_inactive") or "").strip().lower() in (
+            "1", "true", "yes",
+        )
+
+        try:
+            data = self._build_budget_info_payload(
+                env, project_id, include_inactive, filters,
+            )
+        except Exception as e:
+            _logger.exception("etp_project_budget_info failed")
+            return return_Response(
+                message="Failed to build budget info.",
+                status=400,
+                errors=[str(e)],
+            )
+
+        return return_Response(message="OK", status=200, data=data)
+
     def _serialize_batch_budget(self, batch):
         batch.ensure_one()
         return {
@@ -461,13 +867,6 @@ class EtpProjectsAwsCostController(http.Controller):
                     message="Project budget %s not found." % project_budget_id,
                     status=404,
                 )
-            # Matches the Odoo form domain. # TODO: confirm with reviewer.
-            if budget.project_type != 'operations':
-                return return_Response(
-                    message="Project budget must be an Operations budget.",
-                    status=400,
-                )
-
             total_tasks = jdata.get('total_tasks')
             if not isinstance(total_tasks, int) or total_tasks <= 0:
                 return return_Response(

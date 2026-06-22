@@ -740,7 +740,11 @@ class EtpProjectBudgetController(http.Controller):
                 message="'justification' is required.", status=400,
             )
 
+        total_tasks = jdata.get("total_tasks") or 0
+        buffer_pct = float(jdata.get("buffer_pct") or 0.0)
+
         # Build wizard line commands, validating referenced ids up front.
+        # requested_amount is set explicitly: wizard onchange does not fire on server-side create().
         model_lines = jdata.get("model_lines") or []
         model_cmds = []
         for line in model_lines:
@@ -750,10 +754,16 @@ class EtpProjectBudgetController(http.Controller):
                     message="Each model line needs an integer 'ai_model_id'.",
                     status=400,
                 )
+            per_task_cost = float(line.get("per_task_cost") or 0.0)
+            if "requested_amount" in line:
+                requested_amount = float(line.get("requested_amount") or 0.0)
+            else:
+                requested_amount = (total_tasks or 0) * per_task_cost
             model_cmds.append((0, 0, {
                 "ai_model_id": ai_model_id,
                 "description": line.get("description") or False,
-                "per_task_cost": line.get("per_task_cost") or 0.0,
+                "per_task_cost": per_task_cost,
+                "requested_amount": requested_amount,
             }))
         missing = _missing_ids(
             "etp.ai.model", [c[2]["ai_model_id"] for c in model_cmds],
@@ -775,7 +785,7 @@ class EtpProjectBudgetController(http.Controller):
             infra_cmds.append((0, 0, {
                 "infra_type_id": infra_type_id,
                 "description": line.get("description") or False,
-                "requested_amount": line.get("requested_amount") or 0.0,
+                "requested_amount": float(line.get("requested_amount") or 0.0),
             }))
         missing = _missing_ids(
             "etp.infra.type", [c[2]["infra_type_id"] for c in infra_cmds],
@@ -790,14 +800,25 @@ class EtpProjectBudgetController(http.Controller):
                 message="Add at least one model or infrastructure line.", status=400,
             )
 
+        # requested_total is set explicitly: wizard onchange does not fire on server-side create().
+        if "requested_total" in jdata:
+            requested_total = float(jdata.get("requested_total") or 0.0)
+        else:
+            subtotal = (
+                sum(c[2]["requested_amount"] for c in model_cmds)
+                + sum(c[2]["requested_amount"] for c in infra_cmds)
+            )
+            requested_total = subtotal * (1.0 + (buffer_pct / 100.0))
+
         wiz_vals = {
             "batch_id": batch_id,
             "justification": justification,
             "subject": jdata.get("subject") or False,
             "message": jdata.get("message") or False,
             "priority": jdata.get("priority") or "normal",
-            "total_tasks": jdata.get("total_tasks") or 0,
-            "buffer_pct": jdata.get("buffer_pct") or 0.0,
+            "total_tasks": total_tasks,
+            "buffer_pct": buffer_pct,
+            "requested_total": requested_total,
             "model_line_ids": model_cmds,
             "infra_line_ids": infra_cmds,
         }
@@ -1023,71 +1044,76 @@ class EtpProjectBudgetController(http.Controller):
 
         batch = None
         req = None
-        if budget_type == "operations":
-            today = fields.Date.context_today(request.env.user)
-            raw_tc = jdata.get("task_count")
-            task_count = raw_tc if isinstance(raw_tc, int) and raw_tc > 0 else 1
-            try:
-                start_date = _coerce_date(jdata.get("start_date"), "start_date") or today
-            except ValidationError:
-                start_date = today
-            try:
-                end_date = _coerce_date(jdata.get("end_date"), "end_date") or today
-            except ValidationError:
-                end_date = today
-            if end_date < start_date:
-                end_date = start_date
-            justification = (jdata.get("justification") or "").strip() or "Auto-generated batch budget request."
-            raw_priority = jdata.get("priority")
-            priority = raw_priority if raw_priority in ("low", "normal", "high", "urgent") else "normal"
-            buffer_pct = float(vals.get("buffer_pct") or 0.0)
+        today = fields.Date.context_today(request.env.user)
+        raw_tc = jdata.get("task_count")
+        task_count = raw_tc if isinstance(raw_tc, int) and raw_tc > 0 else 1
+        try:
+            start_date = _coerce_date(jdata.get("start_date"), "start_date") or today
+        except ValidationError:
+            start_date = today
+        try:
+            end_date = _coerce_date(jdata.get("end_date"), "end_date") or today
+        except ValidationError:
+            end_date = today
+        if end_date < start_date:
+            end_date = start_date
+        justification = (jdata.get("justification") or "").strip() or "Auto-generated batch budget request."
+        raw_priority = jdata.get("priority")
+        priority = raw_priority if raw_priority in ("low", "normal", "high", "urgent") else "normal"
+        buffer_pct = float(vals.get("buffer_pct") or 0.0)
 
-            try:
-                with request.env.cr.savepoint():
-                    batch = request.env["etp.batch.budget"].sudo().create({
-                        "project_budget_id": budget.id,
-                        "total_tasks": task_count,
-                        "start_date": start_date,
-                        "end_date": end_date,
-                        "buffer_pct": buffer_pct,
-                    })
-                    if budget.model_line_ids:
-                        wiz_model_cmds = [
-                            (0, 0, {
-                                "ai_model_id": line.ai_model_id.id,
-                                "per_task_cost": line.per_task_cost or 0.0,
+        try:
+            with request.env.cr.savepoint():
+                batch = request.env["etp.batch.budget"].sudo().create({
+                    "project_budget_id": budget.id,
+                    "total_tasks": task_count,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "buffer_pct": buffer_pct,
+                })
+                if budget.model_line_ids:
+                    # requested_amount/requested_total set explicitly: wizard onchange does not fire on server-side create().
+                    wiz_model_cmds = [
+                        (0, 0, {
+                            "ai_model_id": line.ai_model_id.id,
+                            "per_task_cost": line.per_task_cost or 0.0,
+                            "requested_amount": (task_count or 0) * (line.per_task_cost or 0.0),
+                        })
+                        for line in budget.model_line_ids
+                    ]
+                    suggested_total = sum(
+                        c[2]["requested_amount"] for c in wiz_model_cmds
+                    ) * (1.0 + (buffer_pct / 100.0))
+                    try:
+                        with request.env.cr.savepoint():
+                            wizard = request.env["etp.batch.budget.request.wizard"].sudo().create({
+                                "batch_id": batch.id,
+                                "justification": justification,
+                                "priority": priority,
+                                "total_tasks": task_count,
+                                "buffer_pct": buffer_pct,
+                                "requested_total": suggested_total,
+                                "model_line_ids": wiz_model_cmds,
                             })
-                            for line in budget.model_line_ids
-                        ]
-                        try:
-                            with request.env.cr.savepoint():
-                                wizard = request.env["etp.batch.budget.request.wizard"].sudo().create({
-                                    "batch_id": batch.id,
-                                    "justification": justification,
-                                    "priority": priority,
-                                    "total_tasks": task_count,
-                                    "buffer_pct": buffer_pct,
-                                    "model_line_ids": wiz_model_cmds,
-                                })
-                                result = wizard.action_submit()
-                                new_req_id = result.get("res_id") if isinstance(result, dict) else None
-                                if new_req_id:
-                                    candidate = request.env[REQUEST_MODEL].sudo().browse(new_req_id)
-                                    if candidate.exists():
-                                        req = candidate
-                        except Exception as wexc:
-                            _logger.warning(
-                                "project_budget_create: batch budget request skipped for budget %s: %s",
-                                budget.id, wexc,
-                            )
-                            req = None
-            except Exception as bexc:
-                _logger.warning(
-                    "project_budget_create: batch creation skipped for budget %s: %s",
-                    budget.id, bexc,
-                )
-                batch = None
-                req = None
+                            result = wizard.action_submit()
+                            new_req_id = result.get("res_id") if isinstance(result, dict) else None
+                            if new_req_id:
+                                candidate = request.env[REQUEST_MODEL].sudo().browse(new_req_id)
+                                if candidate.exists():
+                                    req = candidate
+                    except Exception as wexc:
+                        _logger.warning(
+                            "project_budget_create: batch budget request skipped for budget %s: %s",
+                            budget.id, wexc,
+                        )
+                        req = None
+        except Exception as bexc:
+            _logger.warning(
+                "project_budget_create: batch creation skipped for budget %s: %s",
+                budget.id, bexc,
+            )
+            batch = None
+            req = None
 
         inner_data = _budget_to_dict(budget)
         if batch is not None and batch.exists():

@@ -140,13 +140,15 @@ class EtpBatchBudgetRequest(models.Model):
     )
     requested_total = fields.Float(
         string="Requested Total (USD)",
-        compute="_compute_totals",
-        store=True,
+        help="Auto-suggested as (sum of line requested amounts) x "
+             "(1 + buffer %) when lines or buffer change. Fully editable - "
+             "the value is not recomputed on the server.",
     )
     approved_total = fields.Float(
         string="Approved Total (USD)",
-        compute="_compute_totals",
-        store=True,
+        help="Auto-suggested as (sum of line approved amounts) x "
+             "(1 + buffer %) when lines or buffer change. Fully editable - "
+             "the value is not recomputed on the server.",
     )
 
     @api.depends(
@@ -169,14 +171,20 @@ class EtpBatchBudgetRequest(models.Model):
                     break
             rec.sequence_number = pos
 
-    @api.depends(
-        "model_line_ids.requested_amount",
-        "model_line_ids.approved_amount",
-        "infra_line_ids.requested_amount",
-        "infra_line_ids.approved_amount",
+    @api.onchange("total_tasks")
+    def _onchange_total_tasks_update_lines(self):
+        for rec in self:
+            for line in rec.model_line_ids:
+                line.requested_amount = (
+                    (rec.total_tasks or 0) * (line.per_task_cost or 0.0)
+                )
+
+    @api.onchange(
+        "model_line_ids",
+        "infra_line_ids",
         "buffer_pct",
     )
-    def _compute_totals(self):
+    def _onchange_suggest_totals(self):
         for rec in self:
             factor = 1.0 + ((rec.buffer_pct or 0.0) / 100.0)
             requested_base = (
@@ -258,6 +266,8 @@ class EtpBatchBudgetRequest(models.Model):
             for line in rec.infra_line_ids:
                 if not line.approved_amount:
                     line.approved_amount = line.requested_amount
+            if not rec.approved_total:
+                rec.approved_total = rec.requested_total
             rec.state = "pending"
             email_values = {}
             if rec.subject:
@@ -280,19 +290,23 @@ class EtpBatchBudgetRequest(models.Model):
                     "Approved total must be greater than zero. "
                     "Use 'Reject' if you want to deny the request entirely."
                 ))
-            remaining = rec.project_budget_id.allocatable_amount or 0.0
-            if (rec.approved_total or 0.0) > remaining:
-                raise UserError(_(
-                    "Approved amount (USD %(app).2f) exceeds remaining project "
-                    "budget (USD %(rem).2f). Approve a smaller amount or have "
-                    "the project owner top up the project budget first."
-                ) % {"app": rec.approved_total, "rem": remaining})
-            is_partial = any(
-                (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
-                for line in rec.model_line_ids
-            ) or any(
-                (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
-                for line in rec.infra_line_ids
+            # remaining = rec.project_budget_id.allocatable_amount or 0.0
+            # if (rec.approved_total or 0.0) > remaining:
+            #     raise UserError(_(
+            #         "Approved amount (USD %(app).2f) exceeds remaining project "
+            #         "budget (USD %(rem).2f). Approve a smaller amount or have "
+            #         "the project owner top up the project budget first."
+            #     ) % {"app": rec.approved_total, "rem": remaining})
+            is_partial = (
+                (rec.approved_total or 0.0) < (rec.requested_total or 0.0)
+                or any(
+                    (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
+                    for line in rec.model_line_ids
+                )
+                or any(
+                    (line.approved_amount or 0.0) < (line.requested_amount or 0.0)
+                    for line in rec.infra_line_ids
+                )
             )
             new_state = "partially_approved" if is_partial else "approved"
             rec.write({

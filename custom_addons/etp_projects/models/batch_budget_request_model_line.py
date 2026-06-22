@@ -22,16 +22,16 @@ class EtpBatchBudgetRequestModelLine(models.Model):
     per_task_cost = fields.Float(string="Per Task Cost (USD)")
     requested_amount = fields.Float(
         string="Requested (USD)",
-        compute="_compute_requested_amount",
-        store=True,
-        readonly=False,
-        help="Total Tasks (on the request) x Per Task Cost.",
+        help="Auto-suggested as Total Tasks (on the request) x Per Task Cost "
+             "whenever Per Task Cost changes. Fully editable.",
     )
     approved_amount = fields.Float(string="Approved (USD)")
 
-    @api.depends("request_id.total_tasks", "per_task_cost")
-    def _compute_requested_amount(self):
+    @api.onchange("per_task_cost")
+    def _onchange_per_task_cost(self):
         for line in self:
-            line.requested_amount = (
-                (line.request_id.total_tasks or 0) * (line.per_task_cost or 0.0)
-            )
+            if line.request_id:
+                line.requested_amount = (
+                    (line.request_id.total_tasks or 0)
+                    * (line.per_task_cost or 0.0)
+                )

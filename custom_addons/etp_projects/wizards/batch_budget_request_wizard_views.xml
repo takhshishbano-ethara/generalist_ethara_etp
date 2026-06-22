@@ -17,7 +17,7 @@
                             <field name="is_first_request" invisible="1"/>
                             <field name="total_tasks"/>
                             <field name="buffer_pct"/>
-                            <field name="requested_total" readonly="1"/>
+                            <field name="requested_total"/>
                             <field name="priority"/>
                         </group>
                     </group>

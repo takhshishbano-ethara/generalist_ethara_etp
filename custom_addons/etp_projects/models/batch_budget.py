@@ -49,7 +49,6 @@ class EtpBatchBudget(models.Model):
         string="Project Budget",
         required=True,
         ondelete="restrict",
-        domain="[('project_type','=','operations')]",
         tracking=True,
     )
     project_id = fields.Many2one(

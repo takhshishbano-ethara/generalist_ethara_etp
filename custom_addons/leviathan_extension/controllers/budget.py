@@ -170,14 +170,32 @@ def _cost_line_domain(budgets, filters):
     return domain
 
 
+def _compute_daily_burn(env, budgets, days=7):
+    if not budgets:
+        return 0.0
+    cutoff = date.today() - timedelta(days=days)
+    rows = env["etp.project.aws.cost.line"].sudo().read_group(
+        [
+            ("budget_id", "in", budgets.ids),
+            ("granularity", "=", "day"),
+            ("is_model_breakdown", "=", False),
+            ("period", ">=", cutoff),
+        ],
+        fields=["amount_source:sum"],
+        groupby=[],
+    )
+    total = (rows[0].get("amount_source") if rows else 0.0) or 0.0
+    return total / days
+
+
 def _build_budget_kpi(env, project_id, include_inactive):
     Budget = env["etp.project.aws.budget"].sudo()
     budgets = Budget.search(_budget_domain(project_id, include_inactive))
 
     total_budget = sum(b.budget_amount or 0.0 for b in budgets)
-    total_consumed = sum(b.total_consumed or 0.0 for b in budgets)
-    total_remaining = sum(b.remaining or 0.0 for b in budgets)
-    daily_burn = sum(b.daily_burn_rate or 0.0 for b in budgets)
+    total_consumed = sum(b.consumed_amount or 0.0 for b in budgets)
+    total_remaining = sum(b.remaining_amount or 0.0 for b in budgets)
+    daily_burn = _compute_daily_burn(env, budgets)
 
     runway_days = None
     if daily_burn > 0 and total_remaining > 0:

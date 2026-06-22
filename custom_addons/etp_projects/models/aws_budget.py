@@ -386,7 +386,6 @@ class EtpProjectAwsBudget(models.Model):
             rec.cost_line_count = len(rec.cost_line_ids)
 
     @api.depends(
-        "project_type",
         "budget_amount",
         "batch_budget_ids.state",
         "batch_budget_ids.approved_amount",
@@ -415,41 +414,29 @@ class EtpProjectAwsBudget(models.Model):
             )
             rec.topup_total_amount = topups
             rec.llm_consumed_amount = llm_consumed
-            if rec.project_type == "rnd":
-                rec.total_approved_amount = envelope
-                rec.allocated_amount = 0.0
-                rec.consumed_amount = llm_consumed
-                rec.remaining_amount = envelope - llm_consumed
-                rec.allocatable_amount = envelope - llm_consumed
-                consumed_for_pct = llm_consumed
-                base_for_pct = envelope
-            else:
-                # Total Approved Budget = sum of batch-wise Approved Amount
-                # (each batch's Approved Amount already includes any leftover
-                #  carried over into it from a delivered batch).
-                approved_total = 0.0
-                consumed = 0.0
-                for batch in rec.batch_budget_ids:
-                    if batch.state in ("rejected", "withdrawn"):
-                        continue
-                    approved_total += batch.approved_amount or 0.0
-                    consumed += batch.consumed_cost or 0.0
-                rec.total_approved_amount = approved_total
-                # Allocated to Batches = unallocated delivered-leftover pool,
-                # waiting to be carried into the next new/restarted batch.
-                rec.allocated_amount = rec.batch_budget_remain or 0.0
-                rec.consumed_amount = consumed
-                # Remaining = Total Approved Budget - Consumed by Batches.
-                rec.remaining_amount = approved_total - consumed
-                # Available to Allocate = funding envelope not yet approved
-                # to batches. New batch requests are guarded against this.
-                rec.allocatable_amount = envelope - approved_total
-                consumed_for_pct = consumed
-                base_for_pct = approved_total
-            pct = (consumed_for_pct / base_for_pct * 100.0) if base_for_pct else 0.0
+            # Total Approved Budget = sum of batch-wise Approved Amount
+            # (each batch's Approved Amount already includes any leftover
+            #  carried over into it from a delivered batch).
+            approved_total = 0.0
+            consumed = 0.0
+            for batch in rec.batch_budget_ids:
+                if batch.state in ("rejected", "withdrawn"):
+                    continue
+                approved_total += batch.approved_amount or 0.0
+                consumed += batch.consumed_cost or 0.0
+            rec.total_approved_amount = approved_total
+            # Allocated to Batches = unallocated delivered-leftover pool,
+            # waiting to be carried into the next new/restarted batch.
+            rec.allocated_amount = rec.batch_budget_remain or 0.0
+            rec.consumed_amount = consumed
+            # Remaining = Total Approved Budget - Consumed by Batches.
+            rec.remaining_amount = approved_total - consumed
+            # Available to Allocate = funding envelope not yet approved
+            # to batches. New batch requests are guarded against this.
+            rec.allocatable_amount = envelope - approved_total
+            pct = (consumed / approved_total * 100.0) if approved_total else 0.0
             rec.consumed_pct = pct
-            envelope = base_for_pct
-            if not envelope:
+            if not approved_total:
                 rec.health_status = "unknown"
             elif pct < 60.0:
                 rec.health_status = "healthy"

@@ -31,6 +31,7 @@ BASE_ROUTE = "/api/v1/etp_projects/project_budget_dashboard"
 
 ACTIVE_BATCH_STATES = ("approved", "in_progress", "delivered", "closed")
 APPROVED_TOPUP_STATE = "approved"
+TOTAL_APPROVED_EXCLUDED_BATCH_STATES = ("rejected", "withdrawn")
 
 HEALTH_HEALTHY_PCT = 60.0
 HEALTH_WARNING_PCT = 80.0
@@ -343,20 +344,37 @@ def _batches_by_budget(budget_ids, start, end):
     return out
 
 
-def _project_row(budget, spend, topups, batches, days, models_cur, models_prev):
+def _total_approved_by_budget(budgets):
+    out = {}
+    if not budgets:
+        return out
+
+    bids = [b.id for b in budgets]
+    approved_by_id = defaultdict(float)
+    batches = request.env[BATCH_MODEL].sudo().search([
+        ("project_budget_id", "in", bids),
+        ("state", "not in", list(TOTAL_APPROVED_EXCLUDED_BATCH_STATES)),
+    ])
+    for bx in batches:
+        approved_by_id[bx.project_budget_id.id] += float(
+            bx.approved_amount or 0.0
+        )
+    for bid in bids:
+        out[bid] = float(approved_by_id.get(bid, 0.0))
+
+    return out
+
+
+def _project_row(budget, spend, topups, batches, days, models_cur, models_prev, total_approved):
     is_rnd = (budget.project_type == "rnd")
     budget_amount = float(budget.budget_amount or 0.0)
     topup_total = float(topups.get(budget.id, 0.0))
-    final_budget = budget_amount + topup_total
+    final_budget = float(total_approved.get(budget.id, 0.0))
     actual = float(spend.get(budget.id, 0.0))
 
-    if is_rnd:
-        expected = 0.0
-        approved_total = final_budget
-    else:
-        bucket = batches.get(budget.id) or {"estimated": 0.0, "approved": 0.0}
-        expected = float(bucket["estimated"])
-        approved_total = float(bucket["approved"])
+    bucket = batches.get(budget.id) or {"estimated": 0.0, "approved": 0.0}
+    expected = float(bucket["estimated"])
+    approved_total = float(bucket["approved"])
 
     consumed_pct = (actual / final_budget * 100.0) if final_budget else 0.0
     health = _health_from_pct(consumed_pct, final_budget > 0)
@@ -364,7 +382,7 @@ def _project_row(budget, spend, topups, batches, days, models_cur, models_prev):
         _round2(max(0.0, 100.0 - consumed_pct)) if final_budget else None
     )
 
-    if is_rnd or expected <= 0:
+    if expected <= 0:
         accuracy_score = None
         actual_vs_estimated_pct = None
     else:
@@ -403,7 +421,7 @@ def _project_row(budget, spend, topups, batches, days, models_cur, models_prev):
         "topup_total": _round2(topup_total),
         "final_budget": _round2(final_budget),
         "approved_total": _round2(approved_total),
-        "expected_cost": _round2(expected) if not is_rnd else None,
+        "expected_cost": _round2(expected),
         "total_spend_llm": _round2(actual),
         "actual_spend": _round2(actual),
         "remaining": _round2(final_budget - actual),
@@ -424,8 +442,6 @@ def _project_row(budget, spend, topups, batches, days, models_cur, models_prev):
 def _actual_vs_estimated_chart(rows):
     chart = []
     for r in rows:
-        if r["is_rnd"]:
-            continue
         estimated = r["expected_cost"] or 0.0
         actual = r["actual_spend"]
         chart.append({
@@ -529,11 +545,12 @@ class EtpProjectBudgetDashboardController(http.Controller):
             spend = _spend_by_budget(bids, start, end)
             topups = _topups_by_budget(bids)
             batches = _batches_by_budget(bids, start, end)
+            total_approved = _total_approved_by_budget(budgets)
             models_cur = _model_spend_by_budget(bids, start, end)
             models_prev = _model_spend_by_budget(bids, prev_start, prev_end)
 
             rows = [
-                _project_row(b, spend, topups, batches, days, models_cur, models_prev)
+                _project_row(b, spend, topups, batches, days, models_cur, models_prev, total_approved)
                 for b in budgets
             ]
             rows.sort(key=lambda r: r["consumed_pct"], reverse=True)
@@ -544,15 +561,13 @@ class EtpProjectBudgetDashboardController(http.Controller):
             total_spend_llm = sum(r["actual_spend"] for r in rows)
             total_budget = sum(r["budget_amount"] for r in rows)
             total_topups = sum(r["topup_total"] for r in rows)
-            total_final_budget = total_budget + total_topups
+            total_final_budget = sum(r["final_budget"] for r in rows)
 
-            ops_rows = [r for r in rows if not r["is_rnd"]]
-            expected_total = sum((r["expected_cost"] or 0.0) for r in ops_rows)
-            approved_total = sum(r["approved_total"] for r in ops_rows)
-            ops_actual = sum(r["actual_spend"] for r in ops_rows)
+            expected_total = sum((r["expected_cost"] or 0.0) for r in rows)
+            approved_total = sum(r["approved_total"] for r in rows)
 
             actual_vs_estimated_pct = (
-                _round2((ops_actual / expected_total) * 100.0)
+                _round2((total_spend_llm / expected_total) * 100.0)
                 if expected_total > 0 else 0.0
             )
             pct_over_original_budget = (
@@ -566,13 +581,13 @@ class EtpProjectBudgetDashboardController(http.Controller):
             })
 
             accurate_rows = [
-                r for r in ops_rows
+                r for r in rows
                 if r["accuracy_score"] is not None
                 and r["accuracy_score"] <= ACCURACY_GOOD_PCT
             ]
             estimation_accuracy_count = len(accurate_rows)
             estimation_accuracy_score = (
-                _round2((ops_actual / expected_total) * 100.0)
+                _round2((total_spend_llm / expected_total) * 100.0)
                 if expected_total > 0 else None
             )
 
@@ -596,7 +611,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
                 if total_final_budget else 0.0
             )
             estimation_pct = (
-                _round2((ops_actual / expected_total) * 100.0)
+                _round2((total_spend_llm / expected_total) * 100.0)
                 if expected_total > 0 else 0.0
             )
             budget_amount_pct = (
@@ -694,8 +709,6 @@ class EtpProjectBudgetDashboardController(http.Controller):
 
             rows = []
             for b in budgets:
-                if b.project_type == "rnd":
-                    continue
                 bucket = batches.get(b.id) or {"estimated": 0.0, "approved": 0.0}
                 estimated = float(bucket["estimated"])
                 approved = float(bucket["approved"])
@@ -1091,7 +1104,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
             spend = _spend_by_budget(bids, start, end)
             model_spend = _effective_model_spend_by_budget(bids, start, end)
             model_estimated = _estimated_by_model_for_budgets(bids, start, end)
-            topups = _topups_by_budget(bids)
+            total_approved = _total_approved_by_budget(budgets)
             batches = _batches_by_budget(bids, start, end)
 
             projects = defaultdict(list)
@@ -1111,9 +1124,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     if b.project_id:
                         project_name = b.project_id.display_name
                     bid = b.id
-                    budget_amt = float(b.budget_amount or 0.0)
-                    topup_amt = float(topups.get(bid, 0.0))
-                    project_budget_total += budget_amt + topup_amt
+                    project_budget_total += float(total_approved.get(bid, 0.0))
                     actual += float(spend.get(bid, 0.0))
                     bucket = batches.get(bid) or {"estimated": 0.0}
                     estimated += float(bucket["estimated"])
@@ -1222,7 +1233,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
             budgets = request.env[BUDGET_MODEL].sudo().search([("active", "=", True)])
             bids = budgets.ids
             spend = _spend_by_budget(bids, start, end)
-            topups = _topups_by_budget(bids)
+            total_approved = _total_approved_by_budget(budgets)
             batches = _batches_by_budget(bids, start, end)
 
             projects = defaultdict(list)
@@ -1240,9 +1251,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     if b.project_id:
                         project_name = b.project_id.display_name
                     bid = b.id
-                    budget_amt = float(b.budget_amount or 0.0)
-                    topup_amt = float(topups.get(bid, 0.0))
-                    project_budget_total += budget_amt + topup_amt
+                    project_budget_total += float(total_approved.get(bid, 0.0))
                     actual_budget += float(spend.get(bid, 0.0))
                     bucket = batches.get(bid) or {"estimated": 0.0}
                     estimation_budget += float(bucket["estimated"])
@@ -1350,7 +1359,9 @@ class EtpProjectBudgetDashboardController(http.Controller):
 
             budget_amount = float(budget.budget_amount or 0.0)
             topup_total = float(_topups_by_budget([budget.id]).get(budget.id, 0.0))
-            project_final_budget = budget_amount + topup_total
+            project_final_budget = float(
+                _total_approved_by_budget(budget).get(budget.id, 0.0)
+            )
 
             estimated = float(batch.estimated_cost or 0.0)
             actual = float(batch.consumed_cost or 0.0)

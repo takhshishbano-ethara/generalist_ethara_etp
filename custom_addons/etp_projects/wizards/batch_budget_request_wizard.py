@@ -59,6 +59,17 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         "attachment_id",
         string="Attachments",
     )
+    total_tasks = fields.Integer(
+        string="Total Tasks",
+        help="Total number of tasks for this request. Each model line's "
+             "requested amount = Total Tasks x Per Task Cost.",
+    )
+    buffer_pct = fields.Float(
+        string="Buffer %",
+        default=0.0,
+        help="Buffer percentage applied on top of the requested subtotal "
+             "before it is sent for approval.",
+    )
     model_line_ids = fields.One2many(
         "etp.batch.budget.request.wizard.model.line",
         "wizard_id",
@@ -69,19 +80,11 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         "wizard_id",
         string="Infrastructure Lines",
     )
-    total_tasks = fields.Integer(
-        string="Total Tasks",
-        help="Total number of tasks. Each model line = Total Tasks x Per Task Cost.",
-    )
-    buffer_pct = fields.Float(
-        string="Buffer %",
-        default=0.0,
-        help="Buffer percentage added on top of the subtotal before approval.",
-    )
     requested_total = fields.Float(
         string="Requested Total (USD)",
-        compute="_compute_requested_total",
-        help="Subtotal (Total Tasks x Per Task Cost + infra) plus buffer.",
+        readonly=False,
+        help="Auto-suggested from (Total Tasks x Per Task Cost + infra) plus "
+             "buffer. Fully editable - you can enter any amount.",
     )
 
     @api.depends("batch_id", "batch_id.request_ids")
@@ -93,18 +96,29 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
                 lambda r: r.state in ("pending", "approved", "partially_approved")
             )
 
-    @api.depends(
-        "model_line_ids.requested_amount",
-        "infra_line_ids.requested_amount",
+    @api.onchange("total_tasks")
+    def _onchange_total_tasks_update_lines(self):
+        for wiz in self:
+            for line in wiz.model_line_ids:
+                line.requested_amount = (
+                    (wiz.total_tasks or 0) * (line.per_task_cost or 0.0)
+                )
+
+    @api.onchange(
+        "total_tasks",
         "buffer_pct",
+        "model_line_ids",
+        "infra_line_ids",
     )
-    def _compute_requested_total(self):
+    def _onchange_suggest_requested_total(self):
         for wiz in self:
             subtotal = (
                 sum(wiz.model_line_ids.mapped("requested_amount"))
                 + sum(wiz.infra_line_ids.mapped("requested_amount"))
             )
-            wiz.requested_total = subtotal * (1.0 + ((wiz.buffer_pct or 0.0) / 100.0))
+            wiz.requested_total = subtotal * (
+                1.0 + ((wiz.buffer_pct or 0.0) / 100.0)
+            )
 
     @api.model
     def default_get(self, fields_list):
@@ -118,11 +132,10 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         if not batch.exists():
             return vals
         vals["batch_id"] = batch.id
-        is_first = not batch.request_ids.filtered(
-            lambda r: r.state in ("pending", "approved", "partially_approved")
-        )
-        vals["total_tasks"] = (batch.total_tasks or 0) if is_first else 0
-        vals["buffer_pct"] = batch.buffer_pct or 0.0
+        if "total_tasks" in fields_list:
+            vals["total_tasks"] = batch.total_tasks or 0
+        if "buffer_pct" in fields_list:
+            vals["buffer_pct"] = batch.buffer_pct or 0.0
         model_lines = []
         for line in batch.model_line_ids:
             model_lines.append((0, 0, {
@@ -146,12 +159,6 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             raise UserError(_(
                 "Project Budget has no approvers configured."
             ))
-        remaining = project_budget.allocatable_amount or 0.0
-        if (self.requested_total or 0.0) > remaining:
-            raise UserError(_(
-                "Requested amount (USD %(req).2f) exceeds remaining project "
-                "budget (USD %(rem).2f). Ask the project owner to top up first."
-            ) % {"req": self.requested_total, "rem": remaining})
         request = self.env["etp.batch.budget.request"].create({
             "batch_id": self.batch_id.id,
             "justification": self.justification,
@@ -161,12 +168,14 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             "priority": self.priority or "normal",
             "total_tasks": self.total_tasks or 0,
             "buffer_pct": self.buffer_pct or 0.0,
+            "requested_total": self.requested_total or 0.0,
             "attachment_ids": [(6, 0, self.attachment_ids.ids)],
             "model_line_ids": [
                 (0, 0, {
                     "ai_model_id": line.ai_model_id.id,
                     "description": line.description or False,
                     "per_task_cost": line.per_task_cost or 0.0,
+                    "requested_amount": line.requested_amount or 0.0,
                 })
                 for line in self.model_line_ids
             ],
@@ -215,17 +224,18 @@ class EtpBatchBudgetRequestWizardModelLine(models.TransientModel):
     per_task_cost = fields.Float(string="Per Task Cost (USD)")
     requested_amount = fields.Float(
         string="Requested (USD)",
-        compute="_compute_requested_amount",
-        store=True,
-        readonly=False,
+        help="Auto-suggested as Total Tasks (on the wizard) x Per Task Cost "
+             "whenever Per Task Cost changes. Fully editable.",
     )
 
-    @api.depends("wizard_id.total_tasks", "per_task_cost")
-    def _compute_requested_amount(self):
+    @api.onchange("per_task_cost")
+    def _onchange_per_task_cost(self):
         for line in self:
-            line.requested_amount = (
-                (line.wizard_id.total_tasks or 0) * (line.per_task_cost or 0.0)
-            )
+            if line.wizard_id:
+                line.requested_amount = (
+                    (line.wizard_id.total_tasks or 0)
+                    * (line.per_task_cost or 0.0)
+                )
 
 
 class EtpBatchBudgetRequestWizardInfraLine(models.TransientModel):

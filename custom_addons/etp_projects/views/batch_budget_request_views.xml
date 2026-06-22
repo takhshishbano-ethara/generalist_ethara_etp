@@ -80,10 +80,10 @@
                         <group>
                             <field name="total_tasks" readonly="state != 'draft'"/>
                             <field name="buffer_pct" readonly="state != 'draft'"/>
-                            <field name="requested_total" readonly="1"/>
+                            <field name="requested_total"/>
                         </group>
                         <group>
-                            <field name="approved_total" readonly="1"/>
+                            <field name="approved_total"/>
                         </group>
                     </group>
                     <notebook>

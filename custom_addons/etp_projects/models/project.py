@@ -8,6 +8,29 @@ _logger = logging.getLogger(__name__)
 
 TEAM_FIELDS = ('project_tasker', 'project_qc_reviewer', 'project_lead', 'project_tpm')
 
+# api_prefix MUST end with `?project_id=` so the Flutter app can append the id;
+# sequences leave gaps for Overview/Tasks/Budget/Analytics tabs added by extensions.
+DEFAULT_API_MAPPINGS = (
+    {
+        'sequence': 20,
+        'table_name': 'Team',
+        'field_name': 'team',
+        'api_prefix': '/v2/project_team_member_list?project_id=',
+    },
+    {
+        'sequence': 60,
+        'table_name': 'Logs',
+        'field_name': 'logs',
+        'api_prefix': '/v1/get_notification_grouped?project_id=',
+    },
+    {
+        'sequence': 40,
+        'table_name': 'Budget',
+        'field_name': 'budget',
+        'api_prefix': '/v1/etp_projects/budget/info?project_id=',
+    },
+)
+
 
 class ProjectProject(models.Model):
     _inherit = 'project.project'
@@ -46,7 +69,14 @@ class ProjectProject(models.Model):
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
+        skip_defaults = self.env.context.get('skip_default_api_maps')
+        ApiMap = self.env['etp.external.project.api.map']
         for record, vals in zip(records, vals_list):
+            if not skip_defaults and not vals.get('api_map_ids'):
+                ApiMap.sudo().create([
+                    {**mapping, 'project_id': record.id}
+                    for mapping in DEFAULT_API_MAPPINGS
+                ])
             changed = {f for f in TEAM_FIELDS if f in vals}
             if changed:
                 record._cascade_team_assignments(changed)
