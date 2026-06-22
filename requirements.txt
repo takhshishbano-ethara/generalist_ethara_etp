@@ -333,3 +333,9 @@ zope.event==5.0
 zope.interface==7.2
 zstandard==0.25.0
 yt-dlp
+
+# Aadhaar verification (employee_extension)
+PyMuPDF==1.26.1
+pytesseract==0.3.13
+pyzbar==0.1.9
+pyaadhaar==2.0.2
