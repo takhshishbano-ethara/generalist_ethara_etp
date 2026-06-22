@@ -2,93 +2,12 @@
 <odoo>
 
     <!-- =====================================================================
-         CANDIDATE "MY ASSESSMENTS" — the only tab a candidate sees.
-         Kanban grouped by state (Locked/Available/In Progress/Submitted/
-         Scored/Missed); each card launches the proctored runner. Backed by
-         record rules (own rows only).
+         DAY SESSION views for model etp.assessment.day.session.
+         These list/form/search views are the model defaults and back the
+         manager "Day Sessions" action (action_assessment_day_sessions_admin).
+         The former candidate kanban + action_my_assessments backend menu were
+         removed — candidates are PORTAL users (see /my/assessments).
          ===================================================================== -->
-    <record id="etp_assessment_day_session_my_kanban" model="ir.ui.view">
-        <field name="name">etp.assessment.day.session.my.kanban</field>
-        <field name="model">etp.assessment.day.session</field>
-        <field name="arch" type="xml">
-            <kanban default_group_by="state" class="o_etp_my_kanban o_kanban_small_column"
-                    records_draggable="0" group_create="0" create="0">
-                <field name="state"/>
-                <field name="access_token"/>
-                <field name="score_display"/>
-                <field name="assessment_id"/>
-                <field name="day_sequence"/>
-                <field name="skill_id"/>
-                <field name="total_questions"/>
-                <field name="answered_count"/>
-                <field name="duration_minutes"/>
-                <field name="scheduled_start"/>
-                <field name="started_at"/>
-                <field name="deadline_datetime"/>
-                <field name="results_released"/>
-                <templates>
-                    <t t-name="card">
-                        <div class="oe_kanban_card oe_kanban_global_click p-0">
-                            <div class="o_kanban_record_top d-flex justify-content-between align-items-start p-2 pb-1">
-                                <div class="o_kanban_record_headings flex-grow-1 me-2">
-                                    <strong class="o_kanban_record_title d-block text-truncate">
-                                        <field name="assessment_id"/>
-                                    </strong>
-                                    <small class="text-muted">
-                                        Day <field name="day_sequence"/> · <field name="skill_id"/>
-                                    </small>
-                                </div>
-                                <field name="state" widget="label_selection"
-                                       options="{'classes': {'locked': 'default', 'available': 'info', 'in_progress': 'warning', 'submitted': 'success', 'scored': 'success', 'missed': 'danger'}}"/>
-                            </div>
-                            <div class="o_kanban_record_body px-2">
-                                <div class="d-flex flex-wrap gap-1 mb-2">
-                                    <span class="badge text-bg-light">
-                                        <i class="fa fa-question-circle-o me-1" title="Questions"/><field name="total_questions"/> Q
-                                    </span>
-                                    <span t-if="record.duration_minutes.raw_value" class="badge text-bg-light">
-                                        <i class="fa fa-clock-o me-1" title="Duration"/><field name="duration_minutes"/> min
-                                    </span>
-                                    <span t-if="record.score_display.value" class="badge text-bg-primary">
-                                        <i class="fa fa-trophy me-1" title="Score"/><field name="score_display"/>
-                                    </span>
-                                </div>
-                                <div t-if="record.total_questions.raw_value" class="mb-2">
-                                    <div class="d-flex justify-content-between small text-muted">
-                                        <span>Progress</span>
-                                        <span><field name="answered_count"/> / <field name="total_questions"/></span>
-                                    </div>
-                                    <field name="answered_count" widget="progressbar"
-                                           options="{'current_value': 'answered_count', 'max_value': 'total_questions', 'edit_max_value': false}"/>
-                                </div>
-                                <div class="small text-muted">
-                                    <div t-if="record.scheduled_start.raw_value">
-                                        <i class="fa fa-calendar-o me-1" title="Scheduled"/>Scheduled: <field name="scheduled_start"/>
-                                    </div>
-                                    <div t-if="record.started_at.raw_value">
-                                        <i class="fa fa-play-circle-o me-1" title="Started"/>Started: <field name="started_at"/>
-                                    </div>
-                                    <div t-if="record.deadline_datetime.raw_value">
-                                        <i class="fa fa-hourglass-end me-1" title="Deadline"/>Deadline: <field name="deadline_datetime"/>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="o_kanban_record_bottom p-2 pt-1"
-                                 t-if="record.state.raw_value == 'available' or record.state.raw_value == 'in_progress'">
-                                <button name="action_open_test" type="object"
-                                        class="btn btn-sm btn-primary w-100">
-                                    <i class="fa fa-play me-1" title="Launch"/>
-                                    <t t-if="record.state.raw_value == 'in_progress'">Resume Day</t>
-                                    <t t-else="">Start Day</t>
-                                </button>
-                            </div>
-                        </div>
-                    </t>
-                </templates>
-            </kanban>
-        </field>
-    </record>
-
     <record id="etp_assessment_day_session_my_tree" model="ir.ui.view">
         <field name="name">etp.assessment.day.session.my.tree</field>
         <field name="model">etp.assessment.day.session</field>
@@ -185,23 +104,6 @@
                             context="{'group_by':'assessment_id'}"/>
                 </group>
             </search>
-        </field>
-    </record>
-
-    <record id="action_my_assessments" model="ir.actions.act_window">
-        <field name="name">My Assessments</field>
-        <field name="res_model">etp.assessment.day.session</field>
-        <field name="view_mode">kanban,list,form</field>
-        <field name="search_view_id" ref="etp_assessment_day_session_my_search"/>
-        <field name="context">{'search_default_group_state': 1}</field>
-        <field name="view_ids" eval="[(5, 0, 0),
-            (0, 0, {'view_mode': 'kanban', 'view_id': ref('etp_assessment_day_session_my_kanban')}),
-            (0, 0, {'view_mode': 'list', 'view_id': ref('etp_assessment_day_session_my_tree')}),
-            (0, 0, {'view_mode': 'form', 'view_id': ref('etp_assessment_day_session_my_form')})]"/>
-        <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">No assessments assigned yet</p>
-            <p>When an assessment is assigned to you, it will appear here. You
-               will also receive an email with a link.</p>
         </field>
     </record>
 

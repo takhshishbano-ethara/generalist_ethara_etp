@@ -21,14 +21,18 @@ from odoo.addons.portal.controllers.portal import CustomerPortal
 
 class EtpCandidatePortal(http.Controller):
 
-    def _resolve_employee(self):
-        """Return the logged-in user's hr.employee (sudo). Portal users can't
-        read hr.employee directly, so resolve it with sudo by user_id."""
+    def _resolve_applicant(self):
+        """Return the logged-in user's hr.applicant (sudo). Portal users can't
+        read hr.applicant directly, so resolve it with sudo by the direct
+        candidate link, falling back to a partner match."""
         user = request.env.user
-        # request.env.user.employee_id would trigger an hr.employee read the
-        # portal group is not allowed; go straight to a sudo search instead.
-        return request.env["hr.employee"].sudo().search(
-            [("user_id", "=", user.id)], limit=1)
+        Applicant = request.env["hr.applicant"].sudo()
+        applicant = Applicant.search(
+            [("candidate_user_id", "=", user.id)], limit=1)
+        if not applicant and user.partner_id:
+            applicant = Applicant.search(
+                [("partner_id", "=", user.partner_id.id)], limit=1)
+        return applicant
 
     # ------------------------------------------------------------------
     # Item builders — normalize day-sessions and single evaluators into a
@@ -123,9 +127,9 @@ class EtpCandidatePortal(http.Controller):
 
     @http.route("/my/assessments", type="http", auth="user", website=True)
     def my_assessments(self, **kw):
-        employee = self._resolve_employee()
-        if not employee:
-            # No linked employee → friendly empty state (still authenticated).
+        applicant = self._resolve_applicant()
+        if not applicant:
+            # No linked candidate → friendly empty state (still authenticated).
             return request.render(
                 "etp_assessment.portal_my_assessments",
                 {"no_employee": True, "available": [], "in_progress": [],
@@ -133,10 +137,10 @@ class EtpCandidatePortal(http.Controller):
 
         # All reads via sudo() — portal users have no ACL on etp models.
         day_sessions = request.env["etp.assessment.day.session"].sudo().search(
-            [("evaluator_id.employee_id", "=", employee.id)],
+            [("evaluator_id.applicant_id", "=", applicant.id)],
             order="assessment_id, day_sequence")
         single_evaluators = request.env["etp.assessment.evaluator"].sudo().search(
-            [("employee_id", "=", employee.id),
+            [("applicant_id", "=", applicant.id),
              ("assessment_id.assessment_mode", "=", "single")],
             order="create_date desc")
 
@@ -170,7 +174,7 @@ class EtpCandidatePortal(http.Controller):
             "etp_assessment.portal_my_assessments",
             {
                 "no_employee": False,
-                "employee": employee,
+                "employee": applicant,
                 "available": available,
                 "in_progress": in_progress,
                 "upcoming": upcoming,
@@ -181,36 +185,41 @@ class EtpCandidatePortal(http.Controller):
 
 class EtpPortalHome(CustomerPortal):
 
-    def _candidate_employee(self):
+    def _candidate_applicant(self):
         user = request.env.user
         if not user.share:
-            return request.env["hr.employee"].browse()
-        return request.env["hr.employee"].sudo().search(
-            [("user_id", "=", user.id)], limit=1)
+            return request.env["hr.applicant"].browse()
+        Applicant = request.env["hr.applicant"].sudo()
+        applicant = Applicant.search(
+            [("candidate_user_id", "=", user.id)], limit=1)
+        if not applicant and user.partner_id:
+            applicant = Applicant.search(
+                [("partner_id", "=", user.partner_id.id)], limit=1)
+        return applicant
 
-    def _candidate_assessment_count(self, employee):
-        if not employee:
+    def _candidate_assessment_count(self, applicant):
+        if not applicant:
             return 0
         Day = request.env["etp.assessment.day.session"].sudo()
         Single = request.env["etp.assessment.evaluator"].sudo()
         return (Day.search_count(
-                    [("evaluator_id.employee_id", "=", employee.id)])
+                    [("evaluator_id.applicant_id", "=", applicant.id)])
                 + Single.search_count(
-                    [("employee_id", "=", employee.id),
+                    [("applicant_id", "=", applicant.id),
                      ("assessment_id.assessment_mode", "=", "single")]))
 
     def _prepare_home_portal_values(self, counters):
         values = super()._prepare_home_portal_values(counters)
         if "assessment_count" in counters:
             values["assessment_count"] = self._candidate_assessment_count(
-                self._candidate_employee())
+                self._candidate_applicant())
         return values
 
     @route()
     def home(self, **kw):
         # Candidates are portal-only assessment takers — send them straight to
         # their progress view instead of the generic "My account" home.
-        employee = self._candidate_employee()
-        if employee and self._candidate_assessment_count(employee):
+        applicant = self._candidate_applicant()
+        if applicant and self._candidate_assessment_count(applicant):
             return request.redirect("/my/assessments")
         return super().home(**kw)

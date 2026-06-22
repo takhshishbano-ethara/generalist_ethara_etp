@@ -1,0 +1,32 @@
+from odoo import api, fields, models
+
+
+class EtpProjectAwsBudgetTagLine(models.Model):
+    _name = "etp.project.aws.budget.tag.line"
+    _description = "Project AWS Budget Tag Filter"
+    _order = "sequence, id"
+    _rec_name = "tag_key"
+
+    budget_id = fields.Many2one(
+        "etp.project.aws.budget", required=True, ondelete="cascade", index=True,
+    )
+    tag_key = fields.Char(required=True, string="Tag Key")
+    tag_value = fields.Char(required=True, string="Tag Value")
+    sequence = fields.Integer(default=10)
+    active = fields.Boolean(default=True)
+    display_name = fields.Char(compute="_compute_display_name", store=False)
+
+    _uniq_tag = models.Constraint(
+        "unique(budget_id, tag_key, tag_value)",
+        "Each tag pair must be unique per budget.",
+    )
+
+    @api.depends("tag_key", "tag_value")
+    def _compute_display_name(self):
+        for rec in self:
+            if rec.tag_key and rec.tag_value:
+                rec.display_name = "%s=%s" % (rec.tag_key, rec.tag_value)
+            elif rec.tag_key:
+                rec.display_name = rec.tag_key
+            else:
+                rec.display_name = ""

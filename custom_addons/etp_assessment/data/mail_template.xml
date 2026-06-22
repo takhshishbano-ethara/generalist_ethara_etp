@@ -5,10 +5,10 @@
         <field name="model_id" ref="model_etp_assessment_day_session"/>
         <field name="subject">Your assessment is ready: {{ object.assessment_id.name }} — Day {{ object.day_id.sequence }}</field>
         <field name="email_from">{{ (object.assessment_id.create_uid.email_formatted or user.email_formatted) }}</field>
-        <field name="email_to">{{ object.evaluator_id.employee_id.work_email or object.evaluator_id.employee_id.user_id.email or '' }}</field>
+        <field name="email_to">{{ object.evaluator_id.applicant_id.email_from or '' }}</field>
         <field name="body_html" type="html">
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.5">
-    <p>Hi <strong t-out="object.evaluator_id.employee_id.name or 'there'"/>,</p>
+    <p>Hi <strong t-out="object.evaluator_id.applicant_id.partner_name or 'there'"/>,</p>
     <p>You have been assigned to take an assessment.</p>
     <table style="border-collapse:collapse;margin:12px 0">
         <tr><td style="padding:6px 12px"><b>Assessment:</b></td><td t-out="object.assessment_id.name"/></tr>
@@ -45,10 +45,10 @@
         <field name="model_id" ref="model_etp_assessment_evaluator"/>
         <field name="subject">Your assessment is ready: {{ object.assessment_id.name }}</field>
         <field name="email_from">{{ (object.assessment_id.create_uid.email_formatted or user.email_formatted) }}</field>
-        <field name="email_to">{{ object.employee_id.work_email or object.employee_id.user_id.email or '' }}</field>
+        <field name="email_to">{{ object.applicant_id.email_from or '' }}</field>
         <field name="body_html" type="html">
 <div style="font-family:Arial,sans-serif;font-size:14px;color:#333;line-height:1.5">
-    <p>Hi <strong t-out="object.employee_id.name or 'there'"/>,</p>
+    <p>Hi <strong t-out="object.applicant_id.partner_name or 'there'"/>,</p>
     <p>You have been assigned an assessment.</p>
     <table style="border-collapse:collapse;margin:12px 0">
         <tr><td style="padding:6px 12px"><b>Assessment:</b></td><td t-out="object.assessment_id.name"/></tr>

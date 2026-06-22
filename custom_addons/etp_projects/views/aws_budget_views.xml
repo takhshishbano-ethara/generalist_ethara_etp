@@ -10,7 +10,7 @@
                 <field name="name"/>
                 <field name="project_type" optional="show"/>
                 <field name="budget_amount" optional="show" sum="USD"/>
-                <field name="tag_summary" optional="show"/>
+                <field name="tags_summary"/>
                 <field name="last_fetched_at"/>
             </list>
         </field>
@@ -50,6 +50,7 @@
                             <field name="consumed_amount" readonly="1" invisible="is_rnd"/>
                             <field name="llm_consumed_amount" readonly="1" invisible="not is_rnd"/>
                             <field name="remaining_amount" readonly="1"/>
+                            <field name="allocatable_amount" readonly="1" invisible="is_rnd"/>
                             <field name="consumed_pct" readonly="1" widget="progressbar"/>
                             <field name="health_status" widget="badge" readonly="1"
                                    decoration-success="health_status == 'healthy'"
@@ -71,12 +72,21 @@
                         <group>
                             <field name="aws_access_key_id" password="True"/>
                             <field name="aws_secret_access_key" password="True"/>
+                        </group>
+                        <group>
                             <field name="aws_region"/>
                             <field name="fetch_months"/>
                         </group>
-                        <group>
-                            <field name="tag_summary" readonly="1"/>
-                        </group>
+                    </group>
+                    <group string="AWS Tag Filters">
+                        <field name="tag_line_ids" nolabel="1" colspan="2">
+                            <list editable="bottom">
+                                <field name="sequence" widget="handle"/>
+                                <field name="tag_key" placeholder="e.g. Project"/>
+                                <field name="tag_value" placeholder="e.g. etharaA"/>
+                                <field name="active" optional="show"/>
+                            </list>
+                        </field>
                     </group>
                     <group string="OpenRouter">
                         <group>
@@ -126,23 +136,6 @@
                         </group>
                     </group>
                     <notebook>
-                        <page string="AWS Tag Filters" name="aws_tags">
-                            <p class="text-muted">
-                                Add one or more (Tag Key, Tag Value) pairs. Each active row
-                                triggers its own AWS Cost Explorer query, so a single budget
-                                can aggregate spend across multiple tags (e.g. team=alpha and
-                                env=prod).
-                            </p>
-                            <field name="tag_ids">
-                                <list editable="bottom">
-                                    <field name="sequence" widget="handle"/>
-                                    <field name="tag_key"/>
-                                    <field name="tag_value"/>
-                                    <field name="active"/>
-                                    <field name="last_fetched_at" readonly="1"/>
-                                </list>
-                            </field>
-                        </page>
                         <page string="Models" name="models" invisible="project_type != 'operations'">
                             <field name="model_line_ids">
                                 <list editable="bottom">
@@ -213,6 +206,8 @@
                                     <field name="usage_unit" optional="hide"/>
                                     <field name="is_model_breakdown" optional="hide"/>
                                     <field name="source" optional="show"/>
+                                    <field name="source_tag_key" optional="show"/>
+                                    <field name="source_tag_value" optional="show"/>
                                     <field name="amount_source" sum="USD"/>
                                 </list>
                             </field>
@@ -230,8 +225,7 @@
                                     <field name="triggered_by_id"/>
                                     <field name="created_count" sum="Created"/>
                                     <field name="updated_count" sum="Updated"/>
-                                    <field name="tag_key" optional="hide"/>
-                                    <field name="tag_value" optional="hide"/>
+                                    <field name="tags_summary" optional="show"/>
                                     <field name="fetch_months" optional="hide"/>
                                     <field name="api_hit_count" sum="API Hits" optional="show"/>
                                     <field name="api_hit_cost_usd" sum="API Cost (USD)" optional="show"/>
@@ -254,8 +248,6 @@
                 <field name="name"/>
                 <field name="project_id"/>
                 <field name="project_type"/>
-                <field name="tag_ids"/>
-                <field name="tag_summary"/>
                 <filter name="filter_project_type_rnd" string="R&amp;D" domain="[('project_type','=','rnd')]"/>
                 <filter name="filter_project_type_ops" string="Operations" domain="[('project_type','=','operations')]"/>
                 <separator/>
@@ -275,8 +267,7 @@
         <field name="search_view_id" ref="view_etp_project_aws_budget_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">Create a project AWS budget</p>
-            <p>Set the project, AWS keys, and one or more tag filters (Tag Key + Value).
-            Click <b>Fetch Cost</b> to pull per-tag, per-service spend from Cost Explorer.</p>
+            <p>Set the project, AWS keys, and Tag Key + Value. Click <b>Fetch Cost</b> to pull per-service spend from Cost Explorer.</p>
         </field>
     </record>
 
@@ -288,8 +279,8 @@
                 <field name="period"/>
                 <field name="granularity" optional="show"/>
                 <field name="project_id"/>
-                <field name="tag_key"/>
-                <field name="tag_value"/>
+                <field name="source_tag_key"/>
+                <field name="source_tag_value"/>
                 <field name="service_name"/>
                 <field name="model_name" optional="show"/>
                 <field name="token_type" optional="show"/>
@@ -337,8 +328,8 @@
                 <field name="service_name"/>
                 <field name="model_name"/>
                 <field name="usage_type"/>
-                <field name="tag_key"/>
-                <field name="tag_value"/>
+                <field name="source_tag_key"/>
+                <field name="source_tag_value"/>
                 <field name="source"/>
                 <field name="granularity"/>
                 <field name="token_type"/>
@@ -360,6 +351,7 @@
                     <filter name="group_token_type" string="Token Type" context="{'group_by':'token_type'}"/>
                     <filter name="group_period" string="Period" context="{'group_by':'period:month'}"/>
                     <filter name="group_source" string="Source" context="{'group_by':'source'}"/>
+                    <filter name="group_source_tag" string="Source Tag" context="{'group_by':'source_tag_key'}"/>
                     <filter name="group_granularity" string="Granularity" context="{'group_by':'granularity'}"/>
                 </group>
             </search>

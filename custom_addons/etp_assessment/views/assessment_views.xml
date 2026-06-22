@@ -175,7 +175,7 @@
                               invisible="assessment_mode != 'multi_day' or day_session_count == 0">
                             <field name="day_session_ids" readonly="1">
                                 <list>
-                                    <field name="employee_id"/>
+                                    <field name="applicant_id"/>
                                     <field name="day_sequence" string="Day #"/>
                                     <field name="skill_id"/>
                                     <field name="state" widget="badge"
@@ -196,7 +196,7 @@
                         <page string="Candidates" invisible="state == 'draft'">
                             <field name="assessment_evaluator_ids" readonly="1">
                                 <list>
-                                    <field name="employee_id"/>
+                                    <field name="applicant_id"/>
                                     <field name="state" widget="badge"
                                            decoration-info="state == 'pending'"
                                            decoration-warning="state == 'in_progress'"
@@ -207,7 +207,7 @@
                                     <field name="total_questions"/>
                                     <field name="total_score"/>
                                     <field name="llm_total_score"
-                                           string="Subjective Pts" optional="show"/>
+                                           string="Subjective Points" optional="show"/>
                                     <field name="llm_state" widget="badge"
                                            optional="show"
                                            decoration-success="llm_state == 'scored'"
@@ -229,7 +229,7 @@
                                       decoration-success="result == 'pass'"
                                       decoration-danger="result == 'fail'"
                                       decoration-muted="result == 'pending'">
-                                    <field name="employee_id"/>
+                                    <field name="applicant_id"/>
                                     <field name="day_progress_label"
                                            string="Days Progress"/>
                                     <field name="total_score" string="Objective"/>
@@ -243,7 +243,7 @@
                                            decoration-danger="result == 'fail'"
                                            decoration-muted="result == 'pending'"/>
                                     <field name="llm_state" widget="badge"
-                                           string="Subj Scoring"
+                                           string="Subjective Scoring"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-danger="llm_state == 'failed'"/>
                                 </list>
@@ -263,10 +263,10 @@
                         <page string="Responses">
                             <field name="response_ids" readonly="1">
                                 <list>
-                                    <field name="evaluator_id"/>
+                                    <field name="evaluator_id" string="Candidate"/>
                                     <field name="question_id"/>
                                     <field name="objective_score" string="Objective"/>
-                                    <field name="objective_max" string="Obj Max"
+                                    <field name="objective_max" string="Objective Max"
                                            optional="hide"/>
                                     <field name="needs_llm" string="Subjective?"
                                            widget="boolean"/>
@@ -274,10 +274,10 @@
                                            string="Subjective"
                                            decoration-success="subjective_result == 'pass'"
                                            decoration-danger="subjective_result == 'fail'"/>
-                                    <field name="subjective_score" string="Subj Points"
+                                    <field name="subjective_score" string="Subjective Points"
                                            optional="show"/>
                                     <field name="llm_state" widget="badge"
-                                           string="Subj State" optional="hide"
+                                           string="Subjective State" optional="hide"
                                            decoration-info="llm_state in ('pending','queued')"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-muted="llm_state == 'not_needed'"
@@ -329,7 +329,7 @@
         <field name="arch" type="xml">
             <list>
                 <field name="assessment_id"/>
-                <field name="employee_id"/>
+                <field name="applicant_id"/>
                 <field name="state" widget="badge"
                        decoration-info="state == 'pending'"
                        decoration-warning="state == 'in_progress'"
@@ -338,13 +338,13 @@
                 <field name="answered_count"/>
                 <field name="total_questions"/>
                 <field name="total_score"/>
-                <field name="llm_total_score" string="Subjective Pts" optional="show"/>
+                <field name="llm_total_score" string="Subjective Points" optional="show"/>
                 <field name="score_percent" string="Final Score /100" optional="show"/>
                 <field name="result" widget="badge"
                        decoration-success="result == 'pass'"
                        decoration-danger="result == 'fail'"
                        decoration-muted="result == 'pending'"/>
-                <field name="llm_state" widget="badge" string="Subj State" optional="show"
+                <field name="llm_state" widget="badge" string="Subjective State" optional="show"
                        decoration-success="llm_state == 'scored'"
                        decoration-danger="llm_state == 'failed'"/>
                 <field name="is_locked"/>
@@ -377,7 +377,7 @@
                     <group>
                         <group>
                             <field name="assessment_id"/>
-                            <field name="employee_id"/>
+                            <field name="applicant_id"/>
                             <field name="access_token"/>
                             <field name="started_at"/>
                             <field name="deadline_datetime"/>
@@ -415,16 +415,16 @@
                                            string="Candidate Answer"/>
                                     <field name="correct_summary"
                                            string="Correct Answer" optional="show"/>
-                                    <field name="score" string="Obj"/>
-                                    <field name="max_score" string="Obj Max"/>
-                                    <field name="llm_score" string="Subj"/>
-                                    <field name="llm_max_score" string="Subj Max"/>
+                                    <field name="score" string="Objective"/>
+                                    <field name="max_score" string="Objective Max"/>
+                                    <field name="llm_score" string="Subjective"/>
+                                    <field name="llm_max_score" string="Subjective Max"/>
                                     <field name="llm_passed" widget="boolean"
-                                           string="Subj Pass"/>
+                                           string="Subjective Pass"/>
                                     <field name="llm_feedback"
-                                           string="Subj Feedback" optional="hide"/>
+                                           string="Subjective Feedback" optional="hide"/>
                                     <field name="llm_state" widget="badge"
-                                           string="Subj State"
+                                           string="Subjective State"
                                            decoration-info="llm_state in ('pending','queued')"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-muted="llm_state == 'not_needed'"
@@ -451,15 +451,16 @@
         <field name="arch" type="xml">
             <list>
                 <field name="assessment_id"/>
-                <field name="evaluator_id"/>
+                <field name="evaluator_id" string="Candidate"/>
                 <field name="question_id"/>
-                <field name="objective_score" string="Objective"/>
+                <field name="objective_score" string="Objective" sum="Total Objective"/>
                 <field name="needs_llm" string="Subjective?" widget="boolean"/>
                 <field name="subjective_result" widget="badge" string="Subjective"
                        decoration-success="subjective_result == 'pass'"
                        decoration-danger="subjective_result == 'fail'"/>
-                <field name="subjective_score" string="Subj Points" optional="show"/>
-                <field name="llm_state" widget="badge" string="Subj State" optional="hide"
+                <field name="subjective_score" string="Subjective Points" optional="show"
+                       sum="Total Subjective Points"/>
+                <field name="llm_state" widget="badge" string="Subjective State" optional="hide"
                        decoration-info="llm_state in ('pending','queued')"
                        decoration-success="llm_state == 'scored'"
                        decoration-muted="llm_state == 'not_needed'"
@@ -526,10 +527,36 @@
         </field>
     </record>
 
+    <record id="etp_assessment_response_search" model="ir.ui.view">
+        <field name="name">etp.assessment.response.search</field>
+        <field name="model">etp.assessment.response</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="assessment_id"/>
+                <field name="evaluator_id" string="Candidate"/>
+                <field name="question_id"/>
+                <separator/>
+                <filter name="submitted" string="Submitted"
+                        domain="[('state', '=', 'submitted')]"/>
+                <filter name="draft" string="Draft"
+                        domain="[('state', '=', 'draft')]"/>
+                <separator/>
+                <filter name="group_by_assessment" string="Assessment"
+                        context="{'group_by': 'assessment_id'}"/>
+                <filter name="group_by_candidate" string="Candidate"
+                        context="{'group_by': 'evaluator_id'}"/>
+                <filter name="group_by_state" string="State"
+                        context="{'group_by': 'state'}"/>
+            </search>
+        </field>
+    </record>
+
     <record id="action_etp_assessment_response" model="ir.actions.act_window">
         <field name="name">Responses</field>
         <field name="res_model">etp.assessment.response</field>
         <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="etp_assessment_response_search"/>
+        <field name="context">{'search_default_group_by_assessment': 1, 'search_default_group_by_candidate': 1}</field>
     </record>
 
 </odoo>

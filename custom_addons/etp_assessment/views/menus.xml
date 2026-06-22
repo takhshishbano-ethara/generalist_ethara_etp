@@ -22,13 +22,11 @@
               sequence="100"
               groups="etp_assessment.group_assessment_evaluator"/>
 
-    <!-- Candidate-facing: the ONLY item a candidate sees -->
-    <menuitem id="menu_etp_assessment_my"
-              name="My Assessments"
-              parent="menu_etp_assessment_root"
-              action="action_my_assessments"
-              groups="etp_assessment.group_assessment_evaluator"
-              sequence="1"/>
+    <!--
+      Candidates are PORTAL users now; their assessment view is the website
+      portal page (/my/assessments). The former backend "My Assessments"
+      menuitem + its action_my_assessments were removed as obsolete.
+    -->
 
     <!-- Everything below is MANAGER-only -->
     <menuitem id="menu_etp_assessment_assessments"

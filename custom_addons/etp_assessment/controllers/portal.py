@@ -56,13 +56,14 @@ class EtpAssessmentPortal(http.Controller):
         return request.env["etp.assessment.evaluator"].sudo().search(
             [("access_token", "=", token)], limit=1)
 
-    def _candidate_guard(self, employee, assessment):
+    def _candidate_guard(self, evaluator, assessment):
         # Bind the session to its assigned candidate: the logged-in user must
         # be the candidate's linked user. Stops link-sharing and any other
         # account (incl. admin/managers) from taking someone else's test.
         # If the candidate has no linked user we cannot bind, so we block all
         # but the manager group rather than let anyone through.
-        candidate_user = employee.user_id
+        applicant = evaluator.applicant_id
+        candidate_user = evaluator._candidate_user()
         current = request.env.user
         login_url = "/web/session/logout?redirect=" + quote(
             "/web/login?redirect=" + request.httprequest.path, safe="")
@@ -70,26 +71,26 @@ class EtpAssessmentPortal(http.Controller):
             if current.id != candidate_user.id:
                 return request.render(
                     "etp_assessment.portal_wrong_candidate",
-                    {"assessment": assessment, "candidate": employee,
+                    {"assessment": assessment, "candidate": applicant,
                      "current_user": current, "login_url": login_url})
             return False
         if not current.has_group("etp_assessment.group_assessment_manager"):
             return request.render(
                 "etp_assessment.portal_wrong_candidate",
-                {"assessment": assessment, "candidate": employee,
+                {"assessment": assessment, "candidate": applicant,
                  "current_user": current, "login_url": login_url})
         return False
 
-    def _guard_or_abort(self, employee, assessment):
+    def _guard_or_abort(self, evaluator, assessment):
         if request.env.user._is_public():
             return request.redirect("/web/login")
-        return self._candidate_guard(employee, assessment)
+        return self._candidate_guard(evaluator, assessment)
 
-    def _is_real_candidate(self, employee):
+    def _is_real_candidate(self, evaluator):
         # A manager/admin may pass _candidate_guard to PREVIEW a link, but they
         # must never start the timer or write answers on the candidate's real
         # session. Only the candidate's own linked user gets write access.
-        candidate_user = employee.user_id
+        candidate_user = evaluator._candidate_user()
         return bool(candidate_user) and request.env.user.id == candidate_user.id
 
     @http.route("/assessment/<string:token>", type="http",
@@ -101,7 +102,7 @@ class EtpAssessmentPortal(http.Controller):
         if request.env.user._is_public():
             return request.redirect(
                 "/web/login?redirect=/assessment/%s" % token)
-        block = self._candidate_guard(evaluator.employee_id, evaluator.assessment_id)
+        block = self._candidate_guard(evaluator, evaluator.assessment_id)
         if block:
             return block
         assessment = evaluator.assessment_id
@@ -126,7 +127,7 @@ class EtpAssessmentPortal(http.Controller):
                  "token": token,
                  "duration_minutes": assessment.duration_minutes,
                  "day_session": False,
-                 "preview": not self._is_real_candidate(evaluator.employee_id)})
+                 "preview": not self._is_real_candidate(evaluator)})
         if evaluator.is_time_expired():
             self._auto_submit_remaining_single(evaluator)
             return request.render(
@@ -143,12 +144,12 @@ class EtpAssessmentPortal(http.Controller):
         if not evaluator:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            evaluator.employee_id, evaluator.assessment_id)
+            evaluator, evaluator.assessment_id)
         if block:
             return block
         if evaluator.is_locked or evaluator.assessment_id.state != "in_progress":
             return request.redirect("/assessment/%s" % token)
-        if not self._is_real_candidate(evaluator.employee_id):
+        if not self._is_real_candidate(evaluator):
             return request.redirect("/assessment/%s" % token)
         if not evaluator.started_at:
             evaluator.write({"started_at": fields.Datetime.now()})
@@ -163,7 +164,7 @@ class EtpAssessmentPortal(http.Controller):
         if not evaluator:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            evaluator.employee_id, evaluator.assessment_id)
+            evaluator, evaluator.assessment_id)
         if block:
             return block
         if evaluator.is_locked:
@@ -171,7 +172,7 @@ class EtpAssessmentPortal(http.Controller):
         if evaluator.is_time_expired():
             self._auto_submit_remaining_single(evaluator)
             return request.redirect(f"/assessment/{token}")
-        if not self._is_real_candidate(evaluator.employee_id):
+        if not self._is_real_candidate(evaluator):
             return request.redirect(f"/assessment/{token}")
         self._record_response(
             evaluator=evaluator, day_session=False, form=kw)
@@ -219,7 +220,7 @@ class EtpAssessmentPortal(http.Controller):
         if not evaluator:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            evaluator.employee_id, evaluator.assessment_id)
+            evaluator, evaluator.assessment_id)
         if block:
             return block
         if evaluator.is_locked:
@@ -249,7 +250,7 @@ class EtpAssessmentPortal(http.Controller):
             return request.redirect(
                 "/web/login?redirect=/assessment/day/%s" % token)
         block = self._candidate_guard(
-            sess.evaluator_id.employee_id, sess.assessment_id)
+            sess.evaluator_id, sess.assessment_id)
         if block:
             return block
         assessment = sess.assessment_id
@@ -275,7 +276,7 @@ class EtpAssessmentPortal(http.Controller):
                  "duration_minutes": sess.day_id.duration_minutes,
                  "submit_url": f"/assessment/day/{token}/begin",
                  "preview": not self._is_real_candidate(
-                     sess.evaluator_id.employee_id)})
+                     sess.evaluator_id)})
         # In progress: deadline check, then render the requested (or first
         # unanswered) question with FREE navigation.
         if (sess.deadline_datetime
@@ -313,12 +314,12 @@ class EtpAssessmentPortal(http.Controller):
         if not sess:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            sess.evaluator_id.employee_id, sess.assessment_id)
+            sess.evaluator_id, sess.assessment_id)
         if block:
             return block
         if sess.assessment_id.state != "in_progress":
             return request.redirect("/assessment/day/%s" % token)
-        if not self._is_real_candidate(sess.evaluator_id.employee_id):
+        if not self._is_real_candidate(sess.evaluator_id):
             return request.redirect("/assessment/day/%s" % token)
         if sess.state == "available":
             sess.sudo().action_start_day()
@@ -331,7 +332,7 @@ class EtpAssessmentPortal(http.Controller):
         if not sess:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            sess.evaluator_id.employee_id, sess.assessment_id)
+            sess.evaluator_id, sess.assessment_id)
         if block:
             return block
         if sess.state not in ("in_progress",):
@@ -340,7 +341,7 @@ class EtpAssessmentPortal(http.Controller):
                 and sess.deadline_datetime < fields.Datetime.now()):
             self._auto_submit_day_on_expiry(sess)
             return request.redirect(f"/assessment/day/{token}")
-        if not self._is_real_candidate(sess.evaluator_id.employee_id):
+        if not self._is_real_candidate(sess.evaluator_id):
             return request.redirect(f"/assessment/day/{token}")
         self._record_response(
             evaluator=sess.evaluator_id, day_session=sess, form=kw)
@@ -376,7 +377,7 @@ class EtpAssessmentPortal(http.Controller):
         if not sess:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            sess.evaluator_id.employee_id, sess.assessment_id)
+            sess.evaluator_id, sess.assessment_id)
         if block:
             return block
         if sess.state == "in_progress":
@@ -390,7 +391,7 @@ class EtpAssessmentPortal(http.Controller):
         if not sess:
             return request.render("etp_assessment.portal_invalid_token")
         block = self._guard_or_abort(
-            sess.evaluator_id.employee_id, sess.assessment_id)
+            sess.evaluator_id, sess.assessment_id)
         if block:
             return block
         reason = (kw.get("violation_reason") or "Unknown violation")[:240]
@@ -609,7 +610,7 @@ class EtpAssessmentPortal(http.Controller):
                 "assessment_id": evaluator.assessment_id.id,
                 "assessment_evaluator_id": evaluator.id,
                 "day_session_id": day_session.id if day_session else False,
-                "evaluator_id": evaluator.employee_id.id,
+                "evaluator_id": evaluator.applicant_id.id,
                 "question_id": qid,
                 "justification": justification,
                 "line_ids": line_vals,
@@ -631,7 +632,8 @@ class EtpAssessmentPortal(http.Controller):
         })
         _logger.warning(
             "VIOLATION (single) candidate=%s assessment=%s reason=%s count=%s",
-            evaluator.employee_id.name, assessment.name, reason, new_count)
+            evaluator.applicant_id.partner_name, assessment.name, reason,
+            new_count)
         cap = assessment.max_violations or 0
         if assessment.violation_action == "auto_submit" and cap and new_count >= cap:
             self._auto_submit_remaining_single(evaluator)
@@ -650,7 +652,7 @@ class EtpAssessmentPortal(http.Controller):
         })
         _logger.warning(
             "VIOLATION (day) candidate=%s assessment=%s day=%s reason=%s count=%s",
-            evaluator.employee_id.name, assessment.name,
+            evaluator.applicant_id.partner_name, assessment.name,
             sess.day_id.sequence, reason, new_count)
         cap = assessment.max_violations or 0
         if assessment.violation_action == "auto_submit" and cap and new_count >= cap:
@@ -683,7 +685,7 @@ class EtpAssessmentPortal(http.Controller):
                 Response.create({
                     "assessment_id": evaluator.assessment_id.id,
                     "assessment_evaluator_id": evaluator.id,
-                    "evaluator_id": evaluator.employee_id.id,
+                    "evaluator_id": evaluator.applicant_id.id,
                     "question_id": q_id,
                     "justification": "[Auto-submitted: time expired]",
                     "state": "submitted",
@@ -722,7 +724,7 @@ class EtpAssessmentPortal(http.Controller):
                 "assessment_id": sess.assessment_id.id,
                 "assessment_evaluator_id": sess.evaluator_id.id,
                 "day_session_id": sess.id,
-                "evaluator_id": sess.evaluator_id.employee_id.id,
+                "evaluator_id": sess.evaluator_id.applicant_id.id,
                 "question_id": q_id,
                 "justification": "[Auto-submitted: time expired]",
                 "state": "submitted",

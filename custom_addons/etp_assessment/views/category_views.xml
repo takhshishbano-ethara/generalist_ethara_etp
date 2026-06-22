@@ -36,6 +36,15 @@
                     <field name="description" placeholder="Category description..."/>
                     <notebook>
                         <page string="Questions">
+                            <group>
+                                <field name="add_question_ids" widget="many2many_tags"
+                                       options="{'no_create': True}"/>
+                                <button name="action_add_questions_from_bank"
+                                        type="object"
+                                        string="Add Selected to Category"
+                                        class="btn-secondary"
+                                        invisible="not add_question_ids"/>
+                            </group>
                             <field name="question_ids">
                                 <list>
                                     <field name="sequence" widget="handle"/>

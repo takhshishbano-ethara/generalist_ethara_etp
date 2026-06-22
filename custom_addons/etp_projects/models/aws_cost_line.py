@@ -21,6 +21,7 @@ TOKEN_TYPE_SELECTION = [
     ("other", "Other"),
 ]
 
+
 class EtpProjectAwsCostLine(models.Model):
     _name = "etp.project.aws.cost.line"
     _description = "Project AWS Cost Line"
@@ -32,16 +33,8 @@ class EtpProjectAwsCostLine(models.Model):
     project_id = fields.Many2one(
         related="budget_id.project_id", store=True, readonly=True, index=True,
     )
-    tag_id = fields.Many2one(
-        "etp.project.aws.budget.tag",
-        string="Tag Filter",
-        ondelete="cascade",
-        index=True,
-        help="Which (Tag Key, Tag Value) pair on the parent budget this line was "
-             "fetched for. Empty for non-AWS provider lines (OpenRouter/OpenAI/etc.).",
-    )
-    tag_key = fields.Char(related="tag_id.tag_key", store=True, readonly=True)
-    tag_value = fields.Char(related="tag_id.tag_value", store=True, readonly=True)
+    source_tag_key = fields.Char(string="Source Tag Key", index=True)
+    source_tag_value = fields.Char(string="Source Tag Value", index=True)
 
     period = fields.Date(required=True, index=True)
     period_label = fields.Char(compute="_compute_period_label", store=True)
@@ -64,8 +57,8 @@ class EtpProjectAwsCostLine(models.Model):
     is_model_breakdown = fields.Boolean(default=False, index=True)
 
     _uniq_line = models.Constraint(
-        "unique(budget_id, tag_id, period, service_name, granularity, model_name, token_type)",
-        "One row per budget/tag/period/service/granularity/model/token type.",
+        "unique(budget_id, period, service_name, granularity, model_name, token_type, source_tag_key)",
+        "One row per budget/period/service/granularity/model/token type/source tag.",
     )
 
     @api.depends("period", "granularity")
@@ -77,3 +70,23 @@ class EtpProjectAwsCostLine(models.Model):
                 rec.period_label = rec.period.strftime("%Y-%m-%d")
             else:
                 rec.period_label = rec.period.strftime("%Y-%m")
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        records._ensure_ai_models_from_lines()
+        return records
+
+    def _ensure_ai_models_from_lines(self):
+        names = set()
+        for rec in self:
+            effective = (rec.model_name or rec.service_name or "").strip()
+            if effective:
+                names.add(effective)
+        if not names:
+            return
+        Model = self.env["etp.ai.model"].sudo().with_context(active_test=False)
+        existing = set(Model.search([("name", "in", list(names))]).mapped("name"))
+        to_create = [{"name": n} for n in sorted(names - existing)]
+        if to_create:
+            Model.create(to_create)

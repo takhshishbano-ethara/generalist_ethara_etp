@@ -106,10 +106,20 @@
                             <group>
                                 <field name="skill_bank_ids" widget="many2many_tags"
                                        string="Linked Bank Skills" readonly="1"/>
-                                <field name="selected_skill_ids" widget="many2many_tags"
-                                       string="Skills to Generate Questions For"
-                                       domain="[('id','in',skill_bank_ids)]"/>
                             </group>
+                            <separator string="Skills to Generate Questions For"/>
+                            <div class="alert alert-info" role="alert">
+                                The <strong>Bank Questions</strong> column shows how many approved questions each skill already has. Skills showing <strong>0</strong> are the ones "Generate for Skills Missing Questions" will target.
+                            </div>
+                            <field name="selected_skill_ids"
+                                   domain="[('id','in',skill_bank_ids)]">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="question_type"/>
+                                    <field name="difficulty"/>
+                                    <field name="bank_question_count" string="Bank Questions"/>
+                                </list>
+                            </field>
                             <field name="skill_ids">
                                 <list>
                                     <field name="sequence" widget="handle"/>
@@ -178,5 +188,140 @@
         <field name="name">Question Bank Generators</field>
         <field name="res_model">etp.assessment.prompt</field>
         <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ===================================================================
+         Pending Approvals: a single place to review and approve/deny every
+         generated draft question across all generators. Draft questions live
+         on etp.assessment.prompt.question; approving one creates the bank
+         question (etp.assessment.question) and links it back.
+         =================================================================== -->
+    <record id="etp_assessment_prompt_question_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.prompt.question.tree</field>
+        <field name="model">etp.assessment.prompt.question</field>
+        <field name="arch" type="xml">
+            <list>
+                <header>
+                    <button name="action_approve" type="object"
+                            string="Approve Selected" class="btn-primary"/>
+                    <button name="action_deny" type="object"
+                            string="Deny Selected" class="btn-secondary"/>
+                </header>
+                <field name="prompt_id"/>
+                <field name="skill_id"/>
+                <field name="name"/>
+                <field name="question_type"/>
+                <field name="difficulty"/>
+                <field name="state"/>
+                <field name="approved_question_id" optional="hide"/>
+                <button name="action_approve" type="object"
+                        icon="fa-check" title="Approve"
+                        invisible="state != 'draft'"/>
+                <button name="action_deny" type="object"
+                        icon="fa-times" title="Deny"
+                        invisible="state != 'draft'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_prompt_question_form" model="ir.ui.view">
+        <field name="name">etp.assessment.prompt.question.form</field>
+        <field name="model">etp.assessment.prompt.question</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="action_approve" type="object"
+                            string="Approve" class="btn-primary"
+                            invisible="state != 'draft'"/>
+                    <button name="action_deny" type="object"
+                            string="Deny" class="btn-secondary"
+                            invisible="state != 'draft'"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,approved,denied"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="prompt_id" readonly="1"/>
+                            <field name="skill_id"/>
+                            <field name="question_type"/>
+                            <field name="difficulty"/>
+                        </group>
+                        <group>
+                            <field name="approved_question_id" readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="name"/>
+                    <field name="question_prompt"/>
+                    <notebook>
+                        <page string="Options">
+                            <field name="options_json" widget="text"/>
+                        </page>
+                        <page string="Correct Answer">
+                            <field name="correct_answer_json" widget="text"/>
+                        </page>
+                        <page string="Rubric">
+                            <field name="rubric_json" widget="text"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="etp_assessment_prompt_question_search" model="ir.ui.view">
+        <field name="name">etp.assessment.prompt.question.search</field>
+        <field name="model">etp.assessment.prompt.question</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="prompt_id"/>
+                <field name="skill_id"/>
+                <filter name="pending" string="Pending"
+                        domain="[('state','=','draft')]"/>
+                <filter name="approved" string="Approved"
+                        domain="[('state','=','approved')]"/>
+                <filter name="denied" string="Denied"
+                        domain="[('state','=','denied')]"/>
+                <separator/>
+                <filter name="group_generator" string="Generator"
+                        context="{'group_by':'prompt_id'}"/>
+                <filter name="group_skill" string="Skill"
+                        context="{'group_by':'skill_id'}"/>
+                <filter name="group_state" string="Status"
+                        context="{'group_by':'state'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_prompt_question_pending" model="ir.actions.act_window">
+        <field name="name">Pending Approvals</field>
+        <field name="res_model">etp.assessment.prompt.question</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="etp_assessment_prompt_question_search"/>
+        <field name="context">{'search_default_pending': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No questions awaiting approval</p>
+            <p>Generated draft questions land here. Approve them to publish them
+               into the Question Bank, or deny the ones you don't want.</p>
+        </field>
+    </record>
+
+    <!-- Surface Pending Approvals as a control-panel button on the Question
+         Bank list (defined after the action above so %()d resolves).
+         display="always" keeps it visible without a row selection. -->
+    <record id="etp_assessment_question_tree_pending_button" model="ir.ui.view">
+        <field name="name">etp.assessment.question.tree.pending.button</field>
+        <field name="model">etp.assessment.question</field>
+        <field name="inherit_id" ref="etp_assessment_question_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <header>
+                    <button name="%(action_etp_assessment_prompt_question_pending)d"
+                            type="action" string="Pending Approvals"
+                            class="btn-secondary" display="always"/>
+                </header>
+            </xpath>
+        </field>
     </record>
 </odoo>

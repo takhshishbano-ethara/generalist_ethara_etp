@@ -10,6 +10,7 @@ from odoo.exceptions import UserError, ValidationError
 from ..models.hr_employee import (
     ROLE_DEFAULT_PARENT_ROLE,
     ROLE_GROUP_MAP,
+    ROLE_HIERARCHY_FIELDS,
     ROLE_SELECTION,
 )
 
@@ -52,19 +53,19 @@ class EmployeeRoleImportWizard(models.TransientModel):
         compute="_compute_row_counts", string="Rows Ready"
     )
 
-    @api.depends("line_ids.status")
+    @api.depends("line_ids.status", "line_ids.has_issues")
     def _compute_row_counts(self):
         for wiz in self:
             wiz.existing_row_count = len(
-                wiz.line_ids.filtered(
-                    lambda l: l.status in ("exists", "exists_archived")
-                )
+                wiz.line_ids.filtered(lambda l: l.status == "exists")
             )
             wiz.issue_row_count = len(
-                wiz.line_ids.filtered(lambda l: l.status == "issue")
+                wiz.line_ids.filtered(lambda l: l.has_issues)
             )
             wiz.ready_row_count = len(
-                wiz.line_ids.filtered(lambda l: l.status == "ready")
+                wiz.line_ids.filtered(
+                    lambda l: l.status == "ready" and not l.has_issues
+                )
             )
 
     create_user = fields.Boolean(
@@ -155,6 +156,28 @@ class EmployeeRoleImportWizard(models.TransientModel):
         rows = list(reader)
         self.csv_row_count = len(rows)
         role_col = header_map.get("role")
+        job_title_col = (
+            header_map.get("job_title")
+            or header_map.get("job title")
+            or header_map.get("title")
+        )
+        assigned_ql_col = (
+            header_map.get("assigned_ql")
+            or header_map.get("assigned_ql_email")
+            or header_map.get("ql_email")
+            or header_map.get("assigned_qc")
+            or header_map.get("assigned_qc_email")
+        )
+        assigned_pl_col = (
+            header_map.get("assigned_pl")
+            or header_map.get("assigned_pl_email")
+            or header_map.get("pl_email")
+        )
+        assigned_tpm_col = (
+            header_map.get("assigned_tpm")
+            or header_map.get("assigned_tpm_email")
+            or header_map.get("tpm_email")
+        )
         manager_col = (
             header_map.get("reports_to")
             or header_map.get("manager")
@@ -162,6 +185,17 @@ class EmployeeRoleImportWizard(models.TransientModel):
             or header_map.get("manager_email")
         )
         Employee = self.env["hr.employee"].sudo().with_context(active_test=False)
+
+        def _resolve_email(value):
+            email_val = (value or "").strip().lower()
+            if not email_val:
+                return False
+            mgr = Employee.search(
+                [("work_email", "=", email_val), ("active", "=", True)],
+                limit=1,
+            )
+            return mgr.id if mgr else False
+
         new_lines = []
         for idx, row in enumerate(rows, start=2):
             name = (row.get(header_map["name"]) or "").strip()
@@ -173,9 +207,18 @@ class EmployeeRoleImportWizard(models.TransientModel):
             if role_col:
                 row_role = (row.get(role_col) or "").strip()
             role_key = self._resolve_role_key(row_role) or self.role or False
+            job_title = ""
+            if job_title_col:
+                job_title = (row.get(job_title_col) or "").strip()
             manager_email = ""
             if manager_col:
                 manager_email = (row.get(manager_col) or "").strip().lower()
+
+            applicable = set(ROLE_HIERARCHY_FIELDS.get(role_key, ())) if role_key else set()
+            ql_id = _resolve_email(row.get(assigned_ql_col)) if assigned_ql_col and "ql" in applicable else False
+            pl_id = _resolve_email(row.get(assigned_pl_col)) if assigned_pl_col and "pl" in applicable else False
+            tpm_id = _resolve_email(row.get(assigned_tpm_col)) if assigned_tpm_col and "tpm" in applicable else False
+
             parent_id = False
             if manager_email:
                 mgr = Employee.search(
@@ -184,6 +227,8 @@ class EmployeeRoleImportWizard(models.TransientModel):
                 )
                 if mgr:
                     parent_id = mgr.id
+            if not parent_id:
+                parent_id = ql_id or pl_id or tpm_id or False
             if not parent_id and role_key:
                 auto = self._find_default_manager(role_key)
                 if auto:
@@ -194,11 +239,78 @@ class EmployeeRoleImportWizard(models.TransientModel):
                 "employee_code": code,
                 "email": email,
                 "role": role_key,
+                "job_title": job_title or False,
+                "assigned_ql_id": ql_id,
+                "assigned_pl_id": pl_id,
+                "assigned_tpm_id": tpm_id,
                 "manager_email": manager_email or False,
                 "parent_id": parent_id,
             }))
         self.line_ids = new_lines
         return None
+
+    @staticmethod
+    def _walk_ancestor_with_role(employee, target_role):
+        if not employee:
+            return employee.browse()
+        visited = {employee.id}
+        current = employee.parent_id
+        while current and current.id not in visited:
+            visited.add(current.id)
+            if current.role == target_role:
+                return current
+            current = current.parent_id
+        return employee.browse()
+
+    def _propagate_task_forge_chain(self, employee):
+        if not employee:
+            return
+        fields_present = employee._fields
+        applicable = set(ROLE_HIERARCHY_FIELDS.get(employee.role or "", ()))
+        vals = {}
+        for role_key, field_name in (
+            ("ql", "task_forge_ql_id"),
+            ("pl", "task_forge_pl_id"),
+            ("tpm", "task_forge_tpm_id"),
+        ):
+            if field_name not in fields_present:
+                continue
+            if role_key in applicable:
+                ancestor = self._walk_ancestor_with_role(employee, role_key)
+                vals[field_name] = ancestor.id if ancestor else False
+            else:
+                vals[field_name] = False
+        if "task_forge_qr_id" in fields_present:
+            if employee.role == "tasker":
+                qr = self._walk_ancestor_with_role(employee, "qr")
+                vals["task_forge_qr_id"] = qr.id if qr else False
+            else:
+                vals["task_forge_qr_id"] = False
+        if vals:
+            employee.sudo().write(vals)
+
+    def _apply_direct_hierarchy(self, employee, line, log, row_idx):
+        if not employee:
+            return
+        fields_present = employee._fields
+        applicable = set(ROLE_HIERARCHY_FIELDS.get(line.role or "", ()))
+        vals = {}
+        for role_key, field_name, line_field, label in (
+            ("ql", "task_forge_ql_id", line.assigned_ql_id, "assigned_ql"),
+            ("pl", "task_forge_pl_id", line.assigned_pl_id, "assigned_pl"),
+            ("tpm", "task_forge_tpm_id", line.assigned_tpm_id, "assigned_tpm"),
+        ):
+            if field_name not in fields_present:
+                continue
+            if role_key not in applicable:
+                continue
+            if line_field:
+                vals[field_name] = line_field.id
+                log.append(
+                    f"Row {row_idx}: {label} -> {line_field.name}"
+                )
+        if vals:
+            employee.sudo().write(vals)
 
     def _find_default_manager(self, employee_role, extra_candidates=None):
         Employee = self.env["hr.employee"].sudo()
@@ -356,6 +468,14 @@ class EmployeeRoleImportWizard(models.TransientModel):
     def action_import(self):
         self.ensure_one()
         if self.state == "done":
+            # Save-time auto-import (see write()/create()) already ran the
+            # import and discarded its navigation action because ORM mutations
+            # can't return client actions.  When the user then clicks the
+            # Import button, route them to the imported employees list so the
+            # updated data is actually visible — falling back to reopening
+            # the wizard only when nothing was imported (e.g. all rows failed).
+            if self.imported_employee_ids:
+                return self.action_view_imported_employees()
             return {
                 "type": "ir.actions.act_window",
                 "res_model": self._name,
@@ -489,6 +609,8 @@ class EmployeeRoleImportWizard(models.TransientModel):
                     emp_update = {"name": name, "work_email": email}
                     if code:
                         emp_update["employee_code"] = code
+                    if line.job_title:
+                        emp_update["job_title"] = line.job_title
                     if existing_user and not existing_emp.user_id:
                         emp_update["user_id"] = existing_user.id
                     existing_emp.write(emp_update)
@@ -547,6 +669,8 @@ class EmployeeRoleImportWizard(models.TransientModel):
                 emp_vals = {"name": name, "work_email": email}
                 if code:
                     emp_vals["employee_code"] = code
+                if line.job_title:
+                    emp_vals["job_title"] = line.job_title
                 if user:
                     emp_vals["user_id"] = user.id
 
@@ -578,7 +702,7 @@ class EmployeeRoleImportWizard(models.TransientModel):
                 _logger.exception("Employee role import row %s failed", row_idx)
 
         log.append("")
-        log.append("--- Assigning Reports To ---")
+        log.append("--- Assigning Reports To & Hierarchy ---")
         batch_emps = Employee.browse(list(touched_emp_ids))
         for line in self.line_ids:
             if not line.role:
@@ -603,6 +727,12 @@ class EmployeeRoleImportWizard(models.TransientModel):
                         )
                     )
                 if not parent:
+                    parent = (
+                        line.assigned_ql_id
+                        or line.assigned_pl_id
+                        or line.assigned_tpm_id
+                    )
+                if not parent:
                     parent = self._find_default_manager(
                         line.role, extra_candidates=batch_emps
                     )
@@ -617,6 +747,9 @@ class EmployeeRoleImportWizard(models.TransientModel):
                         f"Row {row_idx}: WARNING - manager '{line.manager_email}' "
                         f"not found, parent_id left unchanged"
                     )
+
+                self._propagate_task_forge_chain(emp)
+                self._apply_direct_hierarchy(emp, line, log, row_idx)
             except Exception as exc:
                 log.append(
                     f"Row {line.sequence or line.id}: reports_to "

@@ -1,6 +1,6 @@
 {
     'name': 'Task Forge Bridge',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.0.1',
     'category': 'Human Resources',
     'summary': 'Extends HR modules for Task Forge integration',
     'description': """
@@ -20,6 +20,10 @@
         'notification',
         's3_connector',
         'project_extension',
+        # Provides fenrir.s3.service + fenrir.drive.config (bucket / creds)
+        # which the leave-attachment controller uses to push uploads to S3.
+        'fenrir',
+        'ethara_attendance_leave',
     ],
     'data': [
         'security/ir.model.access.csv',

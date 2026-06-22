@@ -211,7 +211,6 @@ class EtpAssessmentPrompt(models.Model):
             },
         }
 
-
 class EtpAssessmentPromptSkill(models.Model):
     _name = "etp.assessment.prompt.skill"
     _description = "Prompt Extracted Skill (transient view)"

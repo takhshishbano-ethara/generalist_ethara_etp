@@ -10,6 +10,29 @@ _logger = logging.getLogger(__name__)
 class HrLeave(models.Model):
     _inherit = 'hr.leave'
 
+    # --- Generic attachment (any leave type) ---
+    # Used by the TaskForge API to let employees attach supporting evidence
+    # (medical note, travel docs, etc.) at apply time, viewable by approvers.
+    #
+    # Storage strategy: new uploads land in S3 via fenrir.s3.service and the
+    # object key is recorded in `attachment_s3_key`. The legacy Binary
+    # column is kept for backwards compatibility with any leaves that were
+    # created before the switch — readers fall back to it when the S3 key
+    # is empty. New writes never touch the Binary column.
+    attachment = fields.Binary(
+        string='Attachment (legacy local)',
+        attachment=True,
+        help='Legacy: base64 / ir.attachment storage for files uploaded '
+             'before S3 offload landed. Read-only for new code.')
+
+    attachment_filename = fields.Char(
+        string='Attachment Filename')
+
+    attachment_s3_key = fields.Char(
+        string='Attachment S3 Key',
+        help='Object key under the configured S3 bucket. Set by the '
+             'TaskForge API when a new attachment is uploaded.')
+
     # --- Medical Certificate ---
     medical_certificate = fields.Binary(
         string='Medical Certificate',
@@ -37,18 +60,24 @@ class HrLeave(models.Model):
         default=0,
         help='Additional weekend days added due to the sandwich rule.')
 
-    x_approval_comment = fields.Char(
-        string='Approval Comment',
-        help='Optional comment provided by the approver when approving the leave.')
+    # --- TaskForge API decision audit ---
+    # Populated by the approve/reject endpoints in task_forge_bridge so the
+    # API can answer "who decided, when, with what comment" uniformly on
+    # both the approval and the rejection paths. Standard Odoo only tracks
+    # the approver (first_approver_id / second_approver_id) — there is no
+    # built-in field for the refuser or the decision text.
+    x_decision_user_id = fields.Many2one(
+        'res.users',
+        string='Decision User',
+        help='User who took the final decision (approve or reject) via the TaskForge API.')
 
-    x_rejected_by_id = fields.Many2one(
-        'hr.employee',
-        string='Rejected By',
-        help='Employee who rejected the leave request. Kept separate from first_approver_id which marks the approving manager.')
+    x_decision_date = fields.Datetime(
+        string='Decision Date',
+        help='When the TaskForge API approve/reject endpoint was called.')
 
-    x_rejection_reason = fields.Char(
-        string='Rejection Reason',
-        help='Optional reason provided by the approver when rejecting the leave.')
+    x_decision_comment = fields.Text(
+        string='Decision Comment',
+        help='Optional comment the approver/rejector typed alongside the action.')
 
     def _get_leaves_on_public_holiday(self):
         """Skip 'not supposed to work' error for employees missing a resource calendar."""

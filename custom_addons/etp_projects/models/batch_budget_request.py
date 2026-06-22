@@ -89,6 +89,43 @@ class EtpBatchBudgetRequest(models.Model):
         string="Justification",
         help="Explain why this additional budget is needed.",
     )
+    subject = fields.Char(
+        string="Email Subject",
+        help="Optional. Overrides the default approval email subject.",
+    )
+    message = fields.Html(
+        string="Message",
+        help="Optional note included in the approval email body.",
+    )
+    priority = fields.Selection(
+        [
+            ("low", "Low"),
+            ("normal", "Normal"),
+            ("high", "High"),
+            ("urgent", "Urgent"),
+        ],
+        string="Priority",
+        default="normal",
+        tracking=True,
+    )
+    attachment_ids = fields.Many2many(
+        "ir.attachment",
+        "etp_batch_budget_request_attachment_rel",
+        "request_id",
+        "attachment_id",
+        string="Attachments",
+    )
+    total_tasks = fields.Integer(
+        string="Total Tasks",
+        help="Total number of tasks for this request. Each model line's "
+             "requested amount = Total Tasks x Per Task Cost.",
+    )
+    buffer_pct = fields.Float(
+        string="Buffer %",
+        default=0.0,
+        help="Buffer percentage applied on top of the requested subtotal "
+             "before it is sent for approval.",
+    )
     model_line_ids = fields.One2many(
         "etp.batch.budget.request.model.line",
         "request_id",
@@ -137,17 +174,21 @@ class EtpBatchBudgetRequest(models.Model):
         "model_line_ids.approved_amount",
         "infra_line_ids.requested_amount",
         "infra_line_ids.approved_amount",
+        "buffer_pct",
     )
     def _compute_totals(self):
         for rec in self:
-            rec.requested_total = (
+            factor = 1.0 + ((rec.buffer_pct or 0.0) / 100.0)
+            requested_base = (
                 sum(rec.model_line_ids.mapped("requested_amount"))
                 + sum(rec.infra_line_ids.mapped("requested_amount"))
             )
-            rec.approved_total = (
+            approved_base = (
                 sum(rec.model_line_ids.mapped("approved_amount"))
                 + sum(rec.infra_line_ids.mapped("approved_amount"))
             )
+            rec.requested_total = requested_base * factor
+            rec.approved_total = approved_base * factor
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -164,13 +205,9 @@ class EtpBatchBudgetRequest(models.Model):
         if not self.batch_id:
             raise UserError(_("Request has no batch budget."))
         project_budget = self.batch_id.project_budget_id
-        if (
-            self.env.user not in project_budget.approver_user_ids
-            and self.env.user != self.requester_id
-        ):
+        if self.env.user not in project_budget.approver_user_ids:
             raise UserError(_(
-                "Only an approver of this Project Budget or the requester "
-                "can act on this request."
+                "You are not in the approver pool for this Project Budget."
             ))
 
     def _approver_partner_ids(self):
@@ -183,16 +220,19 @@ class EtpBatchBudgetRequest(models.Model):
         self.ensure_one()
         return self.requester_id.partner_id.ids if self.requester_id else []
 
-    def _send_mail(self, template_xmlid, partner_ids):
+    def _send_mail(self, template_xmlid, partner_ids, email_values=None):
         self.ensure_one()
         if not partner_ids:
             return
         template = self.env.ref(template_xmlid, raise_if_not_found=False)
         if not template:
             return
+        values = {"partner_ids": [(6, 0, partner_ids)]}
+        if email_values:
+            values.update(email_values)
         template.send_mail(
             self.id,
-            email_values={"partner_ids": [(6, 0, partner_ids)]},
+            email_values=values,
             force_send=False,
         )
 
@@ -219,9 +259,15 @@ class EtpBatchBudgetRequest(models.Model):
                 if not line.approved_amount:
                     line.approved_amount = line.requested_amount
             rec.state = "pending"
+            email_values = {}
+            if rec.subject:
+                email_values["subject"] = rec.subject
+            if rec.attachment_ids:
+                email_values["attachment_ids"] = [(6, 0, rec.attachment_ids.ids)]
             rec._send_mail(
                 "etp_projects.mail_template_batch_request_submitted",
                 rec._approver_partner_ids(),
+                email_values=email_values,
             )
 
     def action_approve(self):
@@ -234,7 +280,7 @@ class EtpBatchBudgetRequest(models.Model):
                     "Approved total must be greater than zero. "
                     "Use 'Reject' if you want to deny the request entirely."
                 ))
-            remaining = rec.project_budget_id.remaining_amount or 0.0
+            remaining = rec.project_budget_id.allocatable_amount or 0.0
             if (rec.approved_total or 0.0) > remaining:
                 raise UserError(_(
                     "Approved amount (USD %(app).2f) exceeds remaining project "

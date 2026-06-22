@@ -175,8 +175,8 @@ class EtpAssessmentDaySession(models.Model):
         "etp.assessment.evaluator", required=True, ondelete="cascade",
         index=True)
 
-    employee_id = fields.Many2one(
-        related="evaluator_id.employee_id", store=True, readonly=True)
+    applicant_id = fields.Many2one(
+        related="evaluator_id.applicant_id", store=True, readonly=True)
     skill_id = fields.Many2one(
         related="day_id.skill_id", store=True, readonly=True)
     day_sequence = fields.Integer(
@@ -188,7 +188,7 @@ class EtpAssessmentDaySession(models.Model):
         string="Access Token", index=True, copy=False,
         default=lambda self: str(uuid.uuid4()))
     question_order = fields.Text(string="Shuffled Question Order (JSON)")
-    total_questions = fields.Integer()
+    total_questions = fields.Integer(string="Total Questions")
     answered_count = fields.Integer(
         compute="_compute_progress", store=True, string="Answered")
     started_at = fields.Datetime(string="Started At")
@@ -214,7 +214,7 @@ class EtpAssessmentDaySession(models.Model):
     score = fields.Integer(
         compute="_compute_score", store=True, string="Day Score")
     max_score = fields.Integer(
-        compute="_compute_score", store=True, string="Day Max")
+        compute="_compute_score", store=True, string="Max Score")
 
     # ---- Candidate "My Assessments" helpers -------------------------------
     # The candidate hub groups day sessions into three buckets. Computing the
@@ -273,10 +273,10 @@ class EtpAssessmentDaySession(models.Model):
     display_name = fields.Char(
         compute="_compute_display_name", store=True)
 
-    @api.depends("employee_id", "day_id.sequence", "skill_id.name")
+    @api.depends("applicant_id", "day_id.sequence", "skill_id.name")
     def _compute_display_name(self):
         for rec in self:
-            emp = rec.employee_id.name or "?"
+            emp = rec.applicant_id.partner_name or "?"
             sk = rec.skill_id.name or "?"
             rec.display_name = f"{emp} — Day {rec.day_id.sequence} ({sk})"
 
@@ -314,14 +314,15 @@ class EtpAssessmentDaySession(models.Model):
         if not tpl:
             return
         for rec in self:
-            emp = rec.evaluator_id.employee_id
-            to_email = (emp.work_email or
-                        (emp.user_id.email if emp.user_id else "") or "")
+            emp = rec.evaluator_id.applicant_id
+            to_email = (emp.email_from or
+                        (emp.candidate_user_id.email
+                         if emp.candidate_user_id else "") or "")
             if not to_email:
                 _logger.warning(
                     "No email for candidate %r on assessment %r — "
                     "saving mail.mail as cancelled with portal link.",
-                    emp.name, rec.assessment_id.name)
+                    emp.partner_name, rec.assessment_id.name)
                 base = self.env["ir.config_parameter"].sudo().get_param(
                     "web.base.url") or "http://localhost:8069"
                 link = f"{base}/assessment/day/{rec.access_token}"
@@ -330,12 +331,15 @@ class EtpAssessmentDaySession(models.Model):
                     "body_html": tpl._render_field("body_html", rec.ids)[rec.id],
                     "email_to": "",
                     "state": "cancel",
-                    "failure_reason": f"No email on candidate {emp.name!r}. "
+                    "failure_reason": f"No email on candidate "
+                                      f"{emp.partner_name!r}. "
                                       f"Portal link: {link}",
                     "auto_delete": False,
                 })
                 continue
-            tpl.send_mail(rec.id, force_send=False)
+            # force_send=True: invitations must go out immediately when the
+            # plan is generated, not wait for the mail-queue cron.
+            tpl.send_mail(rec.id, force_send=True)
 
     def action_start_day(self):
         for rec in self:
@@ -387,7 +391,7 @@ class EtpAssessmentDaySession(models.Model):
                 "assessment_id": self.assessment_id.id,
                 "assessment_evaluator_id": self.evaluator_id.id,
                 "day_session_id": self.id,
-                "evaluator_id": self.evaluator_id.employee_id.id,
+                "evaluator_id": self.evaluator_id.applicant_id.id,
                 "question_id": q_id,
                 "justification": "[Auto-submitted: not answered]",
                 "state": "submitted",
@@ -570,16 +574,16 @@ class EtpAssessmentMultiDayActions(models.Model):
                     "Assign at least one candidate before generating the plan.")
             first_seq = days[0].sequence
             sessions_created = 0
-            for emp in rec.evaluator_ids:
-                rec._ensure_portal_user(emp)
+            for applicant in rec.evaluator_ids:
+                rec._ensure_candidate_user(applicant)
                 evaluator = self.env["etp.assessment.evaluator"].search([
                     ("assessment_id", "=", rec.id),
-                    ("employee_id", "=", emp.id),
+                    ("applicant_id", "=", applicant.id),
                 ], limit=1)
                 if not evaluator:
                     evaluator = self.env["etp.assessment.evaluator"].create({
                         "assessment_id": rec.id,
-                        "employee_id": emp.id,
+                        "applicant_id": applicant.id,
                         "access_token": str(uuid.uuid4()),
                     })
                 existing_day_ids = set(evaluator.day_session_ids.mapped("day_id").ids)
