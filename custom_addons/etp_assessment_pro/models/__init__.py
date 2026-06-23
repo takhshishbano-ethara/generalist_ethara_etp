@@ -2,6 +2,7 @@ from . import skill
 from . import category
 from . import dimension
 from . import question
+from . import question_image
 from . import question_dimension
 from . import prompt
 from . import bank_import

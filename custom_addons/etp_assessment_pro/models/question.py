@@ -14,6 +14,8 @@ class EtpAssessmentQuestion(models.Model):
             ("msq", "Objective - MSQ"),
             ("subjective_justification", "Subjective - Justification"),
             ("subjective_rubric", "Subjective - Rubric"),
+            ("image_ab", "Image - A/B Evaluation"),
+            ("image_text", "Image - Prompt/Labelling"),
         ],
         string="Question Type",
         required=True,
@@ -40,6 +42,15 @@ class EtpAssessmentQuestion(models.Model):
     grading_json = fields.Text(string="Grading (raw)")
     subjective_rubric_json = fields.Text(string="Subjective Rubric (JSON)")
     meta_json = fields.Text(string="Meta (JSON)")
+    image_ids = fields.One2many(
+        "etp.assessment.pro.question.image",
+        "question_id",
+        string="Images",
+    )
+    official_reasoning = fields.Text(
+        string="Official Reasoning",
+        help="image_ab: the official rationale the LLM grades the candidate's "
+             "justification against.")
     difficulty = fields.Selection(
         [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
         string="Difficulty",
@@ -56,6 +67,29 @@ class EtpAssessmentQuestion(models.Model):
             text = (rec.subjective_rubric_json or "").strip()
             rec.has_subjective = bool(text and text not in ("[]", "{}")) or \
                 rec.question_type in ("subjective_justification", "subjective_rubric")
+
+    def action_offload_images_s3(self):
+        from ..services import s3_service
+        moved = 0
+        for q in self:
+            for img in q.image_ids:
+                if img.image_url or not img.image:
+                    continue
+                url, _key = s3_service.upload_b64(
+                    self.env, img.image,
+                    key_hint="qimg-%s" % img.id, content_type="image/png")
+                img.write({"image_url": url})
+                moved += 1
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": "Images Offloaded",
+                "message": "Pushed %s image(s) to S3." % moved,
+                "type": "success" if moved else "warning",
+                "sticky": False,
+            },
+        }
 
     def _export_payload(self):
         import json

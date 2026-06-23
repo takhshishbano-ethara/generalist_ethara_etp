@@ -87,6 +87,8 @@
                         domain="[('question_type','=','subjective_justification')]"/>
                 <filter name="filter_subj_rubric" string="Subjective Rubric"
                         domain="[('question_type','=','subjective_rubric')]"/>
+                <filter name="filter_image" string="Image Evaluation"
+                        domain="[('question_type','in',('image_ab','image_text'))]"/>
                 <separator/>
                 <filter name="filter_easy" string="Easy" domain="[('difficulty','=','easy')]"/>
                 <filter name="filter_medium" string="Medium" domain="[('difficulty','=','medium')]"/>
