@@ -299,6 +299,69 @@
                                 </div>
                             </t>
 
+                            <t t-if="question.question_type == 'image_ab'">
+                                <div class="etp-image-panel row g-3 mb-3">
+                                    <t t-foreach="images" t-as="img">
+                                        <div class="col-md-6 etp-image-slot">
+                                            <div class="etp-image-label"
+                                                 t-out="img.label"/>
+                                            <img class="etp-eval-image img-fluid"
+                                                 draggable="false"
+                                                 oncontextmenu="return false;"
+                                                 t-att-src="img.image_url or ('/web/image/etp.assessment.pro.question.image/%d/image' % img.id)"
+                                                 t-att-alt="img.label"/>
+                                        </div>
+                                    </t>
+                                </div>
+                                <t t-foreach="dimensions" t-as="qd">
+                                    <fieldset class="etp-options">
+                                        <legend class="etp-dim-legend"
+                                                t-out="qd.dimension_id.name"/>
+                                        <t t-foreach="qd.option_line_ids" t-as="opt">
+                                            <div class="form-check etp-option">
+                                                <input class="form-check-input"
+                                                       type="radio"
+                                                       t-att-name="'dimension_%d' % qd.dimension_id.id"
+                                                       t-att-value="opt.master_option_id.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.master_option_id.id in (selected_option_ids or []) else None"/>
+                                                <label class="form-check-label"
+                                                       t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-out="opt.name"/>
+                                            </div>
+                                        </t>
+                                    </fieldset>
+                                </t>
+                                <div class="etp-field">
+                                    <label class="form-label">Justification</label>
+                                    <textarea name="justification" rows="5"
+                                              class="form-control etp-textarea"
+                                              t-out="existing_justification or ''"/>
+                                </div>
+                            </t>
+
+                            <t t-if="question.question_type == 'image_text'">
+                                <div class="etp-image-panel row g-3 mb-3">
+                                    <t t-foreach="images" t-as="img">
+                                        <div class="col-md-6 etp-image-slot">
+                                            <div class="etp-image-label"
+                                                 t-out="img.label"/>
+                                            <img class="etp-eval-image img-fluid"
+                                                 draggable="false"
+                                                 oncontextmenu="return false;"
+                                                 t-att-src="img.image_url or ('/web/image/etp.assessment.pro.question.image/%d/image' % img.id)"
+                                                 t-att-alt="img.label"/>
+                                        </div>
+                                    </t>
+                                </div>
+                                <div class="etp-field">
+                                    <label class="form-label">Your Response</label>
+                                    <textarea name="justification" rows="6"
+                                              class="form-control etp-textarea"
+                                              t-out="existing_justification or ''"/>
+                                </div>
+                            </t>
+
                             <!-- Justification box on objective questions ONLY when the
                                  admin explicitly requires it. No more confusing
                                  'optional' box on every MCQ. -->
@@ -622,7 +685,7 @@
                     <t t-foreach="responses" t-as="response">
                         <t t-set="question" t-value="response.question_id"/>
                         <t t-set="is_objective"
-                           t-value="response.question_type in ('mcq', 'msq')"/>
+                           t-value="response.question_type in ('mcq', 'msq', 'image_ab')"/>
                         <t t-set="is_correct"
                            t-value="is_objective and response.max_score &gt; 0 and response.score == response.max_score"/>
                         <t t-set="qstatus"
@@ -660,6 +723,21 @@
                             <div class="card-body">
                                 <p class="etp-question-desc" t-out="question.prompt"/>
 
+                                <t t-if="question.image_ids">
+                                    <div class="etp-image-panel row g-3 mb-3">
+                                        <t t-foreach="question.image_ids" t-as="img">
+                                            <div class="col-md-6 etp-image-slot">
+                                                <div class="etp-image-label"
+                                                     t-out="img.label"/>
+                                                <img class="etp-eval-image img-fluid"
+                                                     draggable="false"
+                                                     t-att-src="img.image_url or ('/web/image/etp.assessment.pro.question.image/%d/image' % img.id)"
+                                                     t-att-alt="img.label"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+
                                 <t t-if="is_objective">
                                     <p class="etp-answer-row">
                                         <span class="etp-answer-label">Your answer:</span>
@@ -676,6 +754,18 @@
                                 <t t-else="">
                                     <p class="etp-answer-row mb-1">
                                         <span class="etp-answer-label">Your answer:</span>
+                                    </p>
+                                    <p class="etp-justification"
+                                       t-out="response.justification"/>
+                                    <div t-if="response.llm_feedback" class="etp-feedback">
+                                        <strong>Feedback:</strong>
+                                        <span t-out="response.llm_feedback"/>
+                                    </div>
+                                </t>
+
+                                <t t-if="response.question_type == 'image_ab' and response.justification">
+                                    <p class="etp-answer-row mb-1 mt-2">
+                                        <span class="etp-answer-label">Your justification:</span>
                                     </p>
                                     <p class="etp-justification"
                                        t-out="response.justification"/>

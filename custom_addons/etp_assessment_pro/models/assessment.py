@@ -1076,11 +1076,12 @@ class EtpAssessmentResponse(models.Model):
         # justification.
         for rec in self:
             qtype = rec.question_id.question_type
-            rec.has_objective = qtype in ("mcq", "msq")
+            rec.has_objective = qtype in ("mcq", "msq", "image_ab")
             just = (rec.justification or "").strip()
             is_placeholder = just.startswith("[Auto-submitted")
             rec.needs_llm = (
-                qtype in ("subjective_justification", "subjective_rubric")
+                qtype in ("subjective_justification", "subjective_rubric",
+                          "image_ab", "image_text")
                 and bool(just)
                 and not is_placeholder
             )
@@ -1096,7 +1097,7 @@ class EtpAssessmentResponse(models.Model):
         # - subjective_*: objective score is 0 (LLM scores separately).
         for rec in self:
             qtype = rec.question_id.question_type
-            if qtype not in ("mcq", "msq"):
+            if qtype not in ("mcq", "msq", "image_ab"):
                 rec.score = 0
                 rec.max_score = 0
                 continue
@@ -1106,6 +1107,26 @@ class EtpAssessmentResponse(models.Model):
             if not max_score:
                 rec.score = 0
                 rec.max_score = 0
+                continue
+            # image_ab: PARTIAL credit — 1 point per dimension whose chosen
+            # master-option set equals the official is_correct set. mcq/msq
+            # stay ALL-OR-NOTHING across all objective dimensions.
+            if qtype == "image_ab":
+                earned = 0
+                for qd in objective_dims:
+                    correct_for_dim = {
+                        ol.master_option_id.id
+                        for ol in qd.option_line_ids.filtered("is_correct")
+                        if ol.master_option_id}
+                    chosen_for_dim = {
+                        line.selected_option_id.id
+                        for line in rec.line_ids
+                        if line.selected_option_id
+                        and line.dimension_id.id == qd.dimension_id.id}
+                    if chosen_for_dim == correct_for_dim:
+                        earned += 1
+                rec.score = earned
+                rec.max_score = max_score
                 continue
             all_correct = True
             for qd in objective_dims:
@@ -1135,10 +1156,11 @@ class EtpAssessmentResponse(models.Model):
             qtype = rec.question_id.question_type
             # Objective questions need at least one option pick; subjective
             # questions need a non-empty justification.
-            if qtype in ("mcq", "msq") and not rec.line_ids:
+            if qtype in ("mcq", "msq", "image_ab") and not rec.line_ids:
                 raise UserError(
                     "Please answer at least one dimension before submitting.")
-            if qtype in ("subjective_justification", "subjective_rubric") \
+            if qtype in ("subjective_justification", "subjective_rubric",
+                         "image_text") \
                     and not (rec.justification or "").strip():
                 raise UserError(
                     "Please provide a justification before submitting.")
@@ -1189,7 +1211,13 @@ class EtpAssessmentResponse(models.Model):
         from ..services import scoring as scoring_svc
         for ev in by_eval.values():
             try:
-                scoring_svc.score_evaluator(self.env, ev)
+                # Savepoint-isolate the inline LLM call: its minted-token
+                # write to ir_config_parameter can race the auto-score cron
+                # (SerializationFailure) and would otherwise poison the
+                # candidate's submit transaction (HTTP 500). On failure we
+                # roll back and leave responses pending for the cron drainer.
+                with self.env.cr.savepoint():
+                    scoring_svc.score_evaluator(self.env, ev)
             except Exception:
                 _logger.exception(
                     "Inline subjective scoring failed for evaluator %s; "

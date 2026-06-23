@@ -20,6 +20,8 @@ class EtpAssessmentSkill(models.Model):
             ("msq", "Objective - MSQ"),
             ("subjective_justification", "Subjective - Justification"),
             ("subjective_rubric", "Subjective - Rubric"),
+            ("image_ab", "Image - A/B Evaluation"),
+            ("image_text", "Image - Prompt/Labelling"),
         ],
         required=True,
         default="mcq",

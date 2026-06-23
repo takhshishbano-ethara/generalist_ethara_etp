@@ -493,6 +493,7 @@ class EtpAssessmentPortal(http.Controller):
                 "day_session": sess,
                 "question": question,
                 "dimensions": question.question_dimension_ids,
+                "images": question.image_ids,
                 "current_index": idx,
                 "total_questions": len(order),
                 "token": token,
@@ -560,7 +561,8 @@ class EtpAssessmentPortal(http.Controller):
             return False
         justification = (form.get("justification") or "").strip()
         if question.question_type in (
-                "subjective_justification", "subjective_rubric") \
+                "subjective_justification", "subjective_rubric",
+                "image_text") \
                 and not justification:
             return False
 
@@ -586,7 +588,7 @@ class EtpAssessmentPortal(http.Controller):
                     "selected_option_id": oid,
                 }))
 
-        if question.question_type in ("mcq", "msq") and not line_vals:
+        if question.question_type in ("mcq", "msq", "image_ab") and not line_vals:
             return False
 
         domain = [
