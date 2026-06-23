@@ -26,6 +26,7 @@
         'hr_attendance',
         'hr_holidays',
         'mail',
+        'api_auth_gateway',
     ],
     'data': [
         'security/ir.model.access.csv',
@@ -34,6 +35,7 @@
         'views/hr_employee_views.xml',
         'views/hr_leave_views.xml',
         'views/hr_attendance_views.xml',
+        'views/leave_management_views.xml',
     ],
     'installable': True,
     'application': False,

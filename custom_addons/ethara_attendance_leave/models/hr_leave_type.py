@@ -10,8 +10,21 @@ class HrLeaveType(models.Model):
         ('cl', 'Casual Leave'),
         ('el', 'Earned Leave'),
         ('lop', 'Loss of Pay'),
+        ('marriage', 'Marriage Leave'),
+        ('maternity', 'Maternity Leave'),
+        ('bereavement', 'Bereavement Leave'),
+        ('comp_off', 'Comp-Off'),
+        ('wfh', 'Work From Home'),
+        ('menstrual', 'Menstrual Leave'),
+        ('restricted_holiday', 'Restricted Holiday'),
     ], string='Ethara Leave Code',
         help='Internal code used by Ethara attendance/leave module for policy enforcement.')
+
+    default_annual_days = fields.Float(
+        string='Default Annual Days',
+        default=0.0,
+        help='Default yearly entitlement (days) used to pre-fill HR allocations for this leave '
+             'type. Editable by HR/Admin; HR can override the count per employee when assigning.')
 
     allow_half_day = fields.Boolean(
         string='Allow Half Day',

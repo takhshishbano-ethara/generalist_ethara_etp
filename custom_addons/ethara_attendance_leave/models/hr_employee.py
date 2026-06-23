@@ -1,5 +1,5 @@
 import logging
-from odoo import models, fields, api
+from odoo import models, fields, api, _
 
 _logger = logging.getLogger(__name__)
 
@@ -8,8 +8,213 @@ IST_HOURS = 5
 IST_MINUTES = 30
 
 
+# Editable leave-balance grid: ethara_leave_code -> employee field name.
+# Each field shows the employee's total *allocated* days for that leave type
+# and is editable inline in the Leave Management list (sets/adjusts allocation).
+ETHARA_BALANCE_FIELDS = {
+    'sl': 'ethara_bal_sl',
+    'cl': 'ethara_bal_cl',
+    'el': 'ethara_bal_el',
+    'lop': 'ethara_bal_lop',
+    'marriage': 'ethara_bal_marriage',
+    'maternity': 'ethara_bal_maternity',
+    'bereavement': 'ethara_bal_bereavement',
+    'comp_off': 'ethara_bal_comp_off',
+    'wfh': 'ethara_bal_wfh',
+    'menstrual': 'ethara_bal_menstrual',
+    'restricted_holiday': 'ethara_bal_restricted',
+}
+
+
 class HrEmployee(models.Model):
     _inherit = 'hr.employee'
+
+    # --- Leave Management (HR) ---
+    ethara_allocation_ids = fields.One2many(
+        'hr.leave.allocation', 'employee_id',
+        string='Leave Allocations',
+        help='All leave allocations granted to this employee (drives the balance cards).')
+
+    ethara_leave_type_count = fields.Integer(
+        string='Leave Buckets',
+        compute='_compute_ethara_leave_type_count',
+        help='Number of distinct leave types this employee has a validated allocation for.')
+
+    # --- Editable per-type balance columns (Leave Management list) ---
+    ethara_bal_sl = fields.Float(
+        string='Sick', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_cl = fields.Float(
+        string='Casual', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_el = fields.Float(
+        string='Earned', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_lop = fields.Float(
+        string='LOP', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_marriage = fields.Float(
+        string='Marriage', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_maternity = fields.Float(
+        string='Maternity', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_bereavement = fields.Float(
+        string='Bereavement', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_comp_off = fields.Float(
+        string='Comp-Off', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_wfh = fields.Float(
+        string='WFH', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_menstrual = fields.Float(
+        string='Menstrual', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+    ethara_bal_restricted = fields.Float(
+        string='Restricted Holiday', compute='_compute_ethara_balances',
+        inverse='_inverse_ethara_balances', store=True)
+
+    def _compute_ethara_leave_type_count(self):
+        for emp in self:
+            types = emp.ethara_allocation_ids.filtered(
+                lambda a: a.state == 'validate').mapped('holiday_status_id')
+            emp.ethara_leave_type_count = len(types)
+
+    @api.model
+    def _ethara_type_by_code(self):
+        """{ethara_leave_code: hr.leave.type record} for the 11 Ethara types."""
+        types = self.env['hr.leave.type'].sudo().search(
+            [('ethara_leave_code', '!=', False)])
+        return {t.ethara_leave_code: t for t in types}
+
+    @api.depends('ethara_allocation_ids.number_of_days',
+                 'ethara_allocation_ids.state',
+                 'ethara_allocation_ids.holiday_status_id')
+    def _compute_ethara_balances(self):
+        for emp in self:
+            totals = dict.fromkeys(ETHARA_BALANCE_FIELDS, 0.0)
+            for alloc in emp.ethara_allocation_ids:
+                if alloc.state != 'validate':
+                    continue
+                code = alloc.holiday_status_id.ethara_leave_code
+                if code in totals:
+                    totals[code] += alloc.number_of_days
+            for code, fname in ETHARA_BALANCE_FIELDS.items():
+                emp[fname] = totals[code]
+
+    def _inverse_ethara_balances(self):
+        """When HR edits a balance cell, reconcile the employee's allocations to it.
+
+        Increase  -> create one validated allocation for the positive delta.
+        Decrease  -> lower existing validated allocations (newest first), but never
+                     below the days already taken for that type; regular allocations
+                     must stay > 0, so a fully-cut one is refused out.
+        After reconciling, the stored grid value is re-synced to the true allocation
+        total (so a negative / below-taken input can't leave a wrong number on screen).
+        """
+        if self.env.context.get('ethara_sync'):
+            return  # internal re-sync write below — don't recurse
+        type_by_code = self._ethara_type_by_code()
+        Allocation = self.env['hr.leave.allocation'].sudo()
+        Leave = self.env['hr.leave'].sudo()
+        today = fields.Date.today()
+        year_start = today.replace(month=1, day=1)
+        year_end = today.replace(month=12, day=31)
+        for emp in self:
+            for code, fname in ETHARA_BALANCE_FIELDS.items():
+                leave_type = type_by_code.get(code)
+                if not leave_type:
+                    continue
+                allocs = emp.ethara_allocation_ids.filtered(
+                    lambda a: a.state == 'validate'
+                    and a.holiday_status_id.id == leave_type.id)
+                current = sum(allocs.mapped('number_of_days'))
+                target = max(emp[fname] or 0.0, 0.0)
+                delta = round(target - current, 2)
+                if abs(delta) < 0.01:
+                    continue
+                if delta > 0:
+                    alloc = Allocation.create({
+                        'name': '%s (HR grid) %s' % (leave_type.name, today.year),
+                        'holiday_status_id': leave_type.id,
+                        'employee_id': emp.id,
+                        'number_of_days': delta,
+                        'date_from': year_start,
+                        'date_to': year_end,
+                        'allocation_type': 'regular',
+                    })
+                    self._ethara_validate_allocation(alloc)
+                else:
+                    # never reduce below days already taken for this type
+                    taken = sum(Leave.search([
+                        ('employee_id', '=', emp.id),
+                        ('holiday_status_id', '=', leave_type.id),
+                        ('state', '=', 'validate'),
+                    ]).mapped('number_of_days'))
+                    reduce_by = round(current - max(target, taken), 2)
+                    if reduce_by > 0.01:
+                        self._ethara_reduce_allocations(allocs, reduce_by)
+            # re-sync the stored grid fields to the real allocation totals
+            sync_vals = {}
+            for code, fname in ETHARA_BALANCE_FIELDS.items():
+                leave_type = type_by_code.get(code)
+                if not leave_type:
+                    continue
+                sync_vals[fname] = sum(
+                    a.number_of_days for a in emp.ethara_allocation_ids
+                    if a.state == 'validate' and a.holiday_status_id.id == leave_type.id)
+            emp.with_context(ethara_sync=True).write(sync_vals)
+
+    @staticmethod
+    def _ethara_reduce_allocations(allocations, amount):
+        """Lower validated allocations (newest first) by `amount` days, never below
+        what's already been taken on each one."""
+        for alloc in allocations.sorted(key=lambda a: a.id, reverse=True):
+            if amount <= 0.01:
+                break
+            floor = alloc.leaves_taken or 0.0
+            reducible = alloc.number_of_days - floor
+            if reducible <= 0:
+                continue
+            cut = min(reducible, amount)
+            new_days = round(alloc.number_of_days - cut, 2)
+            try:
+                if new_days <= 0:
+                    # regular allocations must be > 0 -> refuse it out of the balance
+                    if hasattr(alloc, 'action_refuse'):
+                        alloc.action_refuse()
+                    else:
+                        alloc.sudo().write({'state': 'refuse'})
+                else:
+                    alloc.sudo().write({'number_of_days': new_days})
+                amount -= cut
+            except Exception:  # noqa: BLE001 - skip an allocation we can't lower
+                continue
+
+    @staticmethod
+    def _ethara_validate_allocation(allocation):
+        """Push an allocation to state=validate so the balance counts."""
+        try:
+            if allocation.state == 'draft' and hasattr(allocation, 'action_confirm'):
+                allocation.action_confirm()
+            if allocation.state != 'validate':
+                allocation.action_validate()
+        except Exception:  # noqa: BLE001 - last resort: set state directly
+            if allocation.state != 'validate':
+                allocation.sudo().write({'state': 'validate'})
+
+    def action_open_leave_balances(self):
+        """Smart-button / row action: open this employee's leave buckets as cards."""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('%s — Leave Balances') % self.name,
+            'res_model': 'hr.leave.bucket',
+            'view_mode': 'kanban,list',
+            'domain': [('employee_id', '=', self.id)],
+            'context': {'search_default_employee_id': self.id},
+        }
 
     # --- Late Arrival Tracking ---
     late_arrival_count = fields.Integer(

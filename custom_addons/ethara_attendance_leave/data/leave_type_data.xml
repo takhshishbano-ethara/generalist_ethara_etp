@@ -2,6 +2,13 @@
 <odoo>
     <data noupdate="1">
 
+        <!-- ============================================================ -->
+        <!-- Ethara Leave Catalog (11 types).                              -->
+        <!-- default_annual_days is the HR-editable yearly entitlement     -->
+        <!-- used to pre-fill allocations; all types are normal            -->
+        <!-- allocate-then-deduct balance leaves (requires_allocation).    -->
+        <!-- ============================================================ -->
+
         <!-- Sick Leave (SL) -->
         <record id="leave_type_sl" model="hr.leave.type">
             <field name="name">Sick Leave</field>
@@ -23,6 +30,7 @@
             <field name="max_carry_forward_days">0</field>
             <field name="apply_sandwich_rule" eval="False"/>
             <field name="monthly_accrual_days">1</field>
+            <field name="default_annual_days">12</field>
         </record>
 
         <!-- Casual Leave (CL) -->
@@ -45,6 +53,7 @@
             <field name="max_carry_forward_days">0</field>
             <field name="apply_sandwich_rule" eval="True"/>
             <field name="monthly_accrual_days">1</field>
+            <field name="default_annual_days">12</field>
         </record>
 
         <!-- Earned Leave (EL) -->
@@ -67,6 +76,7 @@
             <field name="max_carry_forward_days">7</field>
             <field name="apply_sandwich_rule" eval="False"/>
             <field name="monthly_accrual_days">1</field>
+            <field name="default_annual_days">15</field>
         </record>
 
         <!-- Loss of Pay (LOP) -->
@@ -75,7 +85,7 @@
             <field name="ethara_leave_code">lop</field>
             <field name="sequence">40</field>
             <field name="color">3</field>
-            <field name="requires_allocation" eval="False"/>
+            <field name="requires_allocation" eval="True"/>
             <field name="request_unit">day</field>
             <field name="leave_validation_type">manager</field>
             <field name="allocation_validation_type">no_validation</field>
@@ -89,6 +99,126 @@
             <field name="max_carry_forward_days">0</field>
             <field name="apply_sandwich_rule" eval="False"/>
             <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Marriage Leave -->
+        <record id="leave_type_marriage" model="hr.leave.type">
+            <field name="name">Marriage Leave</field>
+            <field name="ethara_leave_code">marriage</field>
+            <field name="sequence">50</field>
+            <field name="color">6</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="False"/>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Maternity Leave -->
+        <record id="leave_type_maternity" model="hr.leave.type">
+            <field name="name">Maternity Leave</field>
+            <field name="ethara_leave_code">maternity</field>
+            <field name="sequence">60</field>
+            <field name="color">8</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="False"/>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Bereavement Leave -->
+        <record id="leave_type_bereavement" model="hr.leave.type">
+            <field name="name">Bereavement Leave</field>
+            <field name="ethara_leave_code">bereavement</field>
+            <field name="sequence">70</field>
+            <field name="color">9</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="False"/>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Comp-Off -->
+        <record id="leave_type_comp_off" model="hr.leave.type">
+            <field name="name">Comp-Off</field>
+            <field name="ethara_leave_code">comp_off</field>
+            <field name="sequence">80</field>
+            <field name="color">10</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="True"/>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Work From Home -->
+        <record id="leave_type_wfh" model="hr.leave.type">
+            <field name="name">Work From Home</field>
+            <field name="ethara_leave_code">wfh</field>
+            <field name="sequence">90</field>
+            <field name="color">2</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="True"/>
+            <field name="lapses_at_year_end" eval="False"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Menstrual Leave -->
+        <record id="leave_type_menstrual" model="hr.leave.type">
+            <field name="name">Menstrual Leave</field>
+            <field name="ethara_leave_code">menstrual</field>
+            <field name="sequence">100</field>
+            <field name="color">11</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="True"/>
+            <field name="lapses_at_year_end" eval="True"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
+        </record>
+
+        <!-- Restricted Holiday -->
+        <record id="leave_type_restricted_holiday" model="hr.leave.type">
+            <field name="name">Restricted Holiday</field>
+            <field name="ethara_leave_code">restricted_holiday</field>
+            <field name="sequence">110</field>
+            <field name="color">7</field>
+            <field name="requires_allocation" eval="True"/>
+            <field name="request_unit">day</field>
+            <field name="leave_validation_type">manager</field>
+            <field name="allocation_validation_type">no_validation</field>
+            <field name="unpaid" eval="False"/>
+            <field name="allow_half_day" eval="False"/>
+            <field name="lapses_at_year_end" eval="True"/>
+            <field name="monthly_accrual_days">0</field>
+            <field name="default_annual_days">0</field>
         </record>
 
     </data>
