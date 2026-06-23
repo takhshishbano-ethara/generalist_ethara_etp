@@ -6,6 +6,13 @@ from .assignment_history import ROLE_FIELD_MAP
 class HrEmployee(models.Model):
     _inherit = 'hr.employee'
 
+    emp_id = fields.Char(
+        string='Employee ID',
+        copy=False,
+        index=True,
+        help='Unique identifier for the employee.',
+    )
+
     offboarding_state = fields.Selection([
         ('active', 'Active'),
         ('offboarding', 'Offboarding'),
