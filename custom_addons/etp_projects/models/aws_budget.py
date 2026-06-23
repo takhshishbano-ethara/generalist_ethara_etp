@@ -264,7 +264,10 @@ class EtpProjectAwsBudget(models.Model):
         "budget_id",
         "user_id",
         string="Approvers",
-        help="Users authorised to approve Batch Budget and Top-up requests on this project.",
+        default=lambda self: [(6, 0, self._get_default_approver_user_ids())],
+        help="Users authorised to approve Batch Budget and Top-up requests on this project. "
+             "New budgets are pre-filled from the 'Default Project Budget Approvers' "
+             "configured under Settings.",
     )
     cto_user_id = fields.Many2one(
         "res.users",
@@ -342,6 +345,22 @@ class EtpProjectAwsBudget(models.Model):
         help="Unused approved amount from delivered batches. Auto-allocated "
              "to the next new or restarted batch.",
     )
+
+    @api.model
+    def _get_default_approver_user_ids(self):
+        raw = self.env["ir.config_parameter"].sudo().get_param(
+            "etp_projects.default_approver_user_ids", "",
+        )
+        if not raw:
+            return []
+        ids = []
+        for token in raw.split(","):
+            token = token.strip()
+            if token.isdigit():
+                ids.append(int(token))
+        if not ids:
+            return []
+        return self.env["res.users"].sudo().browse(ids).exists().ids
 
     def _active_tag_pairs(self):
         self.ensure_one()

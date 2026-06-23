@@ -1379,7 +1379,6 @@ class EtpProjectBudgetDashboardController(http.Controller):
             )
 
             estimated = float(batch.estimated_cost or 0.0)
-            actual = float(batch.consumed_cost or 0.0)
             approved = float(batch.approved_amount or 0.0)
             buffer_pct = float(batch.buffer_pct or 0.0)
             batch_budget_total = float(batch.batch_budget or 0.0)
@@ -1402,6 +1401,7 @@ class EtpProjectBudgetDashboardController(http.Controller):
                     effective_end = start_date
                 elapsed_days = max(1, (effective_end - start_date).days + 1)
             else:
+                effective_end = None
                 elapsed_days = 1
 
             if end_date and today < end_date:
@@ -1410,6 +1410,15 @@ class EtpProjectBudgetDashboardController(http.Controller):
                 remaining_days = 0
             else:
                 remaining_days = 0
+
+            if start_date and effective_end:
+                actual = float(
+                    _spend_by_budget([budget.id], start_date, effective_end).get(
+                        budget.id, 0.0
+                    )
+                )
+            else:
+                actual = 0.0
 
             actual_burn_per_day = actual / elapsed_days if elapsed_days else 0.0
             estimated_burn_per_day = estimated / total_days if total_days else 0.0

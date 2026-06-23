@@ -291,6 +291,30 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Image Evaluation" invisible="state == 'draft'">
+                            <field name="response_ids" readonly="1"
+                                   domain="[('question_type','in',('image_ab','image_text'))]">
+                                <list>
+                                    <field name="evaluator_id" string="Candidate"/>
+                                    <field name="question_id"/>
+                                    <field name="question_type"/>
+                                    <field name="objective_score" string="Objective"/>
+                                    <field name="objective_max" string="Objective Max"
+                                           optional="show"/>
+                                    <field name="subjective_score" string="Subjective Points"
+                                           optional="show"/>
+                                    <field name="llm_state" widget="badge"
+                                           string="Subjective State"
+                                           decoration-info="llm_state in ('pending','queued')"
+                                           decoration-success="llm_state == 'scored'"
+                                           decoration-muted="llm_state == 'not_needed'"
+                                           decoration-danger="llm_state == 'failed'"/>
+                                    <field name="state" widget="badge"
+                                           decoration-info="state == 'draft'"
+                                           decoration-success="state == 'submitted'"/>
+                                </list>
+                            </field>
+                        </page>
                     </notebook>
                 </sheet>
             </form>

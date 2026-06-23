@@ -16,6 +16,7 @@ import logging
 import re
 
 from . import vertex as vertex_svc
+from . import consistency as consistency_svc
 
 _logger = logging.getLogger(__name__)
 
@@ -114,18 +115,38 @@ def _parse_array(text):
 
 
 def score_evaluator(env, evaluator):
-    """Score one candidate's needs_llm responses in ONE Vertex call.
+    """Score one candidate's needs_llm responses, grouped by question_type.
 
-    Returns the count of responses scored. Per D2 the
-    ``subjective_justification`` type is graded against an EMPTY rubric:
-    the LLM judges purely from question prompt + candidate justification.
+    Dispatches each group to its scorer (one Vertex call per group):
+    subjective_* (justification/rubric), image_ab, image_text. Returns the
+    total count of responses scored.
     """
     todo = evaluator.response_ids.filtered(
         lambda r: r.needs_llm and r.llm_state in (
             "not_needed", "pending", "queued", "failed"))
     if not todo:
         return 0
+    subjective = todo.filtered(lambda r: r.question_type in (
+        "subjective_justification", "subjective_rubric"))
+    image_ab = todo.filtered(lambda r: r.question_type == "image_ab")
+    image_text = todo.filtered(lambda r: r.question_type == "image_text")
+    scored = 0
+    if subjective:
+        scored += _score_subjective_items(env, subjective)
+    if image_ab:
+        scored += _score_image_ab_items(env, image_ab)
+    if image_text:
+        scored += _score_image_text_items(env, image_text)
+    return scored
 
+
+def _score_subjective_items(env, todo):
+    """Batched scoring for subjective_justification / subjective_rubric.
+
+    Per D2 the ``subjective_justification`` type is graded against an EMPTY
+    rubric: the LLM judges purely from question prompt + candidate
+    justification.
+    """
     items = []
     for resp in todo:
         q = resp.question_id
@@ -159,8 +180,8 @@ def score_evaluator(env, evaluator):
     model_name = (env["ir.config_parameter"].sudo().get_param(
         "etp_assessment_pro.vertex_model", "gemini-2.5-pro") or "gemini-2.5-pro")
     _logger.info(
-        "etp_assessment scoring: evaluator=%s items=%d model=%s",
-        evaluator.id, len(items), model_name)
+        "etp_assessment scoring: subjective items=%d model=%s",
+        len(items), model_name)
 
     raw = vertex_svc._call_vertex(
         env, system_prompt, user_text,
@@ -176,6 +197,8 @@ def score_evaluator(env, evaluator):
         if not isinstance(it, dict):
             continue
         raw_id = it.get("id") if it.get("id") is not None else it.get("item_id")
+        if raw_id is None:
+            continue
         try:
             rid = int(raw_id)
         except (TypeError, ValueError):
@@ -210,6 +233,238 @@ def score_evaluator(env, evaluator):
             "llm_raw_score": r["score01"],
             "llm_feedback": r["feedback"],
             "llm_score": points if passed else 0,
+            "llm_max_score": points,
+            "llm_passed": passed,
+            "llm_attempts": (resp.llm_attempts or 0) + 1,
+        })
+        scored += 1
+    return scored
+
+
+def _option_rating(name):
+    n = (name or "").strip().lower()
+    if n in ("response a", "a"):
+        return "A"
+    if n in ("response b", "b"):
+        return "B"
+    if "both good" in n:
+        return "BG"
+    if "both bad" in n:
+        return "BB"
+    if "tie" in n:
+        return "Tie"
+    return name or ""
+
+
+def _dim_abbr(dimension_name):
+    m = re.search(r"\(([A-Za-z]{1,4})\)", dimension_name or "")
+    if m:
+        return m.group(1).upper()
+    return (dimension_name or "").strip().upper()
+
+
+def _compose_ab_feedback(raw_it, precheck):
+    parts = []
+    fb = str(raw_it.get("feedback") or raw_it.get("reasoning_summary") or "")
+    if fb:
+        parts.append(fb)
+    issues = raw_it.get("issues")
+    if isinstance(issues, list) and issues:
+        parts.append("Issues: " + "; ".join(str(i) for i in issues))
+    flags = (precheck or {}).get("flags") or []
+    if flags:
+        parts.append("Consistency (%s): %s" % (
+            (precheck or {}).get("severity", "none"),
+            "; ".join(str(f.get("message", "")) for f in flags)))
+    return "\n".join(parts)
+
+
+def _score_image_ab_items(env, todo):
+    points = _subjective_points(env)
+    threshold = _subjective_pass_threshold(env)
+    items = []
+    flags_by_id = {}
+    for resp in todo:
+        q = resp.question_id
+        official = {}
+        candidate = {}
+        tasker_ratings = {}
+        for qd in q.question_dimension_ids:
+            abbr = _dim_abbr(qd.dimension_id.name)
+            correct = [
+                _option_rating(ol.name)
+                for ol in qd.option_line_ids.filtered("is_correct")]
+            if correct:
+                official[abbr] = correct[0] if len(correct) == 1 else correct
+            chosen = [
+                _option_rating(line.selected_option_id.name)
+                for line in resp.line_ids
+                if line.selected_option_id
+                and line.dimension_id.id == qd.dimension_id.id]
+            if chosen:
+                candidate[abbr] = chosen[0] if len(chosen) == 1 else chosen
+                tasker_ratings[abbr] = chosen[0]
+        precheck = consistency_svc.consistency_checker(
+            tasker_ratings, resp.justification or "")
+        flags_by_id[resp.id] = precheck
+        items.append({
+            "id": resp.id,
+            "question_title": q.name or "",
+            "question_prompt": q.prompt or "",
+            "official_ratings": official,
+            "official_reasoning": q.official_reasoning or "",
+            "candidate_ratings": candidate,
+            "candidate_justification": resp.justification or "",
+            "consistency_flags": precheck.get("flags", []),
+            "consistency_severity": precheck.get("severity", "none"),
+        })
+
+    system_prompt = (
+        "You are evaluating image A/B-comparison justifications. For each "
+        "item, judge how well candidate_justification aligns with the "
+        "official_ratings and official_reasoning, using consistency_flags as "
+        "supporting signals (do not blindly punish substantively strong "
+        "written reasoning). Return ONLY a JSON array; each element MUST have "
+        'keys {"id": <int>, "score": <int 0-10>, "alignment": '
+        '"low|medium|high", "strengths": [..], "issues": [..], '
+        '"feedback": "<rationale>"}. No markdown, no prose.'
+    )
+    user_text = (
+        "Score each candidate_justification 0-10 against the official answer "
+        "key. The id MUST match the id from the input items below.\n\n"
+        + json.dumps({"items": items}, ensure_ascii=False)
+    )
+    raw = vertex_svc._call_vertex(
+        env, system_prompt, user_text,
+        max_tokens=600 + 500 * len(items), temperature=0.2)
+    parsed = _parse_array(raw)
+
+    by_id = {}
+    for it in parsed:
+        if not isinstance(it, dict):
+            continue
+        raw_id = it.get("id") if it.get("id") is not None else it.get("item_id")
+        if raw_id is None:
+            continue
+        try:
+            rid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            sc = float(it.get("score") or 0)
+        except (TypeError, ValueError):
+            sc = 0.0
+        score01 = max(0.0, min(1.0, sc / 10.0))
+        by_id[rid] = {"score01": score01, "raw": it}
+
+    scored = 0
+    for resp in todo:
+        r = by_id.get(resp.id)
+        if not r:
+            resp.write({
+                "llm_state": "failed",
+                "llm_attempts": (resp.llm_attempts or 0) + 1,
+                "llm_feedback": "LLM did not return a score for this "
+                                "response in the batched call.",
+            })
+            continue
+        passed = r["score01"] >= threshold
+        resp.write({
+            "llm_state": "scored",
+            "llm_raw_score": r["score01"],
+            "llm_feedback": _compose_ab_feedback(
+                r["raw"], flags_by_id.get(resp.id)),
+            "llm_score": int(round(r["score01"] * points)),
+            "llm_max_score": points,
+            "llm_passed": passed,
+            "llm_attempts": (resp.llm_attempts or 0) + 1,
+        })
+        scored += 1
+    return scored
+
+
+def _score_image_text_items(env, todo):
+    points = _subjective_points(env)
+    threshold = _subjective_pass_threshold(env)
+    items = []
+    for resp in todo:
+        q = resp.question_id
+        key = {}
+        raw_key = (q.subjective_rubric_json or "").strip()
+        if raw_key and raw_key not in ("[]", "{}"):
+            try:
+                key = json.loads(raw_key)
+            except Exception:
+                key = {"scoring_guide": raw_key}
+        if not isinstance(key, dict):
+            key = {}
+        items.append({
+            "id": resp.id,
+            "question_title": q.name or "",
+            "question_prompt": q.prompt or "",
+            "ideal_answer": key.get("ideal_answer", ""),
+            "mandatory_elements": key.get("mandatory_elements", []),
+            "penalty_rules": key.get("penalty_rules", []),
+            "scoring_guide": key.get("scoring_guide", ""),
+            "candidate_text": resp.justification or "",
+        })
+
+    system_prompt = (
+        "You are grading image prompt-writing / description answers against a "
+        "textual answer key. For each item, compare candidate_text to "
+        "ideal_answer, require the mandatory_elements, and apply penalty_rules "
+        "and scoring_guide. Return ONLY a JSON array; each element MUST have "
+        'keys {"id": <int>, "score": <int 0-100>, "feedback": "<rationale>"}. '
+        "No markdown, no prose."
+    )
+    user_text = (
+        "Score each candidate_text 0-100 against its answer key. The id MUST "
+        "match the id from the input items below.\n\n"
+        + json.dumps({"items": items}, ensure_ascii=False)
+    )
+    raw = vertex_svc._call_vertex(
+        env, system_prompt, user_text,
+        max_tokens=600 + 500 * len(items), temperature=0.2)
+    parsed = _parse_array(raw)
+
+    by_id = {}
+    for it in parsed:
+        if not isinstance(it, dict):
+            continue
+        raw_id = it.get("id") if it.get("id") is not None else it.get("item_id")
+        if raw_id is None:
+            continue
+        try:
+            rid = int(raw_id)
+        except (TypeError, ValueError):
+            continue
+        try:
+            sc = float(it.get("score") or 0)
+        except (TypeError, ValueError):
+            sc = 0.0
+        score01 = max(0.0, min(1.0, sc / 100.0))
+        by_id[rid] = {
+            "score01": score01,
+            "feedback": str(it.get("feedback") or it.get("reasoning") or ""),
+        }
+
+    scored = 0
+    for resp in todo:
+        r = by_id.get(resp.id)
+        if not r:
+            resp.write({
+                "llm_state": "failed",
+                "llm_attempts": (resp.llm_attempts or 0) + 1,
+                "llm_feedback": "LLM did not return a score for this "
+                                "response in the batched call.",
+            })
+            continue
+        passed = r["score01"] >= threshold
+        resp.write({
+            "llm_state": "scored",
+            "llm_raw_score": r["score01"],
+            "llm_feedback": r["feedback"],
+            "llm_score": int(round(r["score01"] * points)),
             "llm_max_score": points,
             "llm_passed": passed,
             "llm_attempts": (resp.llm_attempts or 0) + 1,

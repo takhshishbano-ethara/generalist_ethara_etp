@@ -16,6 +16,10 @@ _logger = logging.getLogger(__name__)
 BUDGET_MODEL = "etp.project.aws.budget"
 PROJECT_MODEL = "project.project"
 REQUEST_MODEL = "etp.batch.budget.request"
+COST_LINE_MODEL = "etp.project.aws.cost.line"
+
+LLM_SOURCES = ("openai", "openrouter", "moonshot", "gcp")
+APPROVED_REQUEST_STATES = ("approved", "partially_approved")
 
 
 def _budget_types():
@@ -61,7 +65,64 @@ def _resolve_budget(params):
     return budget, None
 
 
-def _request_to_dict(req):
+def _batch_llm_actual(batch, cache=None):
+    """Sum of LLM-source cost lines in the batch date range; optional per-batch cache."""
+    if not (batch and batch.project_id and batch.start_date and batch.end_date):
+        return 0.0
+    if cache is not None and batch.id in cache:
+        return cache[batch.id]
+    lines = request.env[COST_LINE_MODEL].sudo().search([
+        ("project_id", "=", batch.project_id.id),
+        ("granularity", "=", "day"),
+        ("period", ">=", batch.start_date),
+        ("period", "<=", batch.end_date),
+        ("source", "in", list(LLM_SOURCES)),
+    ])
+    total = sum(lines.mapped("amount_source"))
+    if cache is not None:
+        cache[batch.id] = total
+    return total
+
+
+def _request_metrics(req, llm_cost_cache=None):
+    """Estimation / actual LLM cost / buffer / variance / health for a request.
+
+    estimation:         approved_total when approved/partially_approved, else requested_total.
+    actual_llm_costing: LLM-source cost lines (openai/openrouter/moonshot/gcp) summed across
+                        the batch's date range.
+    buffer:             absolute USD buffer = subtotal x (buffer_pct / 100).
+    variance:           estimation - actual_llm_costing (positive = under budget).
+    health:             batch.health_status, or 'unknown' when no batch.
+    """
+    is_approved = req.state in APPROVED_REQUEST_STATES
+    if is_approved:
+        subtotal = (
+            sum(req.model_line_ids.mapped("approved_amount"))
+            + sum(req.infra_line_ids.mapped("approved_amount"))
+        )
+        estimation = req.approved_total or 0.0
+    else:
+        subtotal = (
+            sum(req.model_line_ids.mapped("requested_amount"))
+            + sum(req.infra_line_ids.mapped("requested_amount"))
+        )
+        estimation = req.requested_total or 0.0
+
+    buffer_amount = subtotal * ((req.buffer_pct or 0.0) / 100.0)
+    actual_llm = _batch_llm_actual(req.batch_id, cache=llm_cost_cache)
+    batch = req.batch_id
+    health = (batch.health_status or "unknown") if batch else "unknown"
+
+    return {
+        "estimation": estimation,
+        "actual_llm_costing": actual_llm,
+        "buffer": buffer_amount,
+        "variance": estimation - actual_llm,
+        "health": health,
+    }
+
+
+def _request_to_dict(req, llm_cost_cache=None):
     """Serialize a batch budget request."""
     return {
         "id": req.id,
@@ -114,6 +175,7 @@ def _request_to_dict(req):
             }
             for line in req.infra_line_ids
         ],
+        **_request_metrics(req, llm_cost_cache=llm_cost_cache),
     }
 
 
@@ -697,11 +759,15 @@ class EtpProjectBudgetController(http.Controller):
         requests = Request.search(
             domain, order="request_date desc, id desc", limit=limit, offset=offset,
         )
+        llm_cost_cache = {}
         return return_Response(
             message="OK", status=200,
             data={"data": {
                 "total": total, "limit": limit, "offset": offset,
-                "records": [_request_to_dict(r) for r in requests],
+                "records": [
+                    _request_to_dict(r, llm_cost_cache=llm_cost_cache)
+                    for r in requests
+                ],
             }},
         )
 
@@ -887,6 +953,8 @@ class EtpProjectBudgetController(http.Controller):
 
         try:
             if action == "approve":
+                if jdata.get("approved_total"):
+                    req.approved_total = float(jdata.get("approved_total"))
                 req.action_approve()
             else:
                 reason = (jdata.get("rejection_reason") or "").strip()
@@ -967,6 +1035,7 @@ class EtpProjectBudgetController(http.Controller):
                 )
 
         # Step 2 — Approvals
+        default_approver_ids = request.env[BUDGET_MODEL].sudo()._get_default_approver_user_ids()
         approver_ids = jdata.get("approver_ids") or []
         if approver_ids:
             if not all(isinstance(x, int) for x in approver_ids):
@@ -978,7 +1047,9 @@ class EtpProjectBudgetController(http.Controller):
                 return return_Response(
                     message="Approver user(s) not found: %s" % missing, status=400,
                 )
-            vals["approver_user_ids"] = [(6, 0, approver_ids)]
+        final_approver_ids = list(dict.fromkeys(default_approver_ids + approver_ids))
+        if final_approver_ids:
+            vals["approver_user_ids"] = [(6, 0, final_approver_ids)]
 
         # Step 3 — Models
         model_lines = jdata.get("model_lines") or []
@@ -1064,14 +1135,24 @@ class EtpProjectBudgetController(http.Controller):
 
         try:
             with request.env.cr.savepoint():
-                batch = request.env["etp.batch.budget"].sudo().create({
+                batch_vals = {
                     "project_budget_id": budget.id,
                     "total_tasks": task_count,
                     "start_date": start_date,
                     "end_date": end_date,
                     "buffer_pct": buffer_pct,
-                })
-                if budget.model_line_ids:
+                }
+                if budget.infra_line_ids:
+                    batch_vals["infra_line_ids"] = [
+                        (0, 0, {
+                            "infra_type_id": line.infra_type_id.id,
+                            "description": line.description or False,
+                            "budget_amount": line.budget_amount or 0.0,
+                        })
+                        for line in budget.infra_line_ids
+                    ]
+                batch = request.env["etp.batch.budget"].sudo().create(batch_vals)
+                if budget.model_line_ids or budget.infra_line_ids:
                     # requested_amount/requested_total set explicitly: wizard onchange does not fire on server-side create().
                     wiz_model_cmds = [
                         (0, 0, {
@@ -1081,20 +1162,38 @@ class EtpProjectBudgetController(http.Controller):
                         })
                         for line in budget.model_line_ids
                     ]
-                    suggested_total = sum(
-                        c[2]["requested_amount"] for c in wiz_model_cmds
-                    ) * (1.0 + (buffer_pct / 100.0))
+                    wiz_infra_cmds = [
+                        (0, 0, {
+                            "infra_type_id": line.infra_type_id.id,
+                            "description": line.description or False,
+                            "requested_amount": line.budget_amount or 0.0,
+                        })
+                        for line in budget.infra_line_ids
+                    ]
+                    subtotal = (
+                        sum(c[2]["requested_amount"] for c in wiz_model_cmds)
+                        + sum(c[2]["requested_amount"] for c in wiz_infra_cmds)
+                    )
+                    suggested_total = subtotal * (1.0 + (buffer_pct / 100.0))
                     try:
+                        try:
+                            suggested_total = budget_amount if budget_amount > 0 else suggested_total
+                        except Exception as e:
+                            pass
                         with request.env.cr.savepoint():
-                            wizard = request.env["etp.batch.budget.request.wizard"].sudo().create({
+                            wiz_vals = {
                                 "batch_id": batch.id,
                                 "justification": justification,
                                 "priority": priority,
                                 "total_tasks": task_count,
                                 "buffer_pct": buffer_pct,
                                 "requested_total": suggested_total,
-                                "model_line_ids": wiz_model_cmds,
-                            })
+                            }
+                            if wiz_model_cmds:
+                                wiz_vals["model_line_ids"] = wiz_model_cmds
+                            if wiz_infra_cmds:
+                                wiz_vals["infra_line_ids"] = wiz_infra_cmds
+                            wizard = request.env["etp.batch.budget.request.wizard"].sudo().create(wiz_vals)
                             result = wizard.action_submit()
                             new_req_id = result.get("res_id") if isinstance(result, dict) else None
                             if new_req_id:

@@ -20,3 +20,4 @@ from . import batch_budget_infra_line
 from . import batch_budget_request_model_line
 from . import batch_budget_request_infra_line
 from . import batch_budget_request
+from . import res_config_settings

@@ -241,7 +241,10 @@ def _extract_json_array(text):
     )
 
 
-_QUESTION_TYPES = {"mcq", "msq", "subjective_justification", "subjective_rubric"}
+_QUESTION_TYPES = {
+    "mcq", "msq", "subjective_justification", "subjective_rubric",
+    "image_ab", "image_text",
+}
 _DIFFICULTIES = {"easy", "medium", "hard"}
 
 

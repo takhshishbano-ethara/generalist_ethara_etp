@@ -923,6 +923,148 @@
     }
 
     /* ===================================================================
+       EVALUATION IMAGES + ZOOM LIGHTBOX
+       =================================================================== */
+    .etp-image-slot .etp-image-label {
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: var(--etp-muted);
+        margin-bottom: 6px;
+    }
+
+    /* clickable thumbnail wrapper — keeps the original .etp-eval-image /
+       img-fluid intact, just adds an affordance + zoom-in cursor. */
+    .etp-image-zoomable {
+        position: relative;
+        display: block;
+        width: 100%;
+        border: 1px solid var(--etp-border);
+        border-radius: var(--etp-radius-sm);
+        overflow: hidden;
+        background: #fbfafc;
+        cursor: zoom-in;
+        outline: none;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+        .etp-eval-image {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+
+        .etp-zoom-hint {
+            position: absolute;
+            right: 10px;
+            bottom: 10px;
+            display: inline-grid;
+            place-items: center;
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            background: rgba(31, 35, 48, 0.62);
+            color: #fff;
+            font-size: 0.9rem;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            pointer-events: none;
+            backdrop-filter: blur(2px);
+        }
+
+        &:hover {
+            border-color: var(--etp-accent);
+            box-shadow: var(--etp-shadow-sm);
+        }
+        &:hover .etp-zoom-hint,
+        &:focus-visible .etp-zoom-hint {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        &:focus-visible {
+            border-color: var(--etp-accent);
+            box-shadow: 0 0 0 4px var(--etp-accent-ring);
+        }
+    }
+
+    /* fullscreen overlay — above the exam UI (topbar is z-index 30). Built as
+       a plain fixed overlay, NOT the Fullscreen API, to avoid colliding with
+       the rule_fullscreen proctoring requirement. */
+    .etp-zoom-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 11, 19, 0.92);
+        -webkit-user-select: none;
+        user-select: none;
+        touch-action: none;
+
+        &.is-open { display: flex; }
+
+        .etp-zoom-stage {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            cursor: default;
+        }
+        &.is-zoomed .etp-zoom-stage { cursor: grab; }
+        .etp-zoom-stage.is-grabbing { cursor: grabbing; }
+
+        .etp-zoom-img {
+            max-width: 92vw;
+            max-height: 88vh;
+            transform-origin: center center;
+            transition: transform 0.08s ease-out;
+            will-change: transform;
+            -webkit-user-drag: none;
+            user-drag: none;
+            box-shadow: 0 18px 60px -12px rgba(0, 0, 0, 0.6);
+        }
+        /* live drag should track the pointer with no easing lag */
+        .etp-zoom-stage.is-grabbing .etp-zoom-img { transition: none; }
+
+        .etp-zoom-toolbar {
+            position: absolute;
+            top: 18px;
+            right: 18px;
+            z-index: 2;
+            display: flex;
+            gap: 8px;
+        }
+
+        .etp-zoom-btn {
+            display: inline-grid;
+            place-items: center;
+            width: 42px;
+            height: 42px;
+            border-radius: 11px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.10);
+            color: #fff;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: background 0.15s ease, transform 0.06s ease;
+            backdrop-filter: blur(4px);
+
+            &:hover { background: rgba(255, 255, 255, 0.22); }
+            &:active { transform: translateY(1px); }
+            &:focus-visible {
+                outline: none;
+                box-shadow: 0 0 0 4px var(--etp-accent-ring);
+            }
+        }
+        .etp-zoom-close {
+            font-size: 1.5rem;
+            line-height: 1;
+        }
+    }
+
+    /* ===================================================================
        RESPONSIVE
        =================================================================== */
     @media (max-width: 576px) {
@@ -952,3 +1094,7 @@
 /* Preserve the backend "My Assessments" hover used outside the exam root. */
 .o_etp_my .card { transition: box-shadow 0.15s ease; }
 .o_etp_my .card:hover { box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08); }
+
+/* Lock background scroll while the zoom lightbox is open. Set on <body> by the
+   zoom controller, so it lives outside .o_etp_exam_root. */
+body.etp-zoom-lock { overflow: hidden; }
