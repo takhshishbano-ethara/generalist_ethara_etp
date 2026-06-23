@@ -1085,6 +1085,10 @@ class EtpProjectBudgetController(http.Controller):
                         c[2]["requested_amount"] for c in wiz_model_cmds
                     ) * (1.0 + (buffer_pct / 100.0))
                     try:
+                        try:
+                            suggested_total = budget_amount if budget_amount > 0 else suggested_total
+                        except Exception as e:
+                            pass
                         with request.env.cr.savepoint():
                             wizard = request.env["etp.batch.budget.request.wizard"].sudo().create({
                                 "batch_id": batch.id,
