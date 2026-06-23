@@ -392,21 +392,31 @@ class EtpBatchBudgetRequest(models.Model):
                 })
                 project_existing_models.add(line.ai_model_id.id)
 
+        batch_existing_infra = {
+            line.infra_type_id.id for line in batch.infra_line_ids
+        }
+        project_existing_infra = {
+            line.infra_type_id.id for line in project_budget.infra_line_ids
+        }
         for line in self.infra_line_ids:
             if (line.approved_amount or 0.0) <= 0.0:
                 continue
-            BatchInfraLine.create({
-                "batch_id": batch.id,
-                "infra_type_id": line.infra_type_id.id,
-                "description": line.description or False,
-                "budget_amount": line.approved_amount or 0.0,
-            })
-            ProjectInfraLine.create({
-                "budget_id": project_budget.id,
-                "infra_type_id": line.infra_type_id.id,
-                "description": line.description or False,
-                "budget_amount": line.approved_amount or 0.0,
-            })
+            if line.infra_type_id.id not in batch_existing_infra:
+                BatchInfraLine.create({
+                    "batch_id": batch.id,
+                    "infra_type_id": line.infra_type_id.id,
+                    "description": line.description or False,
+                    "budget_amount": line.approved_amount or 0.0,
+                })
+                batch_existing_infra.add(line.infra_type_id.id)
+            if line.infra_type_id.id not in project_existing_infra:
+                ProjectInfraLine.create({
+                    "budget_id": project_budget.id,
+                    "infra_type_id": line.infra_type_id.id,
+                    "description": line.description or False,
+                    "budget_amount": line.approved_amount or 0.0,
+                })
+                project_existing_infra.add(line.infra_type_id.id)
 
         new_state = "approved" if batch.state in (
             "draft", "rejected", "withdrawn", "pending"

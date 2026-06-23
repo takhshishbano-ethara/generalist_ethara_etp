@@ -29,6 +29,7 @@ Adds an Internal/External classification to projects.
         'views/aws_budget_views.xml',
         'views/batch_budget_request_views.xml',
         'views/project_budget_topup_views.xml',
+        'views/res_config_settings_views.xml',
     ],
     'external_dependencies': {'python': ['boto3', 'google-cloud-bigquery', 'openpyxl']},
     'installable': True,
