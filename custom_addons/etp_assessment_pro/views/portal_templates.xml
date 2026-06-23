@@ -28,6 +28,232 @@
     </template>
 
     <!-- ===================================================================
+         IMAGE ZOOM LIGHTBOX (candidate-facing)
+         A single reusable overlay + self-contained vanilla-JS zoom/pan
+         controller. t-call'd into any page that renders evaluation images
+         (question runner + day result). Deliberately built as a CSS overlay
+         (NOT the Fullscreen API) so it never collides with the rule_fullscreen
+         proctoring requirement. The controller:
+           - binds to every .etp-image-zoomable thumbnail on the page,
+           - opens a fixed overlay above the exam UI (z-index) showing the
+             SAME authenticated /pro_assessment/qimage src (no new tab, no
+             external link, no raw-image escape hatch),
+           - zooms via wheel + visible +/-/reset buttons, pans by drag,
+           - closes via x button, backdrop click, or Esc; resets on close.
+         It is namespaced (etp-zoom-*) and guards against double-init so it
+         coexists with the inline proctoring script (right-click / clipboard /
+         tab-switch / devtools / countdown / MSQ serialization) without
+         touching any of those handlers.
+         =================================================================== -->
+    <template id="portal_image_zoom" name="ETP — Image Zoom Lightbox">
+        <div id="etp-zoom-overlay" class="etp-zoom-overlay" aria-hidden="true"
+             role="dialog" aria-modal="true" aria-label="Image viewer">
+            <div class="etp-zoom-toolbar">
+                <button type="button" class="etp-zoom-btn"
+                        data-etp-zoom-action="out" aria-label="Zoom out"
+                        title="Zoom out (-)"><i class="fa fa-search-minus"/></button>
+                <button type="button" class="etp-zoom-btn"
+                        data-etp-zoom-action="reset" aria-label="Reset zoom"
+                        title="Reset zoom (0)"><i class="fa fa-refresh"/></button>
+                <button type="button" class="etp-zoom-btn"
+                        data-etp-zoom-action="in" aria-label="Zoom in"
+                        title="Zoom in (+)"><i class="fa fa-search-plus"/></button>
+                <button type="button" class="etp-zoom-btn etp-zoom-close"
+                        data-etp-zoom-action="close" aria-label="Close viewer"
+                        title="Close (Esc)">&#215;</button>
+            </div>
+            <div class="etp-zoom-stage">
+                <img class="etp-zoom-img" alt="" draggable="false"
+                     oncontextmenu="return false;"/>
+            </div>
+        </div>
+        <script type="text/javascript">
+            (function () {
+                var overlay = document.getElementById('etp-zoom-overlay');
+                if (!overlay || overlay.dataset.etpZoomReady) { return; }
+                overlay.dataset.etpZoomReady = '1';
+
+                var stage = overlay.querySelector('.etp-zoom-stage');
+                var img = overlay.querySelector('.etp-zoom-img');
+                var MIN = 1, MAX = 6, STEP = 0.4;
+                var scale = 1, tx = 0, ty = 0;
+                var baseW = 0, baseH = 0;
+                var dragging = false, moved = false;
+                var startX = 0, startY = 0, startTx = 0, startTy = 0;
+
+                function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+                // keep the image from being dragged entirely out of view
+                function constrain() {
+                    var maxX = Math.max(0, (baseW * scale - baseW) / 2 + 40);
+                    var maxY = Math.max(0, (baseH * scale - baseH) / 2 + 40);
+                    tx = clamp(tx, -maxX, maxX);
+                    ty = clamp(ty, -maxY, maxY);
+                }
+
+                function apply() {
+                    constrain();
+                    img.style.transform =
+                        'translate(' + tx + 'px, ' + ty + 'px) scale(' + scale + ')';
+                    overlay.classList.toggle('is-zoomed', scale > 1.001);
+                }
+
+                function reset() { scale = 1; tx = 0; ty = 0; apply(); }
+
+                // zoom toward a point (cx, cy) measured from the stage centre,
+                // keeping that point visually fixed (cursor-anchored zoom).
+                function zoomTo(next, cx, cy) {
+                    next = clamp(next, MIN, MAX);
+                    if (!(Math.abs(next - scale) > 0.0001)) { return; }
+                    var ratio = next / scale;
+                    tx = cx - ratio * (cx - tx);
+                    ty = cy - ratio * (cy - ty);
+                    scale = next;
+                    if (!(scale > MIN + 0.0001)) { tx = 0; ty = 0; }
+                    apply();
+                }
+
+                function stageCenter(e) {
+                    var r = stage.getBoundingClientRect();
+                    return {
+                        x: e.clientX - (r.left + r.width / 2),
+                        y: e.clientY - (r.top + r.height / 2)
+                    };
+                }
+
+                function open(src, alt) {
+                    if (!src) { return; }
+                    img.src = src;
+                    img.alt = alt || '';
+                    overlay.classList.add('is-open');
+                    overlay.setAttribute('aria-hidden', 'false');
+                    document.body.classList.add('etp-zoom-lock');
+                    reset();
+                    var c = overlay.querySelector('.etp-zoom-close');
+                    if (c) { try { c.focus(); } catch (err) {} }
+                }
+
+                function close() {
+                    overlay.classList.remove('is-open');
+                    overlay.classList.remove('is-zoomed');
+                    overlay.setAttribute('aria-hidden', 'true');
+                    document.body.classList.remove('etp-zoom-lock');
+                    scale = 1; tx = 0; ty = 0;
+                    img.style.transform = '';
+                    img.removeAttribute('src');
+                }
+
+                img.addEventListener('load', function () {
+                    baseW = img.clientWidth || img.naturalWidth || 0;
+                    baseH = img.clientHeight || img.naturalHeight || 0;
+                });
+
+                // bind each thumbnail (left-click / Enter / Space). We read the
+                // inner img's existing src — we never change it, never open it
+                // in a new tab, and never add an anchor.
+                function bindThumb(el) {
+                    if (el.dataset.etpZoomBound) { return; }
+                    el.dataset.etpZoomBound = '1';
+                    var thumb = el.querySelector('img');
+                    if (!thumb) { return; }
+                    function go() {
+                        open(thumb.getAttribute('src'), thumb.getAttribute('alt'));
+                    }
+                    el.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        go();
+                    });
+                    el.addEventListener('keydown', function (e) {
+                        if (e.key === 'Enter' || e.key === ' ' ||
+                            e.key === 'Spacebar') {
+                            e.preventDefault();
+                            go();
+                        }
+                    });
+                }
+                Array.prototype.forEach.call(
+                    document.querySelectorAll('.etp-image-zoomable'), bindThumb);
+
+                // toolbar + backdrop. All controls are type=button and the
+                // overlay lives OUTSIDE #etp-response-form, so nothing here can
+                // submit the exam form.
+                overlay.addEventListener('click', function (e) {
+                    var btn = e.target.closest ?
+                        e.target.closest('[data-etp-zoom-action]') : null;
+                    if (btn) {
+                        e.preventDefault();
+                        var a = btn.getAttribute('data-etp-zoom-action');
+                        if (a === 'in') { zoomTo(scale + STEP, 0, 0); }
+                        else if (a === 'out') { zoomTo(scale - STEP, 0, 0); }
+                        else if (a === 'reset') { reset(); }
+                        else if (a === 'close') { close(); }
+                        return;
+                    }
+                    if (!moved &amp;&amp; (e.target === overlay || e.target === stage)) {
+                        close();
+                    }
+                });
+
+                // cursor-anchored wheel zoom; preventDefault only while open so
+                // normal page scrolling is untouched the rest of the time.
+                stage.addEventListener('wheel', function (e) {
+                    if (!overlay.classList.contains('is-open')) { return; }
+                    e.preventDefault();
+                    var c = stageCenter(e);
+                    var dir = e.deltaY > 0 ? -1 : 1;
+                    zoomTo(scale + dir * STEP, c.x, c.y);
+                }, { passive: false });
+
+                // drag to pan (pointer events cover mouse + touch)
+                stage.addEventListener('pointerdown', function (e) {
+                    if (!(scale > 1.001)) { return; }
+                    dragging = true; moved = false;
+                    startX = e.clientX; startY = e.clientY;
+                    startTx = tx; startTy = ty;
+                    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+                    stage.classList.add('is-grabbing');
+                });
+                stage.addEventListener('pointermove', function (e) {
+                    if (!dragging) { return; }
+                    var dx = e.clientX - startX, dy = e.clientY - startY;
+                    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) { moved = true; }
+                    tx = startTx + dx; ty = startTy + dy;
+                    apply();
+                });
+                function endDrag(e) {
+                    if (!dragging) { return; }
+                    dragging = false;
+                    stage.classList.remove('is-grabbing');
+                    try { stage.releasePointerCapture(e.pointerId); } catch (err) {}
+                    setTimeout(function () { moved = false; }, 0);
+                }
+                stage.addEventListener('pointerup', endDrag);
+                stage.addEventListener('pointercancel', endDrag);
+
+                // double-click toggles a quick 2.5x at the cursor
+                stage.addEventListener('dblclick', function (e) {
+                    e.preventDefault();
+                    var c = stageCenter(e);
+                    if (scale > 1.001) { reset(); }
+                    else { zoomTo(2.5, c.x, c.y); }
+                });
+
+                // keyboard: Esc closes, +/-/0 zoom. Scoped to when open so it
+                // never steals keys from the exam form or proctoring handlers.
+                document.addEventListener('keydown', function (e) {
+                    if (!overlay.classList.contains('is-open')) { return; }
+                    if (e.key === 'Escape') { e.preventDefault(); close(); }
+                    else if (e.key === '+' || e.key === '=') {
+                        e.preventDefault(); zoomTo(scale + STEP, 0, 0);
+                    } else if (e.key === '-' || e.key === '_') {
+                        e.preventDefault(); zoomTo(scale - STEP, 0, 0);
+                    } else if (e.key === '0') { e.preventDefault(); reset(); }
+                });
+            })();
+        </script>
+    </template>
+
+    <!-- ===================================================================
          RUNNER PAGES (chrome-free)
          =================================================================== -->
     <template id="portal_invalid_token" name="ETP Assessment — Invalid Token">
@@ -305,11 +531,18 @@
                                         <div class="col-md-6 etp-image-slot">
                                             <div class="etp-image-label"
                                                  t-out="img.label"/>
-                                            <img class="etp-eval-image img-fluid"
-                                                 draggable="false"
-                                                 oncontextmenu="return false;"
-                                                 t-att-src="img.image_url or ('/web/image/etp.assessment.pro.question.image/%d/image' % img.id)"
-                                                 t-att-alt="img.label"/>
+                                            <div class="etp-image-zoomable"
+                                                 tabindex="0" role="button"
+                                                 aria-label="Open image — click to zoom and inspect">
+                                                <img class="etp-eval-image img-fluid"
+                                                     draggable="false"
+                                                     oncontextmenu="return false;"
+                                                     t-att-src="'/pro_assessment/qimage/%s/%d' % (token, img.id)"
+                                                     t-att-alt="img.label"/>
+                                                <span class="etp-zoom-hint" aria-hidden="true">
+                                                    <i class="fa fa-search-plus"/>
+                                                </span>
+                                            </div>
                                         </div>
                                     </t>
                                 </div>
@@ -346,11 +579,18 @@
                                         <div class="col-md-6 etp-image-slot">
                                             <div class="etp-image-label"
                                                  t-out="img.label"/>
-                                            <img class="etp-eval-image img-fluid"
-                                                 draggable="false"
-                                                 oncontextmenu="return false;"
-                                                 t-att-src="img.image_url or ('/web/image/etp.assessment.pro.question.image/%d/image' % img.id)"
-                                                 t-att-alt="img.label"/>
+                                            <div class="etp-image-zoomable"
+                                                 tabindex="0" role="button"
+                                                 aria-label="Open image — click to zoom and inspect">
+                                                <img class="etp-eval-image img-fluid"
+                                                     draggable="false"
+                                                     oncontextmenu="return false;"
+                                                     t-att-src="'/pro_assessment/qimage/%s/%d' % (token, img.id)"
+                                                     t-att-alt="img.label"/>
+                                                <span class="etp-zoom-hint" aria-hidden="true">
+                                                    <i class="fa fa-search-plus"/>
+                                                </span>
+                                            </div>
                                         </div>
                                     </t>
                                 </div>
@@ -511,6 +751,10 @@
                         });
                     })();
                 </script>
+
+                <!-- Image zoom/pan lightbox (vanilla JS, namespaced, lives
+                     outside #etp-response-form so it can't submit the exam). -->
+                <t t-call="etp_assessment_pro.portal_image_zoom"/>
             </t>
         </t>
     </template>
@@ -729,10 +973,18 @@
                                             <div class="col-md-6 etp-image-slot">
                                                 <div class="etp-image-label"
                                                      t-out="img.label"/>
-                                                <img class="etp-eval-image img-fluid"
-                                                     draggable="false"
-                                                     t-att-src="img.image_url or ('/web/image/etp.assessment.pro.question.image/%d/image' % img.id)"
-                                                     t-att-alt="img.label"/>
+                                                <div class="etp-image-zoomable"
+                                                     tabindex="0" role="button"
+                                                     aria-label="Open image — click to zoom and inspect">
+                                                    <img class="etp-eval-image img-fluid"
+                                                         draggable="false"
+                                                         oncontextmenu="return false;"
+                                                         t-att-src="'/pro_assessment/qimage/%s/%d' % (token, img.id)"
+                                                         t-att-alt="img.label"/>
+                                                    <span class="etp-zoom-hint" aria-hidden="true">
+                                                        <i class="fa fa-search-plus"/>
+                                                    </span>
+                                                </div>
                                             </div>
                                         </t>
                                     </div>
@@ -783,6 +1035,9 @@
                             Back to My Assessments
                         </a>
                     </div>
+
+                    <!-- Same zoom/pan lightbox for reviewing result images. -->
+                    <t t-call="etp_assessment_pro.portal_image_zoom"/>
                 </t>
             </t>
         </t>

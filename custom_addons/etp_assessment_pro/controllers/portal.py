@@ -305,6 +305,7 @@ class EtpAssessmentPortal(http.Controller):
                 "evaluator": sess.evaluator_id,
                 "responses": responses,
                 "show_results": show_results,
+                "token": sess.access_token,
             })
 
     @http.route("/pro_assessment/day/<string:token>/begin", type="http",
@@ -398,16 +399,50 @@ class EtpAssessmentPortal(http.Controller):
         self._record_violation_day(sess, reason)
         return request.redirect(f"/pro_assessment/day/{token}")
 
-    @http.route(
-        "/pro_assessment/day/<string:token>/image/<int:question_id>/<string:field>",
-        type="http", auth="public", website=False, csrf=False)
-    def day_image(self, token, question_id, field, **kw):
-        sess = self._get_day_session_from_token(token)
-        if not sess:
+    @http.route("/pro_assessment/qimage/<string:token>/<int:image_id>",
+                type="http", auth="public", website=True)
+    def serve_question_image(self, token, image_id, **kw):
+        """Serve an image-evaluation question image scoped by the exam token.
+
+        The candidate portal is rendered with sudo()+token by the runner, so
+        question images must not rely on Odoo's generic ACL/session-gated
+        ``/web/image`` route (which breaks for real portal candidates). We
+        resolve the token exactly like the runner does — single-mode
+        evaluator first, then a multi-day day.session — and only serve an
+        image whose ``question_id`` is in THIS token's ``question_order``, so
+        a candidate can fetch only images belonging to their own assessment.
+        """
+        evaluator = self._get_evaluator_from_token(token)
+        sess = False
+        if evaluator:
+            assessment = evaluator.assessment_id
+            order_raw = evaluator.question_order
+        else:
+            sess = self._get_day_session_from_token(token)
+            if not sess:
+                return request.not_found()
+            evaluator = sess.evaluator_id
+            assessment = sess.assessment_id
+            order_raw = sess.question_order
+        # Same candidate binding the exam runner enforces (real candidate or
+        # manager preview). Anything the guard rejects → 404, not the HTML.
+        if self._candidate_guard(evaluator, assessment):
             return request.not_found()
-        # The new question schema has no image_a/image_b binary fields, so
-        # this route is a placeholder kept per brief §6.1 for future
-        # image-bearing question types.
+        try:
+            order = set(json.loads(order_raw or "[]"))
+        except (TypeError, ValueError):
+            order = set()
+        image = request.env["etp.assessment.pro.question.image"].sudo().browse(
+            image_id)
+        if not image.exists() or image.question_id.id not in order:
+            return request.not_found()
+        # Prefer the stored binary (also fixes a broken external image_url);
+        # fall back to redirecting to the external/S3 URL when no binary.
+        if image.image:
+            return request.env["ir.binary"]._get_image_stream_from(
+                image, field_name="image").get_response()
+        if image.image_url:
+            return request.redirect(image.image_url, code=302, local=False)
         return request.not_found()
 
     # ------------------------------------------------------------------
