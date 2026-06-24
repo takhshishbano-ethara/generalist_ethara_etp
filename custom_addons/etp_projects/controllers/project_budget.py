@@ -20,6 +20,8 @@ COST_LINE_MODEL = "etp.project.aws.cost.line"
 
 LLM_SOURCES = ("openai", "openrouter", "moonshot", "gcp")
 APPROVED_REQUEST_STATES = ("approved", "partially_approved")
+ACTIVE_BATCH_STATES = ("approved", "in_progress", "draft")
+COMPLETED_BATCH_STATES = ("delivered", "closed")
 
 
 def _budget_types():
@@ -257,6 +259,31 @@ def _batch_detail(batch):
             }
             for req in batch.request_ids
         ],
+    }
+
+
+def _batch_phase_record(batch, llm_cost_cache=None):
+    """Phase row — estimation falls back to batch_budget when no approved requests yet."""
+    estimation = batch.approved_amount or batch.batch_budget or 0.0
+    actual_llm = _batch_llm_actual(batch, cache=llm_cost_cache)
+    health = batch.health_status or "unknown"
+    return {
+        "id": batch.id,
+        "name": batch.name or "",
+        "project_id": _m2o(batch.project_id),
+        "project_budget_id": _m2o(batch.project_budget_id),
+        "state": batch.state or "",
+        "state_label": dict(batch._fields["state"].selection).get(batch.state, ""),
+        "start_date": _date(batch.start_date),
+        "end_date": _date(batch.end_date),
+        "total_tasks": batch.total_tasks or 0,
+        "estimation": estimation,
+        "actual_llm_costing": actual_llm,
+        "variance": estimation - actual_llm,
+        "health_status": health,
+        "health_status_label": dict(
+            batch._fields["health_status"].selection
+        ).get(health, ""),
     }
 
 
@@ -591,6 +618,68 @@ class EtpProjectBudgetController(http.Controller):
             )
         return return_Response(
             message="OK", status=200, data={"data": _batch_detail(batch)},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/project_budget/phases",
+        methods=["GET"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_token
+    def project_budget_phases(self, **params):
+        Batch = request.env["etp.batch.budget"].sudo()
+        base_domain = []
+        if params.get("budget_id"):
+            try:
+                base_domain.append(
+                    ("project_budget_id", "=", int(params["budget_id"])),
+                )
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'budget_id' must be an integer.", status=400,
+                )
+        if params.get("project_id"):
+            try:
+                base_domain.append(("project_id", "=", int(params["project_id"])))
+            except (TypeError, ValueError):
+                return return_Response(
+                    message="'project_id' must be an integer.", status=400,
+                )
+
+        def _bucket(states, limit_key, offset_key):
+            limit, offset, perr = _pagination({
+                "limit": params.get(limit_key),
+                "offset": params.get(offset_key),
+            })
+            if perr:
+                return None, perr
+            domain = base_domain + [("state", "in", list(states))]
+            total = Batch.search_count(domain)
+            batches = Batch.search(
+                domain,
+                order="end_date desc, create_date desc, id desc",
+                limit=limit, offset=offset,
+            )
+            cache = {}
+            return {
+                "total": total, "limit": limit, "offset": offset,
+                "records": [
+                    _batch_phase_record(b, llm_cost_cache=cache) for b in batches
+                ],
+            }, None
+
+        active, err = _bucket(
+            ACTIVE_BATCH_STATES, "active_limit", "active_offset",
+        )
+        if err:
+            return err
+        completed, err = _bucket(
+            COMPLETED_BATCH_STATES, "completed_limit", "completed_offset",
+        )
+        if err:
+            return err
+        return return_Response(
+            message="OK", status=200,
+            data={"data": {"active": active, "completed": completed}},
         )
 
     # GET — top-ups for a budget.  ?budget_id=<int>  optional ?limit=  ?offset=

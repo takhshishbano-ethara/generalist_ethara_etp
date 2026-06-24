@@ -91,6 +91,7 @@
                         <group>
                             <field name="openrouter_enabled"/>
                             <field name="openrouter_api_key" password="True" invisible="not openrouter_enabled" required="openrouter_enabled"/>
+                            <field name="openrouter_inference_key_hash" invisible="not openrouter_enabled" placeholder="SHA-256 hash (optional, for per-project filter)"/>
                         </group>
                         <group>
                             <field name="last_openrouter_fetched_at" readonly="1" invisible="not openrouter_enabled"/>
