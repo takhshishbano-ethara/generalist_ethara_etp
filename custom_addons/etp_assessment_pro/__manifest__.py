@@ -34,6 +34,10 @@
         "web.assets_frontend": [
             "etp_assessment_pro/static/src/scss/portal.scss",
         ],
+        "web.assets_backend": [
+            "etp_assessment_pro/static/src/list/prompt_import_list.js",
+            "etp_assessment_pro/static/src/list/prompt_import_list.xml",
+        ],
     },
     "installable": True,
     "application": True,

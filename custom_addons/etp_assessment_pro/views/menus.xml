@@ -71,6 +71,13 @@
               groups="etp_assessment_pro.group_assessment_manager"
               sequence="30"/>
 
+    <menuitem id="menu_etp_assessment_pro_bank_import"
+              name="Import Question Bank"
+              parent="menu_etp_assessment_pro_root"
+              action="action_etp_assessment_pro_bank_import"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="35"/>
+
     <menuitem id="menu_etp_assessment_pro_responses"
               name="All Responses"
               parent="menu_etp_assessment_pro_root"
