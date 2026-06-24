@@ -19,9 +19,6 @@ class HrLeaveType(models.Model):
             leave_type = self.search([('ethara_leave_code', '=', code)], limit=1)
             if leave_type and not leave_type.default_annual_days:
                 leave_type.default_annual_days = days
-        lop = self.search([('ethara_leave_code', '=', 'lop')], limit=1)
-        if lop and not lop.requires_allocation:
-            lop.requires_allocation = True
 
     # --- Ethara Policy Fields ---
     ethara_leave_code = fields.Selection([
