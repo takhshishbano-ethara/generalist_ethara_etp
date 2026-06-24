@@ -567,55 +567,23 @@ class EtpAssessment(models.Model):
                 continue
 
     def action_export_results(self):
-        """Export results as CSV: one row per candidate.
-
-        Columns: candidate, days_done/total, objective points, subjective
-        points, score %, result, rank. Re-uses the question.py
-        ir.attachment + act_url download pattern.
+        """Export the scorecard: ONE row per candidate (rank, objective +
+        subjective points, total, %, pass/fail, day progress, violations).
+        Detailed per-answer data lives in Export Responses.
         """
         self.ensure_one()
-        buf = io.StringIO()
-        w = csv.writer(buf)
-        w.writerow([
-            "rank", "candidate", "email", "days_done_total",
-            "objective_score", "objective_max",
-            "subjective_score", "subjective_max",
-            "total_score", "total_max",
-            "score_percent", "result",
-        ])
-        ranked = self.assessment_evaluator_ids.sorted(
-            key=lambda e: (-e.score_percent, e.applicant_id.partner_name or ""))
-        for idx, ev in enumerate(ranked, start=1):
-            emp = ev.applicant_id
-            obj_score = ev.total_score or 0
-            obj_max = ev.max_possible_score or 0
-            subj_score = ev.llm_total_score or 0
-            subj_max = ev.llm_max_score or 0
-            w.writerow([
-                idx,
-                emp.partner_name or "",
-                emp.email_from or "",
-                ev.day_progress_label or "",
-                obj_score, obj_max,
-                subj_score, subj_max,
-                obj_score + subj_score, obj_max + subj_max,
-                ev.score_percent or 0.0,
-                ev.result or "pending",
-            ])
-        content = buf.getvalue().encode("utf-8")
-        attachment = self.env["ir.attachment"].create({
-            "name": f"{self.name}_results.csv",
-            "type": "binary",
-            "datas": base64.b64encode(content).decode(),
-            "mimetype": "text/csv",
-            "res_model": self._name,
-            "res_id": self.id,
-        })
-        return {
-            "type": "ir.actions.act_url",
-            "url": f"/web/content/{attachment.id}?download=true",
-            "target": "self",
-        }
+        from ..services import export as export_svc
+        return export_svc.export_results(self)
+
+    def action_export_responses(self):
+        """Export EVERY response in this assessment, one row per answer, fully
+        detailed: chosen vs correct options per dimension, objective points,
+        the subjective LLM verdict + raw 0-1 score + reasoning, and the
+        justification text. Per-candidate export lives on the evaluator screen.
+        """
+        self.ensure_one()
+        from ..services import export as export_svc
+        return export_svc.export_responses(self)
 
     def _check_plan_complete(self):
         # Called by evaluator._rollup_overall_from_days when a candidate
@@ -867,6 +835,14 @@ class EtpAssessmentEvaluator(models.Model):
             rec._apply_results_disclosure()
         return scored
 
+    def action_export_responses(self):
+        """Per-candidate Export Responses: one row per answer for THIS
+        candidate, same detailed schema as the assessment-wide export.
+        """
+        self.ensure_one()
+        from ..services import export as export_svc
+        return export_svc.export_responses(self.assessment_id, evaluator=self)
+
     def action_release_results(self):
         to_release = self.filtered(lambda r: not r.results_released)
         to_release.write({"results_released": True})
@@ -1076,7 +1052,7 @@ class EtpAssessmentResponse(models.Model):
         # justification.
         for rec in self:
             qtype = rec.question_id.question_type
-            rec.has_objective = qtype in ("mcq", "msq", "image_ab")
+            rec.has_objective = qtype in ("mcq", "msq", "image_ab", "image_text")
             just = (rec.justification or "").strip()
             is_placeholder = just.startswith("[Auto-submitted")
             rec.needs_llm = (
@@ -1097,7 +1073,7 @@ class EtpAssessmentResponse(models.Model):
         # - subjective_*: objective score is 0 (LLM scores separately).
         for rec in self:
             qtype = rec.question_id.question_type
-            if qtype not in ("mcq", "msq", "image_ab"):
+            if qtype not in ("mcq", "msq", "image_ab", "image_text"):
                 rec.score = 0
                 rec.max_score = 0
                 continue
@@ -1108,10 +1084,11 @@ class EtpAssessmentResponse(models.Model):
                 rec.score = 0
                 rec.max_score = 0
                 continue
-            # image_ab: PARTIAL credit — 1 point per dimension whose chosen
-            # master-option set equals the official is_correct set. mcq/msq
-            # stay ALL-OR-NOTHING across all objective dimensions.
-            if qtype == "image_ab":
+            # image_ab / image_text: PARTIAL credit — 1 point per dimension
+            # whose chosen master-option set equals the official is_correct
+            # set (the objective "gate" checks). mcq/msq stay ALL-OR-NOTHING
+            # across all objective dimensions.
+            if qtype in ("image_ab", "image_text"):
                 earned = 0
                 for qd in objective_dims:
                     correct_for_dim = {
@@ -1155,7 +1132,10 @@ class EtpAssessmentResponse(models.Model):
                     "This assessment is already locked. Cannot modify responses.")
             qtype = rec.question_id.question_type
             # Objective questions need at least one option pick; subjective
-            # questions need a non-empty justification.
+            # questions need a non-empty justification. image_text is hybrid:
+            # it always needs the written response, and ALSO needs a pick for
+            # each gate dimension only when the question carries any.
+            has_dims = bool(rec.question_id.question_dimension_ids)
             if qtype in ("mcq", "msq", "image_ab") and not rec.line_ids:
                 raise UserError(
                     "Please answer at least one dimension before submitting.")
@@ -1164,6 +1144,10 @@ class EtpAssessmentResponse(models.Model):
                     and not (rec.justification or "").strip():
                 raise UserError(
                     "Please provide a justification before submitting.")
+            if qtype == "image_text" and has_dims and not rec.line_ids:
+                raise UserError(
+                    "Please answer the multiple-choice checks before "
+                    "submitting.")
             rec.write({"state": "submitted"})
 
             # Auto-enqueue subjective scoring if a justification is present

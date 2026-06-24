@@ -42,7 +42,10 @@
                             type="object" icon="fa-magic"
                             invisible="state == 'draft'"/>
                     <button name="action_export_results" string="Export Results"
-                            type="object" icon="fa-download"
+                            type="object" icon="fa-trophy"
+                            invisible="state == 'draft'"/>
+                    <button name="action_export_responses" string="Export Responses"
+                            type="object" icon="fa-table"
                             invisible="state == 'draft'"/>
                     <button name="action_release_all_results" string="Release Results"
                             type="object" icon="fa-unlock"
@@ -395,6 +398,8 @@
                     <button name="action_llm_score" string="Score Subjective"
                             type="object" icon="fa-magic"
                             invisible="state != 'submitted'"/>
+                    <button name="action_export_responses" string="Export Responses"
+                            type="object" icon="fa-table"/>
                     <button name="action_release_results" string="Release Results"
                             type="object" icon="fa-unlock" class="oe_highlight"
                             invisible="results_released"/>
