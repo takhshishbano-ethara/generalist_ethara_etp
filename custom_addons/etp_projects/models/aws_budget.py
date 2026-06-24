@@ -158,11 +158,28 @@ class EtpProjectAwsBudget(models.Model):
     )
     openrouter_api_key = fields.Char(
         string="OpenRouter API Key",
-        help="Management API key (NOT a regular inference key). "
-             "Create at openrouter.ai/settings/keys.",
+        help="Either (Path A) a per-project inference key - leave the "
+             "Inference Key Hash field blank; activity will be auto-scoped "
+             "to this key. Or (Path B) a management/provisioning key - then "
+             "set Inference Key Hash to the SHA-256 of the per-project "
+             "inference key you want this budget filtered to.",
+    )
+    openrouter_inference_key_hash = fields.Char(
+        string="OpenRouter Inference Key Hash",
+        help="SHA-256 hash of the per-project inference key. When set, "
+             "the activity call is filtered server-side via "
+             "?api_key_hash= - lets you keep ONE management/provisioning "
+             "key in 'OpenRouter API Key' and segment per Odoo project by "
+             "hash. Get hashes from GET /api/v1/keys (needs a management "
+             "key), or compute SHA-256(<inference_key>) yourself.",
     )
     last_openrouter_fetched_at = fields.Datetime(
         readonly=True, string="Last OpenRouter Fetch",
+    )
+    last_openrouter_usage_total = fields.Float(
+        readonly=True, string="Last OpenRouter Usage Total (USD)",
+        help="Legacy field from the previous /api/v1/key delta-tracking "
+             "implementation. No longer written to; safe to ignore.",
     )
 
     moonshot_enabled = fields.Boolean(
@@ -943,23 +960,35 @@ class EtpProjectAwsBudget(models.Model):
     def _fetch_openrouter_cost_one(self):
         self.ensure_one()
         if not self.openrouter_api_key:
-            raise UserError(_(
-                "OpenRouter API Key required. Use a Management API key "
-                "(not a regular inference key) — see openrouter.ai/settings/keys."
-            ))
+            raise UserError(_("OpenRouter API Key required for this budget."))
+        params = None
+        key_hash = (self.openrouter_inference_key_hash or "").strip()
+        if key_hash:
+            params = {"api_key_hash": key_hash}
         try:
             resp = requests.get(
                 OPENROUTER_ACTIVITY_URL,
                 headers={"Authorization": f"Bearer {self.openrouter_api_key}"},
+                params=params,
                 timeout=60,
             )
         except requests.RequestException as e:
             raise UserError(_("OpenRouter request failed: %s") % e)
-        if resp.status_code in (401, 403):
+        if resp.status_code in (401, 403, 404):
+            if key_hash:
+                raise UserError(_(
+                    "OpenRouter activity denied (HTTP %(s)s) for hash "
+                    "%(h)s. Check that 'OpenRouter API Key' is a "
+                    "management/provisioning key with access to the "
+                    "inference key whose SHA-256 hash is set in "
+                    "'Inference Key Hash', and that the hash is correct."
+                ) % {"s": resp.status_code, "h": key_hash[:16] + "..."})
             raise UserError(_(
-                "OpenRouter returned HTTP %(s)s. The /activity endpoint requires a "
-                "Management API key, not a regular inference key. "
-                "Create one at openrouter.ai/settings/keys."
+                "OpenRouter activity denied (HTTP %(s)s). Either paste a "
+                "per-project inference key in 'OpenRouter API Key', or "
+                "paste a management/provisioning key AND set 'Inference "
+                "Key Hash' to the SHA-256 of the inference key you want "
+                "filtered for this budget."
             ) % {"s": resp.status_code})
         if resp.status_code != 200:
             raise UserError(
@@ -970,27 +999,135 @@ class EtpProjectAwsBudget(models.Model):
             payload = resp.json()
         except ValueError:
             raise UserError(_("OpenRouter returned non-JSON response."))
-        rows_raw = payload.get("data") if isinstance(payload, dict) else payload
-        if not isinstance(rows_raw, list):
+        rows = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(rows, list):
             raise UserError(_("OpenRouter returned unexpected response shape."))
 
-        by_day = {}
-        for r in rows_raw:
-            day_str = (r.get("date") or "")[:10]
-            if not day_str:
+        cost_by_day_model = {}
+        tokens_by_day_model = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            raw_date = row.get("date")
+            if not raw_date:
                 continue
             try:
-                day = fields.Date.from_string(day_str)
+                day = fields.Date.from_string(str(raw_date)[:10])
             except (TypeError, ValueError):
                 continue
-            usage = float(r.get("usage") or 0.0)
-            by_day[day] = by_day.get(day, 0.0) + usage
+            if not day:
+                continue
+            try:
+                usd = float(row.get("usage") or 0.0)
+            except (TypeError, ValueError):
+                usd = 0.0
+            model = (row.get("model") or "").strip() or "unknown"
+            try:
+                inp = int(row.get("prompt_tokens") or 0)
+            except (TypeError, ValueError):
+                inp = 0
+            try:
+                out = int(row.get("completion_tokens") or 0)
+            except (TypeError, ValueError):
+                out = 0
+            key = (day, model)
+            cost_by_day_model[key] = cost_by_day_model.get(key, 0.0) + usd
+            slot = tokens_by_day_model.setdefault(
+                key, {"input": 0, "output": 0},
+            )
+            slot["input"] += inp
+            slot["output"] += out
 
-        created, updated = self._upsert_provider_rows(
-            OPENROUTER_SERVICE_NAME, "openrouter", by_day,
-        )
+        Line = self.env["etp.project.aws.cost.line"]
+        created = updated = 0
+
+        legacy_overall = Line.search([
+            ("budget_id", "=", self.id),
+            ("granularity", "=", "day"),
+            ("service_name", "=", OPENROUTER_SERVICE_NAME),
+            ("model_name", "=", False),
+            ("is_model_breakdown", "=", False),
+            ("token_type", "=", False),
+        ])
+        if legacy_overall:
+            legacy_overall.unlink()
+
+        seen_days = list({d for d, _m in cost_by_day_model})
+        if seen_days:
+            existing_rows = Line.search([
+                ("budget_id", "=", self.id),
+                ("granularity", "=", "day"),
+                ("service_name", "=", OPENROUTER_SERVICE_NAME),
+                ("period", "in", seen_days),
+            ])
+        else:
+            existing_rows = Line.browse()
+        existing_by_key = {
+            (row.period, row.model_name or "", row.token_type or False): row
+            for row in existing_rows
+        }
+
+        to_create = []
+        for (day, model), amount in cost_by_day_model.items():
+            vals = {
+                "budget_id": self.id,
+                "period": day,
+                "granularity": "day",
+                "service_name": OPENROUTER_SERVICE_NAME,
+                "source": "openrouter",
+                "model_name": model,
+                "token_type": False,
+                "amount_source": amount,
+                "usage_quantity": 0.0,
+                "is_model_breakdown": True,
+            }
+            existing = existing_by_key.get((day, model, False))
+            if existing:
+                existing.write(vals)
+                updated += 1
+            else:
+                to_create.append(vals)
+
+            tokens = tokens_by_day_model.get((day, model)) or {}
+            for token_type in ("input", "output"):
+                qty = tokens.get(token_type, 0)
+                if qty == 0:
+                    continue
+                tvals = {
+                    "budget_id": self.id,
+                    "period": day,
+                    "granularity": "day",
+                    "service_name": OPENROUTER_SERVICE_NAME,
+                    "source": "openrouter",
+                    "model_name": model,
+                    "token_type": token_type,
+                    "usage_quantity": float(qty),
+                    "usage_unit": "Tokens",
+                    "amount_source": 0.0,
+                    "is_model_breakdown": True,
+                }
+                existing = existing_by_key.get((day, model, token_type))
+                if existing:
+                    existing.write(tvals)
+                    updated += 1
+                else:
+                    to_create.append(tvals)
+
+        if to_create:
+            Line.create(to_create)
+            created += len(to_create)
+
         self.last_openrouter_fetched_at = fields.Datetime.now()
         self.invalidate_recordset(['cost_line_ids'])
+        _logger.info(
+            "OpenRouter activity for budget %s: days=%s models=%s "
+            "created=%s updated=%s",
+            self.id,
+            len({d for d, _ in cost_by_day_model}),
+            len({m for _, m in cost_by_day_model}),
+            created,
+            updated,
+        )
         return created, updated
 
     def _upsert_provider_rows(self, service_name, source, by_day):

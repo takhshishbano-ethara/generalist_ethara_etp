@@ -43,11 +43,21 @@
                     </group>
                     <field name="prompt" placeholder="Question prompt..."/>
                     <field name="description" placeholder="Optional description..."/>
+                    <separator string="Answer Key" invisible="not has_answer_key"/>
+                    <field name="has_answer_key" invisible="1"/>
+                    <field name="answer_key_preview" widget="html"
+                           invisible="not has_answer_key"/>
                     <notebook>
                         <page string="Skills">
                             <field name="skill_ids" widget="many2many_tags"/>
                         </page>
                         <page string="Dimensions">
+                            <div class="alert alert-info" role="alert"
+                                 invisible="not has_answer_key">
+                                The badged <strong>Answer Key</strong> above is the
+                                published view. Edit option text or the correct
+                                flag here; the preview updates on save.
+                            </div>
                             <field name="question_dimension_ids">
                                 <list>
                                     <field name="sequence" widget="handle"/>

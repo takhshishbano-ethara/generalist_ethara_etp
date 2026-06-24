@@ -347,13 +347,16 @@ class EtpAssessmentPromptQuestion(models.Model):
                     for o in spec["options"]:
                         is_c = o.strip().casefold() in correct
                         cls = ("badge text-bg-success" if is_c
-                               else "badge text-bg-light")
+                               else "badge text-bg-light border")
                         mark = " \u2713" if is_c else ""
+                        style = ("margin:3px;font-size:0.95rem;"
+                                 "padding:0.45em 0.7em;font-weight:%s"
+                                 % ("600" if is_c else "400"))
                         opts.append(
-                            f'<span class="{cls}" style="margin:2px">'
+                            f'<span class="{cls}" style="{style}">'
                             f'{_html.escape(o)}{mark}</span>')
                     blocks.append(
-                        f'<div class="mb-2"><strong>'
+                        f'<div class="mb-2"><strong style="font-size:0.95rem">'
                         f'{_html.escape(spec["label"])}</strong><br/>'
                         f'{"".join(opts)}</div>')
                 rec.dimensions_preview = "".join(blocks)
@@ -494,7 +497,13 @@ class EtpAssessmentPromptQuestion(models.Model):
     @staticmethod
     def _normalize_correct(correct, options):
         """Accept correct answers as a single value, a list, option strings,
-        or 0-based indices; return the matching option STRINGS."""
+        or 0-based indices; return the matching option STRINGS.
+
+        Indices may arrive as JSON ints (dimensions_json) OR as numeric strings
+        (the plain ``correct_answer`` / ``dimN_correct`` CSV columns, which split
+        to strings). String matching wins FIRST, so an option literally named
+        "1" still matches by value; a numeric string is only treated as an index
+        when it matches no option."""
         if correct is None:
             return []
         if not isinstance(correct, list):
@@ -505,21 +514,50 @@ class EtpAssessmentPromptQuestion(models.Model):
                 continue
             if isinstance(c, int) and 0 <= c < len(options):
                 out.append(options[c])
-            else:
-                cs = str(c)
-                # Exact match first, then case-insensitive.
-                if cs in options:
-                    out.append(cs)
-                else:
-                    for o in options:
-                        if o.strip().casefold() == cs.strip().casefold():
-                            out.append(o)
-                            break
+                continue
+            cs = str(c)
+            # Exact match first, then case-insensitive.
+            if cs in options:
+                out.append(cs)
+                continue
+            matched = False
+            for o in options:
+                if o.strip().casefold() == cs.strip().casefold():
+                    out.append(o)
+                    matched = True
+                    break
+            if matched:
+                continue
+            # Fall back: a numeric string that matched no option is a 0-based
+            # index (e.g. correct_answer="1" -> the 2nd option).
+            cs_stripped = cs.strip()
+            if cs_stripped.lstrip("-").isdigit():
+                idx = int(cs_stripped)
+                if 0 <= idx < len(options):
+                    out.append(options[idx])
         return out
 
     def _materialize_dimensions(self, bank_question):
-        """Create one question.dimension per spec, reusing master dimensions
-        by label and flagging the correct option lines."""
+        """Create one PRIVATE question.dimension per spec, flagging the correct
+        option lines.
+
+        FOOLPROOF IMPORT RULE: every imported/approved question gets its OWN
+        fresh dimension carrying ONLY its own options — for ALL question types
+        (mcq, msq, image_ab, image_text). We never look up a master dimension
+        by name and never top up an existing one. Name-based reuse caused two
+        real footguns:
+          1. Accumulation — questions sharing a label (e.g. an Odoo export
+             where every row is titled "Non-STEM Baseline", or two image_ab
+             questions both using axis "Overall Choice") inherited each other's
+             options (Q1=4, Q2=8 …) and even picked up stale options left on a
+             pre-existing master.
+          2. Cross-edit / drift — the per-question option line text is
+             ``related(store=True)`` to the master, so editing one master option
+             silently rewrites every question that borrowed it.
+        A private dimension per question makes the answer set self-contained and
+        immune to both. Analytics can still group by dimension NAME (preserved);
+        it just no longer shares the row identity across questions.
+        """
         self.ensure_one()
         Dimension = self.env["etp.assessment.pro.dimension"]
         QDim = self.env["etp.assessment.pro.question.dimension"]
@@ -528,21 +566,16 @@ class EtpAssessmentPromptQuestion(models.Model):
             if not options:
                 continue
             label = spec["label"]
-            dim = Dimension.search([("name", "=", label)], limit=1)
-            if not dim:
-                dim = Dimension.create({
+            # Always a brand-new dimension owning exactly this question's
+            # options — no name lookup, no shared master, no top-up.
+            dim = Dimension.with_context(
+                allow_shared_dimension_edit=True).create({
                     "name": label,
                     "option_ids": [
                         (0, 0, {"name": o, "sequence": (i + 1) * 10})
                         for i, o in enumerate(options)
                     ],
                 })
-            else:
-                existing = set(dim.option_ids.mapped("name"))
-                missing = [o for o in options if o not in existing]
-                if missing:
-                    dim.write({"option_ids": [
-                        (0, 0, {"name": o}) for o in missing]})
             qd = QDim.create({
                 "question_id": bank_question.id,
                 "dimension_id": dim.id,

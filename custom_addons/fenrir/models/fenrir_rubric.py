@@ -21,15 +21,6 @@ class FenrirRubric(models.Model):
     name = fields.Char(string="Rubric Name", required=True)
     description = fields.Text(string="Description")
 
-    @api.constrains("task_id")
-    def _check_max_rubrics_per_task(self):
-        affected = self.mapped("task_id")
-        for task in affected:
-            if len(task.rubric_ids) > MAX_RUBRICS_PER_TASK:
-                raise ValidationError(
-                    f"Task '{task.code}' has {len(task.rubric_ids)} rubrics; "
-                    f"maximum allowed is {MAX_RUBRICS_PER_TASK}.")
-
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)

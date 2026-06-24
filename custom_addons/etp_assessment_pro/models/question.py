@@ -61,6 +61,46 @@ class EtpAssessmentQuestion(models.Model):
     )
     source_ref = fields.Char(string="Source Ref")
 
+    # Reviewer-facing answer-key preview so a BANK question (whether imported or
+    # approved from an LLM draft) READS like the draft preview — every option as
+    # a chip, the correct one(s) highlighted green with a ✓ — instead of forcing
+    # the reviewer to open the Dimensions editor. Mirrors the draft model's
+    # dimensions_preview, but sourced from the materialized question.dimension /
+    # option lines (is_correct) that actually drive scoring.
+    answer_key_preview = fields.Html(
+        string="Answer Key", compute="_compute_answer_key_preview",
+        sanitize=False)
+    has_answer_key = fields.Boolean(compute="_compute_answer_key_preview")
+
+    @api.depends("question_dimension_ids.option_line_ids.is_correct",
+                 "question_dimension_ids.option_line_ids.name",
+                 "question_dimension_ids.dimension_id.name")
+    def _compute_answer_key_preview(self):
+        import html as _html
+        for rec in self:
+            blocks = []
+            for qd in rec.question_dimension_ids.sorted("sequence"):
+                chips = []
+                for ol in qd.option_line_ids.sorted("sequence"):
+                    is_c = ol.is_correct
+                    cls = ("badge text-bg-success" if is_c
+                           else "badge text-bg-light border")
+                    mark = " \u2713" if is_c else ""
+                    # Bigger, more legible chips than the Bootstrap default.
+                    style = ("margin:3px;font-size:0.95rem;padding:0.45em 0.7em;"
+                             "font-weight:%s") % ("600" if is_c else "400")
+                    chips.append(
+                        f'<span class="{cls}" style="{style}">'
+                        f'{_html.escape(ol.name or "")}{mark}</span>')
+                if not chips:
+                    continue
+                blocks.append(
+                    '<div class="mb-2"><strong style="font-size:0.95rem">'
+                    f'{_html.escape(qd.dimension_id.name or "")}</strong><br/>'
+                    f'{"".join(chips)}</div>')
+            rec.answer_key_preview = "".join(blocks) if blocks else False
+            rec.has_answer_key = bool(blocks)
+
     @api.depends("subjective_rubric_json", "question_type")
     def _compute_has_subjective(self):
         for rec in self:

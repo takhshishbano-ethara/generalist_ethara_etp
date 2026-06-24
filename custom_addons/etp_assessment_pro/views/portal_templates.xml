@@ -456,8 +456,9 @@
                 <div class="etp-exam-card">
                     <div class="card-body">
                         <h5 class="etp-question-title" t-out="question.name"/>
-                        <p class="etp-question-prompt" t-out="question.prompt"/>
-                        <p t-if="question.description"
+                        <p t-if="question.prompt and question.prompt != question.name"
+                           class="etp-question-prompt" t-out="question.prompt"/>
+                        <p t-if="question.description and question.description != question.prompt and question.description != question.name"
                            class="etp-question-desc" t-out="question.description"/>
 
                         <form method="post" t-att-action="submit_url"
@@ -991,7 +992,8 @@
                                 </span>
                             </div>
                             <div class="card-body">
-                                <p class="etp-question-desc" t-out="question.prompt"/>
+                                <p t-if="question.prompt and question.prompt != question.name"
+                                   class="etp-question-desc" t-out="question.prompt"/>
 
                                 <t t-if="question.image_ids">
                                     <div class="etp-image-panel row g-3 mb-3">

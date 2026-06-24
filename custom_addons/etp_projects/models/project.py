@@ -130,3 +130,21 @@ class ProjectProject(models.Model):
                 continue
             chosen_id = random.choice(candidate_ids)
             subject.sudo().write({target_field: chosen_id})
+
+    def _etp_post_budget_message(
+        self, template_xmlid, source_record, partner_ids, email_values=None,
+    ):
+        self.ensure_one()
+        if not partner_ids:
+            return
+        template = self.env.ref(template_xmlid, raise_if_not_found=False)
+        if not template:
+            return
+        values = {"partner_ids": [(6, 0, list(partner_ids))]}
+        if email_values:
+            values.update(email_values)
+        template.send_mail(
+            source_record.id,
+            email_values=values,
+            force_send=False,
+        )

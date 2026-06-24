@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="etp_assessment_pro.PromptListButtons">
+        <button type="button" class="btn btn-secondary o_etp_import_btn"
+                t-on-click="onImportQuestionBank">
+            <i class="fa fa-upload me-1"/>Import
+        </button>
+    </t>
+
+</templates>

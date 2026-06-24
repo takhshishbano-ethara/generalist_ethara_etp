@@ -17,6 +17,7 @@ _logger = logging.getLogger(__name__)
 ALLOWED_ROLE_XMLIDS = (
     "api_auth_gateway.role_hr_technical",
     "api_auth_gateway.role_cto_technical",
+    "api_auth_gateway.role_tpm_technical",
 )
 
 
@@ -51,7 +52,9 @@ def _is_allowed(env):
 
 def _forbidden():
     return return_Response(
-        message="Only HR and CTO roles can manage leaves.", status=403)
+        message="You can only view your own leave balances; "
+                "managing other employees' leaves needs an HR, CTO or TPM role.",
+        status=403)
 
 
 def _ethara_leave_types(env):
@@ -187,7 +190,10 @@ class LeaveManagementController(http.Controller):
     @validate_token
     def employee_buckets(self, employee_id, **params):
         env = request.env
-        if not _is_allowed(env):
+        # User-wise access: any logged-in employee may view their OWN cards;
+        # HR / CTO / TPM may view any employee's cards.
+        own = env.user.employee_id and env.user.employee_id.id == employee_id
+        if not own and not _is_allowed(env):
             return _forbidden()
         employee = env['hr.employee'].sudo().browse(employee_id)
         if not employee.exists():

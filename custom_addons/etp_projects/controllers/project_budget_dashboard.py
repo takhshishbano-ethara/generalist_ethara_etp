@@ -29,7 +29,7 @@ TOPUP_MODEL = "etp.project.budget.topup"
 
 BASE_ROUTE = "/api/v1/etp_projects/project_budget_dashboard"
 
-BEDROCK_SERVICE_NAME = "Amazon Bedrock"
+MODEL_BREAKDOWN_SERVICES = ["Amazon Bedrock", "OpenRouter"]
 
 ACTIVE_BATCH_STATES = ("approved", "in_progress", "delivered", "closed")
 APPROVED_TOPUP_STATE = "approved"
@@ -219,7 +219,7 @@ def _model_spend_by_budget(budget_ids, start, end):
     ]
     bedrock_groups = Lines._read_group(
         base_domain + [
-            ("service_name", "=", BEDROCK_SERVICE_NAME),
+            ("service_name", "in", MODEL_BREAKDOWN_SERVICES),
             ("is_model_breakdown", "=", True),
         ],
         groupby=["budget_id", "model_name"],
@@ -229,7 +229,7 @@ def _model_spend_by_budget(budget_ids, start, end):
         out[b.id][mn or NO_MODEL_LABEL] += float(amt or 0.0)
     other_groups = Lines._read_group(
         base_domain + [
-            ("service_name", "!=", BEDROCK_SERVICE_NAME),
+            ("service_name", "not in", MODEL_BREAKDOWN_SERVICES),
             ("is_model_breakdown", "=", False),
         ],
         groupby=["budget_id", "service_name"],

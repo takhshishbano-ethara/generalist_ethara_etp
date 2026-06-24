@@ -4,7 +4,7 @@
         <field name="name">etp.assessment.pro.prompt.tree</field>
         <field name="model">etp.assessment.pro.prompt</field>
         <field name="arch" type="xml">
-            <list>
+            <list js_class="etp_prompt_import_list">
                 <field name="name"/>
                 <field name="category_id"/>
                 <field name="resource_count"/>
