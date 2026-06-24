@@ -222,4 +222,10 @@
         </record>
 
     </data>
+
+    <!-- The records above are noupdate="1", so on stage/live (where they already
+         exist) Odoo will NOT update their default_annual_days on upgrade. This
+         function runs on every install/upgrade and backfills the entitlements
+         via the ORM (only where unset, so HR edits are preserved). -->
+    <function model="hr.leave.type" name="_ethara_backfill_entitlements"/>
 </odoo>

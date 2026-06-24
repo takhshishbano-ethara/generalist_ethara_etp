@@ -1,8 +1,27 @@
-from odoo import models, fields
+from odoo import models, fields, api
 
 
 class HrLeaveType(models.Model):
     _inherit = 'hr.leave.type'
+
+    @api.model
+    def _ethara_backfill_entitlements(self):
+        """Backfill default entitlements on the original Ethara leave types.
+
+        Called from data/leave_type_data.xml via <function> on every
+        install/upgrade. The catalog records are noupdate="1", so plain data
+        XML cannot update their values on systems where they already exist
+        (stage/live); this writes them through the ORM instead. It only sets a
+        value where it is still unset, so an HR/admin override is never lost.
+        """
+        defaults = {'sl': 12.0, 'cl': 12.0, 'el': 15.0}
+        for code, days in defaults.items():
+            leave_type = self.search([('ethara_leave_code', '=', code)], limit=1)
+            if leave_type and not leave_type.default_annual_days:
+                leave_type.default_annual_days = days
+        lop = self.search([('ethara_leave_code', '=', 'lop')], limit=1)
+        if lop and not lop.requires_allocation:
+            lop.requires_allocation = True
 
     # --- Ethara Policy Fields ---
     ethara_leave_code = fields.Selection([
