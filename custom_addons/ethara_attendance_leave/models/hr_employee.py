@@ -243,13 +243,16 @@ class HrEmployee(models.Model):
         today = fields.Date.today()
         month_start = today.replace(day=1)
 
+        has_attendance_status = 'attendance_status' in self.env['hr.attendance']._fields
         for emp in self:
-            attendances = self.env['hr.attendance'].sudo().search([
+            domain = [
                 ('employee_id', '=', emp.id),
                 ('check_in', '>=', datetime.combine(month_start, datetime.min.time())),
                 ('check_in', '<=', datetime.combine(today, datetime.max.time())),
-                ('attendance_status', '=', 'present'),
-            ])
+            ]
+            if has_attendance_status:
+                domain.append(('attendance_status', '=', 'present'))
+            attendances = self.env['hr.attendance'].sudo().search(domain)
             late_count = 0
             for att in attendances:
                 if att.check_in:
@@ -271,13 +274,16 @@ class HrEmployee(models.Model):
         # Start of current week (Monday)
         week_start = today - timedelta(days=today.weekday())
 
+        has_attendance_status = 'attendance_status' in self.env['hr.attendance']._fields
         for emp in self:
-            attendances = self.env['hr.attendance'].sudo().search([
+            domain = [
                 ('employee_id', '=', emp.id),
                 ('check_in', '>=', datetime.combine(week_start, datetime.min.time())),
                 ('check_in', '<=', datetime.combine(today, datetime.max.time())),
-                ('attendance_status', '=', 'present'),
-            ])
+            ]
+            if has_attendance_status:
+                domain.append(('attendance_status', '=', 'present'))
+            attendances = self.env['hr.attendance'].sudo().search(domain)
             total_productive = 0.0
             for att in attendances:
                 if att.worked_hours:
@@ -359,6 +365,7 @@ class HrEmployee(models.Model):
                     'name': 'Late Arrival Penalty - %s' % today.strftime('%B %Y'),
                     'holiday_status_id': leave_type.id,
                     'number_of_days': -penalty_days,
+                    'allocation_type': 'accrual',
                     'employee_id': emp.id,
                     'date_from': month_start,
                     'date_to': today,
@@ -475,6 +482,7 @@ class HrEmployee(models.Model):
                     'name': 'EL Carry-Forward Cap - %s' % today.year,
                     'holiday_status_id': el_type.id,
                     'number_of_days': -excess,
+                    'allocation_type': 'accrual',
                     'employee_id': employee.id,
                     'date_from': today,
                     'notes': 'Auto-lapse: EL balance exceeded %d-day carry-forward cap' % max_days,
@@ -516,11 +524,13 @@ class HrEmployee(models.Model):
                     break  # Has approved leave, not unauthorized
 
                 # Check attendance
-                attendance = self.env['hr.attendance'].sudo().search([
+                att_domain = [
                     ('employee_id', '=', emp.id),
                     ('date', '=', check_date),
-                    ('attendance_status', '=', 'present'),
-                ], limit=1)
+                ]
+                if 'attendance_status' in self.env['hr.attendance']._fields:
+                    att_domain.append(('attendance_status', '=', 'present'))
+                attendance = self.env['hr.attendance'].sudo().search(att_domain, limit=1)
 
                 if attendance:
                     break  # Was present

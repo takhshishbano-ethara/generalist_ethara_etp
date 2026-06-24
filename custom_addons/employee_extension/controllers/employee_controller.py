@@ -706,10 +706,14 @@ class EmployeeController(http.Controller):
             first_day_of_month = today.replace(day=1)
             days_passed = today.day
 
-            attendances = request.env['hr.attendance'].sudo().search([
+            att_domain = [
                 ('employee_id', '=', employee.id),
                 ('check_in', '>=', first_day_of_month),
-                ('check_in', '<=', datetime.combine(today, time.max)), ('attendance_status', '=', 'present')])
+                ('check_in', '<=', datetime.combine(today, time.max)),
+            ]
+            if 'attendance_status' in request.env['hr.attendance']._fields:
+                att_domain.append(('attendance_status', '=', 'present'))
+            attendances = request.env['hr.attendance'].sudo().search(att_domain)
 
             # total_present = len(attendances.mapped(lambda a: a.check_in.date() if a.check_in else ""))
 
@@ -1171,12 +1175,14 @@ class EmployeeController(http.Controller):
         ])
         today = date.today()
         Attendance = request.env['hr.attendance'].sudo()
-        attendance = Attendance.search([
+        att_domain = [
             ('employee_id', '=', emp.id),
             ('check_in', '>=', datetime.combine(today, datetime.min.time())),
             ('check_in', '<', datetime.combine(today, datetime.max.time())),
-            ('attendance_status', '=', 'present')
-        ], limit=1)
+        ]
+        if 'attendance_status' in Attendance._fields:
+            att_domain.append(('attendance_status', '=', 'present'))
+        attendance = Attendance.search(att_domain, limit=1)
 
         duration_display = "00:00"
         if attendance and attendance.check_in and attendance.check_out:

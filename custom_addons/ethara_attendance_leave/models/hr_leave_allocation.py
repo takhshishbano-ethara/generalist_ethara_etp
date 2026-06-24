@@ -27,6 +27,9 @@ class HrLeaveAllocation(models.Model):
                 continue
 
             entitlement = leave_type.default_annual_days or 0.0
+            # LOP is unpaid and uncapped — skip entitlement & cap checks
+            if leave_type.ethara_leave_code == 'lop':
+                continue
             if entitlement <= 0:
                 raise ValidationError(_(
                     "Cannot allocate '%s' to %s: no entitlement is set for this "

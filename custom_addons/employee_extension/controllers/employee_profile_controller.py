@@ -310,16 +310,14 @@ class EmployeeProfileController(http.Controller):
     def _employee_session(self, employee):
         Attendance = request.env["hr.attendance"].sudo()
         today = date.today()
-        att = Attendance.search(
-            [
-                ("employee_id", "=", employee.id),
-                ("check_in", ">=", datetime.combine(today, datetime.min.time())),
-                ("check_in", "<", datetime.combine(today, datetime.max.time())),
-                ("attendance_status", "=", "present"),
-            ],
-            limit=1,
-            order="check_in desc",
-        )
+        att_domain = [
+            ("employee_id", "=", employee.id),
+            ("check_in", ">=", datetime.combine(today, datetime.min.time())),
+            ("check_in", "<", datetime.combine(today, datetime.max.time())),
+        ]
+        if "attendance_status" in Attendance._fields:
+            att_domain.append(("attendance_status", "=", "present"))
+        att = Attendance.search(att_domain, limit=1, order="check_in desc")
         if not att or not att.check_in:
             return "Offline", "Offline"
         tz_name = request.env.user.tz or "UTC"
