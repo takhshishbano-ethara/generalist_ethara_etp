@@ -1251,35 +1251,35 @@ class EtpProjectBudgetDashboardController(http.Controller):
             total_approved = _total_approved_by_budget(budgets)
             batches = _batches_by_budget(bids, start, end)
 
-            projects = defaultdict(list)
-            for b in budgets:
-                pid = b.project_id.id if b.project_id else 0
-                projects[pid].append(b)
+            budget_type_labels = dict(
+                request.env[BUDGET_MODEL]._fields["project_type"].selection
+            )
 
             rows = []
-            for pid, project_budgets in projects.items():
-                project_name = ""
-                project_budget_total = 0.0
-                estimation_budget = 0.0
-                actual_budget = 0.0
-                for b in project_budgets:
-                    if b.project_id:
-                        project_name = b.project_id.display_name
-                    bid = b.id
-                    project_budget_total += float(total_approved.get(bid, 0.0))
-                    actual_budget += float(spend.get(bid, 0.0))
-                    bucket = batches.get(bid) or {"estimated": 0.0}
-                    estimation_budget += float(bucket["estimated"])
-
+            for b in budgets:
+                bid = b.id
+                project_budget_total = float(total_approved.get(bid, 0.0))
+                actual_budget = float(spend.get(bid, 0.0))
+                bucket = batches.get(bid) or {"estimated": 0.0}
+                estimation_budget = float(bucket["estimated"])
                 variance = estimation_budget - actual_budget
+                has_envelope = project_budget_total > 0
+                consumed_pct = _safe_pct(actual_budget, project_budget_total)
+                health_score = (
+                    _round2(max(0.0, 100.0 - consumed_pct)) if has_envelope else None
+                )
 
                 rows.append({
-                    "project_id": pid,
-                    "project_name": project_name,
+                    "project_id": b.project_id.id if b.project_id else 0,
+                    "project_name": b.project_id.display_name if b.project_id else "",
+                    "budget_id": bid,
+                    "budget_type": budget_type_labels.get(b.project_type, ""),
                     "project_budget": _round2(project_budget_total),
                     "estimation_budget": _round2(estimation_budget),
                     "actual_budget": _round2(actual_budget),
                     "variance": _round2(variance),
+                    "health": _health_from_pct(consumed_pct, has_envelope),
+                    "health_score": health_score,
                 })
             rows.sort(key=lambda r: r["actual_budget"], reverse=True)
 
