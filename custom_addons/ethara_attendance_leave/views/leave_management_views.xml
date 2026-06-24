@@ -126,12 +126,6 @@
         <field name="view_id" ref="view_leave_bucket_kanban"/>
     </record>
 
-    <menuitem id="menu_ethara_leave_mgmt_cards"
-              name="Balance Cards"
-              parent="menu_ethara_leave_mgmt_root"
-              action="act_leave_bucket_cards"
-              sequence="15"/>
-
     <record id="act_leave_mgmt_employees" model="ir.actions.act_window">
         <field name="name">Leave Management</field>
         <field name="res_model">hr.employee</field>
@@ -234,6 +228,12 @@
               parent="menu_ethara_leave_mgmt_root"
               action="act_leave_mgmt_employees"
               sequence="10"/>
+
+    <menuitem id="menu_ethara_leave_mgmt_cards"
+              name="Balance Cards"
+              parent="menu_ethara_leave_mgmt_root"
+              action="act_leave_bucket_cards"
+              sequence="15"/>
 
     <menuitem id="menu_ethara_leave_mgmt_allocations"
               name="Allocations"
