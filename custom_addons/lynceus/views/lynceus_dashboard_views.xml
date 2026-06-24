@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="action_lynceus_dashboard_client" model="ir.actions.client">
+        <field name="name">Lynceus Control</field>
+        <field name="tag">lynceus.dashboard</field>
+    </record>
+</odoo>

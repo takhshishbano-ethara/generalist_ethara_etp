@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_lynceus_tasker_queue_list" model="ir.ui.view">
+        <field name="name">lynceus.tasker.queue.list</field>
+        <field name="model">lynceus.prompt</field>
+        <field name="arch" type="xml">
+            <list string="My Queue" create="false" delete="false">
+                <field name="lynceus_id"/>
+                <field name="content" optional="show"/>
+                <field name="tier" optional="hide"/>
+                <field name="archetype" optional="hide"/>
+                <field name="assigned_at"/>
+                <field name="outcome" widget="badge"
+                       decoration-success="outcome == 'submitted'"
+                       decoration-danger="outcome == 'bad'"
+                       decoration-muted="outcome == 'untouched'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_lynceus_mark_bad_wizard_form" model="ir.ui.view">
+        <field name="name">lynceus.mark.bad.wizard.form</field>
+        <field name="model">lynceus.mark.bad.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Mark as Bad">
+                <sheet>
+                    <group>
+                        <field name="prompt_id" readonly="1"/>
+                        <field name="bad_remarks" placeholder="Describe the MultiMango issue (mandatory)..." required="1"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm" string="Mark as Bad"
+                            type="object" class="btn-danger"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_lynceus_mark_bad_quick" model="ir.actions.act_window">
+        <field name="name">Mark as Bad</field>
+        <field name="res_model">lynceus.mark.bad.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <record id="view_lynceus_tasker_queue_form" model="ir.ui.view">
+        <field name="name">lynceus.tasker.queue.form</field>
+        <field name="model">lynceus.prompt</field>
+        <field name="arch" type="xml">
+            <form string="My Prompt" create="false" delete="false">
+                <header>
+                    <button name="action_submit"
+                            string="Yes - Submitted on MultiMango"
+                            type="object"
+                            class="btn-success"
+                            invisible="state in ('used','bad')"
+                            confirm="Mark this prompt as submitted on MultiMango?"/>
+                    <button name="%(action_lynceus_mark_bad_quick)d"
+                            string="No - With Remarks"
+                            type="action"
+                            class="btn-danger"
+                            invisible="state in ('used','bad')"
+                            context="{'default_prompt_id': id}"/>
+                    <button name="action_mark_untouched"
+                            string="No - Untouched"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state in ('used','bad')"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="assigned,used,bad"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="lynceus_id" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <field name="assigned_at" readonly="1"/>
+                        <field name="tier" readonly="1"/>
+                        <field name="archetype" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Prompt">
+                            <div class="alert alert-info" role="alert">
+                                <strong>Workflow:</strong> Copy the text below, paste into
+                                MultiMango in a new tab. If the result image submits cleanly,
+                                click "Yes". If MultiMango reports an issue, click "No - With
+                                Remarks" and describe what went wrong. If you have not yet
+                                worked on it, leave it as "Untouched".
+                            </div>
+                            <field name="content" widget="text" readonly="1" nolabel="1"/>
+                        </page>
+                        <page string="Outcome" invisible="not outcome">
+                            <group>
+                                <field name="outcome" readonly="1"/>
+                                <field name="outcome_at" readonly="1"/>
+                                <field name="submit_remarks" invisible="outcome != 'submitted'"
+                                       readonly="state == 'used'"/>
+                                <field name="bad_remarks" invisible="outcome != 'bad'" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_lynceus_my_queue" model="ir.actions.act_window">
+        <field name="name">My Queue</field>
+        <field name="res_model">lynceus.prompt</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('assigned_user_id','=',uid),('state','=','assigned')]</field>
+        <field name="context">{'search_default_untouched': 1}</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('view_lynceus_tasker_queue_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('view_lynceus_tasker_queue_form')})
+        ]"/>
+    </record>
+</odoo>

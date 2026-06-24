@@ -594,6 +594,27 @@
                                         </div>
                                     </t>
                                 </div>
+                                <!-- Optional objective "gate" checks: rendered
+                                     only when the question carries dimensions. -->
+                                <t t-foreach="dimensions" t-as="qd">
+                                    <fieldset class="etp-options">
+                                        <legend class="etp-dim-legend"
+                                                t-out="qd.dimension_id.name"/>
+                                        <t t-foreach="qd.option_line_ids" t-as="opt">
+                                            <div class="form-check etp-option">
+                                                <input class="form-check-input"
+                                                       type="radio"
+                                                       t-att-name="'dimension_%d' % qd.dimension_id.id"
+                                                       t-att-value="opt.master_option_id.id"
+                                                       t-att-id="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-att-checked="'checked' if opt.master_option_id.id in (selected_option_ids or []) else None"/>
+                                                <label class="form-check-label"
+                                                       t-att-for="'opt_%d_%d' % (qd.dimension_id.id, opt.id)"
+                                                       t-out="opt.name"/>
+                                            </div>
+                                        </t>
+                                    </fieldset>
+                                </t>
                                 <div class="etp-field">
                                     <label class="form-label">Your Response</label>
                                     <textarea name="justification" rows="6"
@@ -928,8 +949,13 @@
 
                     <t t-foreach="responses" t-as="response">
                         <t t-set="question" t-value="response.question_id"/>
+                        <!-- A response shows as objective when it actually has
+                             a scored objective part (max_score &gt; 0). This
+                             covers mcq/msq, image_ab, and a gated image_text,
+                             while a labelling-only image_text (no gate dims)
+                             correctly falls through to the LLM verdict. -->
                         <t t-set="is_objective"
-                           t-value="response.question_type in ('mcq', 'msq', 'image_ab')"/>
+                           t-value="response.max_score &gt; 0"/>
                         <t t-set="is_correct"
                            t-value="is_objective and response.max_score &gt; 0 and response.score == response.max_score"/>
                         <t t-set="qstatus"

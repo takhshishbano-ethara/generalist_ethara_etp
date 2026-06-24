@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_lynceus_root"
+              name="Lynceus"
+              sequence="96"/>
+
+    <menuitem id="menu_lynceus_my_queue"
+              name="My Queue"
+              parent="menu_lynceus_root"
+              action="action_lynceus_my_queue"
+              sequence="5"/>
+
+    <menuitem id="menu_lynceus_dashboard"
+              name="Dashboard"
+              parent="menu_lynceus_root"
+              action="action_lynceus_dashboard_client"
+              groups="lynceus.group_lynceus_manager"
+              sequence="10"/>
+
+    <menuitem id="menu_lynceus_pool"
+              name="Prompt Pool"
+              parent="menu_lynceus_root"
+              action="action_lynceus_pool"
+              groups="lynceus.group_lynceus_manager"
+              sequence="20"/>
+
+    <menuitem id="menu_lynceus_all_queues"
+              name="All Tasker Queues"
+              parent="menu_lynceus_root"
+              action="action_lynceus_all_queues"
+              groups="lynceus.group_lynceus_manager"
+              sequence="30"/>
+
+    <menuitem id="menu_lynceus_batches_parent"
+              name="Batches"
+              parent="menu_lynceus_root"
+              groups="lynceus.group_lynceus_manager"
+              sequence="40"/>
+
+    <menuitem id="menu_lynceus_batches"
+              name="All Batches"
+              parent="menu_lynceus_batches_parent"
+              action="action_lynceus_batch"
+              sequence="10"/>
+
+    <menuitem id="menu_lynceus_generate_batch"
+              name="Generate New Batch"
+              parent="menu_lynceus_batches_parent"
+              action="action_lynceus_generate_batch_wizard"
+              sequence="20"/>
+
+    <menuitem id="menu_lynceus_configuration"
+              name="Configuration"
+              parent="menu_lynceus_root"
+              groups="lynceus.group_lynceus_manager"
+              sequence="100"/>
+
+    <menuitem id="menu_lynceus_settings"
+              name="Settings"
+              parent="menu_lynceus_configuration"
+              action="action_lynceus_settings"
+              sequence="10"/>
+
+    <menuitem id="menu_lynceus_import_active_taskers"
+              name="Import Active Taskers"
+              parent="menu_lynceus_configuration"
+              action="action_lynceus_import_active_taskers_wizard"
+              sequence="20"/>
+</odoo>

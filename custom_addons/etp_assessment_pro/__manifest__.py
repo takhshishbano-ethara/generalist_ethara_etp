@@ -17,6 +17,7 @@
         "views/category_views.xml",
         "views/dimension_views.xml",
         "views/question_views.xml",
+        "views/bank_import_views.xml",
         "views/prompt_views.xml",
         "views/res_config_settings_views.xml",
         "views/assessment_views.xml",

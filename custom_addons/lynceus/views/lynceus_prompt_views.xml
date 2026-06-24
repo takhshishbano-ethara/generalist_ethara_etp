@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_lynceus_prompt_list" model="ir.ui.view">
+        <field name="name">lynceus.prompt.list</field>
+        <field name="model">lynceus.prompt</field>
+        <field name="arch" type="xml">
+            <list string="Lynceus Prompts">
+                <field name="lynceus_id"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'available'"
+                       decoration-warning="state == 'assigned'"
+                       decoration-success="state == 'used'"
+                       decoration-danger="state == 'bad'"/>
+                <field name="assigned_user_id" optional="show"/>
+                <field name="batch_id" optional="show"/>
+                <field name="tier" optional="hide"/>
+                <field name="archetype" optional="hide"/>
+                <field name="categories" optional="hide"/>
+                <field name="outcome" optional="hide"/>
+                <field name="assigned_at" optional="hide"/>
+                <field name="outcome_at" optional="hide"/>
+                <field name="create_date" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_lynceus_prompt_form" model="ir.ui.view">
+        <field name="name">lynceus.prompt.form</field>
+        <field name="model">lynceus.prompt</field>
+        <field name="arch" type="xml">
+            <form string="Lynceus Prompt">
+                <header>
+                    <field name="state" widget="statusbar" statusbar_visible="available,assigned,used,bad"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="lynceus_id" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Assignment">
+                            <field name="assigned_user_id" readonly="state in ('used','bad')"/>
+                            <field name="assigned_at" readonly="1"/>
+                            <field name="reclaim_count" readonly="1"/>
+                            <field name="reclaimed_at" readonly="1"/>
+                        </group>
+                        <group string="Generation">
+                            <field name="batch_id" readonly="1"/>
+                            <field name="tier" readonly="1"/>
+                            <field name="archetype" readonly="1"/>
+                            <field name="categories" readonly="1"/>
+                            <field name="seed" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Content">
+                            <field name="content" widget="text" readonly="state in ('used','bad')"/>
+                        </page>
+                        <page string="Outcome" invisible="not outcome">
+                            <group>
+                                <field name="outcome" readonly="1"/>
+                                <field name="outcome_at" readonly="1"/>
+                                <field name="submit_remarks" invisible="outcome != 'submitted'"/>
+                                <field name="bad_remarks" invisible="outcome != 'bad'" required="outcome == 'bad'"/>
+                            </group>
+                        </page>
+                        <page string="Audit">
+                            <group>
+                                <field name="content_hash" readonly="1"/>
+                                <field name="company_id" readonly="1" groups="base.group_multi_company"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_lynceus_prompt_search" model="ir.ui.view">
+        <field name="name">lynceus.prompt.search</field>
+        <field name="model">lynceus.prompt</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="lynceus_id"/>
+                <field name="content"/>
+                <field name="assigned_user_id"/>
+                <field name="batch_id"/>
+                <filter string="Available" name="available" domain="[('state','=','available')]"/>
+                <filter string="Assigned" name="assigned" domain="[('state','=','assigned')]"/>
+                <filter string="Used" name="used" domain="[('state','=','used')]"/>
+                <filter string="Bad" name="bad" domain="[('state','=','bad')]"/>
+                <separator/>
+                <filter string="Untouched in queue" name="untouched"
+                        domain="[('state','=','assigned'),('outcome','in',[False,'untouched'])]"/>
+                <separator/>
+                <filter string="By State" name="group_state" context="{'group_by':'state'}"/>
+                <filter string="By Tasker" name="group_user" context="{'group_by':'assigned_user_id'}"/>
+                <filter string="By Batch" name="group_batch" context="{'group_by':'batch_id'}"/>
+                <filter string="By Archetype" name="group_archetype" context="{'group_by':'archetype'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_lynceus_pool" model="ir.actions.act_window">
+        <field name="name">Prompt Pool</field>
+        <field name="res_model">lynceus.prompt</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_lynceus_prompt_search"/>
+        <field name="context">{'search_default_available': 1}</field>
+    </record>
+
+    <record id="action_lynceus_all_queues" model="ir.actions.act_window">
+        <field name="name">All Tasker Queues</field>
+        <field name="res_model">lynceus.prompt</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_lynceus_prompt_search"/>
+        <field name="domain">[('state','=','assigned')]</field>
+        <field name="context">{'search_default_group_user': 1}</field>
+    </record>
+</odoo>

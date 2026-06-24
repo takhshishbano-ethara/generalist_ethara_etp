@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="seq_lynceus_prompt_id" model="ir.sequence">
+            <field name="name">Lynceus Prompt ID</field>
+            <field name="code">lynceus.prompt.id.seq</field>
+            <field name="prefix">LP-</field>
+            <field name="padding">8</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+            <field name="implementation">no_gap</field>
+        </record>
+
+        <record id="seq_lynceus_batch" model="ir.sequence">
+            <field name="name">Lynceus Batch</field>
+            <field name="code">lynceus.batch.seq</field>
+            <field name="prefix">LB-</field>
+            <field name="padding">5</field>
+            <field name="number_next">1</field>
+            <field name="number_increment">1</field>
+        </record>
+    </data>
+</odoo>

@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="lynceus.Dashboard">
+        <div class="lyn-dash">
+            <div class="lyn-dash-header">
+                <div class="lyn-dash-header-left">
+                    <h1 class="lyn-dash-title">Lynceus Control</h1>
+                    <span class="lyn-dash-subtitle">Prompt allocation overview</span>
+                </div>
+                <div class="lyn-dash-header-right">
+                    <button class="btn btn-sm lyn-btn-primary"
+                            t-on-click="openGenerateBatch">
+                        <i class="fa fa-magic me-1"/> Generate Batch
+                    </button>
+                    <button class="btn btn-sm lyn-btn-outline ms-2"
+                            t-on-click="openImportTaskers">
+                        <i class="fa fa-upload me-1"/> Import Taskers
+                    </button>
+                </div>
+            </div>
+
+            <div class="lyn-dash-filters">
+                <div class="lyn-dash-filter-label">
+                    <i class="fa fa-calendar me-1"/> Outcomes window
+                </div>
+                <input type="date" class="form-control form-control-sm lyn-date-input"
+                       t-att-value="filters.date_from"
+                       t-on-change="onDateFromChange"/>
+                <span class="lyn-date-sep">to</span>
+                <input type="date" class="form-control form-control-sm lyn-date-input"
+                       t-att-value="filters.date_to"
+                       t-on-change="onDateToChange"/>
+                <button class="btn btn-sm lyn-btn-ghost" t-on-click="onResetDates">
+                    <i class="fa fa-refresh me-1"/> Today
+                </button>
+            </div>
+
+            <div t-if="!state.loaded" class="lyn-dash-loading">
+                <i class="fa fa-eye fa-pulse fa-2x"/>
+                <span>Loading control panel…</span>
+            </div>
+
+            <div t-if="state.loaded" class="lyn-dash-body">
+
+                <div class="lyn-dash-kpi-row">
+                    <div class="lyn-dash-kpi lyn-kpi-pool" t-on-click="() => this.openPool('available')">
+                        <div class="lyn-kpi-icon"><i class="fa fa-shield"/></div>
+                        <div class="lyn-kpi-value"><t t-esc="state.kpis.pool_available"/></div>
+                        <div class="lyn-kpi-label">Pool Health</div>
+                        <div class="lyn-kpi-foot">
+                            <span t-attf-class="lyn-dot {{ poolStatusDot }}"/>
+                            <span><t t-esc="poolStatusLabel"/></span>
+                            <span class="lyn-foot-muted">vs <t t-esc="state.kpis.pool_threshold"/></span>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-kpi lyn-kpi-flight" t-on-click="() => this.openPool('assigned')">
+                        <div class="lyn-kpi-icon"><i class="fa fa-paper-plane-o"/></div>
+                        <div class="lyn-kpi-value"><t t-esc="state.kpis.in_flight"/></div>
+                        <div class="lyn-kpi-label">In Flight</div>
+                        <div class="lyn-kpi-foot">
+                            <span class="lyn-foot-muted">
+                                <t t-esc="state.kpis.in_flight_taskers"/> taskers active
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-kpi lyn-kpi-done" t-on-click="() => this.openPool('used')">
+                        <div class="lyn-kpi-icon"><i class="fa fa-check-circle-o"/></div>
+                        <div class="lyn-kpi-value"><t t-esc="state.kpis.completed_in_range"/></div>
+                        <div class="lyn-kpi-label">Completed in Range</div>
+                        <div class="lyn-kpi-foot">
+                            <span class="lyn-mini-bad">
+                                <i class="fa fa-times me-1"/><t t-esc="state.kpis.bad_in_range"/> bad
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-kpi lyn-kpi-active" t-on-click="openAllQueues">
+                        <div class="lyn-kpi-icon"><i class="fa fa-users"/></div>
+                        <div class="lyn-kpi-value">
+                            <t t-esc="state.kpis.active_taskers"/>
+                            <span class="lyn-kpi-of">/ <t t-esc="state.kpis.enrolled_taskers"/></span>
+                        </div>
+                        <div class="lyn-kpi-label">Active Taskers</div>
+                        <div class="lyn-kpi-foot">
+                            <span class="lyn-foot-muted">marked active today</span>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-kpi lyn-kpi-batch"
+                         t-on-click="() => this.openBatchRecord(state.kpis.last_batch.id)">
+                        <div class="lyn-kpi-icon"><i class="fa fa-cogs"/></div>
+                        <div class="lyn-kpi-value lyn-kpi-value-sm">
+                            <t t-esc="state.kpis.last_batch.name"/>
+                        </div>
+                        <div class="lyn-kpi-label">Last Batch</div>
+                        <div class="lyn-kpi-foot">
+                            <span t-attf-class="lyn-pill {{ batchStatePill }}">
+                                <t t-esc="state.kpis.last_batch.state or 'n/a'"/>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lyn-dash-charts-row">
+                    <div class="lyn-dash-card">
+                        <div class="lyn-card-head">
+                            <span><i class="fa fa-pie-chart me-2"/>Pool State Breakdown</span>
+                            <span class="lyn-foot-muted">live</span>
+                        </div>
+                        <div class="lyn-chart-canvas">
+                            <canvas t-ref="poolChart"/>
+                            <div t-if="!state.pool_breakdown.length" class="lyn-empty">
+                                <i class="fa fa-eye-slash fa-2x"/>
+                                <span>No prompts in the pool yet</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="lyn-dash-card">
+                        <div class="lyn-card-head">
+                            <span><i class="fa fa-bar-chart me-2"/>Per-Tasker Workload (Top 10)</span>
+                            <button class="btn btn-link btn-sm lyn-link"
+                                    t-on-click="openAllQueues">
+                                All queues <i class="fa fa-arrow-right ms-1"/>
+                            </button>
+                        </div>
+                        <div class="lyn-chart-canvas">
+                            <canvas t-ref="workloadChart"/>
+                            <div t-if="!state.per_tasker.length" class="lyn-empty">
+                                <i class="fa fa-user-times fa-2x"/>
+                                <span>No taskers have prompts assigned</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="lyn-dash-panels-row">
+                    <div class="lyn-dash-card">
+                        <div class="lyn-card-head">
+                            <span><i class="fa fa-play-circle me-2"/>Live Batches</span>
+                            <button class="btn btn-link btn-sm lyn-link"
+                                    t-on-click="() => this.openBatches()">
+                                All batches <i class="fa fa-arrow-right ms-1"/>
+                            </button>
+                        </div>
+                        <div class="lyn-card-body">
+                            <t t-if="!state.live_batches.length">
+                                <div class="lyn-empty">
+                                    <i class="fa fa-coffee fa-2x"/>
+                                    <span>No batches running or pending</span>
+                                </div>
+                            </t>
+                            <t t-foreach="state.live_batches" t-as="b" t-key="b.id">
+                                <div class="lyn-row" t-on-click="() => this.openBatchRecord(b.id)">
+                                    <div class="lyn-row-name">
+                                        <strong><t t-esc="b.name"/></strong>
+                                        <span class="lyn-row-meta">
+                                            <t t-esc="b.generated_count"/> / <t t-esc="b.target_n"/> prompts
+                                        </span>
+                                    </div>
+                                    <div class="lyn-progress">
+                                        <div class="lyn-progress-fill"
+                                             t-attf-style="width: {{ b.progress_pct }}%"/>
+                                    </div>
+                                    <div class="lyn-row-right">
+                                        <span t-attf-class="lyn-pill lyn-pill-{{ b.state == 'running' ? 'info' : 'warn' }}">
+                                            <t t-esc="b.state"/>
+                                        </span>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-card">
+                        <div class="lyn-card-head">
+                            <span><i class="fa fa-trophy me-2"/>Top Submitters</span>
+                            <span class="lyn-foot-muted">in range</span>
+                        </div>
+                        <div class="lyn-card-body">
+                            <t t-if="!state.top_submitters.length">
+                                <div class="lyn-empty">
+                                    <i class="fa fa-hourglass-half fa-2x"/>
+                                    <span>No submissions in this window</span>
+                                </div>
+                            </t>
+                            <t t-foreach="state.top_submitters" t-as="s" t-key="s.id">
+                                <div class="lyn-row">
+                                    <div class="lyn-rank">#<t t-esc="s_index + 1"/></div>
+                                    <div class="lyn-row-name">
+                                        <strong><t t-esc="s.label"/></strong>
+                                    </div>
+                                    <div class="lyn-row-right">
+                                        <span class="lyn-count-badge">
+                                            <i class="fa fa-check me-1"/><t t-esc="s.count"/>
+                                        </span>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </t>
+</templates>

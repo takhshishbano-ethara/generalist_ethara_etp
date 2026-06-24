@@ -22,6 +22,9 @@
         <field name="arch" type="xml">
             <form>
                 <header>
+                    <button name="%(action_etp_assessment_pro_bank_import)d"
+                            type="action" string="Import Question Bank"
+                            class="oe_highlight" icon="fa-upload"/>
                     <button name="action_extract_skills" type="object"
                             string="Extract Skills"
                             class="oe_highlight"
@@ -139,7 +142,12 @@
                                     <field name="skill_id"/>
                                     <field name="name"/>
                                     <field name="question_type"/>
+                                    <field name="category_id"/>
                                     <field name="difficulty"/>
+                                    <field name="has_dimensions" string="Keyed"
+                                           widget="boolean"/>
+                                    <field name="has_images" string="Images"
+                                           widget="boolean"/>
                                     <field name="state"/>
                                     <button name="action_approve" type="object"
                                             icon="fa-check" title="Approve"
@@ -149,29 +157,60 @@
                                             invisible="state != 'draft'"/>
                                 </list>
                                 <form>
+                                    <header>
+                                        <button name="action_approve" type="object"
+                                                string="Approve" class="btn-primary"
+                                                invisible="state != 'draft'"/>
+                                        <button name="action_deny" type="object"
+                                                string="Deny" class="btn-secondary"
+                                                invisible="state != 'draft'"/>
+                                        <field name="state" widget="statusbar"
+                                               statusbar_visible="draft,approved,denied"/>
+                                    </header>
                                     <sheet>
+                                        <div class="oe_title">
+                                            <h2><field name="name"
+                                                       placeholder="Question Title"/></h2>
+                                        </div>
                                         <group>
                                             <group>
-                                                <field name="skill_id"/>
                                                 <field name="question_type"/>
+                                                <field name="category_id"/>
+                                                <field name="skill_id"/>
+                                                <field name="skill_names"
+                                                       invisible="not skill_names"/>
                                                 <field name="difficulty"/>
+                                                <field name="time_minutes"/>
                                             </group>
                                             <group>
-                                                <field name="state" readonly="1"/>
-                                                <field name="approved_question_id" readonly="1"/>
+                                                <field name="approved_question_id"
+                                                       readonly="1"/>
+                                                <field name="has_dimensions" invisible="1"/>
+                                                <field name="has_images" invisible="1"/>
                                             </group>
                                         </group>
-                                        <field name="name"/>
-                                        <field name="question_prompt"/>
+                                        <field name="question_prompt"
+                                               placeholder="Question prompt shown to the candidate..."/>
+                                        <field name="description"
+                                               placeholder="Optional candidate-facing description..."/>
+                                        <field name="image_preview" widget="html"
+                                               invisible="not has_images"/>
+                                        <separator string="Answer Key"
+                                                   invisible="not has_dimensions"/>
+                                        <field name="dimensions_preview" widget="html"
+                                               invisible="not has_dimensions"/>
+                                        <field name="official_reasoning"
+                                               invisible="question_type != 'image_ab'"
+                                               placeholder="Official rationale the grader compares the candidate justification against..."/>
                                         <notebook>
-                                            <page string="Options">
-                                                <field name="options_json" widget="text"/>
-                                            </page>
-                                            <page string="Correct Answer">
-                                                <field name="correct_answer_json" widget="text"/>
-                                            </page>
-                                            <page string="Rubric">
-                                                <field name="rubric_json" widget="text"/>
+                                            <page string="Advanced (raw JSON)">
+                                                <group>
+                                                    <field name="options_json" widget="text"/>
+                                                    <field name="correct_answer_json" widget="text"/>
+                                                    <field name="dimensions_json" widget="text"/>
+                                                    <field name="rubric_json" widget="text"/>
+                                                    <field name="images_json" widget="text"/>
+                                                </group>
                                             </page>
                                         </notebook>
                                     </sheet>
@@ -211,7 +250,12 @@
                 <field name="skill_id"/>
                 <field name="name"/>
                 <field name="question_type"/>
+                <field name="category_id" optional="show"/>
                 <field name="difficulty"/>
+                <field name="has_dimensions" string="Keyed" widget="boolean"
+                       optional="show"/>
+                <field name="has_images" string="Images" widget="boolean"
+                       optional="show"/>
                 <field name="state"/>
                 <field name="approved_question_id" optional="hide"/>
                 <button name="action_approve" type="object"
@@ -240,28 +284,46 @@
                            statusbar_visible="draft,approved,denied"/>
                 </header>
                 <sheet>
+                    <div class="oe_title">
+                        <h2><field name="name" placeholder="Question Title"/></h2>
+                    </div>
                     <group>
                         <group>
                             <field name="prompt_id" readonly="1"/>
-                            <field name="skill_id"/>
                             <field name="question_type"/>
+                            <field name="category_id"/>
+                            <field name="skill_id"/>
+                            <field name="skill_names" invisible="not skill_names"/>
                             <field name="difficulty"/>
+                            <field name="time_minutes"/>
                         </group>
                         <group>
                             <field name="approved_question_id" readonly="1"/>
+                            <field name="has_dimensions" invisible="1"/>
+                            <field name="has_images" invisible="1"/>
                         </group>
                     </group>
-                    <field name="name"/>
-                    <field name="question_prompt"/>
+                    <field name="question_prompt"
+                           placeholder="Question prompt shown to the candidate..."/>
+                    <field name="description"
+                           placeholder="Optional candidate-facing description..."/>
+                    <field name="image_preview" widget="html"
+                           invisible="not has_images"/>
+                    <separator string="Answer Key" invisible="not has_dimensions"/>
+                    <field name="dimensions_preview" widget="html"
+                           invisible="not has_dimensions"/>
+                    <field name="official_reasoning"
+                           invisible="question_type != 'image_ab'"
+                           placeholder="Official rationale the grader compares the candidate justification against..."/>
                     <notebook>
-                        <page string="Options">
-                            <field name="options_json" widget="text"/>
-                        </page>
-                        <page string="Correct Answer">
-                            <field name="correct_answer_json" widget="text"/>
-                        </page>
-                        <page string="Rubric">
-                            <field name="rubric_json" widget="text"/>
+                        <page string="Advanced (raw JSON)">
+                            <group>
+                                <field name="options_json" widget="text"/>
+                                <field name="correct_answer_json" widget="text"/>
+                                <field name="dimensions_json" widget="text"/>
+                                <field name="rubric_json" widget="text"/>
+                                <field name="images_json" widget="text"/>
+                            </group>
                         </page>
                     </notebook>
                 </sheet>

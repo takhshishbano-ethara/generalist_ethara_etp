@@ -6,6 +6,7 @@ from . import question_image
 from . import question_dimension
 from . import prompt
 from . import bank_import
+from . import bank_import_wizard
 from . import res_config_settings
 from . import hr_applicant
 from . import assessment
