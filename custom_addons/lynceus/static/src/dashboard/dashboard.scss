@@ -1,0 +1,347 @@
+.lyn-dash {
+    padding: 20px 24px 32px;
+    background: linear-gradient(180deg, #f5f3ff 0%, #f8fafc 280px);
+    color: #1e1b4b;
+    height: 100%;
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    .lyn-dash-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 16px;
+    }
+
+    .lyn-dash-header-left {
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+    }
+
+    .lyn-dash-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        margin: 0;
+        background: linear-gradient(90deg, #6366f1, #14b8a6);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .lyn-dash-subtitle {
+        font-size: 0.85rem;
+        color: #64748b;
+        letter-spacing: 0.3px;
+    }
+
+    .lyn-btn-primary {
+        background: #6366f1;
+        color: #fff;
+        border: none;
+
+        &:hover { background: #4f46e5; color: #fff; }
+    }
+
+    .lyn-btn-outline {
+        background: #fff;
+        color: #6366f1;
+        border: 1px solid #c7d2fe;
+
+        &:hover { background: #eef2ff; }
+    }
+
+    .lyn-btn-ghost {
+        background: transparent;
+        color: #64748b;
+        border: 1px dashed #cbd5e1;
+
+        &:hover { background: #f1f5f9; color: #1e293b; }
+    }
+
+    .lyn-dash-filters {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 14px;
+        background: #ffffffcc;
+        backdrop-filter: blur(6px);
+        border: 1px solid #e2e8f0;
+        border-radius: 12px;
+        margin-bottom: 20px;
+        flex-wrap: wrap;
+    }
+
+    .lyn-dash-filter-label {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #475569;
+    }
+
+    .lyn-date-input { width: 140px; }
+    .lyn-date-sep { color: #94a3b8; font-size: 0.8rem; }
+
+    .lyn-dash-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+        padding: 80px 0;
+        color: #6366f1;
+    }
+
+    .lyn-dash-body {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+    }
+
+    .lyn-dash-kpi-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 14px;
+    }
+
+    .lyn-dash-kpi {
+        position: relative;
+        background: #fff;
+        border-radius: 14px;
+        padding: 18px 18px 14px;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+        border-top: 3px solid transparent;
+
+        &::before {
+            content: "";
+            position: absolute;
+            inset: 0 0 auto 0;
+            height: 3px;
+            border-radius: 14px 14px 0 0;
+        }
+
+        &:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px -8px rgba(99, 102, 241, 0.25);
+        }
+
+        &.lyn-kpi-pool::before   { background: linear-gradient(90deg, #6366f1, #818cf8); }
+        &.lyn-kpi-flight::before { background: linear-gradient(90deg, #14b8a6, #2dd4bf); }
+        &.lyn-kpi-done::before   { background: linear-gradient(90deg, #22c55e, #4ade80); }
+        &.lyn-kpi-active::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
+        &.lyn-kpi-batch::before  { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+    }
+
+    .lyn-kpi-icon {
+        font-size: 1.1rem;
+        color: #94a3b8;
+        margin-bottom: 6px;
+    }
+
+    .lyn-kpi-value {
+        font-size: 1.9rem;
+        font-weight: 700;
+        line-height: 1;
+        color: #1e1b4b;
+    }
+
+    .lyn-kpi-value-sm {
+        font-size: 1.05rem;
+        font-weight: 600;
+        word-break: break-all;
+    }
+
+    .lyn-kpi-of {
+        font-size: 0.85rem;
+        color: #94a3b8;
+        font-weight: 500;
+    }
+
+    .lyn-kpi-label {
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.7px;
+        color: #64748b;
+        margin-top: 4px;
+        font-weight: 600;
+    }
+
+    .lyn-kpi-foot {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 10px;
+        font-size: 0.78rem;
+    }
+
+    .lyn-foot-muted { color: #94a3b8; }
+
+    .lyn-mini-bad {
+        background: #fee2e2;
+        color: #b91c1c;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 600;
+    }
+
+    .lyn-dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        display: inline-block;
+
+        &.lyn-dot-ok      { background: #22c55e; box-shadow: 0 0 0 3px #dcfce7; }
+        &.lyn-dot-warn    { background: #f59e0b; box-shadow: 0 0 0 3px #fef3c7; }
+        &.lyn-dot-danger  { background: #ef4444; box-shadow: 0 0 0 3px #fee2e2; }
+        &.lyn-dot-muted   { background: #cbd5e1; }
+    }
+
+    .lyn-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+
+        &.lyn-pill-success { background: #dcfce7; color: #166534; }
+        &.lyn-pill-info    { background: #dbeafe; color: #1d4ed8; }
+        &.lyn-pill-warn    { background: #fef3c7; color: #92400e; }
+        &.lyn-pill-danger  { background: #fee2e2; color: #991b1b; }
+        &.lyn-pill-muted   { background: #f1f5f9; color: #64748b; }
+    }
+
+    .lyn-dash-charts-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        gap: 14px;
+    }
+
+    .lyn-dash-panels-row {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+        gap: 14px;
+    }
+
+    .lyn-dash-card {
+        background: #ffffffd9;
+        backdrop-filter: blur(8px);
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 18px;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+    }
+
+    .lyn-card-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        font-size: 0.92rem;
+        font-weight: 600;
+        color: #1e293b;
+    }
+
+    .lyn-link {
+        color: #6366f1;
+        font-size: 0.8rem;
+        padding: 0;
+
+        &:hover { color: #4f46e5; text-decoration: underline; }
+    }
+
+    .lyn-chart-canvas {
+        position: relative;
+        height: 260px;
+
+        canvas { max-height: 100%; }
+    }
+
+    .lyn-empty {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+        justify-content: center;
+        color: #cbd5e1;
+        font-size: 0.85rem;
+        font-style: italic;
+    }
+
+    .lyn-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 0;
+        border-bottom: 1px solid #f1f5f9;
+        cursor: pointer;
+        transition: background 0.1s;
+
+        &:last-child { border-bottom: none; }
+        &:hover { background: #faf5ff; margin: 0 -18px; padding: 10px 18px; }
+    }
+
+    .lyn-rank {
+        width: 26px;
+        text-align: center;
+        font-weight: 700;
+        color: #94a3b8;
+        font-size: 0.85rem;
+    }
+
+    .lyn-row-name {
+        flex: 1;
+        min-width: 0;
+
+        strong {
+            display: block;
+            font-size: 0.875rem;
+            color: #1e293b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    .lyn-row-meta {
+        font-size: 0.72rem;
+        color: #94a3b8;
+    }
+
+    .lyn-row-right {
+        text-align: right;
+        white-space: nowrap;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .lyn-progress {
+        flex: 0 0 110px;
+        height: 6px;
+        background: #ede9fe;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .lyn-progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #6366f1, #14b8a6);
+        border-radius: 4px;
+        transition: width 0.4s ease;
+    }
+
+    .lyn-count-badge {
+        background: #e0e7ff;
+        color: #4338ca;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+}

@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_lynceus" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.lynceus</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Lynceus" string="Lynceus" name="lynceus" groups="lynceus.group_lynceus_manager">
+                    <block title="LLM Provider" name="lynceus_provider_block">
+                        <setting id="lynceus_provider_setting" string="Active Provider"
+                                 help="Selects which LLM is used for batch generation. Both keys can be kept configured; only the active provider is called.">
+                            <field name="lynceus_provider"/>
+                        </setting>
+                    </block>
+
+                    <block title="Anthropic Claude" name="lynceus_anthropic_block">
+                        <setting id="lynceus_anthropic_key_setting" string="API Key"
+                                 help="Stored encrypted. Once set, the field shows a mask - submit a new value to rotate.">
+                            <field name="lynceus_anthropic_api_key"
+                                   password="True"
+                                   placeholder="sk-ant-..."/>
+                            <div invisible="not lynceus_anthropic_api_key_is_set">
+                                <span class="badge text-bg-success">API key configured</span>
+                            </div>
+                        </setting>
+                        <setting id="lynceus_anthropic_model_setting" string="Model">
+                            <field name="lynceus_anthropic_model"/>
+                        </setting>
+                        <setting id="lynceus_anthropic_base_url_setting" string="Base URL">
+                            <field name="lynceus_anthropic_base_url"/>
+                        </setting>
+                        <setting id="lynceus_anthropic_version_setting" string="API Version">
+                            <field name="lynceus_anthropic_version"/>
+                        </setting>
+                        <setting id="lynceus_max_tokens_setting" string="Max Tokens / Call">
+                            <field name="lynceus_max_tokens_per_call"/>
+                        </setting>
+                    </block>
+
+                    <block title="OpenRouter (Gemini / multi-model)" name="lynceus_openrouter_block">
+                        <setting id="lynceus_openrouter_key_setting" string="API Key"
+                                 help="Stored encrypted. Once set, the field shows a mask - submit a new value to rotate.">
+                            <field name="lynceus_openrouter_api_key"
+                                   password="True"
+                                   placeholder="sk-or-v1-..."/>
+                            <div invisible="not lynceus_openrouter_api_key_is_set">
+                                <span class="badge text-bg-success">API key configured</span>
+                            </div>
+                        </setting>
+                        <setting id="lynceus_openrouter_model_setting" string="Model Slug"
+                                 help="Any OpenRouter model slug. e.g. google/gemini-3.5-flash, anthropic/claude-3.5-sonnet, openai/gpt-4o-mini.">
+                            <field name="lynceus_openrouter_model"/>
+                        </setting>
+                        <setting id="lynceus_openrouter_base_url_setting" string="Base URL">
+                            <field name="lynceus_openrouter_base_url"/>
+                        </setting>
+                        <setting id="lynceus_openrouter_app_title_setting" string="App Title">
+                            <field name="lynceus_openrouter_app_title"/>
+                        </setting>
+                        <setting id="lynceus_openrouter_http_referer_setting" string="HTTP Referer">
+                            <field name="lynceus_openrouter_http_referer"/>
+                        </setting>
+                        <setting id="lynceus_openrouter_retries_setting" string="Max Retries">
+                            <field name="lynceus_openrouter_max_retries"/>
+                        </setting>
+                    </block>
+
+                    <block title="Defaults" name="lynceus_defaults_block">
+                        <setting id="lynceus_default_batch_size_setting" string="Default Batch Size (N)">
+                            <field name="lynceus_default_batch_size"/>
+                        </setting>
+                        <setting id="lynceus_default_quota_setting" string="Default Per-Tasker Quota">
+                            <field name="lynceus_default_tasker_quota"/>
+                        </setting>
+                        <setting id="lynceus_reclaim_hours_setting" string="Reclaim Window (hours)">
+                            <field name="lynceus_reclaim_hours"/>
+                        </setting>
+                        <setting id="lynceus_pool_depletion_setting" string="Pool Depletion Threshold">
+                            <field name="lynceus_pool_depletion_threshold"/>
+                        </setting>
+                    </block>
+
+                    <block title="Performance" name="lynceus_performance_block">
+                        <setting id="lynceus_parallel_setting" string="Parallel API Calls"
+                                 help="Max concurrent HTTP requests during batch generation. Higher = faster, but check provider rate limits. Recommended: 10 for OpenRouter Gemini Flash, 5-8 for paid Anthropic Claude.">
+                            <field name="lynceus_parallel_calls"/>
+                        </setting>
+                        <setting id="lynceus_bulk_insert_setting" string="Bulk Insert Chunk Size"
+                                 help="How many generated prompts to commit at once. 50 balances commit frequency vs write throughput.">
+                            <field name="lynceus_bulk_insert_chunk"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_lynceus_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module' : 'lynceus'}</field>
+    </record>
+</odoo>

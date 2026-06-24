@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_lynceus_import_active_taskers_wizard_form" model="ir.ui.view">
+        <field name="name">lynceus.import.active.taskers.wizard.form</field>
+        <field name="model">lynceus.import.active.taskers.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Active Taskers">
+                <sheet>
+                    <group invisible="allocation_summary">
+                        <field name="file" filename="filename"/>
+                        <field name="filename" invisible="1"/>
+                        <field name="quota_override" placeholder="0 = use per-user / default quota"/>
+                    </group>
+                    <group invisible="not allocation_summary">
+                        <group string="Summary">
+                            <field name="imported_count" readonly="1"/>
+                            <field name="allocated_count" readonly="1"/>
+                            <field name="skipped_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook invisible="not allocation_summary and not error_log">
+                        <page string="Per-Tasker Allocation" invisible="not allocation_summary">
+                            <field name="allocation_summary" widget="html" readonly="1" nolabel="1" options="{'safe': true}"/>
+                        </page>
+                        <page string="Errors" invisible="not error_log">
+                            <field name="error_log" widget="text" readonly="1" nolabel="1"/>
+                        </page>
+                    </notebook>
+                    <div class="alert alert-info" role="alert" invisible="allocation_summary">
+                        CSV format: <code>email,name</code> (header row required, name optional).
+                        Each listed user is marked active for today and receives their per-user
+                        quota (or the override above) drawn atomically from the pool. Users not
+                        found by login or email are skipped and listed in the error log.
+                        <br/>Top-up rule: if a tasker already has prompts assigned, only the
+                        difference up to the quota is added - we never over-allocate.
+                    </div>
+                </sheet>
+                <footer>
+                    <button name="action_import"
+                            string="Import &amp; Allocate"
+                            type="object"
+                            class="btn-primary"
+                            invisible="allocation_summary"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"
+                            invisible="allocation_summary"/>
+                    <button string="Close"
+                            class="btn-primary"
+                            special="cancel"
+                            invisible="not allocation_summary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_lynceus_import_active_taskers_wizard" model="ir.actions.act_window">
+        <field name="name">Import Active Taskers</field>
+        <field name="res_model">lynceus.import.active.taskers.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

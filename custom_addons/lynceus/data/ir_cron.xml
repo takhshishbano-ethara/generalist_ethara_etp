@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="cron_lynceus_reclaim_idle" model="ir.cron">
+            <field name="name">Lynceus: Reclaim idle prompts (24h inactivity)</field>
+            <field name="model_id" ref="model_lynceus_prompt"/>
+            <field name="state">code</field>
+            <field name="code">env['lynceus.prompt']._cron_reclaim_idle()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="cron_lynceus_pool_depletion_alert" model="ir.cron">
+            <field name="name">Lynceus: Pool depletion alert</field>
+            <field name="model_id" ref="model_lynceus_prompt"/>
+            <field name="state">code</field>
+            <field name="code">env['lynceus.prompt']._cron_pool_depletion_alert()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">4</field>
+            <field name="interval_type">hours</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="cron_lynceus_run_pending_batches" model="ir.cron">
+            <field name="name">Lynceus: Run pending generation batches</field>
+            <field name="model_id" ref="model_lynceus_batch"/>
+            <field name="state">code</field>
+            <field name="code">env['lynceus.batch']._cron_run_pending()</field>
+            <field name="user_id" ref="base.user_root"/>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+    </data>
+</odoo>

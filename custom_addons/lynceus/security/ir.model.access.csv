@@ -1,0 +1,10 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_lynceus_prompt_tasker,lynceus.prompt.tasker,model_lynceus_prompt,group_lynceus_tasker,1,1,0,0
+access_lynceus_prompt_manager,lynceus.prompt.manager,model_lynceus_prompt,group_lynceus_manager,1,1,1,0
+access_lynceus_batch_manager,lynceus.batch.manager,model_lynceus_batch,group_lynceus_manager,1,1,1,0
+access_lynceus_history_manager,lynceus.history.manager,model_lynceus_history,group_lynceus_manager,1,0,0,0
+access_lynceus_assignment_log_manager,lynceus.assignment.log.manager,model_lynceus_assignment_log,group_lynceus_manager,1,0,0,0
+access_lynceus_generate_batch_wizard_manager,lynceus.generate.batch.wizard.manager,model_lynceus_generate_batch_wizard,group_lynceus_manager,1,1,1,1
+access_lynceus_import_active_taskers_wizard_manager,lynceus.import.active.taskers.wizard.manager,model_lynceus_import_active_taskers_wizard,group_lynceus_manager,1,1,1,1
+access_lynceus_mark_bad_wizard_tasker,lynceus.mark.bad.wizard.tasker,model_lynceus_mark_bad_wizard,group_lynceus_tasker,1,1,1,1
+access_lynceus_mark_bad_wizard_manager,lynceus.mark.bad.wizard.manager,model_lynceus_mark_bad_wizard,group_lynceus_manager,1,1,1,1
