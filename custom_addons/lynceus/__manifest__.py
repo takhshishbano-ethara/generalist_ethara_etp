@@ -1,11 +1,11 @@
 {
     "name": "Lynceus - Prompt-to-Tasker Allocation",
-    "version": "19.0.6.1.3",
+    "version": "19.0.6.1.6",
     "category": "Operations/Quality",
     "summary": (
         "Generate AI-image adversarial prompts via Anthropic Claude, allocate "
         "them fairly to active taskers, capture outcomes, and recycle untouched "
-        "prompts after 24h inactivity. No prompt is ever duplicated, double-worked, "
+        "prompts after 12h inactivity. No prompt is ever duplicated, double-worked, "
         "lost, or regenerated."
     ),
     "author": "Ethara",
@@ -25,6 +25,7 @@
         "views/lynceus_prompt_views.xml",
         "views/lynceus_batch_views.xml",
         "views/lynceus_tasker_queue_views.xml",
+        "views/lynceus_assignment_log_views.xml",
         "views/lynceus_dashboard_views.xml",
         "views/res_config_settings_views.xml",
         "views/lynceus_menus.xml",

@@ -10,7 +10,7 @@ class ResUsers(models.Model):
         string="Lynceus Last Activity",
         copy=False,
         help="Last time this user reported a Submitted or Bad outcome. "
-             "Resets the 24h reclaim timer. Marking 'Untouched' does NOT reset.",
+             "Resets the 12h reclaim timer. Marking 'Untouched' does NOT reset.",
     )
     lynceus_daily_quota = fields.Integer(
         string="Lynceus Daily Quota",

@@ -110,7 +110,7 @@ class ResConfigSettings(models.TransientModel):
     lynceus_reclaim_hours = fields.Integer(
         string="Reclaim Window (hours)",
         config_parameter="lynceus.reclaim_hours",
-        default=24,
+        default=12,
     )
     lynceus_pool_depletion_threshold = fields.Integer(
         string="Pool Depletion Alert Threshold",

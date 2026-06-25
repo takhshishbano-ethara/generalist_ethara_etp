@@ -11,7 +11,7 @@ _logger = logging.getLogger(__name__)
 def sweep(env, reclaim_hours: int | None = None) -> int:
     if reclaim_hours is None:
         reclaim_hours = int(
-            env["ir.config_parameter"].sudo().get_param("lynceus.reclaim_hours", "24") or "24"
+            env["ir.config_parameter"].sudo().get_param("lynceus.reclaim_hours", "12") or "12"
         )
     cutoff = fields.Datetime.now() - timedelta(hours=reclaim_hours)
 

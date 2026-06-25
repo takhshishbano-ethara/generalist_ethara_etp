@@ -63,11 +63,18 @@
                             class="btn-danger"
                             invisible="state in ('used','bad')"
                             context="{'default_prompt_id': id}"/>
+                    <!--
+                        "No - Untouched" button hidden from all roles (tasker / manager / admin)
+                        per product decision. Reclaim is driven solely by tasker-inactivity
+                        (see services/reclaimer.py + cron_lynceus_reclaim_idle). The backend
+                        method action_mark_untouched in models/lynceus_prompt.py is intentionally
+                        kept intact for RPC / programmatic callers.
                     <button name="action_mark_untouched"
                             string="No - Untouched"
                             type="object"
                             class="btn-secondary"
                             invisible="state in ('used','bad')"/>
+                    -->
                     <field name="state" widget="statusbar"
                            statusbar_visible="assigned,used,bad"/>
                 </header>

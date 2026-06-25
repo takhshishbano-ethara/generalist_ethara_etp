@@ -283,6 +283,29 @@ class LynceusBatch(models.Model):
             for r in self.env.cr.fetchall()
         ]
 
+        self.env.cr.execute("""
+            SELECT COUNT(*) AS cnt, COUNT(DISTINCT user_id) AS users
+            FROM lynceus_assignment_log
+            WHERE reclaimed_at >= %s AND reclaimed_at <= %s
+        """, (from_dt, to_dt))
+        row = self.env.cr.fetchone() or (0, 0)
+        reclaimed_in_range = row[0] or 0
+        reclaim_affected_taskers = row[1] or 0
+
+        self.env.cr.execute("""
+            SELECT u.id, u.login AS label, COUNT(l.id) AS cnt
+            FROM lynceus_assignment_log l
+            JOIN res_users u ON u.id = l.user_id
+            WHERE l.reclaimed_at >= %s AND l.reclaimed_at <= %s
+            GROUP BY u.id, u.login
+            ORDER BY cnt DESC
+            LIMIT 10
+        """, (from_dt, to_dt))
+        reclaim_offenders = [
+            {"id": r[0], "label": r[1] or f"user-{r[0]}", "count": r[2]}
+            for r in self.env.cr.fetchall()
+        ]
+
         return {
             "kpis": {
                 "pool_available": available,
@@ -292,6 +315,8 @@ class LynceusBatch(models.Model):
                 "in_flight_taskers": active_today,
                 "completed_in_range": used_in_range,
                 "bad_in_range": bad_in_range,
+                "reclaimed_in_range": reclaimed_in_range,
+                "reclaim_affected_taskers": reclaim_affected_taskers,
                 "active_taskers": active_today,
                 "enrolled_taskers": enrolled,
                 "last_batch": last_batch_info,
@@ -302,6 +327,7 @@ class LynceusBatch(models.Model):
             "per_tasker": per_tasker,
             "live_batches": live_batches_data,
             "top_submitters": top_submitters,
+            "reclaim_offenders": reclaim_offenders,
             "filters_echo": {
                 "date_from": date_from,
                 "date_to": date_to,

@@ -30,7 +30,7 @@ TIER_SELECTION = [("dense", "Dense"), ("medium", "Medium")]
 
 class LynceusPrompt(models.Model):
     _name = "lynceus.prompt"
-    _description = "Lynceus Prompt (state machine: AVAILABLE/ASSIGNED/USED/BAD)"
+    _description = "Lynceus Prompt"
     _order = "create_date desc, id desc"
     _rec_name = "lynceus_id"
 

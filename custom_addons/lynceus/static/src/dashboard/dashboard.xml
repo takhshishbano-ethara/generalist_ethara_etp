@@ -65,13 +65,26 @@
                         </div>
                     </div>
 
-                    <div class="lyn-dash-kpi lyn-kpi-done" t-on-click="() => this.openPool('used')">
+                    <div class="lyn-dash-kpi lyn-kpi-done" t-on-click="() => this.openOutcomeInRange('used')">
                         <div class="lyn-kpi-icon"><i class="fa fa-check-circle-o"/></div>
                         <div class="lyn-kpi-value"><t t-esc="state.kpis.completed_in_range"/></div>
                         <div class="lyn-kpi-label">Completed in Range</div>
                         <div class="lyn-kpi-foot">
-                            <span class="lyn-mini-bad">
+                            <span class="lyn-mini-bad lyn-clickable"
+                                  title="View bad prompts in this date range"
+                                  t-on-click="(ev) => this.onBadBadgeClick(ev)">
                                 <i class="fa fa-times me-1"/><t t-esc="state.kpis.bad_in_range"/> bad
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-kpi lyn-kpi-reclaim" t-on-click="() => this.openReclaimsInRange()">
+                        <div class="lyn-kpi-icon"><i class="fa fa-undo"/></div>
+                        <div class="lyn-kpi-value"><t t-esc="state.kpis.reclaimed_in_range"/></div>
+                        <div class="lyn-kpi-label">Reclaimed in Range</div>
+                        <div class="lyn-kpi-foot">
+                            <span class="lyn-foot-muted">
+                                <t t-esc="state.kpis.reclaim_affected_taskers"/> taskers affected
                             </span>
                         </div>
                     </div>
@@ -194,6 +207,34 @@
                                     <div class="lyn-row-right">
                                         <span class="lyn-count-badge">
                                             <i class="fa fa-check me-1"/><t t-esc="s.count"/>
+                                        </span>
+                                    </div>
+                                </div>
+                            </t>
+                        </div>
+                    </div>
+
+                    <div class="lyn-dash-card">
+                        <div class="lyn-card-head">
+                            <span><i class="fa fa-undo me-2"/>Reclaim Activity</span>
+                            <span class="lyn-foot-muted">in range</span>
+                        </div>
+                        <div class="lyn-card-body">
+                            <t t-if="!state.reclaim_offenders.length">
+                                <div class="lyn-empty">
+                                    <i class="fa fa-smile-o fa-2x"/>
+                                    <span>No reclaims in this window</span>
+                                </div>
+                            </t>
+                            <t t-foreach="state.reclaim_offenders" t-as="r" t-key="r.id">
+                                <div class="lyn-row" t-on-click="() => this.openReclaimsInRange(r.id)">
+                                    <div class="lyn-rank">#<t t-esc="r_index + 1"/></div>
+                                    <div class="lyn-row-name">
+                                        <strong><t t-esc="r.label"/></strong>
+                                    </div>
+                                    <div class="lyn-row-right">
+                                        <span class="lyn-count-badge lyn-count-badge-warn">
+                                            <i class="fa fa-undo me-1"/><t t-esc="r.count"/>
                                         </span>
                                     </div>
                                 </div>

@@ -125,11 +125,12 @@
             box-shadow: 0 10px 25px -8px rgba(99, 102, 241, 0.25);
         }
 
-        &.lyn-kpi-pool::before   { background: linear-gradient(90deg, #6366f1, #818cf8); }
-        &.lyn-kpi-flight::before { background: linear-gradient(90deg, #14b8a6, #2dd4bf); }
-        &.lyn-kpi-done::before   { background: linear-gradient(90deg, #22c55e, #4ade80); }
-        &.lyn-kpi-active::before { background: linear-gradient(90deg, #a855f7, #c084fc); }
-        &.lyn-kpi-batch::before  { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+        &.lyn-kpi-pool::before    { background: linear-gradient(90deg, #6366f1, #818cf8); }
+        &.lyn-kpi-flight::before  { background: linear-gradient(90deg, #14b8a6, #2dd4bf); }
+        &.lyn-kpi-done::before    { background: linear-gradient(90deg, #22c55e, #4ade80); }
+        &.lyn-kpi-reclaim::before { background: linear-gradient(90deg, #f97316, #fb923c); }
+        &.lyn-kpi-active::before  { background: linear-gradient(90deg, #a855f7, #c084fc); }
+        &.lyn-kpi-batch::before   { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
     }
 
     .lyn-kpi-icon {
@@ -183,6 +184,16 @@
         border-radius: 999px;
         font-size: 0.72rem;
         font-weight: 600;
+
+        &.lyn-clickable {
+            cursor: pointer;
+            transition: background 0.12s ease, color 0.12s ease;
+
+            &:hover {
+                background: #fecaca;
+                color: #991b1b;
+            }
+        }
     }
 
     .lyn-dot {
@@ -343,5 +354,10 @@
         border-radius: 999px;
         font-size: 0.78rem;
         font-weight: 600;
+
+        &.lyn-count-badge-warn {
+            background: #ffedd5;
+            color: #9a3412;
+        }
     }
 }

@@ -11,6 +11,7 @@ const PALETTE = {
     assigned: "#14b8a6",
     used: "#22c55e",
     bad: "#ef4444",
+    reclaim: "#f97316",
     indigoSoft: "#a5b4fc",
 };
 
@@ -32,6 +33,8 @@ export class LynceusDashboard extends Component {
                 in_flight_taskers: 0,
                 completed_in_range: 0,
                 bad_in_range: 0,
+                reclaimed_in_range: 0,
+                reclaim_affected_taskers: 0,
                 active_taskers: 0,
                 enrolled_taskers: 0,
                 last_batch: { id: 0, name: "—", state: "" },
@@ -42,6 +45,7 @@ export class LynceusDashboard extends Component {
             per_tasker: [],
             live_batches: [],
             top_submitters: [],
+            reclaim_offenders: [],
         });
 
         this.filters = useState({
@@ -92,6 +96,7 @@ export class LynceusDashboard extends Component {
             this.state.per_tasker = data.per_tasker || [];
             this.state.live_batches = data.live_batches || [];
             this.state.top_submitters = data.top_submitters || [];
+            this.state.reclaim_offenders = data.reclaim_offenders || [];
             this.state.loaded = true;
             this._renderCharts();
         } catch (e) {
@@ -237,6 +242,53 @@ export class LynceusDashboard extends Component {
 
     openAllQueues() {
         this.action.doAction("lynceus.action_lynceus_all_queues");
+    }
+
+    _rangeBounds() {
+        const from = this.filters.date_from
+            ? `${this.filters.date_from} 00:00:00`
+            : null;
+        const to = this.filters.date_to
+            ? `${this.filters.date_to} 23:59:59`
+            : null;
+        return { from, to };
+    }
+
+    openOutcomeInRange(state) {
+        const { from, to } = this._rangeBounds();
+        const domain = [["state", "=", state]];
+        if (from) domain.push(["outcome_at", ">=", from]);
+        if (to) domain.push(["outcome_at", "<=", to]);
+        const name = state === "bad" ? "Bad Prompts in Range" : "Completed Prompts in Range";
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name,
+            res_model: "lynceus.prompt",
+            view_mode: "list,form",
+            views: [[false, "list"], [false, "form"]],
+            domain,
+        });
+    }
+
+    onBadBadgeClick(ev) {
+        ev.stopPropagation();
+        this.openOutcomeInRange("bad");
+    }
+
+    openReclaimsInRange(userId) {
+        const { from, to } = this._rangeBounds();
+        const domain = [["reclaimed_at", "!=", false]];
+        if (from) domain.push(["reclaimed_at", ">=", from]);
+        if (to) domain.push(["reclaimed_at", "<=", to]);
+        if (userId) domain.push(["user_id", "=", userId]);
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Reclaimed Assignments in Range",
+            res_model: "lynceus.assignment.log",
+            view_mode: "list",
+            views: [[false, "list"]],
+            domain,
+        });
     }
 
     get poolStatusLabel() {

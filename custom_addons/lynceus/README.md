@@ -2,7 +2,7 @@
 
 Odoo 19 module that generates AI-image adversarial prompts via Anthropic Claude
 (Sonnet 4.6), distributes them fairly to active taskers, captures outcomes, and
-recycles untouched prompts after 24 hours of tasker inactivity.
+recycles untouched prompts after 12 hours of tasker inactivity.
 
 ## Five-stage lifecycle
 

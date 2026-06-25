@@ -7,7 +7,7 @@ from ..services import allocator, reclaimer
 
 
 @tagged("post_install", "-at_install", "lynceus")
-class TestReclaim24h(TransactionCase):
+class TestReclaim12h(TransactionCase):
 
     @classmethod
     def setUpClass(cls):
@@ -27,9 +27,9 @@ class TestReclaim24h(TransactionCase):
     def test_idle_tasker_untouched_returns_to_pool(self):
         self._seed_pool(4)
         allocator.allocate_to_user(self.env, self.tasker.id, 4)
-        self.tasker.lynceus_last_activity_at = fields.Datetime.now() - timedelta(hours=25)
+        self.tasker.lynceus_last_activity_at = fields.Datetime.now() - timedelta(hours=13)
 
-        recovered = reclaimer.sweep(self.env, reclaim_hours=24)
+        recovered = reclaimer.sweep(self.env, reclaim_hours=12)
         self.assertEqual(recovered, 4)
         available = self.env["lynceus.prompt"].search_count([("state", "=", "available")])
         self.assertEqual(available, 4)
@@ -39,7 +39,7 @@ class TestReclaim24h(TransactionCase):
         allocator.allocate_to_user(self.env, self.tasker.id, 2)
         self.tasker.lynceus_last_activity_at = fields.Datetime.now() - timedelta(hours=1)
 
-        recovered = reclaimer.sweep(self.env, reclaim_hours=24)
+        recovered = reclaimer.sweep(self.env, reclaim_hours=12)
         self.assertEqual(recovered, 0)
 
     def test_terminal_states_never_reclaimed(self):
@@ -49,5 +49,5 @@ class TestReclaim24h(TransactionCase):
         prompts[1].action_mark_bad("bad output")
         self.tasker.lynceus_last_activity_at = fields.Datetime.now() - timedelta(hours=48)
 
-        recovered = reclaimer.sweep(self.env, reclaim_hours=24)
+        recovered = reclaimer.sweep(self.env, reclaim_hours=12)
         self.assertEqual(recovered, 0, "USED and BAD must never reclaim (G10/G11).")

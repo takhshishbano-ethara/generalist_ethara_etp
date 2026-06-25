@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_lynceus_assignment_log_list" model="ir.ui.view">
+        <field name="name">lynceus.assignment.log.list</field>
+        <field name="model">lynceus.assignment.log</field>
+        <field name="arch" type="xml">
+            <list string="Assignment History" create="false" edit="false" delete="false">
+                <field name="allocated_at"/>
+                <field name="user_id"/>
+                <field name="prompt_id"/>
+                <field name="reclaimed_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_lynceus_assignment_log_search" model="ir.ui.view">
+        <field name="name">lynceus.assignment.log.search</field>
+        <field name="model">lynceus.assignment.log</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="user_id"/>
+                <field name="prompt_id"/>
+                <filter string="Reclaimed" name="reclaimed" domain="[('reclaimed_at','!=',False)]"/>
+                <filter string="Still Held" name="held" domain="[('reclaimed_at','=',False)]"/>
+                <separator/>
+                <filter string="By Tasker" name="group_user" context="{'group_by':'user_id'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_lynceus_assignment_log_reclaimed" model="ir.actions.act_window">
+        <field name="name">Reclaimed Assignments</field>
+        <field name="res_model">lynceus.assignment.log</field>
+        <field name="view_mode">list</field>
+        <field name="search_view_id" ref="view_lynceus_assignment_log_search"/>
+        <field name="domain">[('reclaimed_at','!=',False)]</field>
+    </record>
+</odoo>
