@@ -3,11 +3,15 @@
     <data noupdate="1">
         <record id="param_vertex_location" model="ir.config_parameter">
             <field name="key">etp_assessment_pro.vertex_location</field>
-            <field name="value">us-central1</field>
+            <field name="value">global</field>
         </record>
         <record id="param_vertex_model" model="ir.config_parameter">
             <field name="key">etp_assessment_pro.vertex_model</field>
-            <field name="value">gemini-2.5-pro</field>
+            <field name="value">gemini-3.1-pro-preview</field>
+        </record>
+        <record id="param_vertex_image_model" model="ir.config_parameter">
+            <field name="key">etp_assessment_pro.vertex_image_model</field>
+            <field name="value">gemini-3-pro-image</field>
         </record>
         <record id="param_s3_region" model="ir.config_parameter">
             <field name="key">etp_assessment_pro.s3_region</field>

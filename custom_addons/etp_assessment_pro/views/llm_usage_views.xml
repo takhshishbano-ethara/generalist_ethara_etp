@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="etp_assessment_pro_llm_usage_tree" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.llm.usage.tree</field>
+        <field name="model">etp.assessment.pro.llm.usage</field>
+        <field name="arch" type="xml">
+            <list create="0" default_order="create_date desc">
+                <field name="create_date"/>
+                <field name="operation"/>
+                <field name="model"/>
+                <field name="tokens_in" sum="Tokens In"/>
+                <field name="tokens_out" sum="Tokens Out"/>
+                <field name="thoughts_tokens" sum="Thinking" optional="hide"/>
+                <field name="total_tokens" sum="Total Tokens"/>
+                <field name="image_count" sum="Images"/>
+                <field name="cost_usd" sum="Est. Cost (USD)"/>
+                <field name="prompt_id" optional="show"/>
+                <field name="skill_id" optional="hide"/>
+                <field name="evaluator_id" optional="hide"/>
+                <field name="note" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_llm_usage_pivot" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.llm.usage.pivot</field>
+        <field name="model">etp.assessment.pro.llm.usage</field>
+        <field name="arch" type="xml">
+            <pivot string="LLM Usage">
+                <field name="operation" type="row"/>
+                <field name="model" type="col"/>
+                <field name="total_tokens" type="measure"/>
+                <field name="cost_usd" type="measure"/>
+                <field name="image_count" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="etp_assessment_pro_llm_usage_search" model="ir.ui.view">
+        <field name="name">etp.assessment.pro.llm.usage.search</field>
+        <field name="model">etp.assessment.pro.llm.usage</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="model"/>
+                <field name="prompt_id"/>
+                <field name="evaluator_id"/>
+                <filter name="f_images" string="Image Generation"
+                        domain="[('operation','=','generate_image')]"/>
+                <filter name="f_questions" string="Question Generation"
+                        domain="[('operation','=','generate_questions')]"/>
+                <filter name="f_scoring" string="Subjective Scoring"
+                        domain="[('operation','=','score_subjective')]"/>
+                <separator/>
+                <filter name="g_operation" string="Operation"
+                        context="{'group_by':'operation'}"/>
+                <filter name="g_model" string="Model"
+                        context="{'group_by':'model'}"/>
+                <filter name="g_prompt" string="Generator"
+                        context="{'group_by':'prompt_id'}"/>
+                <filter name="g_day" string="Day"
+                        context="{'group_by':'create_date:day'}"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_assessment_pro_llm_usage" model="ir.actions.act_window">
+        <field name="name">LLM Usage / Budget</field>
+        <field name="res_model">etp.assessment.pro.llm.usage</field>
+        <field name="view_mode">list,pivot</field>
+        <field name="search_view_id" ref="etp_assessment_pro_llm_usage_search"/>
+        <field name="context">{'search_default_g_operation': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiley_face">No LLM calls recorded yet.</p>
+            <p>Token usage and estimated cost are logged here for every skill
+               extraction, question generation, image generation, and subjective
+               scoring call.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_etp_assessment_pro_llm_usage"
+              name="LLM Usage"
+              parent="menu_etp_assessment_pro_config_root"
+              action="action_etp_assessment_pro_llm_usage"
+              groups="etp_assessment_pro.group_assessment_manager"
+              sequence="90"/>
+</odoo>

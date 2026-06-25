@@ -26,6 +26,7 @@
         "data/cron.xml",
         "data/mail_template.xml",
         "views/menus.xml",
+        "views/llm_usage_views.xml",
     ],
     "external_dependencies": {
         "python": ["PyJWT", "httpx", "boto3", "cryptography"],

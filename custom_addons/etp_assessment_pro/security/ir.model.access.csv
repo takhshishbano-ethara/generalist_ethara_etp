@@ -28,3 +28,4 @@ access_assessment_day_evaluator,etp.assessment.pro.day.evaluator,model_etp_asses
 access_assessment_day_manager,etp.assessment.pro.day.manager,model_etp_assessment_pro_day,etp_assessment_pro.group_assessment_manager,1,1,1,1
 access_assessment_day_session_evaluator,etp.assessment.pro.day.session.evaluator,model_etp_assessment_pro_day_session,etp_assessment_pro.group_assessment_evaluator,1,1,0,0
 access_assessment_day_session_manager,etp.assessment.pro.day.session.manager,model_etp_assessment_pro_day_session,etp_assessment_pro.group_assessment_manager,1,1,1,1
+access_llm_usage_manager,etp.assessment.pro.llm.usage.manager,model_etp_assessment_pro_llm_usage,etp_assessment_pro.group_assessment_manager,1,1,1,1

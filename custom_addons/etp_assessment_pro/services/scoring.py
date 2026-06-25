@@ -178,7 +178,8 @@ def _score_subjective_items(env, todo):
     )
 
     model_name = (env["ir.config_parameter"].sudo().get_param(
-        "etp_assessment_pro.vertex_model", "gemini-2.5-pro") or "gemini-2.5-pro")
+        "etp_assessment_pro.vertex_model", "gemini-3.1-pro-preview")
+        or "gemini-3.1-pro-preview")
     _logger.info(
         "etp_assessment scoring: subjective items=%d model=%s",
         len(items), model_name)
@@ -187,6 +188,7 @@ def _score_subjective_items(env, todo):
         env, system_prompt, user_text,
         max_tokens=600 + 400 * len(items),
         temperature=0.2,
+        usage_ctx={"operation": "score_subjective", "note": "subjective"},
     )
     parsed = _parse_array(raw)
 
@@ -336,7 +338,8 @@ def _score_image_ab_items(env, todo):
     )
     raw = vertex_svc._call_vertex(
         env, system_prompt, user_text,
-        max_tokens=600 + 500 * len(items), temperature=0.2)
+        max_tokens=600 + 500 * len(items), temperature=0.2,
+        usage_ctx={"operation": "score_subjective"})
     parsed = _parse_array(raw)
 
     by_id = {}
@@ -424,7 +427,8 @@ def _score_image_text_items(env, todo):
     )
     raw = vertex_svc._call_vertex(
         env, system_prompt, user_text,
-        max_tokens=600 + 500 * len(items), temperature=0.2)
+        max_tokens=600 + 500 * len(items), temperature=0.2,
+        usage_ctx={"operation": "score_subjective"})
     parsed = _parse_array(raw)
 
     by_id = {}

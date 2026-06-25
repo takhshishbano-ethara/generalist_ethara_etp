@@ -14,12 +14,17 @@ class ResConfigSettings(models.TransientModel):
     etp_assessment_pro_vertex_location = fields.Char(
         string="Vertex Location",
         config_parameter="etp_assessment_pro.vertex_location",
-        default="us-central1",
+        default="global",
     )
     etp_assessment_pro_vertex_model = fields.Char(
         string="Vertex Model",
         config_parameter="etp_assessment_pro.vertex_model",
-        default="gemini-2.5-pro",
+        default="gemini-3.1-pro-preview",
+    )
+    etp_assessment_pro_vertex_image_model = fields.Char(
+        string="Vertex Image Model",
+        config_parameter="etp_assessment_pro.vertex_image_model",
+        default="gemini-3-pro-image",
     )
     etp_assessment_pro_vertex_api_key = fields.Char(
         string="Vertex API Key",

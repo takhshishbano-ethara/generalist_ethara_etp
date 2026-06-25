@@ -21,15 +21,21 @@
                         </setting>
                         <setting id="etp_vertex_location"
                                  string="Vertex Location"
-                                 help="Region for Vertex AI (us-central1, europe-west1, or 'global').">
+                                 help="Region for ALL Gemini models (text and image). Gemini-3 series is served on 'global'.">
                             <field name="etp_assessment_pro_vertex_location"
-                                   placeholder="us-central1"/>
+                                   placeholder="global"/>
                         </setting>
                         <setting id="etp_vertex_model"
                                  string="Model"
-                                 help="Gemini model used for skill extraction and question generation.">
+                                 help="Gemini model for skill extraction, question generation, and subjective scoring.">
                             <field name="etp_assessment_pro_vertex_model"
-                                   placeholder="gemini-2.5-pro"/>
+                                   placeholder="gemini-3.1-pro-preview"/>
+                        </setting>
+                        <setting id="etp_vertex_image_model"
+                                 string="Image Model"
+                                 help="Gemini image model used to generate pictures for image_ab / image_text questions.">
+                            <field name="etp_assessment_pro_vertex_image_model"
+                                   placeholder="gemini-3-pro-image"/>
                         </setting>
                         <setting id="etp_vertex_api_key"
                                  string="API Key"
