@@ -1,0 +1,130 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_essl_device_list" model="ir.ui.view">
+        <field name="name">essl.device.list</field>
+        <field name="model">essl.device</field>
+        <field name="arch" type="xml">
+            <list string="Devices" decoration-danger="sync_status == 'error'" decoration-info="sync_status == 'syncing'"
+                  decoration-muted="not sync_enabled">
+                <field name="server_id"/>
+                <field name="external_device_id"/>
+                <field name="name"/>
+                <field name="serial_number"/>
+                <field name="ip_address"/>
+                <field name="device_type"/>
+                <field name="last_ping_at"/>
+                <field name="sync_enabled"/>
+                <field name="last_sync_time"/>
+                <field name="last_sync_count"/>
+                <field name="sync_status" widget="badge"
+                       decoration-success="sync_status == 'idle'"
+                       decoration-info="sync_status == 'syncing'"
+                       decoration-danger="sync_status == 'error'"/>
+                <field name="log_count"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_essl_device_form" model="ir.ui.view">
+        <field name="name">essl.device.form</field>
+        <field name="model">essl.device</field>
+        <field name="arch" type="xml">
+            <form string="ESSL Device">
+                <header>
+                    <button name="action_test_connection" type="object"
+                            string="Test Server Connection" class="oe_highlight"/>
+                    <button name="action_sync_now" type="object"
+                            string="Sync Now" class="btn-primary"
+                            invisible="not sync_enabled"/>
+                    <field name="sync_status" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_attendance_logs" type="object"
+                                class="oe_stat_button" icon="fa-list"
+                                invisible="log_count == 0">
+                            <field name="log_count" widget="statinfo" string="Logs"/>
+                        </button>
+                    </div>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Device Name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="server_id" options="{'no_create': True}"/>
+                            <field name="external_device_id"/>
+                            <field name="short_name"/>
+                            <field name="location"/>
+                        </group>
+                        <group>
+                            <field name="active"/>
+                            <field name="sync_enabled"/>
+                            <field name="last_sync_time" readonly="1"/>
+                            <field name="last_sync_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Last Error" invisible="not last_error">
+                        <field name="last_error" nolabel="1" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Source Metadata (from dbo.Devices)" name="source_metadata">
+                            <div class="alert alert-info" role="alert">
+                                These fields are mirrored from <b>dbo.Devices</b> on the eSSL SQL Server.
+                                They are refreshed every time you run <b>Pull Devices</b> on the server.
+                            </div>
+                            <group>
+                                <group>
+                                    <field name="serial_number"/>
+                                    <field name="ip_address"/>
+                                    <field name="connection_type"/>
+                                    <field name="direction_mode"/>
+                                    <field name="device_type"/>
+                                    <field name="device_location"/>
+                                </group>
+                                <group>
+                                    <field name="face_device_type"/>
+                                    <field name="timezone_minutes"/>
+                                    <field name="activation_code"/>
+                                    <field name="last_ping_at"/>
+                                    <field name="last_log_download_at"/>
+                                </group>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_essl_device_search" model="ir.ui.view">
+        <field name="name">essl.device.search</field>
+        <field name="model">essl.device</field>
+        <field name="arch" type="xml">
+            <search string="Devices">
+                <field name="name"/>
+                <field name="serial_number"/>
+                <field name="ip_address"/>
+                <field name="external_device_id"/>
+                <field name="server_id"/>
+                <filter name="filter_sync_enabled" string="Sync Enabled" domain="[('sync_enabled','=',True)]"/>
+                <filter name="filter_active" string="Active" domain="[('active','=',True)]"/>
+                <filter name="filter_error" string="In Error" domain="[('sync_status','=','error')]"/>
+                <separator/>
+                <group>
+                    <filter name="group_server" string="Server" context="{'group_by': 'server_id'}"/>
+                    <filter name="group_device_type" string="Device Type" context="{'group_by': 'device_type'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_essl_device" model="ir.actions.act_window">
+        <field name="name">Devices</field>
+        <field name="res_model">essl.device</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_essl_device_search"/>
+    </record>
+
+</odoo>

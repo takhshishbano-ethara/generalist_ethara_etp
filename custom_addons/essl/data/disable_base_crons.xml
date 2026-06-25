@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        noupdate="0" so that re-installing/upgrading this module re-applies
+        the disabled state. We deliberately keep the cron records around
+        (rather than deleting them) so uninstalling essl_realtime_sync
+        restores the original polling behaviour - the base `essl` module
+        ships them with active=True via its noupdate=1 data file.
+    -->
+    <data noupdate="0">
+
+        <record id="essl.ir_cron_essl_pull_all_devices" model="ir.cron">
+            <field name="active" eval="False"/>
+        </record>
+
+        <record id="essl.ir_cron_essl_close_orphan_attendances" model="ir.cron">
+            <field name="active" eval="False"/>
+        </record>
+
+    </data>
+</odoo>

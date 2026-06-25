@@ -40,7 +40,18 @@ class HrAttendance(models.Model):
                     ('check_in', '<=', datetime.datetime.combine(check_in_date, datetime.datetime.max.time()))
                 ], limit=1)
                 if existing_attendance:
-                    existing_attendance.write(vals)
+                    apply_vals = dict(vals)
+                    incoming_check_in = fields.Datetime.to_datetime(check_in)
+                    if existing_attendance.check_in and incoming_check_in >= existing_attendance.check_in:
+                        apply_vals.pop('check_in', None)
+                    incoming_check_out = apply_vals.get('check_out')
+                    if incoming_check_out and existing_attendance.check_out:
+                        existing_check_out = fields.Datetime.to_datetime(existing_attendance.check_out)
+                        new_check_out = fields.Datetime.to_datetime(incoming_check_out)
+                        if new_check_out < existing_check_out:
+                            apply_vals.pop('check_out', None)
+                    if apply_vals:
+                        existing_attendance.write(apply_vals)
                     return existing_attendance
         return super(HrAttendance, self).create(values)
 

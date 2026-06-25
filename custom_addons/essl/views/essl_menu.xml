@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <menuitem id="menu_essl_root"
+              name="ESSL Biometric"
+              sequence="90"
+              groups="essl.group_essl_user"/>
+
+    <menuitem id="menu_essl_attendance_logs"
+              name="Attendance Logs"
+              parent="menu_essl_root"
+              action="action_essl_attendance_log"
+              sequence="10"
+              groups="essl.group_essl_user"/>
+
+    <menuitem id="menu_essl_configuration"
+              name="Configuration"
+              parent="menu_essl_root"
+              sequence="90"
+              groups="essl.group_essl_manager"/>
+
+    <menuitem id="menu_essl_servers"
+              name="Servers"
+              parent="menu_essl_configuration"
+              action="action_essl_server"
+              sequence="5"
+              groups="essl.group_essl_manager"/>
+
+    <menuitem id="menu_essl_devices"
+              name="Devices"
+              parent="menu_essl_configuration"
+              action="action_essl_device"
+              sequence="10"
+              groups="essl.group_essl_manager"/>
+
+</odoo>

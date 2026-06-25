@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+        <delete model="ir.cron" search="[('name','=','ESSL: Republish Unpublished Punch Logs')]"/>
+        <delete model="ir.cron" search="[('name','=','ESSL: Pull Attendance From All Devices')]"/>
+        <delete model="ir.cron" search="[('name','=','ESSL: Pull Device List From All Servers')]"/>
+        <delete model="ir.cron" search="[('name','=','ESSL: Auto-close Open Attendances')]"/>
+    </data>
+</odoo>

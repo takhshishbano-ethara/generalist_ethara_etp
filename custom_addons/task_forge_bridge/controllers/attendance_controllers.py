@@ -203,7 +203,7 @@ class TaskForgeAttendanceController(http.Controller):
             return return_Response(
                 message="Today's attendance",
                 status=200,
-                data={'data': self._format_attendance(attendance)}
+                data={'data': self._format_attendance(attendance, target_date=today)}
             )
         except Exception as e:
             return return_Response(message=str(e), status=400)
@@ -217,7 +217,7 @@ class TaskForgeAttendanceController(http.Controller):
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
 
-            team_ids = employee._get_team_employee_ids()
+            team_ids = list(set((employee._get_team_employee_ids() or []) + [employee.id]))
             Attendance = request.env['hr.attendance'].sudo()
 
             domain = [('employee_id', 'in', team_ids)]
@@ -257,7 +257,8 @@ class TaskForgeAttendanceController(http.Controller):
                 if status:
                     domain.append(('attendance_status', 'in', status))
             records = Attendance.search(domain, order='check_in desc', limit=200)
-            data = [self._format_attendance(rec) for rec in records]
+            fmt_target = datetime.strptime(date_param, '%Y-%m-%d').date() if date_param else None
+            data = [self._format_attendance(rec, target_date=fmt_target) for rec in records]
 
             # Compute summary stats over the stats date range
             emp_domain = [('employee_id', 'in', team_ids), ('attendance_status', '=', 'present')]
@@ -308,22 +309,50 @@ class TaskForgeAttendanceController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    def _format_attendance(self, rec):
+    def _format_attendance(self, rec, target_date=None):
         attendance_status = {
             'present': 'Present',
             'absent': 'Absent',
             'on_leave': 'Leave'
         }
+        IST_OFFSET = timedelta(hours=5, minutes=30)
+        ist_check_in_date = (rec.check_in + IST_OFFSET).date() if rec.check_in else None
+        task_log_date = target_date or ist_check_in_date or date.today()
         task_logs = self.env['task.forge.log'].sudo().search_count([
             ('employee_id', '=', rec.employee_id.id),
-            ('date', '=', rec.check_in.date()),
+            ('date', '=', task_log_date),
             ('state', '=', 'completed')
         ])
         IST_OFFSET = timedelta(hours=5, minutes=30)
         check_in_ist = (rec.check_in + IST_OFFSET) if rec.check_in and rec.attendance_status == 'present' else ""
         check_out_ist = (rec.check_out + IST_OFFSET) if rec.check_out and rec.attendance_status == 'present' else ""
 
-        location = rec.geo_location or ''
+        biometric_in = ""
+        biometric_out = ""
+        biometric_location = ""
+        biometric_hours = None
+        if 'essl_pull_api.daily.summary' in self.env and rec.employee_id:
+            biometric_date = target_date or ist_check_in_date or date.today()
+            biometric = self.env['essl_pull_api.daily.summary'].sudo().search([
+                ('employee_id', '=', rec.employee_id.id),
+                ('punch_date', '=', biometric_date),
+            ], limit=1)
+            if biometric:
+                biometric_in = biometric.punch_in_time or ""
+                biometric_out = biometric.punch_out_time or ""
+                biometric_location = getattr(biometric, 'location', '') or ''
+                if biometric_in and biometric_out:
+                    try:
+                        bin_dt = datetime.strptime(biometric_in, '%Y-%m-%d %H:%M:%S')
+                        bout_dt = datetime.strptime(biometric_out, '%Y-%m-%d %H:%M:%S')
+                        if bout_dt > bin_dt:
+                            biometric_hours = round((bout_dt - bin_dt).total_seconds() / 3600.0, 2)
+                        else:
+                            biometric_hours = 0
+                    except Exception:
+                        biometric_hours = None
+
+        location = biometric_location or rec.geo_location or ''
         if not location and rec.geo_coordinates:
             location = _reverse_geocode(rec.geo_coordinates)
             if location:
@@ -337,11 +366,11 @@ class TaskForgeAttendanceController(http.Controller):
             'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
             'employee_name': rec.employee_id.name if rec.employee_id.name else "",
             'role': rec.employee_id.user_id.user_role.name if rec.employee_id.user_id.user_role.name else "",
-            'date': str(check_in_ist.date()) if check_in_ist else '',
+            'date': str(check_in_ist.date()) if check_in_ist else (str(target_date) if target_date else ''),
             'status': attendance_status.get(rec.attendance_status) if rec.attendance_status else "Absent",
-            'punch_in_time': str(check_in_ist),
-            'punch_out_time': str(check_out_ist),
-            'hours_worked': round(rec.worked_hours, 2) if rec.worked_hours and rec.attendance_status == 'present' else 0,
+            'punch_in_time': biometric_in or str(check_in_ist),
+            'punch_out_time': biometric_out or str(check_out_ist),
+            'hours_worked': biometric_hours if biometric_hours is not None else (round(rec.worked_hours, 2) if rec.worked_hours and rec.attendance_status == 'present' else 0),
             'location': location,
             'geo_coordinates': rec.geo_coordinates or '',
             'tasks_done': task_logs or 0,
@@ -356,7 +385,7 @@ class TaskForgeAttendanceController(http.Controller):
             employee = user.employee_id
             if not employee:
                 return return_Response(message="Employee profile not found", status=404)
-            team_ids = employee._get_team_employee_ids()
+            team_ids = list(set((employee._get_team_employee_ids() or []) + [employee.id]))
             today = date.today()
             Attendance = request.env['hr.attendance'].sudo()
             domain = [('employee_id', 'in', team_ids)]
@@ -399,8 +428,14 @@ class TaskForgeAttendanceController(http.Controller):
                 offset = 0
 
             attendance = Attendance.search(domain, limit=limit, offset=offset)
+            if date_param:
+                fmt_target = datetime.strptime(date_param, '%Y-%m-%d').date()
+            elif start_date_param or end_date_param:
+                fmt_target = None
+            else:
+                fmt_target = today
             for atte in attendance:
-                temp.append(self._format_attendance(atte))
+                temp.append(self._format_attendance(atte, target_date=fmt_target))
 
             return return_Response(
                 message="Today's attendance",

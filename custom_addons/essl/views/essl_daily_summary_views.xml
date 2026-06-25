@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_essl_daily_summary_list" model="ir.ui.view">
+        <field name="name">essl_pull_api.daily.summary.list</field>
+        <field name="model">essl_pull_api.daily.summary</field>
+        <field name="arch" type="xml">
+            <list string="Daily Punch Summary"
+                  create="false" edit="false" delete="false"
+                  decoration-warning="not matched"
+                  decoration-success="matched"
+                  default_order="punch_date desc, employee_name">
+                <field name="sr_no" string="#"/>
+                <field name="punch_date"/>
+                <field name="device_user_id"/>
+                <field name="employee_name"/>
+                <field name="punch_in_time"/>
+                <field name="punch_in_type"/>
+                <field name="punch_out_time"/>
+                <field name="punch_out_type"/>
+                <field name="total_punches" sum="Total"/>
+                <field name="location" string="Last Location"/>
+                <field name="entry_location" string="Entry Location" optional="show"/>
+                <field name="device_name" optional="hide"/>
+                <field name="device_id" optional="hide"/>
+                <field name="entry_device_name" optional="hide"/>
+                <field name="entry_device_id" optional="hide"/>
+                <field name="employee_code" optional="hide"/>
+                <field name="matched" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_essl_daily_summary_search" model="ir.ui.view">
+        <field name="name">essl_pull_api.daily.summary.search</field>
+        <field name="model">essl_pull_api.daily.summary</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="device_user_id"/>
+                <field name="employee_name"/>
+                <field name="employee_code"/>
+                <field name="device_id"/>
+                <field name="location"/>
+                <filter name="filter_matched" string="Mapped Employees"
+                        domain="[('matched', '=', True)]"/>
+                <filter name="filter_unmatched" string="Unmapped User IDs"
+                        domain="[('matched', '=', False)]"/>
+                <separator/>
+                <filter name="filter_today" string="Today"
+                        domain="[('punch_date', '=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="filter_this_week" string="This Week"
+                        domain="[('punch_date', '&gt;=', (context_today() - relativedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                <group>
+                    <filter name="group_date" string="Date"
+                            context="{'group_by': 'punch_date'}"/>
+                    <filter name="group_employee" string="Employee"
+                            context="{'group_by': 'employee_id'}"/>
+                    <filter name="group_device" string="Device"
+                            context="{'group_by': 'device_id'}"/>
+                    <filter name="group_location" string="Location"
+                            context="{'group_by': 'location'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_essl_daily_summary" model="ir.actions.act_window">
+        <field name="name">Daily Punch Summary</field>
+        <field name="res_model">essl_pull_api.daily.summary</field>
+        <field name="view_mode">list</field>
+        <field name="search_view_id" ref="view_essl_daily_summary_search"/>
+        <field name="context">{'search_default_filter_today': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No punches yet.</p>
+            <p>Trigger <code>/essl/api/pull?token=...</code> to fetch from the
+               biometric MSSQL. Each user-day appears as a single row with
+               first (punch in) and last (punch out) times, paired with the
+               matching Odoo employee where one exists.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_essl_daily_summary"
+              name="Daily Punch Summary"
+              parent="essl.menu_essl_root"
+              action="action_essl_daily_summary"
+              sequence="5"/>
+
+</odoo>

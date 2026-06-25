@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_essl_server_list" model="ir.ui.view">
+        <field name="name">essl.server.list</field>
+        <field name="model">essl.server</field>
+        <field name="arch" type="xml">
+            <list string="ESSL Servers">
+                <field name="name"/>
+                <field name="db_host"/>
+                <field name="db_name"/>
+                <field name="device_count"/>
+                <field name="last_device_sync_at"/>
+                <field name="last_device_sync_count"/>
+                <field name="active"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_essl_server_form" model="ir.ui.view">
+        <field name="name">essl.server.form</field>
+        <field name="model">essl.server</field>
+        <field name="arch" type="xml">
+            <form string="ESSL Server">
+                <header>
+                    <button name="action_test_connection" type="object"
+                            string="Test Connection" class="oe_highlight"/>
+                    <button name="action_pull_devices_now" type="object"
+                            string="Pull Devices Now" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="e.g. ETP eTimeTrackLite Production"/></h1>
+                    </div>
+                    <group>
+                        <group string="Connection">
+                            <field name="db_host" placeholder="192.168.1.50 or sql.example.com"/>
+                            <field name="db_port"/>
+                            <field name="db_name" placeholder="eTimeTrackLite"/>
+                            <field name="db_username"/>
+                            <field name="db_password" password="True"/>
+                            <field name="db_timeout"/>
+                            <field name="active"/>
+                        </group>
+                        <group string="Schema Mapping">
+                            <field name="devices_table"/>
+                            <field name="logs_table"/>
+                            <field name="logs_user_id_column"/>
+                            <field name="logs_timestamp_column"/>
+                            <field name="logs_direction_column"/>
+                            <field name="logs_device_column"/>
+                        </group>
+                    </group>
+                    <group string="Last Device Sync">
+                        <group>
+                            <field name="last_device_sync_at" readonly="1"/>
+                            <field name="last_device_sync_count" readonly="1"/>
+                            <field name="device_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Last Device Sync Error" invisible="not last_device_sync_error">
+                        <field name="last_device_sync_error" nolabel="1" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Devices" name="devices">
+                            <field name="device_ids">
+                                <list>
+                                    <field name="external_device_id"/>
+                                    <field name="name"/>
+                                    <field name="serial_number"/>
+                                    <field name="ip_address"/>
+                                    <field name="device_type"/>
+                                    <field name="last_ping_at"/>
+                                    <field name="sync_enabled"/>
+                                    <field name="last_sync_time"/>
+                                    <field name="sync_status" widget="badge"
+                                           decoration-success="sync_status == 'idle'"
+                                           decoration-danger="sync_status == 'error'"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_essl_server" model="ir.actions.act_window">
+        <field name="name">ESSL Servers</field>
+        <field name="res_model">essl.server</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

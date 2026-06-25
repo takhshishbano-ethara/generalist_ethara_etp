@@ -1,0 +1,9 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_essl_server_user,essl.server.user,model_essl_server,group_essl_user,1,0,0,0
+access_essl_server_manager,essl.server.manager,model_essl_server,group_essl_manager,1,1,1,1
+access_essl_device_user,essl.device.user,model_essl_device,group_essl_user,1,0,0,0
+access_essl_device_manager,essl.device.manager,model_essl_device,group_essl_manager,1,1,1,1
+access_essl_attendance_log_user,essl.attendance.log.user,model_essl_attendance_log,group_essl_user,1,0,0,0
+access_essl_attendance_log_manager,essl.attendance.log.manager,model_essl_attendance_log,group_essl_manager,1,1,1,1
+access_essl_pull_api_daily_summary_user,essl_pull_api.daily.summary user,model_essl_pull_api_daily_summary,group_essl_user,1,0,0,0
+access_essl_pull_api_daily_summary_manager,essl_pull_api.daily.summary manager,model_essl_pull_api_daily_summary,group_essl_manager,1,0,0,0
