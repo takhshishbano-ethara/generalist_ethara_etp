@@ -59,5 +59,29 @@
             <field name="value">30</field>
         </record>
 
+        <!-- Media upload limits, enforced as hard model constraints on
+             mm.tasker.media (per-file) and mm.tasker.task (count + total),
+             so they cannot be bypassed by any workflow path.
+
+             media_max_total_mb is measured on RAW bytes, but the backend's
+             request-body cap (GOKU_MAX_REQUEST_BYTES, default 200 MB) applies
+             to the base64-encoded body, which is ~33% larger. So the raw cap
+             must stay below 200 / 1.33 ≈ 150 MB; 140 leaves margin for the
+             JSON envelope (prompt + rubrics + field names). This makes dispatch
+             fail early here with a clear message instead of an opaque HTTP 413.
+             Set any value to 0 to disable that check. -->
+        <record id="param_media_max_file_mb" model="ir.config_parameter">
+            <field name="key">mm_tasker.media_max_file_mb</field>
+            <field name="value">50</field>
+        </record>
+        <record id="param_media_max_count" model="ir.config_parameter">
+            <field name="key">mm_tasker.media_max_count</field>
+            <field name="value">60</field>
+        </record>
+        <record id="param_media_max_total_mb" model="ir.config_parameter">
+            <field name="key">mm_tasker.media_max_total_mb</field>
+            <field name="value">140</field>
+        </record>
+
     </data>
 </odoo>

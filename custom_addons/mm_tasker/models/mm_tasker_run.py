@@ -63,6 +63,23 @@ class MmTaskerRun(models.Model):
 
     error_message = fields.Text(readonly=True)
 
+    # --- Async goku-service dispatch tracking (live mode only) ---
+    # Populated when mm_tasker.test_mode=false: the run is submitted to the
+    # service's /run endpoint, which returns a job_id; the poll cron later
+    # ingests the result. In test_mode these stay empty (runs are scored
+    # synchronously), so the cron is a no-op.
+    external_job_id = fields.Char(
+        string='Service Job ID', index=True, copy=False, readonly=True,
+    )
+    ext_state = fields.Selection(
+        [('submitted', 'Submitted'), ('running', 'Running'),
+         ('done', 'Done'), ('error', 'Error')],
+        string='Service Job State', copy=False, readonly=True,
+    )
+    idempotency_key = fields.Char(copy=False, readonly=True)
+    submitted_at = fields.Datetime(readonly=True, copy=False)
+    last_polled_at = fields.Datetime(readonly=True, copy=False)
+
     llm_judge_count = fields.Integer(
         compute='_compute_llm_judge_counts',
         store=True,
@@ -123,6 +140,32 @@ class MmTaskerRun(models.Model):
             else:
                 rec.duration_s = 0.0
 
+    @api.model
+    def _cron_poll_jobs(self, limit=200):
+        """Poll the goku service for runs awaiting async results and ingest the
+        finished ones. Scheduled by ir.cron (every minute).
+
+        No-op in test_mode: those runs are scored synchronously and never carry
+        an ``external_job_id``, so the search below returns nothing. Each run is
+        ingested inside its own savepoint, so one failure can't roll back the
+        others' results.
+        """
+        pending = self.sudo().search([
+            ('external_job_id', '!=', False),
+            ('state', 'in', ('queued', 'running', 'judging')),
+            ('ext_state', 'in', ('submitted', 'running')),
+        ], limit=limit)
+        if not pending:
+            return True
+        dispatcher = self.env['mm.tasker.agent.dispatcher']
+        for run in pending:
+            try:
+                with self.env.cr.savepoint():
+                    dispatcher.ingest_job(run)
+            except Exception:
+                _logger.exception('poll/ingest failed for run %s', run.id)
+        return True
+
     def action_rerun(self):
         """Reset and re-dispatch a single run. Manager-only via record rule."""
         for rec in self:
@@ -139,6 +182,13 @@ class MmTaskerRun(models.Model):
                 'tokens_in': 0,
                 'tokens_out': 0,
                 'error_message': False,
+                # Clear the stale async job handle so the re-dispatch gets a
+                # fresh /run submission rather than re-reading the old job.
+                'external_job_id': False,
+                'ext_state': False,
+                'submitted_at': False,
+                'last_polled_at': False,
+                'idempotency_key': False,
             })
             rec.output_file_ids.unlink()
             rec.score_ids.unlink()

@@ -744,6 +744,14 @@ class MmTaskerTask(models.Model):
         for rec in self:
             if rec.state not in ('dispatched', 'evaluated'):
                 raise UserError(_('Run Judge is only available after models have been dispatched.'))
+            in_flight = rec.run_ids.filtered(
+                lambda r: r.state in ('queued', 'running', 'judging')
+            )
+            if in_flight:
+                raise UserError(_(
+                    '%s run(s) are still being evaluated — wait for them to '
+                    'finish before running the judge.'
+                ) % len(in_flight))
             runs = rec.run_ids.filtered(lambda r: r.state != 'error')
             if not runs:
                 raise UserError(_('No completed runs to judge. Run Models first.'))
@@ -785,6 +793,43 @@ class MmTaskerTask(models.Model):
             'target': 'new',
             'context': {'default_task_id': self.id},
         }
+
+    @api.constrains('media_ids')
+    def _check_media_limits(self):
+        """Hard caps on media count + total bytes, enforced server-side so no
+        workflow path (incl. Ready-for-Eval / RPC) can exceed them. The total
+        is kept under the backend's request-body cap, so dispatch fails early
+        here with a clear message instead of an opaque HTTP 413. Set
+        mm_tasker.media_max_count / media_max_total_mb to 0 to disable.
+        """
+        Param = self.env['ir.config_parameter'].sudo()
+
+        def _cfg(key, default):
+            try:
+                return int(Param.get_param(key, default=str(default)))
+            except (TypeError, ValueError):
+                return default
+
+        max_count = _cfg('mm_tasker.media_max_count', 20)
+        # Raw-byte cap; stays under the backend's base64 body limit (~33% larger
+        # → 140 MB raw ≈ 187 MB on the wire, under the 200 MB default).
+        max_total_mb = _cfg('mm_tasker.media_max_total_mb', 140)
+        for rec in self:
+            media = rec.media_ids
+            if max_count > 0 and len(media) > max_count:
+                raise ValidationError(_(
+                    'This task has %(n)s media files, over the limit of %(max)s.'
+                ) % {'n': len(media), 'max': max_count})
+            if max_total_mb > 0:
+                total = sum(m.file_size or 0 for m in media)
+                if total > max_total_mb * 1024 * 1024:
+                    raise ValidationError(_(
+                        'Total media is %(mb).1f MB, over the %(max)s MB limit '
+                        'for one task.'
+                    ) % {
+                        'mb': total / (1024.0 * 1024.0),
+                        'max': max_total_mb,
+                    })
 
     @api.constrains('qc_verdict', 'qc_fail_reason')
     def _check_fail_reason(self):

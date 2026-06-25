@@ -22,6 +22,7 @@ Slim workflow module for the multimodal agentic eval pilot:
         'security/mm_tasker_security.xml',
         'security/ir.model.access.csv',
         'data/mm_tasker_config.xml',
+        'data/ir_cron.xml',
         'views/mm_tasker_run_views.xml',
         'views/mm_tasker_run_wizard_views.xml',
         'views/mm_tasker_task_views.xml',

@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import re
+import uuid
 
 import requests
 
@@ -35,7 +36,25 @@ class MmTaskerAgentDispatcher(models.AbstractModel):
     # ------------------------------------------------------------------
     @api.model
     def dispatch_runs(self, runs):
-        """Run + grade each run record in `runs`. Synchronous in v1."""
+        """Run + grade each run record in `runs`.
+
+        Routes on ``mm_tasker.test_mode``:
+          - true  -> synchronous in-process mock (unchanged v1 path: execute,
+                     grade and score each run right here).
+          - false -> submit each run to the async goku service (POST /run) and
+                     return immediately. The agent executes on the service in
+                     the background; results are ingested later by the poll
+                     cron (``mm.tasker.run._cron_poll_jobs``).
+
+        Both callers (the Run Models wizard and per-run Re-run) go through
+        here, so neither needs to know which mode is active.
+        """
+        Param = self.env['ir.config_parameter'].sudo()
+        test_mode = self._param_truthy(
+            Param.get_param('mm_tasker.test_mode', default='true')
+        )
+        if not test_mode:
+            return self.submit_runs(runs)
         for run in runs:
             try:
                 self._execute_run(run)
@@ -91,6 +110,210 @@ class MmTaskerAgentDispatcher(models.AbstractModel):
             })
 
         self._grade_run(run, backend_scores=result.get('scores'))
+        self._compute_aggregate(run)
+        run.write({'state': 'scored', 'finished_at': fields.Datetime.now()})
+
+    # ------------------------------------------------------------------
+    # Async dispatch (live mode) — submit to the goku service /run, then
+    # ingest results later via the poll cron. /run returns 202 + job_id and
+    # runs the agent in the background, so this never blocks on inference.
+    # ------------------------------------------------------------------
+    @api.model
+    def submit_runs(self, runs):
+        """POST each run to the service ``/run`` (async). Stores the returned
+        job_id and marks the run ``running``. Failures are captured per-run so
+        one bad submit doesn't abort the batch — mirrors dispatch_runs."""
+        for run in runs:
+            try:
+                self._submit_run(run)
+            except Exception as e:
+                _logger.exception('Run %s submit failed', run.id)
+                run.write({
+                    'state': 'error',
+                    'ext_state': 'error',
+                    'error_message': f'{type(e).__name__}: {e}',
+                    'finished_at': fields.Datetime.now(),
+                })
+        return True
+
+    def _submit_run(self, run):
+        """Build the /run payload and POST it; store the job handle."""
+        task = run.task_id
+        runs_total = len(task.run_ids.filtered(
+            lambda r: r.model_key == run.model_key
+        ))
+        key = uuid.uuid4().hex
+        payload = self._build_run_payload(
+            run, runs_total, idempotency_key=f'mmrun-{run.id}-{key}'
+        )
+        data = self._post_backend(self._run_url(), payload)
+        job_id = (data or {}).get('job_id') or ''
+        if not job_id:
+            raise UserError(_(
+                'Service /run did not return a job_id (got: %s).'
+            ) % (str(data)[:200]))
+        # Always 'submitted' here. The service's 202 reports status "queued",
+        # which is NOT one of our ext_state values — the poll cron maps the
+        # live service status (queued/running/done/error) onto ext_state.
+        run.write({
+            'external_job_id': job_id,
+            'idempotency_key': key,
+            'ext_state': 'submitted',
+            'submitted_at': fields.Datetime.now(),
+            'started_at': fields.Datetime.now(),
+            'state': 'running',
+            'error_message': False,
+        })
+
+    def _build_run_payload(self, run, runs_total, idempotency_key=None):
+        """Wire payload for POST /run. Identical shape to the legacy
+        ``_call_provider_backend`` body (run_index/media/rubrics), so the
+        service contract is unchanged — only the call style (async) differs."""
+        task = run.task_id
+        payload = {
+            'task_id': str(task.id),
+            'model': run.model_key,
+            'run_index': int(run.run_index or 1),
+            'runs_total': int(runs_total or 1),
+            'system_prompt': getattr(task, 'system_prompt', None)
+                or 'You are a helpful assistant.',
+            'user_prompt': task.final_prompt or '',
+            'media': [
+                {
+                    'name': m.name or '',
+                    'filename': m.filename or m.name or '',
+                    'kind': m.kind or 'other',
+                    'mime_type': m.mime_type or '',
+                    'data_b64': (m.file or b'').decode()
+                        if isinstance(m.file, bytes) else (m.file or ''),
+                }
+                for m in task.media_ids
+            ],
+            'rubrics': [
+                {
+                    'number': r.number,
+                    'type': r.rubric_type or '',
+                    'category': r.category or '',
+                    'importance': r.importance or '',
+                    'points': r.points or 0,
+                    'criterion': r.criterion or '',
+                    'raw_json': r.raw_json or '',
+                }
+                for r in task.rubric_ids
+            ],
+        }
+        if idempotency_key:
+            payload['idempotency_key'] = idempotency_key
+        return payload
+
+    def _service_base_url(self):
+        """Normalised service base — no trailing '/run', no trailing slash.
+
+        Accepts either form of the ``mm_tasker.backend_url`` system parameter
+        so a missing/extra ``/run`` can't misroute /run vs /jobs:
+          - ``http://host:8000``       (base)
+          - ``http://host:8000/run``   (legacy: pointed at the /run endpoint)
+        Raises if the parameter is empty (fail-closed — never silently live).
+        """
+        Param = self.env['ir.config_parameter'].sudo()
+        url = (Param.get_param('mm_tasker.backend_url') or '').strip()
+        if not url:
+            raise UserError(_(
+                'mm_tasker.backend_url is not configured. Set it in System '
+                'Parameters or flip mm_tasker.test_mode back to true.'
+            ))
+        base = url.rstrip('/')
+        if base.endswith('/run'):
+            base = base[:-len('/run')]
+        return base
+
+    def _run_url(self):
+        return f'{self._service_base_url()}/run'
+
+    def _jobs_url(self, job_id):
+        return f'{self._service_base_url()}/jobs/{job_id}'
+
+    def _get_job(self, job_id):
+        """GET /jobs/{id}. Returns (status_code, json|None). Never raises —
+        transport errors are transient and retried on the next cron tick."""
+        Param = self.env['ir.config_parameter'].sudo()
+        token = (Param.get_param('mm_tasker.backend_token') or '').strip()
+        # Status reads hit the service's in-memory job store and return
+        # instantly. Cap the timeout low (independent of backend_timeout, which
+        # is sized for the long /run call) so a hung service can't stall the
+        # poll cron — which holds a transaction open — for minutes.
+        try:
+            timeout = min(int(Param.get_param('mm_tasker.backend_timeout', default='120') or 120), 15)
+        except (TypeError, ValueError):
+            timeout = 15
+        headers = {}
+        if token:
+            headers['Authorization'] = f'Bearer {token}'
+        try:
+            resp = requests.get(self._jobs_url(job_id), headers=headers, timeout=timeout)
+        except requests.RequestException as e:
+            _logger.warning('poll job %s failed: %s', job_id, e)
+            return 0, None
+        if resp.status_code >= 400:
+            return resp.status_code, None
+        try:
+            return 200, resp.json()
+        except ValueError:
+            return resp.status_code, None
+
+    @api.model
+    def ingest_job(self, run):
+        """Poll one run's job and, if terminal, ingest. Returns True when the
+        run reaches a terminal state (scored/error), False to retry later."""
+        if not run.external_job_id:
+            return False
+        code, data = self._get_job(run.external_job_id)
+        run.write({'last_polled_at': fields.Datetime.now()})
+        if code == 404:
+            run.write({
+                'state': 'error', 'ext_state': 'error',
+                'error_message': 'Service job expired or not found.',
+                'finished_at': fields.Datetime.now(),
+            })
+            return True
+        if not data:
+            return False  # transient (network / 5xx) — try again next tick
+        status = (data.get('status') or '').lower()
+        if status in ('queued', 'running'):
+            run.write({'ext_state': 'running'})
+            return False
+        if status == 'error':
+            run.write({
+                'state': 'error', 'ext_state': 'error',
+                'error_message': (data.get('error') or 'Service reported error')[:2000],
+                'finished_at': fields.Datetime.now(),
+            })
+            return True
+        if status == 'done':
+            self._ingest_job_result(run, data)
+            return True
+        return False
+
+    def _ingest_job_result(self, run, data):
+        """Back half of _execute_run, fed by an async job result instead of an
+        inline call. Reuses _grade_run + _compute_aggregate verbatim, so the
+        scoring is byte-for-byte identical to the synchronous path."""
+        run.write({
+            'response_text': data.get('response_text') or '',
+            'tokens_in': int(data.get('tokens_in') or 0),
+            'tokens_out': int(data.get('tokens_out') or 0),
+            'state': 'judging',
+            'ext_state': 'done',
+        })
+        for f in (data.get('output_files') or []):
+            self.env['mm.tasker.run.output'].create({
+                'run_id': run.id,
+                'name': f.get('name') or 'output',
+                'file': f.get('file'),
+                'sha256': f.get('sha256') or '',
+                'size_bytes': f.get('size_bytes', 0),
+            })
+        self._grade_run(run, backend_scores=data.get('scores'))
         self._compute_aggregate(run)
         run.write({'state': 'scored', 'finished_at': fields.Datetime.now()})
 

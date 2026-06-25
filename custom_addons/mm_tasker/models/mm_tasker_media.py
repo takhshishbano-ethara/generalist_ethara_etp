@@ -3,7 +3,8 @@ import base64
 import mimetypes
 import os
 
-from odoo import api, fields, models
+from odoo import api, fields, models, _
+from odoo.exceptions import ValidationError
 
 
 class MmTaskerMedia(models.Model):
@@ -129,3 +130,70 @@ class MmTaskerMedia(models.Model):
         for rec in self:
             if rec.filename and not rec.name:
                 rec.name = rec.filename
+
+    @api.constrains('file')
+    def _check_media_file_size(self):
+        """Hard per-file size cap, enforced at upload/write so it can't be
+        bypassed by the Ready-for-Eval / Run-Models paths (unlike the soft
+        check in scripts/qc_media.py, which only runs on the Media Submit
+        button). Set mm_tasker.media_max_file_mb=0 to disable.
+        """
+        max_mb = self._cfg_int('mm_tasker.media_max_file_mb', 50)
+        if max_mb <= 0:
+            return
+        max_bytes = max_mb * 1024 * 1024
+        for rec in self:
+            size = rec.file_size or 0
+            if not size and rec.file:
+                try:
+                    size = len(base64.b64decode(rec.file))
+                except Exception:
+                    size = 0
+            if size > max_bytes:
+                raise ValidationError(_(
+                    'Media file "%(name)s" is %(mb).1f MB, over the %(max)s MB '
+                    'per-file limit.'
+                ) % {
+                    'name': rec.filename or rec.name or '(unnamed)',
+                    'mb': size / (1024.0 * 1024.0),
+                    'max': max_mb,
+                })
+
+    @api.constrains('file', 'task_id')
+    def _check_parent_media_limits(self):
+        """Enforce the task's media count + total-bytes caps from the media
+        side too. The task-side @api.constrains('media_ids') only fires when
+        media is added *through* the task (the form/o2m path); creating media
+        standalone (e.g. via RPC) bypasses it. This media-side check fires on
+        every media create/write, closing that gap. The task-side constraint
+        is kept as well — it covers the link-existing-media path (6,0,ids),
+        which creates no media row so this one wouldn't fire.
+        """
+        max_count = self._cfg_int('mm_tasker.media_max_count', 20)
+        max_total_mb = self._cfg_int('mm_tasker.media_max_total_mb', 140)
+        if max_count <= 0 and max_total_mb <= 0:
+            return
+        for task in self.mapped('task_id'):
+            media = task.media_ids
+            if max_count > 0 and len(media) > max_count:
+                raise ValidationError(_(
+                    'This task has %(n)s media files, over the limit of %(max)s.'
+                ) % {'n': len(media), 'max': max_count})
+            if max_total_mb > 0:
+                total = sum(m.file_size or 0 for m in media)
+                if total > max_total_mb * 1024 * 1024:
+                    raise ValidationError(_(
+                        'Total media is %(mb).1f MB, over the %(max)s MB limit '
+                        'for one task.'
+                    ) % {
+                        'mb': total / (1024.0 * 1024.0),
+                        'max': max_total_mb,
+                    })
+
+    @api.model
+    def _cfg_int(self, key, default):
+        raw = self.env['ir.config_parameter'].sudo().get_param(key, default=str(default))
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return default
