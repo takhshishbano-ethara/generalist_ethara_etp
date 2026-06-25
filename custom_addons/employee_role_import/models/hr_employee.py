@@ -104,7 +104,12 @@ class HrEmployee(models.Model):
         "(maps to the `employee_id` column in the CSV).",
     )
 
-    @api.constrains("employee_code")
+    _EMP_CODE_CHECK_FIELDS = frozenset({"employee_code"})
+    _WORK_EMAIL_CHECK_FIELDS = frozenset({"work_email"})
+
+    # Not @api.constrains: that fires on every flush (including module-upgrade
+    # recomputes), which can blow up the upgrade itself on legacy data.
+    # Driven from create()/write() instead.
     def _check_employee_code_unique(self):
         for emp in self:
             code = (emp.employee_code or "").strip()
@@ -124,25 +129,8 @@ class HrEmployee(models.Model):
                     "name": dup.name or _("an archived record"),
                     "archived": "" if dup.active else _(" — archived"),
                 })
-            # Cross-model: the same code must not be held by a different user.
-            # The user linked to (or matching by email) this employee is the
-            # same person and legitimately shares the code.
-            idents = {(emp.work_email or "").strip().lower()} - {""}
-            users = self.env["res.users"].with_context(
-                active_test=False
-            ).sudo().search([("employee_code", "=ilike", code)])
-            uclash = users.filtered(
-                lambda u: u.id != emp.user_id.id
-                and (u.login or "").strip().lower() not in idents
-                and (u.email or "").strip().lower() not in idents
-            )
-            if uclash:
-                raise ValidationError(_(
-                    "Employee ID '%(code)s' is already used by user %(name)s. "
-                    "Employee IDs must be unique across users and employees."
-                ) % {"code": code, "name": uclash[0].name or uclash[0].login})
 
-    @api.constrains("work_email")
+    # Not @api.constrains: see _check_employee_code_unique above.
     def _check_work_email_unique(self):
         for emp in self:
             email = (emp.work_email or "").strip().lower()
@@ -467,9 +455,10 @@ class HrEmployee(models.Model):
             self._normalize_employee_code(vals)
         records = super().create(vals_list)
         records._etp_link_user()
-        records._etp_sync_user_code()
         records._etp_sync_job_title()
         records._etp_sync_quality_tier()
+        records._check_employee_code_unique()
+        records._check_work_email_unique()
         records._check_reports_to_role()
         records._check_required_hierarchy()
         return records
@@ -484,14 +473,14 @@ class HrEmployee(models.Model):
         if not self.env.context.get("etp_skip_eu_sync") and "user_id" in vals:
             self._etp_sync_job_title()
         if not self.env.context.get("etp_skip_eu_sync") and (
-            "employee_code" in vals or "user_id" in vals
-        ):
-            self._etp_sync_user_code()
-        if not self.env.context.get("etp_skip_eu_sync") and (
             "task_forge_ql_id" in vals or "task_forge_qr_id" in vals
             or "parent_id" in vals
         ):
             self._etp_sync_quality_tier()
+        if self._EMP_CODE_CHECK_FIELDS.intersection(vals):
+            self._check_employee_code_unique()
+        if self._WORK_EMAIL_CHECK_FIELDS.intersection(vals):
+            self._check_work_email_unique()
         if self._HIERARCHY_TRIGGER_FIELDS.intersection(vals):
             self._check_reports_to_role()
             self._check_required_hierarchy()
@@ -539,20 +528,6 @@ class HrEmployee(models.Model):
             if other:
                 continue
             emp.with_context(etp_skip_eu_sync=True).user_id = user.id
-
-    def _etp_sync_user_code(self):
-        """Mirror the Employee ID to the linked login user, so the code set on
-        the employee (e.g. at import) shows on the user and stays unique with
-        it. The user form has the matching reverse sync."""
-        if self.env.context.get("etp_skip_eu_sync"):
-            return
-        for emp in self:
-            user = emp.user_id
-            code = (emp.employee_code or "").strip()
-            if not user or not code:
-                continue
-            if (user.employee_code or "").strip() != code:
-                user.with_context(etp_skip_eu_sync=True).employee_code = code
 
     def _etp_sync_job_title(self):
         """Keep Job Title aligned with the (group-based) role: a PL's title is

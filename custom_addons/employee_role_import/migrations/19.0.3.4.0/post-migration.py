@@ -1,12 +1,4 @@
-"""employee_code on res.users changed from a related (non-stored) field to a
-stored, editable column. The upgrade adds an empty column, so backfill it from
-each user's linked employee, and upper-case existing codes everywhere so they
-match the new model-level normalization (stored UPPER + trimmed)."""
-
-
 def migrate(cr, version):
-    # Capitalise any existing employee codes (the =ilike unique check already
-    # prevented case-only duplicates, so upper-casing cannot create a clash).
     cr.execute(
         """
         UPDATE hr_employee
@@ -16,15 +8,8 @@ def migrate(cr, version):
            AND employee_code <> upper(trim(employee_code))
         """
     )
-    # Backfill the user column (UPPER) from the linked employee where empty.
-    cr.execute(
-        """
-        UPDATE res_users u
-           SET employee_code = upper(trim(e.employee_code))
-          FROM hr_employee e
-         WHERE e.user_id = u.id
-           AND e.employee_code IS NOT NULL
-           AND e.employee_code <> ''
-           AND (u.employee_code IS NULL OR u.employee_code = '')
-        """
-    )
+    # employee_code on res.users was briefly a stored column in 19.0.3.4.0 but
+    # is now a non-stored related field (related to employee_id.employee_code).
+    # Drop the column on any DB that did create it, so the loaded model and the
+    # schema stay aligned.
+    cr.execute("ALTER TABLE res_users DROP COLUMN IF EXISTS employee_code")
