@@ -238,13 +238,18 @@ class HrEmployee(models.Model):
                     )
                 )
 
-    @api.constrains("role", "task_forge_ql_id", "task_forge_pl_id",
-                    "task_forge_tpm_id", "parent_id")
+    _HIERARCHY_TRIGGER_FIELDS = frozenset({
+        "role", "parent_id",
+        "task_forge_ql_id", "task_forge_pl_id", "task_forge_tpm_id",
+    })
+
     def _check_required_hierarchy(self):
-        # Batch import wires the hierarchy in a SECOND pass (a member's manager
-        # may be a later row in the same file), so the hard constraint cannot
-        # pass mid-commit. During import the wizard flags rows missing a
-        # required manager instead; skip the constraint when that context is set.
+        # Not a @api.constrains: that decorator fires on every flush, including
+        # the low-level writes that happen during module install/upgrade and
+        # field recomputation, which would block upgrades on legacy data that
+        # was valid under the previous schema. Instead this is called from
+        # create()/write() (below) and from the import wizard explicitly, so it
+        # only runs on user-initiated changes.
         if self.env.context.get("etp_importing"):
             return
         labels = dict(ROLE_SELECTION)
@@ -418,6 +423,7 @@ class HrEmployee(models.Model):
         records._etp_link_user()
         records._etp_sync_job_title()
         records._etp_sync_quality_tier()
+        records._check_required_hierarchy()
         return records
 
     def write(self, vals):
@@ -433,6 +439,8 @@ class HrEmployee(models.Model):
             or "parent_id" in vals
         ):
             self._etp_sync_quality_tier()
+        if self._HIERARCHY_TRIGGER_FIELDS.intersection(vals):
+            self._check_required_hierarchy()
         return res
 
     def _etp_sync_quality_tier(self):

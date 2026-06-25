@@ -27,9 +27,6 @@ def migrate(cr, version):
     if not employees:
         return
 
-    # Force a recompute (in dependency order) of the now-computed fields, then
-    # persist.  The compute walks each employee's reporting chain directly, so
-    # the result is correct regardless of order.
     for field_name in HIERARCHY_FIELDS:
         field = Employee._fields.get(field_name)
         if field:
