@@ -17,7 +17,12 @@ class ResUsers(models.Model):
         "employee. Mirrored to the linked employee record.",
     )
 
-    @api.constrains("employee_code")
+    _EMP_CODE_CHECK_FIELDS = frozenset({"employee_code", "login", "email"})
+
+    # Not @api.constrains: that fires on every flush (including module-upgrade
+    # recomputes when columns are added/backfilled), which can blow up the
+    # upgrade itself. Uniqueness only matters on user-initiated create/write,
+    # so we drive this from those overrides instead.
     def _check_employee_code_unique(self):
         for user in self:
             code = (user.employee_code or "").strip()
@@ -66,6 +71,7 @@ class ResUsers(models.Model):
         users._etp_link_employee()
         users._etp_sync_employee_code()
         users.employee_ids._etp_sync_job_title()
+        users._check_employee_code_unique()
         return users
 
     def write(self, vals):
@@ -80,6 +86,8 @@ class ResUsers(models.Model):
             self._etp_sync_employee_code()
         if ctx_ok and ("group_ids" in vals or "groups_id" in vals):
             self.employee_ids._etp_sync_job_title()
+        if self._EMP_CODE_CHECK_FIELDS.intersection(vals):
+            self._check_employee_code_unique()
         return res
 
     def _etp_sync_employee_code(self):
