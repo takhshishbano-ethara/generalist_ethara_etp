@@ -1,6 +1,6 @@
 {
     "name": "Employee Role Import",
-    "version": "19.0.3.2.0",
+    "version": "19.0.3.4.0",
     "category": "Human Resources",
     "summary": "Bulk-import employees from CSV (UI wizard + REST API) and assign ETP roles.",
     "description": """
@@ -40,6 +40,7 @@ Provides:
         "security/ir.model.access.csv",
         "data/employee_import_session_cron.xml",
         "views/hr_employee_views.xml",
+        "views/res_users_views.xml",
         "views/employee_role_import_views.xml",
         "views/menu.xml",
     ],

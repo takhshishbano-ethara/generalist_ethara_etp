@@ -6,11 +6,15 @@ from .assignment_history import ROLE_FIELD_MAP
 class HrEmployee(models.Model):
     _inherit = 'hr.employee'
 
+    # DEPRECATED: superseded by `employee_code` (defined in employee_role_import),
+    # which is the canonical Employee ID populated by the CSV import and shown in
+    # the form/list/search views. This field is no longer referenced by any view
+    # and is retained only to avoid dropping its column; do not use it for new code.
     emp_id = fields.Char(
-        string='Employee ID',
+        string='Employee ID (deprecated)',
         copy=False,
         index=True,
-        help='Unique identifier for the employee.',
+        help='Deprecated. Use employee_code instead (the Employee ID set at import time).',
     )
 
     offboarding_state = fields.Selection([

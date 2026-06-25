@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Employee ID (employee_code, via the linked employee) column on the
+         Settings > Users list. -->
+    <record id="view_users_tree_inherit_role_import" model="ir.ui.view">
+        <field name="name">res.users.list.inherit.role.import</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='login']" position="after">
+                <field name="employee_code" string="Employee ID" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Employee ID (employee_code, via the linked employee) shown in the user
+         FORM header, directly under the name - matching the Employee ID badge on
+         the employee form (fa-id-badge + Email / Work Phone header style). -->
+    <record id="view_users_form_inherit_role_import" model="ir.ui.view">
+        <field name="name">res.users.form.inherit.role.import</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//h5[@name='h5_email']" position="before">
+                <h5 class="d-flex align-items-baseline mb-0">
+                    <i class="fa fa-id-badge fa-fw me-1 text-primary" title="Employee ID"/>
+                    <field name="employee_code" string="Employee ID" class="w-75"
+                           placeholder="e.g. GRP1234"/>
+                </h5>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

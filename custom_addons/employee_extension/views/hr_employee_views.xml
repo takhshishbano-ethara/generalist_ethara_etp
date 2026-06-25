@@ -1,46 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
-    <!-- Employee Form View - Employee ID in header -->
-    <record id="view_employee_extension_form" model="ir.ui.view">
-        <field name="name">hr.employee.extension.form</field>
-        <field name="model">hr.employee</field>
-        <field name="inherit_id" ref="hr.view_employee_form"/>
-        <field name="arch" type="xml">
-            <!-- Show Employee ID right below the employee name, matching the
-                 Email / Work Phone / Work Mobile header style -->
-            <xpath expr="//div[hasclass('oe_title')]/h1" position="after">
-                <h5 class="d-flex align-items-baseline mb-0">
-                    <i class="fa fa-id-badge fa-fw me-1 text-primary" title="Employee ID"/>
-                    <field name="emp_id" placeholder="e.g. EMP-0001" string="Employee ID" class="w-100 w-sm-75"/>
-                </h5>
-            </xpath>
-        </field>
-    </record>
-
-    <!-- Employee Tree/List View - Employee ID column -->
-    <record id="view_employee_extension_tree" model="ir.ui.view">
-        <field name="name">hr.employee.extension.tree</field>
-        <field name="model">hr.employee</field>
-        <field name="inherit_id" ref="hr.view_employee_tree"/>
-        <field name="arch" type="xml">
-            <xpath expr="//field[@name='name']" position="before">
-                <field name="emp_id" optional="show"/>
-            </xpath>
-        </field>
-    </record>
-
-    <!-- Employee Search View - Employee ID searchable -->
-    <record id="view_employee_extension_search" model="ir.ui.view">
-        <field name="name">hr.employee.extension.search</field>
-        <field name="model">hr.employee</field>
-        <field name="inherit_id" ref="hr.view_employee_filter"/>
-        <field name="arch" type="xml">
-            <xpath expr="//field[@name='name']" position="after">
-                <field name="emp_id" string="Employee ID"
-                       filter_domain="[('emp_id', 'ilike', self)]"/>
-            </xpath>
-        </field>
-    </record>
+    <!--
+        Employee ID display intentionally lives in the employee_role_import
+        module, which defines the canonical `employee_code` field (populated by
+        the CSV import) and loads AFTER this module. The deprecated `emp_id`
+        field defined here is no longer shown anywhere; see
+        employee_role_import/views/hr_employee_views.xml for the form/list/search
+        Employee ID columns.
+    -->
 
 </odoo>

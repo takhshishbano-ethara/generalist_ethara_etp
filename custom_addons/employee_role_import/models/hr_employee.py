@@ -124,6 +124,23 @@ class HrEmployee(models.Model):
                     "name": dup.name or _("an archived record"),
                     "archived": "" if dup.active else _(" — archived"),
                 })
+            # Cross-model: the same code must not be held by a different user.
+            # The user linked to (or matching by email) this employee is the
+            # same person and legitimately shares the code.
+            idents = {(emp.work_email or "").strip().lower()} - {""}
+            users = self.env["res.users"].with_context(
+                active_test=False
+            ).sudo().search([("employee_code", "=ilike", code)])
+            uclash = users.filtered(
+                lambda u: u.id != emp.user_id.id
+                and (u.login or "").strip().lower() not in idents
+                and (u.email or "").strip().lower() not in idents
+            )
+            if uclash:
+                raise ValidationError(_(
+                    "Employee ID '%(code)s' is already used by user %(name)s. "
+                    "Employee IDs must be unique across users and employees."
+                ) % {"code": code, "name": uclash[0].name or uclash[0].login})
 
     @api.constrains("work_email")
     def _check_work_email_unique(self):
@@ -435,10 +452,22 @@ class HrEmployee(models.Model):
         return [(k, lbl) for (k, lbl) in ROLE_SELECTION if k in allowed]
 
     # ── Employee ↔ User auto-mapping ─────────────────────────────────────────
+    @staticmethod
+    def _normalize_employee_code(vals):
+        """Force the Employee ID to upper-case (and trim) so it is stored and
+        displayed consistently regardless of how it was entered (import, manual
+        edit, self-registration)."""
+        code = vals.get("employee_code")
+        if isinstance(code, str):
+            vals["employee_code"] = code.strip().upper()
+
     @api.model_create_multi
     def create(self, vals_list):
+        for vals in vals_list:
+            self._normalize_employee_code(vals)
         records = super().create(vals_list)
         records._etp_link_user()
+        records._etp_sync_user_code()
         records._etp_sync_job_title()
         records._etp_sync_quality_tier()
         records._check_reports_to_role()
@@ -446,6 +475,7 @@ class HrEmployee(models.Model):
         return records
 
     def write(self, vals):
+        self._normalize_employee_code(vals)
         res = super().write(vals)
         if not self.env.context.get("etp_skip_eu_sync") and (
             "work_email" in vals or "user_id" in vals
@@ -453,6 +483,10 @@ class HrEmployee(models.Model):
             self._etp_link_user()
         if not self.env.context.get("etp_skip_eu_sync") and "user_id" in vals:
             self._etp_sync_job_title()
+        if not self.env.context.get("etp_skip_eu_sync") and (
+            "employee_code" in vals or "user_id" in vals
+        ):
+            self._etp_sync_user_code()
         if not self.env.context.get("etp_skip_eu_sync") and (
             "task_forge_ql_id" in vals or "task_forge_qr_id" in vals
             or "parent_id" in vals
@@ -505,6 +539,20 @@ class HrEmployee(models.Model):
             if other:
                 continue
             emp.with_context(etp_skip_eu_sync=True).user_id = user.id
+
+    def _etp_sync_user_code(self):
+        """Mirror the Employee ID to the linked login user, so the code set on
+        the employee (e.g. at import) shows on the user and stays unique with
+        it. The user form has the matching reverse sync."""
+        if self.env.context.get("etp_skip_eu_sync"):
+            return
+        for emp in self:
+            user = emp.user_id
+            code = (emp.employee_code or "").strip()
+            if not user or not code:
+                continue
+            if (user.employee_code or "").strip() != code:
+                user.with_context(etp_skip_eu_sync=True).employee_code = code
 
     def _etp_sync_job_title(self):
         """Keep Job Title aligned with the (group-based) role: a PL's title is

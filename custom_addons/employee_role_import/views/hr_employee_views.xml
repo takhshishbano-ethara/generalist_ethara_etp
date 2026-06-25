@@ -5,24 +5,48 @@
         <field name="implied_ids" eval="[(4, ref('base.group_allow_export'))]"/>
     </record>
 
+    <!-- Employee ID (employee_code) on the standard employee FORM.
+         Shown directly under the employee name as a labelled badge, matching
+         the Email / Work Phone header style. Previously this field was inserted
+         after work_email, which made the imported Employee ID render in the
+         wrong position (floating next to the work email field). -->
     <record id="view_hr_employee_form_inherit_role_import" model="ir.ui.view">
         <field name="name">hr.employee.form.inherit.role.import</field>
         <field name="model">hr.employee</field>
         <field name="inherit_id" ref="hr.view_employee_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='work_email']" position="after">
-                <field name="employee_code"/>
+            <xpath expr="//div[hasclass('oe_title')]/h1" position="after">
+                <h5 class="d-flex align-items-baseline mb-0">
+                    <i class="fa fa-id-badge fa-fw me-1 text-primary" title="Employee ID"/>
+                    <field name="employee_code" placeholder="e.g. GRP1234"
+                           string="Employee ID" class="w-100 w-sm-75"/>
+                </h5>
             </xpath>
         </field>
     </record>
 
+    <!-- Employee ID (employee_code) on the standard employee LIST as the
+         leading column. -->
     <record id="view_hr_employee_tree_inherit_role_import" model="ir.ui.view">
         <field name="name">hr.employee.tree.inherit.role.import</field>
         <field name="model">hr.employee</field>
         <field name="inherit_id" ref="hr.view_employee_tree"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='work_email']" position="after">
-                <field name="employee_code" optional="show"/>
+            <xpath expr="//field[@name='name']" position="before">
+                <field name="employee_code" string="Employee ID" optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Employee ID (employee_code) searchable on the standard employee SEARCH. -->
+    <record id="view_hr_employee_filter_inherit_role_import" model="ir.ui.view">
+        <field name="name">hr.employee.filter.inherit.role.import</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="employee_code" string="Employee ID"
+                       filter_domain="[('employee_code', 'ilike', self)]"/>
             </xpath>
         </field>
     </record>
