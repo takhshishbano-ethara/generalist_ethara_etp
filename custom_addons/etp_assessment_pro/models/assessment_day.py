@@ -57,7 +57,10 @@ class EtpAssessmentDay(models.Model):
     available_question_count = fields.Integer(
         compute="_compute_available_question_count",
         string="Available in Bank")
-    duration_minutes = fields.Integer(string="Duration (Minutes)", default=0)
+    duration_minutes = fields.Integer(
+        string="Duration (Minutes)", default=30,
+        help="Time limit for this day. The candidate timer counts down from "
+             "this; 0 would mean no timer, so plan generation blocks a 0.")
     scheduled_start = fields.Datetime(string="Scheduled Start")
 
     question_source = fields.Selection(
@@ -582,6 +585,20 @@ class EtpAssessmentMultiDayActions(models.Model):
                     f"{', '.join(empty_pool)}. Generate or import questions "
                     "first, or switch the day to manual mode and pick "
                     "questions directly.")
+            # Guard: a day with no duration runs with NO timer (the deadline
+            # compute requires duration_minutes > 0). Managers were forgetting
+            # to set it, so the exam never expired. Block plan generation until
+            # every day has a positive duration.
+            missing_duration = [
+                f"Day {d.sequence} ({d.name})"
+                for d in days
+                if not d.duration_minutes or d.duration_minutes <= 0
+            ]
+            if missing_duration:
+                raise UserError(
+                    "These days have no time limit set (Duration in minutes): "
+                    f"{', '.join(missing_duration)}. Set a duration so the "
+                    "candidate timer runs, or the exam will never auto-submit.")
             if not rec.evaluator_ids:
                 raise UserError(
                     "Assign at least one candidate before generating the plan.")

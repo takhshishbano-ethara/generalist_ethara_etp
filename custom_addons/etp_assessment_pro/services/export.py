@@ -210,10 +210,79 @@ def export_results(assessment):
         f"{assessment.name}_results.csv", content)
 
 
+def _summary_row(ev):
+    """ONE summary row per candidate for the responses export: the post-scoring
+    scorecard (objective correct/total + points, subjective pass/total + points,
+    combined total, percent, result) laid into the response column schema so it
+    reads as the first row of that candidate's block. Derived from the SAME
+    stored response/evaluator fields as the detail rows below it — never a
+    separate calculation, so the summary can't disagree with the breakdown.
+    """
+    submitted = ev.response_ids.filtered(lambda r: r.state == "submitted")
+    obj = submitted.filtered(lambda r: r.has_objective)
+    obj_total = len(obj)
+    obj_correct = len(obj.filtered(
+        lambda r: r.max_score and r.score >= r.max_score))
+    subj = submitted.filtered(lambda r: r.needs_llm)
+    subj_total = len(subj)
+    subj_pass = len(subj.filtered(
+        lambda r: r.llm_state == "scored" and r.llm_passed))
+    pending = len(subj.filtered(
+        lambda r: r.llm_state in ("pending", "queued", "failed")))
+
+    obj_pts = ev.total_score or 0
+    obj_max = ev.max_possible_score or 0
+    sub_pts = ev.llm_total_score or 0
+    sub_max = ev.llm_max_score or 0
+    detail = (
+        f"Objective: {obj_correct}/{obj_total} correct ({obj_pts}/{obj_max} pts)"
+        f" | Subjective: {subj_pass}/{subj_total} passed "
+        f"({sub_pts}/{sub_max} pts)")
+    if pending:
+        detail += f" | {pending} subjective pending (not final)"
+    return {
+        "candidate": ev.applicant_id.partner_name or "",
+        "email": ev.applicant_id.email_from or "",
+        "assessment": ev.assessment_id.name or "",
+        "day": "",
+        "skill": "",
+        "question": "=== RESULT SUMMARY ===",
+        "question_type": "summary",
+        "category": "",
+        "difficulty": "",
+        "prompt": "",
+        "candidate_answer": detail,
+        "correct_answer": (ev.result or "pending").upper(),
+        "dimension_detail": (
+            f"answered {ev.answered_count or 0}/{ev.total_questions or 0}"
+            + (f" | violations {ev.violation_count}"
+               if ev.violation_count else "")),
+        "objective_score": obj_pts,
+        "objective_max": obj_max,
+        "needs_subjective": "yes" if subj_total else "no",
+        "subjective_result": ev.result or "pending",
+        "subjective_score": sub_pts,
+        "subjective_max": sub_max,
+        "subjective_raw_0_1": round(ev.score_percent or 0.0, 2),
+        "subjective_state": ev.llm_state or "",
+        "subjective_reasoning": (
+            f"score {round(ev.score_percent or 0.0, 2)}% vs threshold "
+            f"{round(ev.pass_threshold or 0.0, 2)}% -> "
+            f"{(ev.result or 'pending').upper()}"),
+        "justification": "",
+        "total_score": obj_pts + sub_pts,
+        "total_max": obj_max + sub_max,
+        "response_state": ev.state or "",
+    }
+
+
 def export_responses(assessment, evaluator=None):
     """Whole-assessment responses, or just one candidate's when ``evaluator``
     is given. One row per response, submitted ones first, ordered by candidate
-    then day then question sequence."""
+    then day then question sequence. Each candidate's block is prefixed with a
+    SUMMARY row (the post-scoring scorecard) so an admin reading the export
+    sees the result at a glance before the per-answer detail.
+    """
     assessment.ensure_one()
     if evaluator is not None:
         responses = evaluator.response_ids
@@ -229,7 +298,28 @@ def export_responses(assessment, evaluator=None):
             r.day_session_id.day_sequence if r.day_session_id else 0,
             r.question_id.sequence or 0,
             r.id))
-    rows = [_response_row(r) for r in ordered]
+    # Build rows, inserting a per-candidate summary row at the start of each
+    # candidate's block. For a single-candidate export that's just one summary
+    # row up top; for the whole-assessment export it's one per candidate, in
+    # the same candidate order as the detail rows.
+    rows = []
+    if evaluator is not None:
+        rows.append(_summary_row(evaluator))
+        rows.extend(_response_row(r) for r in ordered)
+    else:
+        seen = set()
+        # Map applicant -> its evaluator on this assessment for the summary.
+        ev_by_applicant = {
+            ev.applicant_id.id: ev
+            for ev in assessment.assessment_evaluator_ids}
+        for r in ordered:
+            app_id = r.evaluator_id.id
+            if app_id not in seen:
+                seen.add(app_id)
+                ev = ev_by_applicant.get(app_id)
+                if ev:
+                    rows.append(_summary_row(ev))
+            rows.append(_response_row(r))
     content = _write_csv(RESPONSES_COLUMNS, rows)
     res_id = evaluator.id if evaluator is not None else assessment.id
     model = evaluator._name if evaluator is not None else assessment._name

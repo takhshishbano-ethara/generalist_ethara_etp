@@ -154,7 +154,7 @@ class _Base(TransactionCase):
         # sequencing rather than calendar scheduling; tests that need a
         # future/past schedule set scheduled_start explicitly afterwards.
         for day in a.day_ids:
-            vals = {"scheduled_start": False}
+            vals = {"scheduled_start": False, "duration_minutes": 15}
             if skill and with_questions:
                 vals["skill_id"] = skill.id
                 vals["duration_minutes"] = skill.time_minutes or 15
@@ -659,7 +659,7 @@ class TestRecordRules(_Base):
             "num_days": 1, "evaluator_ids": [(6, 0, [e1.id, e2.id])],
         })
         a3.action_scaffold_days()
-        a3.day_ids[0].skill_id = skill.id
+        a3.day_ids[0].write({"skill_id": skill.id, "duration_minutes": 30})
         self._make_mcq("RR_Q2", correct_idx=0, skill=skill, category=cat)
         a3.action_generate_plan()
 
@@ -829,3 +829,222 @@ class TestPortalControllerSmoke(HttpCase, _Base):
         self.assertIn(resp.status_code, (200, 302))
         sess.invalidate_recordset()
         self.assertIn(sess.state, ("submitted", "scored"))
+
+
+class TestResultSummary(_Base):
+    """The per-candidate Result Summary card must reflect the SAME scored
+    values shown in the detailed breakdown — objective correct/total,
+    subjective pass/total, totals, percent, and pass/fail badge."""
+
+    def _submitted_mixed(self, mcq_correct=True, subj_score=0.9):
+        cat = self._make_category()
+        q_mcq, dim, master = self._make_mcq("RSQ1", correct_idx=0, category=cat)
+        q_subj = self._make_subjective("RSQ2", category=cat)
+        emp = self._make_applicant("RSCand")
+        a = self.Assessment.create({
+            "name": "RS", "assessment_mode": "single",
+            "category_id": cat.id, "question_limit": 2,
+            "duration_minutes": 30,
+            "evaluator_ids": [(6, 0, [emp.id])],
+        })
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
+        pick = master[0].id if mcq_correct else master[1].id
+        r_mcq = self.Response.create({
+            "assessment_id": a.id, "assessment_evaluator_id": ev.id,
+            "evaluator_id": emp.id, "question_id": q_mcq.id,
+            "line_ids": [(0, 0, {"dimension_id": dim.id,
+                                 "selected_option_id": pick})],
+        })
+        r_mcq.action_submit()
+        r_subj = self.Response.create({
+            "assessment_id": a.id, "assessment_evaluator_id": ev.id,
+            "evaluator_id": emp.id, "question_id": q_subj.id,
+            "justification": "A reasoned answer about the topic.",
+        })
+        r_subj.write({"state": "submitted", "llm_state": "pending"})
+        ev.write({"state": "submitted"})
+        fake = json.dumps([{"id": r_subj.id, "score": subj_score,
+                            "feedback": "fb"}])
+        with patch.object(vertex_svc, "_call_vertex", return_value=fake):
+            scoring_svc.score_evaluator(self.env, ev)
+        ev.invalidate_recordset()
+        return ev
+
+    def test_summary_renders_for_submitted(self):
+        ev = self._submitted_mixed(mcq_correct=True, subj_score=0.9)
+        html = ev.result_summary or ""
+        self.assertTrue(html)
+        self.assertIn("PASS", html)
+        # objective 1/1 correct, subjective 1/1 passed
+        self.assertIn("1 / 1 correct", html)
+        self.assertIn("1 / 1 passed", html)
+
+    def test_summary_fail_reflects_scores(self):
+        # MCQ wrong + subjective below threshold -> 0% -> FAIL
+        ev = self._submitted_mixed(mcq_correct=False, subj_score=0.3)
+        html = ev.result_summary or ""
+        self.assertIn("FAIL", html)
+        self.assertIn("0 / 1 correct", html)
+        self.assertIn("0 / 1 passed", html)
+
+    def test_summary_pending_before_submit(self):
+        cat = self._make_category()
+        self._make_mcq("PreQ", correct_idx=0, category=cat)
+        a, emps = self._make_single_assessment(cat, num_candidates=1, qlimit=1)
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
+        # Not submitted yet -> neutral in-progress note, no PASS/FAIL.
+        html = ev.result_summary or ""
+        self.assertIn("has not submitted", html)
+        self.assertNotIn(">PASS<", html)
+
+    def test_summary_totals_match_evaluator_fields(self):
+        ev = self._submitted_mixed(mcq_correct=True, subj_score=0.9)
+        # The card's totals must equal the stored scoring fields exactly.
+        pts = self.env["etp.assessment.pro.response"]._subjective_points()
+        total = (ev.total_score or 0) + (ev.llm_total_score or 0)
+        self.assertEqual(ev.llm_total_score, pts)
+        self.assertIn("%s / %s pts" % (total, ev.max_possible_score
+                                       + ev.llm_max_score),
+                      ev.result_summary or "")
+
+    def test_export_responses_has_summary_row(self):
+        import base64
+        import csv as _csv
+        import io as _io
+        from odoo.addons.etp_assessment_pro.services import export as export_svc
+        ev = self._submitted_mixed(mcq_correct=True, subj_score=0.9)
+        action = export_svc.export_responses(ev.assessment_id, evaluator=ev)
+        att = self.env["ir.attachment"].browse(
+            int(action["url"].split("/web/content/")[1].split("?")[0]))
+        text = base64.b64decode(att.datas).decode("utf-8")
+        rows = list(_csv.DictReader(_io.StringIO(text)))
+        summary = [r for r in rows if r["question"] == "=== RESULT SUMMARY ==="]
+        self.assertEqual(len(summary), 1,
+                         "exactly one summary row per candidate")
+        s = summary[0]
+        # The summary row must be the FIRST row (top of the candidate block).
+        self.assertEqual(rows[0]["question"], "=== RESULT SUMMARY ===")
+        # Its totals must equal the evaluator's stored scoring fields.
+        self.assertEqual(int(s["objective_score"]), ev.total_score)
+        self.assertEqual(int(s["subjective_score"]), ev.llm_total_score)
+        self.assertEqual(int(s["total_score"]),
+                         ev.total_score + ev.llm_total_score)
+        self.assertEqual(s["subjective_result"], ev.result)
+        self.assertIn("correct", s["candidate_answer"])
+
+
+class TestCsvImportAnswerKeyIntegrity(_Base):
+    """The CSV importer must materialize each question's answer key EXACTLY
+    as declared — never lose a correct flag, never flag a wrong option, and
+    never let two questions sharing a dimension label contaminate each other.
+    """
+
+    def _import_csv(self, csv_text, name="bank.csv"):
+        import base64
+        Wizard = self.env["etp.assessment.pro.bank.import.wizard"]
+        wiz = Wizard.create({
+            "data_file": base64.b64encode(csv_text.encode("utf-8")).decode(),
+            "data_filename": name,
+            "generator_name": "T %s" % name,
+        })
+        res = wiz.action_import()
+        prompt = self.env["etp.assessment.pro.prompt"].browse(res["res_id"])
+        return prompt.question_ids.sorted("id").mapped("approved_question_id")
+
+    def _correct_names(self, question):
+        out = {}
+        for qd in question.question_dimension_ids:
+            out[qd.dimension_id.name] = sorted(
+                ol.name for ol in qd.option_line_ids.filtered("is_correct"))
+        return out
+
+    def test_single_dim_mcq_correct_flag(self):
+        csv_text = (
+            "title,question_type,prompt,options,correct_answer\n"
+            "Cap,mcq,Capital of France?,Paris|London|Berlin,Paris\n")
+        qs = self._import_csv(csv_text)
+        self.assertEqual(len(qs), 1)
+        keys = self._correct_names(qs[0])
+        # exactly one correct option, and it is Paris
+        all_correct = [c for v in keys.values() for c in v]
+        self.assertEqual(all_correct, ["Paris"])
+
+    def test_shared_label_questions_do_not_contaminate(self):
+        # Two image_ab rows share identical dimension labels but DIFFER on the
+        # 3rd axis's correct answer — the real adversarial case from the
+        # reference bank. Each must keep its OWN key.
+        dims_a = json.dumps([
+            {"label": "Edit correct?", "options": ["Aligned", "No"],
+             "correct": ["Aligned"]},
+            {"label": "Slop free?", "options": ["Clean", "No"],
+             "correct": ["Clean"]},
+        ])
+        dims_b = json.dumps([
+            {"label": "Edit correct?", "options": ["Aligned", "No"],
+             "correct": ["Aligned"]},
+            {"label": "Slop free?", "options": ["Clean", "No"],
+             "correct": ["No"]},   # <-- opposite answer, same label
+        ])
+        csv_text = (
+            "title,question_type,prompt,dimensions_json\n"
+            'QA,image_ab,Compare,"%s"\n'
+            'QB,image_ab,Compare,"%s"\n'
+            % (dims_a.replace('"', '""'), dims_b.replace('"', '""')))
+        qs = self._import_csv(csv_text, name="shared.csv")
+        self.assertEqual(len(qs), 2)
+        ka = self._correct_names(qs[0])
+        kb = self._correct_names(qs[1])
+        self.assertEqual(ka["Slop free?"], ["Clean"])
+        self.assertEqual(kb["Slop free?"], ["No"])
+        # And neither question's dimension is shared (private per question).
+        a_dims = set(qs[0].question_dimension_ids.mapped("dimension_id").ids)
+        b_dims = set(qs[1].question_dimension_ids.mapped("dimension_id").ids)
+        self.assertFalse(a_dims & b_dims,
+                         "questions must not share dimension records")
+
+    def test_index_correct_answer_resolves(self):
+        # correct given as a 0-based index string must map to the right option.
+        csv_text = (
+            "title,question_type,prompt,options,correct_answer\n"
+            "Idx,mcq,Pick,Alpha|Beta|Gamma,1\n")  # index 1 -> Beta
+        qs = self._import_csv(csv_text, name="idx.csv")
+        all_correct = [c for v in self._correct_names(qs[0]).values()
+                       for c in v]
+        self.assertEqual(all_correct, ["Beta"])
+
+
+class TestManagerApplicantAccess(_Base):
+    """BUG-009 regression: an assessment Manager who is NOT separately granted
+    a recruitment role must still be able to read hr.applicant — every
+    assessment/evaluator view dereferences applicant_id, so without this the
+    admin hits 'You are not allowed to access Applicant (hr.applicant)'.
+    The manager group implies hr_recruitment.group_hr_recruitment_user to
+    grant that access through the proper ACL.
+    """
+
+    def _manager_user(self):
+        from uuid import uuid4
+        mgr = self.env.ref("etp_assessment_pro.group_assessment_manager")
+        email = "mgracl_%s@ethara.ai" % uuid4().hex[:6]
+        return self.env["res.users"].with_context(
+            no_reset_password=True).create({
+                "name": "Mgr ACL", "login": email, "email": email,
+                "group_ids": [(6, 0, [mgr.id])]})
+
+    def test_manager_can_read_applicant(self):
+        user = self._manager_user()
+        # Must not raise AccessError.
+        self.env["hr.applicant"].with_user(user).search_count([])
+
+    def test_manager_can_open_candidate_via_evaluator(self):
+        cat = self._make_category()
+        self._make_mcq("AclQ", correct_idx=0, category=cat)
+        a, emps = self._make_single_assessment(cat, num_candidates=1, qlimit=1)
+        a.action_start()
+        ev = a.assessment_evaluator_ids[0]
+        user = self._manager_user()
+        # The view path: read the evaluator and dereference the candidate name.
+        name = ev.with_user(user).applicant_id.partner_name
+        self.assertTrue(name is not None)

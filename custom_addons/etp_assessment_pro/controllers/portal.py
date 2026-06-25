@@ -201,6 +201,19 @@ class EtpAssessmentPortal(http.Controller):
             base="/pro_assessment/%s" % token,
             finish_url=f"/pro_assessment/{token}/finish")
 
+    def _unanswered_question_ids(self, evaluator, day_session):
+        """Question ids in this attempt's order that have NO submitted
+        response yet. A question only counts as answered once
+        ``_record_response`` saved it — and that helper rejects incomplete
+        mandatory fields — so 'unanswered' here also means 'required fields
+        not yet filled'. Used to block the voluntary final submit.
+        """
+        order = json.loads(
+            (day_session.question_order if day_session
+             else evaluator.question_order) or "[]")
+        answered = self._answered_question_ids(evaluator, day_session)
+        return [qid for qid in order if qid not in answered]
+
     @http.route("/pro_assessment/<string:token>/finish", type="http",
                 auth="public", website=True, methods=["POST"], csrf=False)
     def assessment_finish_single(self, token, **kw):
@@ -208,6 +221,14 @@ class EtpAssessmentPortal(http.Controller):
         if not evaluator:
             return request.render("etp_assessment_pro.portal_invalid_token")
         if not evaluator.is_locked and evaluator.state != "submitted":
+            # Block the VOLUNTARY final submit while questions remain
+            # unanswered (mandatory fields not filled) — send the candidate
+            # back to review. The timer/violation auto-submit paths bypass
+            # this (time's up = finalize regardless), and an expired deadline
+            # here also finalizes.
+            if (not evaluator.is_time_expired()
+                    and self._unanswered_question_ids(evaluator, False)):
+                return request.redirect(f"/pro_assessment/{token}/review")
             # Finalize: any unanswered questions get placeholder submissions,
             # then the evaluator is locked + submitted (same as expiry path).
             self._auto_submit_remaining_single(evaluator)
@@ -382,6 +403,15 @@ class EtpAssessmentPortal(http.Controller):
         if block:
             return block
         if sess.state == "in_progress":
+            # Block the voluntary final submit while required questions remain
+            # unanswered — back to review. An expired day deadline finalizes
+            # regardless (timer/violation auto-submit handle that path).
+            deadline_passed = bool(
+                sess.deadline_datetime
+                and sess.deadline_datetime < fields.Datetime.now())
+            if (not deadline_passed
+                    and self._unanswered_question_ids(sess.evaluator_id, sess)):
+                return request.redirect(f"/pro_assessment/day/{token}/review")
             sess.sudo().action_submit_day()
         return request.redirect(f"/pro_assessment/day/{token}")
 
@@ -633,25 +663,39 @@ class EtpAssessmentPortal(http.Controller):
         if day_session:
             domain.append(("day_session_id", "=", day_session.id))
         existing = Response.search(domain, limit=1)
-        if existing and existing.state == "submitted":
-            return existing
         if existing:
+            # Editable on back-navigation. The exam routes already block this
+            # endpoint once the evaluator/day session is locked, so reaching
+            # here means the candidate may still change their answer. A re-save
+            # MUST overwrite the prior justification + option picks — the old
+            # `state == "submitted"` early-return silently DROPPED the edit,
+            # which is why going back lost justifications, reverted MCQ picks,
+            # and left needs-justification questions marked "not needed".
             existing.line_ids.unlink()
             existing.write({
                 "justification": justification,
                 "line_ids": line_vals,
             })
-            response = existing
-        else:
-            response = Response.create({
-                "assessment_id": evaluator.assessment_id.id,
-                "assessment_evaluator_id": evaluator.id,
-                "day_session_id": day_session.id if day_session else False,
-                "evaluator_id": evaluator.applicant_id.id,
-                "question_id": qid,
-                "justification": justification,
-                "line_ids": line_vals,
-            })
+            if existing.state != "submitted":
+                existing.action_submit()
+            elif (existing.justification or "").strip():
+                # Already submitted on an earlier pass: content was just
+                # rewritten, so re-run the subjective scoring enqueue that
+                # action_submit would have done — needs_llm recomputes from the
+                # new justification, and llm_state moves off "not_needed".
+                existing.with_context(
+                    autoscore=True)._enqueue_subjective_scoring()
+            return existing
+
+        response = Response.create({
+            "assessment_id": evaluator.assessment_id.id,
+            "assessment_evaluator_id": evaluator.id,
+            "day_session_id": day_session.id if day_session else False,
+            "evaluator_id": evaluator.applicant_id.id,
+            "question_id": qid,
+            "justification": justification,
+            "line_ids": line_vals,
+        })
         response.action_submit()
         return response
 

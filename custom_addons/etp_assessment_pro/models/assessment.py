@@ -700,6 +700,19 @@ class EtpAssessmentEvaluator(models.Model):
              "Manual = admin flips; immediate = on submit.",
     )
 
+    # Admin-facing post-scoring summary card. ONE compact block per candidate
+    # so a reviewer reads the outcome at a glance without scanning every
+    # response row: result badge, objective correct/total + points,
+    # subjective pass/total + points, the combined total/percent, and any
+    # subjective work still pending. Derived purely from the SAME stored
+    # response fields that drive scoring, so it can never disagree with the
+    # detailed breakdown below it.
+    result_summary = fields.Html(
+        string="Result Summary", compute="_compute_result_summary",
+        sanitize=False,
+        help="Post-scoring overview for this candidate: objective and "
+             "subjective tallies, total, percentage, and pass/fail.")
+
     # Day progress label — drives the My Assessments badge "2 / 5".
     days_total = fields.Integer(
         compute="_compute_day_progress", store=True)
@@ -719,6 +732,128 @@ class EtpAssessmentEvaluator(models.Model):
                 f"{rec.days_done} / {rec.days_total}"
                 if rec.days_total else "—"
             )
+
+    @api.depends(
+        "state", "result", "score_percent", "pass_threshold",
+        "total_score", "max_possible_score",
+        "llm_total_score", "llm_max_score", "subjective_pending",
+        "answered_count", "total_questions", "violation_count",
+        "response_ids.state", "response_ids.has_objective",
+        "response_ids.score", "response_ids.max_score",
+        "response_ids.needs_llm", "response_ids.llm_state",
+        "response_ids.llm_passed")
+    def _compute_result_summary(self):
+        """Build the admin-facing post-scoring summary card.
+
+        Counts are derived from the SAME stored response fields the scorer
+        writes — objective correctness from response.score vs max_score,
+        subjective pass/fail from response.llm_passed on scored needs_llm
+        rows — so the card can never disagree with the detailed per-answer
+        list rendered beneath it. Renders for submitted candidates; a
+        not-yet-submitted candidate shows a neutral 'in progress' note.
+        """
+        import html as _html
+
+        def esc(v):
+            return _html.escape(str(v))
+
+        for rec in self:
+            submitted = rec.response_ids.filtered(
+                lambda r: r.state == "submitted")
+            # Objective tally: questions carrying an objective component,
+            # "correct" = full marks on that question (all-or-nothing for
+            # mcq/msq; per-question max for image_*).
+            obj = submitted.filtered(lambda r: r.has_objective)
+            obj_total = len(obj)
+            obj_correct = len(obj.filtered(
+                lambda r: r.max_score and r.score >= r.max_score))
+            # Subjective tally: needs_llm rows, pass = llm_passed once scored.
+            subj = submitted.filtered(lambda r: r.needs_llm)
+            subj_total = len(subj)
+            subj_scored = subj.filtered(lambda r: r.llm_state == "scored")
+            subj_pass = len(subj_scored.filtered("llm_passed"))
+
+            obj_pts = rec.total_score or 0
+            obj_max = rec.max_possible_score or 0
+            sub_pts = rec.llm_total_score or 0
+            sub_max = rec.llm_max_score or 0
+            total_pts = obj_pts + sub_pts
+            total_max = obj_max + sub_max
+            pct = rec.score_percent or 0.0
+            thr = rec.pass_threshold or 0.0
+
+            if rec.state != "submitted":
+                rec.result_summary = (
+                    '<div class="alert alert-info mb-0" role="status">'
+                    'Candidate has not submitted yet — '
+                    f'{esc(rec.answered_count or 0)} of '
+                    f'{esc(rec.total_questions or 0)} answered. '
+                    'Summary appears once the assessment is submitted and '
+                    'scored.</div>')
+                continue
+
+            # Result badge.
+            if rec.result == "pass":
+                badge = ('<span class="badge text-bg-success" '
+                         'style="font-size:1rem;padding:0.5em 0.9em">PASS</span>')
+            elif rec.result == "fail":
+                badge = ('<span class="badge text-bg-danger" '
+                         'style="font-size:1rem;padding:0.5em 0.9em">FAIL</span>')
+            else:
+                badge = ('<span class="badge text-bg-secondary" '
+                         'style="font-size:1rem;padding:0.5em 0.9em">'
+                         'PENDING</span>')
+
+            pending_note = ""
+            if rec.subjective_pending:
+                pending_note = (
+                    '<div class="alert alert-warning mt-2 mb-0 py-1 px-2" '
+                    'role="status">'
+                    f'\u26a0 {esc(rec.subjective_pending)} subjective '
+                    'response(s) still awaiting scoring — totals below are '
+                    'not final.</div>')
+
+            def cell(label, value, sub=""):
+                sub_html = (f'<div class="text-muted small">{sub}</div>'
+                            if sub else "")
+                return (
+                    '<div style="flex:1;min-width:120px;padding:0.4em 0.6em">'
+                    f'<div class="text-muted small text-uppercase">{label}</div>'
+                    f'<div style="font-size:1.15rem;font-weight:600">{value}</div>'
+                    f'{sub_html}</div>')
+
+            cells = []
+            cells.append(cell(
+                "Objective",
+                f"{esc(obj_correct)} / {esc(obj_total)} correct",
+                f"{esc(obj_pts)} / {esc(obj_max)} pts")
+                if obj_total else "")
+            if subj_total:
+                cells.append(cell(
+                    "Subjective",
+                    f"{esc(subj_pass)} / {esc(subj_total)} passed",
+                    f"{esc(sub_pts)} / {esc(sub_max)} pts"))
+            cells.append(cell(
+                "Total",
+                f"{esc(total_pts)} / {esc(total_max)} pts"))
+            cells.append(cell(
+                "Score",
+                f"{esc(round(pct, 2))}%",
+                f"threshold {esc(round(thr, 2))}%"))
+            if rec.violation_count:
+                cells.append(cell(
+                    "Violations", esc(rec.violation_count)))
+
+            row = "".join(c for c in cells if c)
+            rec.result_summary = (
+                '<div class="border rounded p-2" '
+                'style="background:#f8f9fa">'
+                '<div style="display:flex;align-items:center;gap:0.75em;'
+                'flex-wrap:wrap">'
+                f'<div>{badge}</div>'
+                '<div style="display:flex;flex-wrap:wrap;flex:1">'
+                f'{row}</div></div>'
+                f'{pending_note}</div>')
 
     @api.depends("response_ids.needs_llm", "response_ids.llm_score",
                  "response_ids.llm_max_score", "response_ids.llm_state")

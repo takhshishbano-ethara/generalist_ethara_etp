@@ -153,7 +153,8 @@
                                     <field name="category_id" invisible="pool_by == 'skill'"/>
                                     <field name="question_count"/>
                                     <field name="available_question_count"/>
-                                    <field name="duration_minutes"/>
+                                    <field name="duration_minutes" required="1"
+                                           string="Duration (min)"/>
                                     <field name="scheduled_start"/>
                                 </list>
                                 <form>
@@ -413,6 +414,11 @@
                     (count: <field name="violation_count" readonly="1"/>)
                 </div>
                 <sheet>
+                    <div class="oe_title">
+                        <h2>Result Summary</h2>
+                    </div>
+                    <field name="result_summary" widget="html" readonly="1"
+                           nolabel="1"/>
                     <group>
                         <group>
                             <field name="assessment_id"/>

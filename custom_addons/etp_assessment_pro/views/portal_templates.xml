@@ -738,6 +738,7 @@
                                     t.classList.add('bg-danger', 'text-white');
                                     if (!fired) {
                                         fired = true;
+                                        try { etpSerializeMsq(); } catch (e) {}
                                         document.getElementById('etp-response-form').submit();
                                     }
                                     return;
@@ -758,10 +759,16 @@
                             });
                         }
                         // MSQ: serialize checked boxes per dimension into the
-                        // hidden csv input the controller splits on ','.
-                        document.addEventListener('submit', function (e) {
-                            if (e.target.id !== 'etp-response-form') { return; }
-                            var sets = e.target.querySelectorAll('[data-dim-id]');
+                        // hidden csv input the controller splits on ','. Shared
+                        // helper so EVERY submit path (button, timer auto-submit,
+                        // violation) serializes — a programmatic form.submit()
+                        // does NOT fire the 'submit' event, so the timer/
+                        // violation paths must call this explicitly or the
+                        // candidate's MSQ picks are silently lost.
+                        function etpSerializeMsq() {
+                            var form = document.getElementById('etp-response-form');
+                            if (!form) { return; }
+                            var sets = form.querySelectorAll('[data-dim-id]');
                             sets.forEach(function (fs) {
                                 var picks = [];
                                 fs.querySelectorAll('.etp-msq-cb:checked').forEach(function (cb) {
@@ -770,7 +777,13 @@
                                 var csv = fs.querySelector('.etp-msq-csv');
                                 if (csv) { csv.value = picks.join(','); }
                             });
+                        }
+                        document.addEventListener('submit', function (e) {
+                            if (e.target.id !== 'etp-response-form') { return; }
+                            etpSerializeMsq();
                         });
+                        // Expose for the timer/violation auto-submit paths.
+                        window.etpSerializeMsq = etpSerializeMsq;
                     })();
                 </script>
 
