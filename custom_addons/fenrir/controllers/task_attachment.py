@@ -23,7 +23,8 @@ class FenrirTaskAttachmentController(http.Controller):
 
     @http.route(
         "/fenrir/task/<int:task_id>/attachment/upload",
-        type="http", auth="user", methods=["POST"], csrf=False)
+        type="http", auth="user", methods=["POST"], csrf=False,
+        max_content_length=10 * 1024 * 1024 * 1024)
     def upload(self, task_id, **kwargs):
         Task = request.env["fenrir.task"]
         task = Task.browse(task_id).exists()

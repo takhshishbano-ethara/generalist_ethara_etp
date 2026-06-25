@@ -174,6 +174,8 @@
                     </group>
                     <field name="instruction_notes"
                            placeholder="Notes about instruction.md (used in license.json)..."/>
+                    <field name="resources_notes"
+                           placeholder="Notes about Project Requirements Document (used in license.json)..."/>
 
                     <separator string="Rubrics" name="sep_rubrics"/>
                     <div class="mb-2 d-flex gap-2 align-items-center">
@@ -812,6 +814,15 @@
         <field name="binding_view_types">list</field>
         <field name="state">code</field>
         <field name="code">action = records.action_export_task()</field>
+    </record>
+
+    <record id="fenrir_task_export_all_xlsx_action" model="ir.actions.server">
+        <field name="name">Export All to Excel</field>
+        <field name="model_id" ref="model_fenrir_task"/>
+        <field name="binding_model_id" ref="model_fenrir_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = (records or model).action_export_all_xlsx()</field>
     </record>
 
     <record id="fenrir_task_action" model="ir.actions.act_window">

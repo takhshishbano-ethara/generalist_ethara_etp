@@ -133,6 +133,10 @@ class FenrirTask(models.Model):
         help="Notes about instruction.md; emitted as the 'notes' field for "
              "the instruction.md entry in license.json.",
     )
+    resources_notes = fields.Text(
+        string="Resources Notes",
+        help="General notes about the resources attached to this task.",
+    )
 
     rubric_ids = fields.One2many(
         comodel_name="fenrir.rubric",
@@ -357,16 +361,19 @@ class FenrirTask(models.Model):
                 "attachment": base64.b64encode(content.encode("utf-8")),
             })
 
-        # tests/test_deliverables.*
-        test_filename, test_content = gen.build_validator_script(self)
-        Attachment.create({
-            "task_id": self.id,
-            "file_name": test_filename,
-            "folder": "tests",
-            "is_generated": True,
-            "license": "self_created",
-            "attachment": base64.b64encode(test_content.encode("utf-8")),
-        })
+        # tests/test_deliverables.* — auto-generation disabled.
+        # Upload your own file via the Tests binary field on the form, or via
+        # the Attachments uploader with folder=Tests. The export still picks
+        # it up from _test_files() / the attachment row.
+        # test_filename, test_content = gen.build_validator_script(self)
+        # Attachment.create({
+        #     "task_id": self.id,
+        #     "file_name": test_filename,
+        #     "folder": "tests",
+        #     "is_generated": True,
+        #     "license": "self_created",
+        #     "attachment": base64.b64encode(test_content.encode("utf-8")),
+        # })
 
         # Per-seller metadata.json — stored on the offer's metadata_json field
         # so the existing _write_rich_export() flow picks it up as
@@ -506,6 +513,183 @@ class FenrirTask(models.Model):
                 task._write_rich_export(zf, _slug(task.code))
         return self._build_zip_download(zip_buf.getvalue(),
                                         self._zip_name(tasks, "fenrir_tasks"))
+
+    def action_export_all_xlsx(self):
+        """Build a wide XLSX of tasks × seller offers. If no records are
+        passed (cog-menu "Export All" case), exports every task the user
+        can read."""
+        try:
+            import xlsxwriter
+        except ImportError as exc:
+            raise UserError(
+                "xlsxwriter is required for this export. "
+                "Add it to requirements.txt and reinstall."
+            ) from exc
+
+        base = self if self else self.search([])
+        tasks = base.filtered(lambda t: t.status == "completed")
+        if not tasks:
+            raise UserError("No completed tasks to export.")
+
+        buf = io.BytesIO()
+        wb = xlsxwriter.Workbook(buf, {"in_memory": True, "remove_timezone": True})
+        ws = wb.add_worksheet("Tasks")
+
+        hdr_fmt = wb.add_format({
+            "bold": True, "bg_color": "#5C2D91", "color": "white",
+            "border": 1, "align": "center", "valign": "vcenter",
+            "text_wrap": True,
+        })
+        cell_fmt = wb.add_format({"valign": "top", "text_wrap": True})
+        date_fmt = wb.add_format({"valign": "top", "num_format": "yyyy-mm-dd"})
+
+        headers = [
+            "Sr. No.", "Task ID", "Categories", "Title", "Overview",
+            "Scope of work", "Company details", "Assets (PRD)",
+            "Price Tier", "Delivery time", "Seller", "Seller Profile",
+            "Received Custom Offer", "Offer Cost", "Conversation",
+            "Order Placed Date", "Order Received Date", "Accepted Deliver",
+            "Instructions.md", "Data (media)",
+            "Resources (refs & supporting docs)", "Environment", "Tests",
+            "License", "Task Metadata.json", "ratings.json",
+            "Deliverables and data",
+        ]
+        widths = [6, 14, 18, 28, 40, 40, 30, 24, 12, 14, 22, 30, 18, 12,
+                  60, 16, 16, 18, 22, 40, 40, 40, 40, 18, 22, 22, 60]
+        for col, (h, w) in enumerate(zip(headers, widths)):
+            ws.write(0, col, h, hdr_fmt)
+            ws.set_column(col, col, w)
+        ws.freeze_panes(1, 0)
+        ws.set_row(0, 32)
+
+        def _atts(task, folder):
+            files = task.attachment_ids.filtered(lambda a: a.folder == folder)
+            return "\n".join(f.file_name for f in files if f.file_name) or ""
+
+        def _delivs(offer):
+            lines = []
+            for d in offer.deliverable_file_ids:
+                link = d.s3_key or ""
+                lines.append(f"{d.file_name} — {link}" if link else d.file_name)
+            for att in offer.deliverable_attachment_ids:
+                lines.append(att.name or "")
+            return "\n".join(l for l in lines if l)
+
+        # Columns that describe the task (merged when a task has >1 offer)
+        # and columns that describe an individual seller offer (one row each).
+        TASK_COLS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
+                     18, 19, 20, 21, 22, 23, 24, 25)
+        url_fmt = wb.add_format({
+            "valign": "top", "text_wrap": True,
+            "color": "#0563C1", "underline": 1,
+        })
+
+        def _put(r, c, value, fmt=cell_fmt):
+            ws.write(r, c, value or "", fmt)
+
+        def _put_task_cell(r0, r1, c, value, fmt=cell_fmt, url=False):
+            value = value or ""
+            if r1 > r0:
+                if url and isinstance(value, str) and value.startswith("http"):
+                    ws.merge_range(r0, c, r1, c, "", fmt)
+                    ws.write_url(r0, c, value, url_fmt, string=value)
+                else:
+                    ws.merge_range(r0, c, r1, c, value, fmt)
+            else:
+                if url and isinstance(value, str) and value.startswith("http"):
+                    ws.write_url(r0, c, value, url_fmt, string=value)
+                else:
+                    ws.write(r0, c, value, fmt)
+
+        row = 1
+        sr = 1
+        for task in tasks.sorted("code"):
+            offers = list(task.seller_offer_ids.sorted("seller_no")) or [None]
+            n = len(offers)
+            r0, r1 = row, row + n - 1
+
+            # Per-seller rows: cols 10..17 and 26
+            for i, offer in enumerate(offers):
+                r = row + i
+                if offer:
+                    _put(r, 10, offer.seller)
+                    if offer.seller_profile_url:
+                        ws.write_url(r, 11, offer.seller_profile_url,
+                                     url_fmt, string=offer.seller_profile_url)
+                    else:
+                        _put(r, 11, "")
+                    _put(r, 12, offer.received_custom_offer)
+                    _put(r, 13, offer.negotiated_offer)
+                    _put(r, 14, offer.conversation)
+                    if offer.order_date:
+                        ws.write_datetime(r, 15, offer.order_date, date_fmt)
+                    else:
+                        _put(r, 15, "")
+                    if offer.delivery_date:
+                        ws.write_datetime(r, 16, offer.delivery_date, date_fmt)
+                    else:
+                        _put(r, 16, "")
+                    _put(r, 17, offer.accepted_delivery)
+                    _put(r, 26, _delivs(offer))
+                else:
+                    for c in (10, 11, 12, 13, 14, 15, 16, 17, 26):
+                        _put(r, c, "")
+
+            # Per-task columns: cols 0..9 and 18..25 — merged across seller rows.
+            _put_task_cell(r0, r1, 0, sr)
+            _put_task_cell(r0, r1, 1, task.code)
+            _put_task_cell(r0, r1, 2, task.category_id.name)
+            _put_task_cell(r0, r1, 3, task.title)
+            _put_task_cell(r0, r1, 4, task.overview)
+            _put_task_cell(r0, r1, 5, task.scope_of_work)
+            _put_task_cell(r0, r1, 6, task.company_details)
+            prd = task.assets_url or task.assets_filename or ""
+            _put_task_cell(r0, r1, 7, prd, url=bool(task.assets_url))
+            _put_task_cell(r0, r1, 8, task.price_tier)
+            if task.delivery_time:
+                if r1 > r0:
+                    ws.merge_range(r0, 9, r1, 9, "", date_fmt)
+                ws.write_datetime(r0, 9, task.delivery_time, date_fmt)
+            else:
+                _put_task_cell(r0, r1, 9, "")
+            _put_task_cell(r0, r1, 18, task.instruction_md_filename)
+            _put_task_cell(r0, r1, 19, _atts(task, "data"))
+            _put_task_cell(r0, r1, 20, _atts(task, "resources"))
+            env_parts = [_atts(task, "environment")]
+            if task.environment_base_runtime:
+                env_parts.insert(0, f"base: {task.environment_base_runtime}")
+            _put_task_cell(r0, r1, 21,
+                           "\n".join(p for p in env_parts if p))
+            _put_task_cell(r0, r1, 22, _atts(task, "tests"))
+            _put_task_cell(r0, r1, 23, "license.json (generated)")
+            _put_task_cell(r0, r1, 24, "task_metadata.json (generated)")
+            _put_task_cell(r0, r1, 25,
+                           "ratings.json (generated)" if any(offers) else "")
+
+            row += n
+            sr += 1
+
+        wb.close()
+        xlsx_bytes = buf.getvalue()
+        buf.close()
+
+        ts = fields.Datetime.now().strftime("%Y%m%d_%H%M%S")
+        name = f"fenrir_tasks_export_{ts}.xlsx"
+        attachment = self.env["ir.attachment"].create({
+            "name": name,
+            "type": "binary",
+            "datas": base64.b64encode(xlsx_bytes),
+            "mimetype": (
+                "application/vnd.openxmlformats-officedocument"
+                ".spreadsheetml.sheet"
+            ),
+            "res_model": "fenrir.task",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": f"/web/content/{attachment.id}?download=true",
+            "target": "self",
+        }
 
     def _exportable_tasks(self):
         tasks = self.filtered("code")

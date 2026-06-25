@@ -95,10 +95,12 @@ class FenrirTaskAttachment(models.Model):
         readonly=True,
         copy=False,
     )
-    file_size = fields.Integer(
+    file_size = fields.Float(
         string="File Size (bytes)",
         readonly=True,
         copy=False,
+        digits=(20, 0),
+        help="Stored as float because PG int4 cannot hold files >2 GiB.",
     )
 
     _LICENSE_LABELS = {
