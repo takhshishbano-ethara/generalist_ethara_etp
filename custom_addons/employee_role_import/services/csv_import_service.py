@@ -382,6 +382,11 @@ class CsvImportService:
             batch_employees.with_context(
                 etp_importing=False
             )._check_required_hierarchy()
+            # Same deferral applies to reports-to seniority; validate it now
+            # that every parent_id is wired.
+            batch_employees.with_context(
+                etp_importing=False
+            )._check_reports_to_role()
 
         summary = {
             "session_token": session.session_token,

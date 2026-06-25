@@ -215,57 +215,75 @@ class HrEmployee(models.Model):
                     break
             emp.role = current
 
-    @api.constrains("role", "parent_id")
-    def _check_reports_to_role(self):
-        for emp in self:
-            if not emp.parent_id or not emp.role:
-                continue
-            parent_role = emp.parent_id.role
-            if not parent_role:
-                continue
-            emp_level = ROLE_LEVEL.get(emp.role, 0)
-            parent_level = ROLE_LEVEL.get(parent_role, 0)
-            if parent_level <= emp_level:
-                raise ValidationError(
-                    _(
-                        "Invalid Reports To for %(emp)s: a %(emp_role)s cannot "
-                        "report to %(parent)s (%(parent_role)s). The manager's "
-                        "role must be senior to the employee's role.",
-                        emp=emp.name,
-                        emp_role=dict(ROLE_SELECTION).get(emp.role, emp.role),
-                        parent=emp.parent_id.name,
-                        parent_role=dict(ROLE_SELECTION).get(parent_role, parent_role),
-                    )
-                )
-
     _HIERARCHY_TRIGGER_FIELDS = frozenset({
         "role", "parent_id",
         "task_forge_ql_id", "task_forge_pl_id", "task_forge_tpm_id",
     })
 
-    def _check_required_hierarchy(self):
-        # Not a @api.constrains: that decorator fires on every flush, including
-        # the low-level writes that happen during module install/upgrade and
-        # field recomputation, which would block upgrades on legacy data that
-        # was valid under the previous schema. Instead this is called from
-        # create()/write() (below) and from the import wizard explicitly, so it
-        # only runs on user-initiated changes.
-        if self.env.context.get("etp_importing"):
-            return
+    # Return a message (or None); shared by the create/write checks and the
+    # onchange warning so both stay in sync.
+    def _reports_to_problem(self, emp):
+        """Message if emp's Reports To is not senior to emp's role, else None."""
+        if not emp.parent_id or not emp.role:
+            return None
+        parent_role = emp.parent_id.role
+        if not parent_role:
+            return None
+        if ROLE_LEVEL.get(parent_role, 0) <= ROLE_LEVEL.get(emp.role, 0):
+            labels = dict(ROLE_SELECTION)
+            return _(
+                "Invalid Reports To for %(emp)s: a %(emp_role)s cannot "
+                "report to %(parent)s (%(parent_role)s). The manager's "
+                "role must be senior to the employee's role.",
+                emp=emp.name,
+                emp_role=labels.get(emp.role, emp.role),
+                parent=emp.parent_id.name,
+                parent_role=labels.get(parent_role, parent_role),
+            )
+        return None
+
+    def _required_manager_problem(self, emp):
+        """Message if emp's role lacks its mandatory Task Force manager, else None."""
+        req = ROLE_REQUIRED_MANAGER.get(emp.role or "")
+        if not req:
+            return None
+        tier, field = req
+        if emp[field]:
+            return None
         labels = dict(ROLE_SELECTION)
         tier_labels = {"ql": "QL/QR", "pl": "PL", "tpm": "TPM"}
+        return _(
+            "%(name)s is a %(role)s and must have a %(tier)s assigned "
+            "in the Task Force hierarchy."
+        ) % {"name": emp.name or emp.employee_code or _("Employee"),
+             "role": labels.get(emp.role, emp.role),
+             "tier": tier_labels.get(tier, tier)}
+
+    # Not @api.constrains: that fires on upgrade/recompute flushes and would
+    # block upgrades on legacy data. Called from create()/write() instead.
+    def _check_reports_to_role(self):
+        if self.env.context.get("etp_importing"):
+            return
         for emp in self:
-            req = ROLE_REQUIRED_MANAGER.get(emp.role or "")
-            if not req:
-                continue
-            tier, field = req
-            if not emp[field]:
-                raise ValidationError(_(
-                    "%(name)s is a %(role)s and must have a %(tier)s assigned "
-                    "in the Task Force hierarchy."
-                ) % {"name": emp.name or emp.employee_code or _("Employee"),
-                     "role": labels.get(emp.role, emp.role),
-                     "tier": tier_labels.get(tier, tier)})
+            msg = self._reports_to_problem(emp)
+            if msg:
+                raise ValidationError(msg)
+
+    def _check_required_hierarchy(self):
+        if self.env.context.get("etp_importing"):
+            return
+        for emp in self:
+            msg = self._required_manager_problem(emp)
+            if msg:
+                raise ValidationError(msg)
+
+    @api.onchange("role", "parent_id",
+                  "task_forge_ql_id", "task_forge_pl_id", "task_forge_tpm_id")
+    def _onchange_hierarchy_warn(self):
+        """Non-blocking form warning; the real check runs in create()/write()."""
+        msg = self._reports_to_problem(self) or self._required_manager_problem(self)
+        if msg:
+            return {"warning": {"title": _("Hierarchy check"), "message": msg}}
 
     def _inverse_role(self):
         all_role_groups = {
@@ -423,6 +441,7 @@ class HrEmployee(models.Model):
         records._etp_link_user()
         records._etp_sync_job_title()
         records._etp_sync_quality_tier()
+        records._check_reports_to_role()
         records._check_required_hierarchy()
         return records
 
@@ -440,6 +459,7 @@ class HrEmployee(models.Model):
         ):
             self._etp_sync_quality_tier()
         if self._HIERARCHY_TRIGGER_FIELDS.intersection(vals):
+            self._check_reports_to_role()
             self._check_required_hierarchy()
         return res
 
