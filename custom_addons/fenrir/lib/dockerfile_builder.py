@@ -552,8 +552,8 @@ def render(vid, info):
 
     if role == "static-server":
         L.append("COPY nginx.conf /etc/nginx/conf.d/default.conf")
-    L += ["COPY test_deliverables.py /opt/tests/test_deliverables.py",
-          "RUN chmod +x /opt/tests/test_deliverables.py", ""]
+    L += ["COPY test_deliverables.sh /opt/tests/test_deliverables.sh",
+          "RUN chmod +x /opt/tests/test_deliverables.sh", ""]
 
     if role == "s6-service":
         L += ["# linuxserver/* uses s6-overlay; its /init entrypoint must NOT be",

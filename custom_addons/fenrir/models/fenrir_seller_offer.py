@@ -157,6 +157,7 @@ class FenrirSellerOffer(models.Model):
     )
     overall_rating = fields.Integer(string="Overall Rating", tracking=True)
     overall_justification = fields.Text(string="Overall Justification")
+    rating_date = fields.Date(string="Rating Date", tracking=True)
 
     notes = fields.Text(string="Internal Notes")
 

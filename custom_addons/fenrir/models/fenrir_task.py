@@ -1056,16 +1056,16 @@ class FenrirTask(models.Model):
                 f"rater_{offer.task_id.lead_user_id.id:03d}"
                 if offer.task_id.lead_user_id else ""
             ),
-            # rating_date: when the rubric scores were last edited, NOT when
-            # the offer was last written. Re-approving the task touches the
-            # offer's write_date but does not re-save the score rows, so this
-            # stays stable across re-approvals.
+            # rating_date: user-set on the seller offer. Falls back to the
+            # latest rubric-score write_date (then offer create_date) for
+            # records saved before this field existed.
             "rating_date": (
-                max(s.write_date for s in offer.rubric_score_ids
-                    if s.write_date).date().isoformat()
-                if offer.rubric_score_ids
-                else (offer.create_date.date().isoformat()
-                      if offer.create_date else None)
+                offer.rating_date.isoformat() if offer.rating_date
+                else (max(s.write_date for s in offer.rubric_score_ids
+                          if s.write_date).date().isoformat()
+                      if offer.rubric_score_ids
+                      else (offer.create_date.date().isoformat()
+                            if offer.create_date else None))
             ),
         }
 

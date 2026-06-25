@@ -148,6 +148,7 @@
                         <field name="overall_rating"/>
                         <field name="overall_justification"
                                placeholder="Overall reasoning..."/>
+                        <field name="rating_date"/>
                     </group>
                 </sheet>
                 <chatter/>

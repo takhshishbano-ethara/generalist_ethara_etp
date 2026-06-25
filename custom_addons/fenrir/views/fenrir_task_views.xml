@@ -158,12 +158,6 @@
                         </div>
                     </group> -->
                     <group>
-                        <label for="assets_file" string="Project Requirements Document (PRD)"/>
-                        <div class="o_row">
-                            <field name="assets_file" filename="assets_filename"
-                                widget="binary" nolabel="1"/>
-                            <field name="assets_filename" invisible="1"/>
-                        </div>
                         <label for="instruction_md_file" string="Instruction.md"/>
                         <div class="o_row">
                             <field name="instruction_md_file"
@@ -595,6 +589,7 @@
                                     <field name="overall_rating"/>
                                     <field name="overall_justification"
                                            placeholder="Overall reasoning..."/>
+                                    <field name="rating_date"/>
                                 </group>
                             </sheet>
                         </form>
