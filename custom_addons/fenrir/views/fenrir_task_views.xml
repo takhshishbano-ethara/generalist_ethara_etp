@@ -168,8 +168,6 @@
                     </group>
                     <field name="instruction_notes"
                            placeholder="Notes about instruction.md (used in license.json)..."/>
-                    <field name="resources_notes"
-                           placeholder="Notes about Project Requirements Document (used in license.json)..."/>
 
                     <separator string="Rubrics" name="sep_rubrics"/>
                     <div class="mb-2 d-flex gap-2 align-items-center">
