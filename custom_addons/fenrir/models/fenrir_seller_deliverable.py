@@ -44,7 +44,9 @@ class FenrirSellerDeliverable(models.Model):
     )
     file_name = fields.Char(string="File Name", required=True)
     mime_type = fields.Char(string="MIME Type", default="application/octet-stream")
-    file_size = fields.Integer(string="File Size (bytes)", readonly=True)
+    file_size = fields.Float(
+        string="File Size (bytes)", readonly=True, digits=(20, 0),
+        help="Stored as float because PG int4 cannot hold files >2 GiB.")
     s3_key = fields.Char(string="S3 Key", readonly=True, copy=False)
     s3_etag = fields.Char(string="S3 ETag", readonly=True, copy=False)
     s3_uploaded_at = fields.Datetime(

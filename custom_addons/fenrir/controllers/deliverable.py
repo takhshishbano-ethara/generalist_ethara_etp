@@ -19,7 +19,8 @@ class FenrirDeliverableController(http.Controller):
 
     @http.route(
         "/fenrir/seller-offer/<int:offer_id>/deliverable/upload",
-        type="http", auth="user", methods=["POST"], csrf=False)
+        type="http", auth="user", methods=["POST"], csrf=False,
+        max_content_length=10 * 1024 * 1024 * 1024)
     def upload(self, offer_id, **kwargs):
         Offer = request.env["fenrir.seller.offer"]
         offer = Offer.browse(offer_id).exists()
