@@ -338,7 +338,8 @@ class FenrirTask(models.Model):
             "is_generated": True,
             "license": "self_created",
             "attachment": base64.b64encode(json.dumps(
-                gen.build_task_metadata(self), indent=2).encode("utf-8")),
+                gen.build_task_metadata(self),
+                indent=2, ensure_ascii=False).encode("utf-8")),
         })
         Attachment.create({
             "task_id": self.id,
@@ -347,7 +348,8 @@ class FenrirTask(models.Model):
             "is_generated": True,
             "license": "self_created",
             "attachment": base64.b64encode(json.dumps(
-                self._build_license_doc(), indent=2).encode("utf-8")),
+                self._build_license_doc(),
+                indent=2, ensure_ascii=False).encode("utf-8")),
         })
 
         # environment/<files>
@@ -380,7 +382,8 @@ class FenrirTask(models.Model):
         # submissions/seller_<n>/metadata.json.
         for offer in self.seller_offer_ids.filtered(lambda o: o.accepted == "yes"):
             offer.metadata_json = json.dumps(
-                gen.build_seller_metadata(offer), indent=2)
+                gen.build_seller_metadata(offer),
+                indent=2, ensure_ascii=False)
     remarks = fields.Text(string="Remarks")
     submitted_at = fields.Datetime(string="Submitted At", readonly=True, tracking=True)
 
@@ -562,9 +565,59 @@ class FenrirTask(models.Model):
         ws.freeze_panes(1, 0)
         ws.set_row(0, 32)
 
+        # Drive URL cache: {task_id: {relative_path: webViewLink}}
+        # Populated lazily per task when status is approved/completed and
+        # the task has a Drive folder. Falls back to file names if Drive
+        # is unreachable.
+        drive_cache = {}
+        DriveService = self.env["fenrir.drive.service"]
+
+        def _drive_urls(task):
+            if task.id in drive_cache:
+                return drive_cache[task.id]
+            urls = {}
+            if (task.status in ("approved", "completed")
+                    and task.drive_folder_id):
+                try:
+                    urls = DriveService.list_files_with_urls(
+                        task.drive_folder_id)
+                    _logger.info(
+                        "Fenrir export: drive lookup task=%s folder=%s "
+                        "returned %d entries",
+                        task.code, task.drive_folder_id, len(urls))
+                except Exception:  # noqa: BLE001
+                    _logger.warning(
+                        "Fenrir export: drive lookup FAILED task=%s",
+                        task.code, exc_info=True)
+                    urls = {}
+            else:
+                _logger.info(
+                    "Fenrir export: skip drive lookup task=%s "
+                    "(status=%s, drive_folder_id=%r)",
+                    task.code, task.status, task.drive_folder_id)
+            drive_cache[task.id] = urls
+            return urls
+
         def _atts(task, folder):
             files = task.attachment_ids.filtered(lambda a: a.folder == folder)
-            return "\n".join(f.file_name for f in files if f.file_name) or ""
+            urls = _drive_urls(task)
+            lines = []
+            for f in files:
+                if not f.file_name:
+                    continue
+                url = (urls.get(f"{folder}/{f.file_name}")
+                       or urls.get(f.file_name)
+                       or "")
+                lines.append(f"{f.file_name} — {url}" if url
+                             else f.file_name)
+            return "\n".join(lines) or ""
+
+        def _drive_url_for(task, *candidate_paths):
+            urls = _drive_urls(task)
+            for p in candidate_paths:
+                if p in urls and urls[p]:
+                    return urls[p]
+            return ""
 
         def _delivs(offer):
             lines = []
@@ -652,7 +705,14 @@ class FenrirTask(models.Model):
                 ws.write_datetime(r0, 9, task.delivery_time, date_fmt)
             else:
                 _put_task_cell(r0, r1, 9, "")
-            _put_task_cell(r0, r1, 18, task.instruction_md_filename)
+            instr_url = _drive_url_for(task,
+                                       "instruction.md",
+                                       "Instruction.md",
+                                       task.instruction_md_filename or "")
+            _put_task_cell(
+                r0, r1, 18,
+                instr_url or (task.instruction_md_filename or ""),
+                url=bool(instr_url))
             _put_task_cell(r0, r1, 19, _atts(task, "data"))
             _put_task_cell(r0, r1, 20, _atts(task, "resources"))
             env_parts = [_atts(task, "environment")]
@@ -661,10 +721,33 @@ class FenrirTask(models.Model):
             _put_task_cell(r0, r1, 21,
                            "\n".join(p for p in env_parts if p))
             _put_task_cell(r0, r1, 22, _atts(task, "tests"))
-            _put_task_cell(r0, r1, 23, "license.json (generated)")
-            _put_task_cell(r0, r1, 24, "task_metadata.json (generated)")
-            _put_task_cell(r0, r1, 25,
-                           "ratings.json (generated)" if any(offers) else "")
+            lic_url = _drive_url_for(task, "license.json")
+            _put_task_cell(
+                r0, r1, 23,
+                lic_url or "license.json (generated)",
+                url=bool(lic_url))
+            meta_url = _drive_url_for(task, "task_metadata.json")
+            _put_task_cell(
+                r0, r1, 24,
+                meta_url or "task_metadata.json (generated)",
+                url=bool(meta_url))
+            ratings_url = ""
+            if offers and offers[0]:
+                # ratings.json lives per-seller under sellers/<seller>/...
+                for o in offers:
+                    seller_slug = (o.seller or "").strip()
+                    candidates = [
+                        f"sellers/{seller_slug}/ratings.json",
+                        "ratings.json",
+                    ]
+                    ratings_url = _drive_url_for(task, *candidates)
+                    if ratings_url:
+                        break
+            _put_task_cell(
+                r0, r1, 25,
+                ratings_url or (
+                    "ratings.json (generated)" if any(offers) else ""),
+                url=bool(ratings_url))
 
             row += n
             sr += 1
@@ -791,11 +874,11 @@ class FenrirTask(models.Model):
 
         if not wrote_task_metadata:
             files.append(("task_metadata.json",
-                          json.dumps(gen.build_task_metadata(self), indent=2).encode("utf-8"),
+                          json.dumps(gen.build_task_metadata(self), indent=2, ensure_ascii=False).encode("utf-8"),
                           "application/json", GENERATED, None))
         if not wrote_licenses:
             files.append(("license.json",
-                          json.dumps(self._build_license_doc(), indent=2).encode("utf-8"),
+                          json.dumps(self._build_license_doc(), indent=2, ensure_ascii=False).encode("utf-8"),
                           "application/json", GENERATED, None))
 
         # Legacy per-task binary uploads (user-uploaded Dockerfile etc.).
@@ -831,11 +914,11 @@ class FenrirTask(models.Model):
                     "order_date": offer.order_date.isoformat() if offer.order_date else None,
                     "notes": offer.notes or "",
                 }
-                meta_bytes = json.dumps(fallback, indent=2, default=str).encode("utf-8")
+                meta_bytes = json.dumps(fallback, indent=2, default=str, ensure_ascii=False).encode("utf-8")
             files.append((f"{seller_dir}/metadata.json",
                           meta_bytes, "application/json", GENERATED, None))
             files.append((f"{seller_dir}/ratings.json",
-                          json.dumps(self._build_ratings(offer), indent=2, default=str).encode("utf-8"),
+                          json.dumps(self._build_ratings(offer), indent=2, default=str, ensure_ascii=False).encode("utf-8"),
                           "application/json", GENERATED, None))
 
             for att in offer.deliverable_attachment_ids:
@@ -879,18 +962,25 @@ class FenrirTask(models.Model):
             "source_url": None,
             "notes": self.instruction_notes or f"Task instructions for {self.code}.",
         }]
+        # Fallback note for resources-folder files when the row-level
+        # `att.notes` is empty. Picks up the task-level Resources Notes
+        # field so users don't have to repeat it on every uploaded file.
+        resources_fallback = self.resources_notes or ""
         for att in self.attachment_ids:
             if att.is_generated:
                 continue
             if att.folder in ("environment", "tests"):
                 continue
-            location = "root" if att.folder == "root" else f"{att.folder or 'resources'}/"
+            folder_key = att.folder or "resources"
+            location = "root" if folder_key == "root" else f"{folder_key}/"
+            note = att.notes or (
+                resources_fallback if folder_key == "resources" else "")
             assets.append({
                 "file_name": _norm_filename(att.file_name or f"attachment_{att.id}"),
                 "location": location,
                 "license": att.license_label(),
                 "source_url": att.source_url or None,
-                "notes": att.notes or "",
+                "notes": note,
             })
         # if self.rubrics_file:
         #     assets.append({
@@ -906,7 +996,7 @@ class FenrirTask(models.Model):
                 "location": "resources/",
                 "license": "Self-created",
                 "source_url": None,
-                "notes": "",
+                "notes": self.resources_notes or "",
             })
         return {"task_id": self.code, "assets": assets}
 
@@ -962,8 +1052,21 @@ class FenrirTask(models.Model):
                 }
                 for s in offer.rubric_score_ids.sorted("rubric_sequence")
             ],
-            "rater_id": f"rater_{offer.write_uid.id:03d}" if offer.write_uid else "",
-            "rating_date": offer.write_date.date().isoformat() if offer.write_date else None,
+            "rater_id": (
+                f"rater_{offer.task_id.lead_user_id.id:03d}"
+                if offer.task_id.lead_user_id else ""
+            ),
+            # rating_date: when the rubric scores were last edited, NOT when
+            # the offer was last written. Re-approving the task touches the
+            # offer's write_date but does not re-save the score rows, so this
+            # stays stable across re-approvals.
+            "rating_date": (
+                max(s.write_date for s in offer.rubric_score_ids
+                    if s.write_date).date().isoformat()
+                if offer.rubric_score_ids
+                else (offer.create_date.date().isoformat()
+                      if offer.create_date else None)
+            ),
         }
 
     def _build_zip_download(self, zip_bytes, filename):

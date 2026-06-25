@@ -177,6 +177,56 @@ class FenrirDriveService(models.AbstractModel):
             fileId=folder_id, body={"trashed": True},
             supportsAllDrives=True).execute()
 
+    def list_files_with_urls(self, root_folder_id):
+        """Walk a Drive folder tree and return {relative_path: webViewLink}.
+
+        Used by the All-Tasks Excel export to put real Drive URLs in the
+        attachment columns instead of just file names. Returns an empty dict
+        if the root folder cannot be reached (so the export still proceeds).
+        """
+        if not root_folder_id:
+            return {}
+        try:
+            service, _parent_id = self._build_client()
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "Fenrir Drive: list_files_with_urls — client init failed; "
+                "skipping URL lookup.", exc_info=True)
+            return {}
+
+        result = {}
+
+        def walk(folder_id, prefix):
+            page_token = None
+            while True:
+                try:
+                    resp = service.files().list(
+                        q=f"'{folder_id}' in parents and trashed = false",
+                        fields=("nextPageToken, "
+                                "files(id, name, webViewLink, mimeType)"),
+                        pageToken=page_token,
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True,
+                    ).execute()
+                except Exception:  # noqa: BLE001
+                    _logger.warning(
+                        "Fenrir Drive: list failed for folder %s",
+                        folder_id, exc_info=True)
+                    return
+                for f in resp.get("files", []):
+                    name = f["name"]
+                    path = f"{prefix}{name}"
+                    if f["mimeType"] == DRIVE_FOLDER_MIME:
+                        walk(f["id"], f"{path}/")
+                    else:
+                        result[path] = f.get("webViewLink") or ""
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+
+        walk(root_folder_id, "")
+        return result
+
     @staticmethod
     def _upload_bytes(service, name, parent_id, data, mime=DEFAULT_FILE_MIME):
         """Upload bytes to Drive using resumable chunked upload.

@@ -457,6 +457,15 @@ def build_task_metadata(task):
     }
 
 
+def _format_order_id(raw):
+    """Return the order id with the required leading '#'. Idempotent — if
+    the input already starts with '#' (or is empty), it is left as-is."""
+    if not raw:
+        return ""
+    s = raw.strip()
+    return s if s.startswith("#") else f"#{s}"
+
+
 def build_seller_metadata(offer):
     """Schema-compliant per-seller metadata.json."""
     return {
@@ -470,7 +479,7 @@ def build_seller_metadata(offer):
         "delivery_date": offer.delivery_date.isoformat() if offer.delivery_date else "",
         "delivery_time_days": offer.delivery_time_days or 0,
         "revisions_requested": offer.revisions_requested or 0,
-        "order_id": offer.order_id or "",
+        "order_id": _format_order_id(offer.order_id),
         "seller_profile_url": offer.seller_profile_url or "",
     }
 
