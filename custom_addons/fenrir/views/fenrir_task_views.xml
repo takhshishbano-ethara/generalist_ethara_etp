@@ -822,7 +822,11 @@
         <field name="binding_model_id" ref="model_fenrir_task"/>
         <field name="binding_view_types">list</field>
         <field name="state">code</field>
-        <field name="code">action = (records or model).action_export_all_xlsx()</field>
+        <field name="code">
+if not env.context.get('from_all_tasks'):
+    raise UserError("This export is only available from the All Tasks view.")
+action = (records or model).action_export_all_xlsx()
+        </field>
     </record>
 
     <record id="fenrir_task_action" model="ir.actions.act_window">
