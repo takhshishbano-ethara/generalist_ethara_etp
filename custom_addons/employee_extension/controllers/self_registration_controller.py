@@ -230,11 +230,20 @@ class EmployeeSelfRegistrationController(http.Controller):
             'user_id': new_user.id,
             'company_id': company.id,
         }
+        # Write to the canonical fields the employee-onboarding detail form reads
+        # back (employee_onboarding/controllers/onboarding_controller.py serializer)
+        # so Aadhaar / phone / gender captured here are pre-filled on first load.
+        # `sex` is the hr.version gender field; `private_phone` backs the
+        # onboarding "contact number"; `aadhaar_number` is the dedicated field
+        # alongside the standard `identification_id`.
         for fname, fval in (
             ('gender', gender),
+            ('sex', gender),
             ('work_phone', phone),
+            ('private_phone', phone),
             ('work_email', work_email),
             ('identification_id', aadhaar_number),
+            ('aadhaar_number', aadhaar_number),
             ('private_email', personal_email),
             ('employee_code', employee_code),
         ):

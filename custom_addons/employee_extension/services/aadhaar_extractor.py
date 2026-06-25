@@ -2,6 +2,7 @@ import importlib
 import io
 import logging
 import re
+from collections import Counter
 from datetime import datetime
 from typing import Any
 
@@ -24,6 +25,13 @@ _pyaadhaar_mod = _try_import('pyaadhaar.decode') or _try_import('pyaadhaar.utils
 _PYAADHAAR_SECURE = getattr(_pyaadhaar_mod, 'AadhaarSecureQr', None) if _pyaadhaar_mod else None
 _PYAADHAAR_OLD = getattr(_pyaadhaar_mod, 'AadhaarOldQr', None) if _pyaadhaar_mod else None
 
+# Performance bounds — keep the synchronous OCR/QR work well under the gateway
+# (Cloudflare/nginx) request timeout so the endpoint never hangs the client.
+_RENDER_DPI = 200          # PDF page render resolution (enough for QR + OCR)
+_MAX_PDF_PAGES = 2         # Aadhaar data is on page 1; never OCR a whole booklet
+_OCR_PAGE_TIMEOUT = 18     # hard per-page Tesseract timeout (seconds)
+_OCR_MAX_DIM = 2200        # downscale long edge before OCR to bound CPU time
+
 
 _AADHAAR_RE = re.compile(r'(?<!\d)(\d{4})\s?(\d{4})\s?(\d{4})(?!\d)')
 _DOB_RE = re.compile(
@@ -37,9 +45,24 @@ _MASK_RE = re.compile(r'[Xx*]{4,}')
 _NAME_SKIP_TOKENS = (
     'GOVERNMENT', 'GOVT', 'INDIA', 'UNIQUE', 'AUTHORITY', 'UIDAI',
     'AADHAAR', 'ADHAR', 'IDENTIFICATION', 'ENROLMENT', 'ENROLLMENT',
-    'ADDRESS', 'FATHER', 'MOTHER', 'HUSBAND', 'WIFE',
+    'ADDRESS', 'FATHER', 'MOTHER', 'HUSBAND', 'WIFE', 'DOB', 'BIRTH',
+    'MALE', 'FEMALE', 'TRANSGENDER', 'GENDER', 'PHONE', 'MOBILE', 'VID',
+    'HELP', 'WWW', 'PIN', 'S/O', 'D/O', 'W/O', 'C/O',
 )
-_NAME_LINE_RE = re.compile(r'^[A-Z][A-Za-z][A-Za-z\s\.]{1,60}$')
+
+# A real English name on an Aadhaar card is Title-case ("Akshita Dixit").
+_NAME_WORD_TITLE_RE = re.compile(r'^[A-Z][a-z]+$')   # Akshita, Dixit
+_NAME_WORD_CAPS_RE = re.compile(r'^[A-Z]{2,}$')       # RAVI (some cards print ALLCAPS)
+_NAME_INITIAL_RE = re.compile(r'^[A-Z]\.?$')          # single initial, e.g. "A."
+
+# Anchors that the name sits next to. The name is the clean line(s) directly
+# ABOVE a relationship / dated-DOB line, and directly BELOW a "To" line.
+_RELATION_RE = re.compile(
+    r'^\s*(?:S\s*/\s*O|D\s*/\s*O|W\s*/\s*O|C\s*/\s*O|'
+    r'SON\s+OF|DAUGHTER\s+OF|WIFE\s+OF|CARE\s+OF)\b',
+    re.IGNORECASE,
+)
+_TO_RE = re.compile(r'^\s*to\s*:?\s*$', re.IGNORECASE)
 
 _GENDER_MAP = {
     'M': 'male', 'F': 'female', 'T': 'other',
@@ -94,8 +117,10 @@ def _bytes_to_images(file_bytes, filename):
             if getattr(doc, 'needs_pass', False) or getattr(doc, 'is_encrypted', False):
                 return [], "Encrypted or password-protected PDFs are not accepted. Please upload an unencrypted Aadhaar."
             images = []
-            for page in doc:
-                pix = page.get_pixmap(dpi=220)
+            for i, page in enumerate(doc):
+                if i >= _MAX_PDF_PAGES:
+                    break
+                pix = page.get_pixmap(dpi=_RENDER_DPI)
                 images.append(_PIL_Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB'))
         finally:
             doc.close()
@@ -182,15 +207,35 @@ def _try_qr(images):
     return None
 
 
+def _downscale_for_ocr(img):
+    """Shrink oversized renders so a single Tesseract pass stays fast."""
+    try:
+        w, h = img.size
+    except Exception:
+        return img
+    long_edge = max(w, h)
+    if long_edge <= _OCR_MAX_DIM:
+        return img
+    scale = _OCR_MAX_DIM / float(long_edge)
+    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+    try:
+        return img.resize(new_size, _PIL_Image.LANCZOS)
+    except Exception:
+        return img
+
+
 def _try_ocr(images):
     if _pytesseract is None:
         return None
     chunks = []
     for img in images:
         try:
-            chunks.append(_pytesseract.image_to_string(img, lang='eng'))
+            chunks.append(_pytesseract.image_to_string(
+                _downscale_for_ocr(img), lang='eng', timeout=_OCR_PAGE_TIMEOUT,
+            ))
         except Exception:
-            _logger.debug("Tesseract failed on page", exc_info=True)
+            # Includes Tesseract's timeout — skip the page rather than hang.
+            _logger.debug("Tesseract failed or timed out on page", exc_info=True)
     if not chunks:
         return None
 
@@ -230,32 +275,116 @@ def _try_ocr(images):
     return out
 
 
-def _extract_name_from_text(text):
-    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
-    dob_idx = None
-    for i, ln in enumerate(lines):
-        if re.search(r'DOB|Date\s*of\s*Birth|Year\s*of\s*Birth|YOB', ln, re.IGNORECASE):
-            dob_idx = i
-            break
-    if dob_idx is None:
-        return None
-    for offset in range(1, 5):
-        idx = dob_idx - offset
-        if idx < 0:
-            break
-        candidate = lines[idx]
-        upper = candidate.upper()
-        if any(skip in upper for skip in _NAME_SKIP_TOKENS):
-            continue
-        if not _NAME_LINE_RE.match(candidate):
-            continue
-        if re.search(r'\d', candidate):
-            continue
-        tokens = [t for t in candidate.split() if len(t) > 1]
-        if len(tokens) < 2:
-            continue
-        return ' '.join(tokens)
+def _name_token_kind(tok):
+    """Classify an OCR token. Returns 'title' | 'caps' | 'initial' | None."""
+    if _NAME_INITIAL_RE.match(tok):
+        return 'initial'
+    bare = tok.strip('.')
+    if _NAME_WORD_TITLE_RE.match(bare):
+        return 'title'
+    if _NAME_WORD_CAPS_RE.match(bare):
+        return 'caps'
     return None
+
+
+def _name_candidate(line):
+    """Score a single OCR line as a possible person name.
+
+    Returns ``(clean_name, score)`` or ``(None, 0.0)`` when the line is not a
+    plausible name. A real English name on an Aadhaar card is Title-case
+    ("Akshita Dixit"); OCR of the Devanagari name line above it (run in
+    ``lang='eng'``) tends to come out as ALLCAPS/short junk ("STU FT HY a"),
+    so Title-case words are scored far higher and win the tie-break.
+    """
+    upper = line.upper()
+    if any(skip in upper for skip in _NAME_SKIP_TOKENS):
+        return None, 0.0
+    if re.search(r'\d', line):
+        return None, 0.0
+
+    # Keep only the leading run of name-like tokens, so transliteration junk
+    # merged onto the same line ("Akshita Dixit अ" -> "Akshita Dixit STU") is
+    # dropped rather than appended to the name.
+    kept = []
+    for tok in line.split():
+        kind = _name_token_kind(tok)
+        if kind is None:
+            break
+        kept.append((kind, tok.strip('.')))
+    if len(kept) < 2:
+        return None, 0.0
+
+    title = sum(1 for kind, _ in kept if kind == 'title')
+    caps = sum(1 for kind, _ in kept if kind == 'caps')
+
+    # A real name has consistent casing. If the line has Title-case words, keep
+    # only those (plus initials) and drop stray ALLCAPS tokens, which are almost
+    # always OCR junk merged onto the line ("Akshita Dixit STU" -> "Akshita
+    # Dixit"). Otherwise treat it as an ALLCAPS name and keep the caps tokens.
+    primary = 'title' if title else 'caps'
+    words = [t for kind, t in kept if kind in (primary, 'initial')]
+    if len(words) < 2:
+        return None, 0.0
+
+    # Reject lines that are only short ALLCAPS tokens (classic OCR noise from
+    # the Hindi name line), e.g. "STU FT HY".
+    avg_len = sum(len(t) for t in words) / len(words)
+    if title == 0 and avg_len < 4:
+        return None, 0.0
+
+    score = title * 2.0 + caps * 0.5
+    return ' '.join(words), score
+
+
+def _extract_name_from_text(text):
+    """Pull the cardholder's name out of OCR'd Aadhaar text.
+
+    The English name OCRs cleanly and appears more than once (in the "To"
+    address block and again on the card next to the photo), while the Hindi
+    name line above it OCRs to different garbage each time. We therefore look
+    next to several reliable anchors and let repetition break ties:
+
+      * directly ABOVE a dated "DOB: 27/06/2001" line   (must contain a date,
+        so the legal "...date of birth (DOB)." disclaimer never matches)
+      * directly ABOVE a "Year of Birth" line
+      * directly ABOVE a relationship line ("D/O Ashwani Kumar")
+      * directly BELOW a "To" line
+    """
+    lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
+    n = len(lines)
+
+    # Build (anchor_index, direction) markers. direction=-1 -> name is above.
+    markers = []
+    for i, ln in enumerate(lines):
+        if _DOB_RE.search(ln) or _YOB_RE.search(ln) or _RELATION_RE.match(ln):
+            markers.append((i, -1))
+        elif _TO_RE.match(ln):
+            markers.append((i, +1))
+
+    # Collect name candidates from the 1-3 lines next to each anchor.
+    candidates = []  # (score, distance, name)
+    for idx, direction in markers:
+        for off in range(1, 4):
+            j = idx + direction * off
+            if 0 <= j < n:
+                name, score = _name_candidate(lines[j])
+                if name:
+                    candidates.append((score, off, name))
+
+    # Fall back to the best name-like line anywhere if no anchor was found.
+    if not candidates:
+        for ln in lines:
+            name, score = _name_candidate(ln)
+            if name:
+                candidates.append((score, 99, name))
+        if not candidates:
+            return None
+
+    # The genuine name repeats across anchors; OCR garbage does not. Rank by
+    # (base score + how many times this exact text was seen), then proximity.
+    freq = Counter(name for _, _, name in candidates)
+    best = max(candidates, key=lambda c: (c[0] + freq[c[2]], -c[1]))
+    return best[2]
 
 
 def _names_match(extracted_name, entered_name):
@@ -291,7 +420,11 @@ def extract_aadhaar(file_bytes, filename):
                 result[k] = v
         result['source'] = 'qr'
 
-    ocr = _try_ocr(images)
+    # The signed QR is authoritative; if it already gave us everything, skip the
+    # expensive OCR pass entirely (this is the fast, no-timeout-risk path).
+    qr_complete = bool(result['aadhaar_number'] and result['dob'] and result['name'])
+
+    ocr = None if qr_complete else _try_ocr(images)
     if ocr:
         if not result['aadhaar_number'] and ocr.get('aadhaar_number'):
             result['aadhaar_number'] = ocr['aadhaar_number']

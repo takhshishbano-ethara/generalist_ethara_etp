@@ -63,6 +63,22 @@ def _ethara_leave_types(env):
         [('ethara_leave_code', '!=', False)], order='sequence, id')
 
 
+def _leave_type_label(lt):
+    """Display name driven by the ethara_leave_code, not the raw DB name.
+
+    The ethara_leave_code selection is the source of truth for what a type
+    *is* (sl -> Sick Leave, cl -> Casual Leave, ...). A drifted
+    hr.leave.type.name must not surface the wrong label, e.g. a record
+    carrying code 'sl' must read "Sick Leave" even if its name is set to
+    "Casual Leave". Falls back to the raw name when no code is set.
+    """
+    code = lt.ethara_leave_code
+    if not code:
+        return lt.name
+    labels = dict(lt._fields['ethara_leave_code'].selection)
+    return labels.get(code) or lt.name
+
+
 def _serialize_leave_type(lt):
     return {
         'id': lt.id,
@@ -90,7 +106,7 @@ def _employee_buckets(env, employee, leave_types):
         taken = sum(allocs.mapped('leaves_taken'))
         cards.append({
             'leave_type_id': lt.id,
-            'leave_type': lt.name,
+            'leave_type': _leave_type_label(lt),
             'code': lt.ethara_leave_code,
             'allocated': allocated,
             'taken': taken,

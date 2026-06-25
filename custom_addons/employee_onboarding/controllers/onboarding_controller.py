@@ -331,7 +331,7 @@ def _serialize_employee(employee):
             "designation_name": employee.designation_id.name if employee.designation_id else None,
             "date_of_birth": employee.birthday.isoformat() if employee.birthday else None,
             "gender": employee.sex or None,
-            "contact_number": employee.private_phone or None,
+            "contact_number": employee.private_phone or employee.work_phone or None,
             "blood_group": employee.blood_group or None,
             "personal_email": employee.private_email or None,
             "official_email": employee.work_email or None,
@@ -357,7 +357,7 @@ def _serialize_employee(employee):
             "highest_qualification_score": employee.highest_qualification_score or None,
         },
         "identity": {
-            "aadhaar_number": employee.aadhaar_number or None,
+            "aadhaar_number": employee.aadhaar_number or employee.identification_id or None,
             "pan_number": employee.pan_number or None,
             "has_uan": employee.has_uan,
             "uan_number": employee.uan_number or None,
