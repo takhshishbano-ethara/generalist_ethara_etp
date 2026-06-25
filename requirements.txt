@@ -339,3 +339,9 @@ PyMuPDF==1.26.1
 pytesseract==0.3.13
 pyzbar==0.1.9
 pyaadhaar==2.0.2
+
+# ESSL / ZKTeco biometric attendance (essl_attendance)
+pyzk==0.9                  # ESSL/ZKTeco device protocol (pull logs, users, fingerprints over TCP/UDP)
+pyodbc==5.1.0              # MS SQL Server connectivity for DeviceLogs_<M>_<Y> tables
+xmltodict==0.13.0          # Parse XML/SOAP payloads pushed by ESSL Push SDK
+apscheduler==3.10.4        # Scheduled periodic log pulls from devices
