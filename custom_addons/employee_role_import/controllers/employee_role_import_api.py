@@ -124,14 +124,17 @@ class EmployeeRoleImportController(http.Controller):
     )
     @validate_token
     def list_roles(self, **kwargs):
-        """Return all supported roles + label."""
+        """Return the roles the authenticated user is allowed to assign."""
         try:
+            allowed = (
+                request.env["hr.employee"]._current_user_assignable_roles()
+            )
             roles = [
                 {
                     "key": k,
                     "label": ROLE_LABELS.get(k, k),
                 }
-                for k in ROLE_GROUP_MAP
+                for k in allowed
             ]
             return _ok("Roles list", data={"roles": roles, "count": len(roles)})
         except Exception as exc:  # noqa: BLE001

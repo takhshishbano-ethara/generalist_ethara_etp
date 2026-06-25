@@ -218,12 +218,16 @@ class EmployeeRepository:
         return self._walk_ancestor_with_role(employee, ("pl",))
 
     def resolve_assigned_ql(self, employee):
+        # QL and QR are a single quality tier: honour either stored field and
+        # walk the chain for the nearest manager holding *either* role.
         if not employee:
             return None
         fields_present = employee._fields
+        if "task_forge_qr_id" in fields_present and employee.task_forge_qr_id:
+            return employee.task_forge_qr_id
         if "task_forge_ql_id" in fields_present and employee.task_forge_ql_id:
             return employee.task_forge_ql_id
-        return self._walk_ancestor_with_role(employee, ("ql",))
+        return self._walk_ancestor_with_role(employee, ("ql", "qr"))
 
     def resolve_assigned_tpm(self, employee):
         if not employee:

@@ -3,6 +3,9 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request,
 )
+from odoo.addons.employee_role_import.models.hr_employee import (
+    ROLE_LEVEL, ROLE_HIERARCHY_FIELDS, ROLE_SELECTION,
+)
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -28,6 +31,19 @@ TASKER_ROLE_REFS = [
 
 ROLE_LABELS = {'qr': 'QR', 'pl': 'PL', 'tpm': 'TPM'}
 
+# Map an API assignment slot to the reporting tier it represents in
+# ROLE_HIERARCHY_FIELDS. The API's "qr" slot IS the quality tier, which is
+# keyed as 'ql' in ROLE_HIERARCHY_FIELDS (QL and QR share one level/tier).
+SLOT_TIER = {'qr_id': 'ql', 'pl_id': 'pl', 'tpm_id': 'tpm'}
+
+# Which manager roles a slot will accept. The quality slot accepts either a
+# Quality Lead or a Quality Reviewer (same tier); PL/TPM accept their own role.
+SLOT_MANAGER_ROLES = {
+    'qr_id': ('ql', 'qr'),
+    'pl_id': ('pl',),
+    'tpm_id': ('tpm',),
+}
+
 
 class AssignmentController(http.Controller):
 
@@ -38,6 +54,47 @@ class AssignmentController(http.Controller):
         if v in (None, False, '', 0, '0'):
             return False
         return int(v)
+
+    def _validate_manager_assignment(self, slot, manager, employee):
+        """Validate that `manager` may be assigned to `slot` on `employee`.
+
+        Returns an error message string on a hierarchy violation, else None.
+        Defensive: if either role is unknown the level comparison is skipped,
+        but tier/applicability are still enforced where roles are known.
+        """
+        tier = SLOT_TIER[slot]
+        accepted = SLOT_MANAGER_ROLES[slot]
+        slot_label = ROLE_LABELS.get(slot.replace('_id', ''), slot)
+        role_labels = dict(ROLE_SELECTION)
+        emp_role = employee.role or None
+        mgr_role = manager.role or None
+        emp_label = role_labels.get(emp_role, emp_role or 'unknown')
+        mgr_label = role_labels.get(mgr_role, mgr_role or 'unknown')
+
+        # 1. Slot applicability: this tier must apply to the employee's role.
+        if emp_role and tier not in ROLE_HIERARCHY_FIELDS.get(emp_role, ()):
+            return (
+                "Cannot assign a %s manager to a %s — this reporting slot "
+                "does not apply to that role." % (slot_label, emp_label)
+            )
+
+        # 2. Manager tier match: the manager must actually hold the slot's tier.
+        if mgr_role and mgr_role not in accepted:
+            return (
+                "Cannot assign %s (%s) as the %s manager — the manager must "
+                "hold the %s role." % (manager.name or mgr_label, mgr_label,
+                                       slot_label, slot_label)
+            )
+
+        # 3. Strictly-higher: manager must outrank the employee.
+        if emp_role and mgr_role:
+            if ROLE_LEVEL.get(mgr_role, 0) <= ROLE_LEVEL.get(emp_role, 0):
+                return (
+                    "Cannot assign %s as the %s of a %s — assigned manager "
+                    "must be a higher role." % (mgr_label, slot_label, emp_label)
+                )
+
+        return None
 
     @http.route('/api/v2/employees/change_assignment', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_token
@@ -96,6 +153,9 @@ class AssignmentController(http.Controller):
                     qr_emp = Employee.browse(new_qr)
                     if not qr_emp.exists():
                         return return_Response(message='QR employee not found', status=404)
+                    err = self._validate_manager_assignment('qr_id', qr_emp, employee)
+                    if err:
+                        return return_Response(message=err, status=400)
                     if not has_pl and qr_emp.task_forge_pl_id:
                         update_vals['task_forge_pl_id'] = qr_emp.task_forge_pl_id.id
                         if not has_tpm and qr_emp.task_forge_pl_id.task_forge_tpm_id:
@@ -108,6 +168,9 @@ class AssignmentController(http.Controller):
                     pl_emp = Employee.browse(new_pl)
                     if not pl_emp.exists():
                         return return_Response(message='PL employee not found', status=404)
+                    err = self._validate_manager_assignment('pl_id', pl_emp, employee)
+                    if err:
+                        return return_Response(message=err, status=400)
                     if not has_tpm and pl_emp.task_forge_tpm_id:
                         update_vals['task_forge_tpm_id'] = pl_emp.task_forge_tpm_id.id
 
@@ -118,6 +181,9 @@ class AssignmentController(http.Controller):
                     tpm_emp = Employee.browse(new_tpm)
                     if not tpm_emp.exists():
                         return return_Response(message='TPM employee not found', status=404)
+                    err = self._validate_manager_assignment('tpm_id', tpm_emp, employee)
+                    if err:
+                        return return_Response(message=err, status=400)
 
             old_qr_id = employee.task_forge_qr_id.id
             old_pl_id = employee.task_forge_pl_id.id

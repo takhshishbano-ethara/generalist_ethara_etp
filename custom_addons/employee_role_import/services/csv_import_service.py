@@ -99,6 +99,10 @@ class CsvImportService:
             if resolved is None:
                 raise CsvParseError(_("Unknown default role '%s'.") % default_role)
             default_role = resolved
+            if default_role not in self.env["hr.employee"]._current_user_assignable_roles():
+                raise CsvParseError(
+                    _("You are not allowed to assign the '%s' role.") % default_role
+                )
         else:
             default_role = False
 
@@ -277,6 +281,19 @@ class CsvImportService:
                 _("This import session is in state '%s' and cannot be committed.")
                 % session.state
             )
+        # The import wires the reporting hierarchy in a second pass (a member's
+        # manager may be a later row), so defer the hard mandatory-hierarchy
+        # constraint for every write made during this commit. The wizard's
+        # row-level flagging already blocks rows missing a required manager.
+        self.env = self.env(context=dict(self.env.context, etp_importing=True))
+        # Rebuild the repository on the import-context env too. Otherwise records
+        # it creates/writes (employees, role) carry the original context WITHOUT
+        # `etp_importing`, so the mandatory-hierarchy constraint fires mid-persist
+        # — before the second pass can wire each row's manager — instead of being
+        # deferred. The genuine "missing required manager" case is still caught,
+        # cleanly, by the explicit post-wiring validation below.
+        self.repo = EmployeeRepository(self.env)
+
         # Always rebuild preview right before commit to catch DB drift
         # between upload and commit.
         preview = self.build_preview(session)
@@ -338,6 +355,33 @@ class CsvImportService:
             if row.get("issues"):
                 continue
             self._assign_parent(row, email_to_emp_id, batch_employees, Employee, log)
+
+        # Force a recompute of the denormalized task_forge_* hierarchy now that
+        # ALL parents are wired. The per-row parent writes above don't reliably
+        # cascade inherited tiers (e.g. a QL's TPM from its PL's chain) through
+        # multi-level chains within the same commit, so trigger it explicitly.
+        if batch_employees:
+            batch_employees.invalidate_recordset([
+                "task_forge_ql_id", "task_forge_qr_id",
+                "task_forge_pl_id", "task_forge_tpm_id",
+            ])
+            batch_employees.modified(["parent_id"])
+            batch_employees.flush_recordset()
+
+            # The mandatory-hierarchy constraint (_check_required_hierarchy) is
+            # deferred during the multi-step import via the `etp_importing`
+            # context, because a row's manager may be a later row. Now that
+            # every parent is wired and the task_forge_* tiers are recomputed,
+            # validate explicitly (in a non-import context) so a genuinely
+            # missing required manager — e.g. a QL with no PL — raises HERE,
+            # inside the controller's try/except, and is returned as a clean
+            # JSON error (with CORS headers + the human message). Previously
+            # this violation only surfaced at the request-teardown flush, which
+            # bypasses the controller's error handling and reaches web clients
+            # as an opaque "network connection" error with no actionable text.
+            batch_employees.with_context(
+                etp_importing=False
+            )._check_required_hierarchy()
 
         summary = {
             "session_token": session.session_token,
@@ -678,6 +722,27 @@ class CsvImportService:
             )
         elif not row["role"]:
             issues.append("no role specified for this row")
+        elif row["role"] not in self.env["hr.employee"]._current_user_assignable_roles():
+            issues.append(
+                "Role '%s' cannot be assigned by you." % row["role"]
+            )
+
+        # Mandatory hierarchy: the immediate higher tier must be provided
+        # (Tasker->QL/QR, QL/QR->PL, PL->TPM). The model constraint is deferred
+        # during import, so enforce it here -> the row is flagged and skipped
+        # rather than saved without its required manager.
+        _req = {
+            "tasker": ("ql", "QL/QR"),
+            "qr": ("pl", "PL"),
+            "ql": ("pl", "PL"),
+            "pl": ("tpm", "TPM"),
+        }.get(row.get("role"))
+        if _req and not (
+            row.get("assigned_%s" % _req[0]) or row.get("assigned_%s_email" % _req[0])
+        ):
+            issues.append(
+                "a %s must be assigned for role '%s'" % (_req[1], row["role"])
+            )
 
         code_lower = (row["employee_id"] or "").lower()
         email_lower = (row["email"] or "").lower()
@@ -722,98 +787,153 @@ class CsvImportService:
         return commands
 
     def _persist_row(self, Employee, Users, row, create_user, default_password):
+        """Upsert a single employee + its login user with a two-way link.
+
+        HR rule: exactly one employee record and one login user per person,
+        always linked.  Dedup resolves the existing person, then the user is
+        resolved/linked, then the employee is written.  No duplicate employee
+        or user is ever created.
+        """
         role_key = row["role"]
         group, label = self._resolve_group(role_key)
 
-        # Find existing first (employee_id wins over email)
-        existing_emp = self.repo.find_by_employee_code(row["employee_id"]) \
-            or self.repo.find_by_email(row["email"])
+        # ── 1. Resolve the existing employee.  Match by Employee ID first,
+        #    then fall back to work email (the requested email-based check).
+        emp_by_code = self.repo.find_by_employee_code(row["employee_id"]) \
+            if row["employee_id"] else Employee.browse()
+        emp_by_email = self.repo.find_by_email(row["email"]) \
+            if row["email"] else Employee.browse()
+
+        # Req: "If Employee ID exists, verify using Email it is the same
+        # employee."  When the ID points at one person and the email at
+        # another, they are not the same record - refuse rather than silently
+        # overwrite one with the other's data.
+        if emp_by_code and emp_by_email and emp_by_code.id != emp_by_email.id:
+            raise UserError(_(
+                "Conflicting records: Employee ID '%(code)s' belongs to "
+                "'%(code_name)s', but email '%(email)s' belongs to a different "
+                "employee '%(email_name)s'. Reconcile them before importing."
+            ) % {
+                "code": row["employee_id"],
+                "code_name": emp_by_code.name,
+                "email": row["email"],
+                "email_name": emp_by_email.name,
+            })
+
+        existing_emp = emp_by_code or emp_by_email
         if existing_emp and not existing_emp.active:
             self.repo.reactivate(existing_emp)
 
-        existing_user = existing_emp.user_id if existing_emp else Users.browse()
-        if existing_user and not existing_user.active:
-            existing_user.sudo().write({"active": True})
+        # ── 2. Resolve the single login user for this person (maps an existing
+        #    user even when create_user is off; only *creation* is gated).
+        user = self._resolve_user(
+            Users, Employee, row, group, default_password,
+            existing_emp=existing_emp, create_user=create_user,
+        )
+
+        # ── 3. Upsert the employee and ensure the employee->user link.
+        vals = {"name": row["name"], "work_email": row["email"]}
+        if row["employee_id"]:
+            vals["employee_code"] = row["employee_id"]
+        if row.get("job_title"):
+            vals["job_title"] = row["job_title"]
 
         if existing_emp:
-            if not existing_user and create_user:
-                existing_user = self._ensure_user(
-                    Users, Employee, row, group, default_password,
-                    existing_emp_id=existing_emp.id,
-                )
-            if existing_user:
-                existing_user.sudo().write({
-                    "group_ids": self._role_group_commands(group)
-                })
-
-            vals = {"name": row["name"], "work_email": row["email"]}
-            if row["employee_id"]:
-                vals["employee_code"] = row["employee_id"]
-            if row.get("job_title"):
-                vals["job_title"] = row["job_title"]
-            if existing_user and not existing_emp.user_id:
-                vals["user_id"] = existing_user.id
+            # Link the (existing or newly created) user when the employee has
+            # none yet - this also surfaces the employee on the user record.
+            if user and not existing_emp.user_id:
+                vals["user_id"] = user.id
             existing_emp.sudo().write(vals)
-            return {
-                "action": "updated",
-                "employee_id": existing_emp.id,
-                "user_id": existing_user.id if existing_user else None,
-                "role_label": label,
-            }
-
-        # ── CREATE path
-        user = False
-        if create_user:
-            user = self._ensure_user(
-                Users, Employee, row, group, default_password,
-                existing_emp_id=None,
-            )
-
-        emp_vals = {"name": row["name"], "work_email": row["email"]}
-        if row["employee_id"]:
-            emp_vals["employee_code"] = row["employee_id"]
-        if row.get("job_title"):
-            emp_vals["job_title"] = row["job_title"]
-        if user:
-            emp_vals["user_id"] = user.id
-
-        employee = (user.employee_id if user and "employee_id" in user._fields else False)
-        if employee:
-            employee.sudo().write(emp_vals)
+            employee = existing_emp
+            action = "updated"
         else:
-            employee = self.repo.create_employee(emp_vals)
+            # A user found by email may already own an employee record - reuse
+            # it instead of creating a duplicate.
+            employee = (
+                user.employee_id
+                if user and "employee_id" in user._fields and user.employee_id
+                else False
+            )
+            if user:
+                vals["user_id"] = user.id
+            if employee:
+                employee.sudo().write(vals)
+                action = "updated"
+            else:
+                employee = self.repo.create_employee(vals)
+                action = "created"
+
+        # ── 4. Apply role groups on the linked user (role lives on the user).
+        if user:
+            user.sudo().write({"group_ids": self._role_group_commands(group)})
+
+        # ── 5. Make the employee's stored `role` reflect the imported choice.
+        #
+        # `hr.employee.role` is a stored compute derived from the linked user's
+        # security groups. Two gaps left imported employees showing a blank
+        # role in the View List:
+        #   * With a user: the groups were written in step 4 AFTER the employee
+        #     was created, and the compute didn't re-fire for the group change,
+        #     so the stored role stayed empty. Force a recompute now.
+        #   * Without a user: there are no groups to derive from at all, so the
+        #     role could never be stored. Persist the selected role directly
+        #     (the relaxed inverse allows it; the compute guard preserves it).
+        # Keep the mandatory-hierarchy constraint deferred for these writes —
+        # the row's manager is wired in the second pass below; the genuine
+        # missing-manager case is validated cleanly after that.
+        emp_importing = employee.with_context(etp_importing=True)
+        if role_key:
+            if user:
+                emp_importing.invalidate_recordset(["role"])
+                emp_importing._compute_role()
+                emp_importing.flush_recordset(["role"])
+            else:
+                emp_importing.sudo().write({"role": role_key})
 
         return {
-            "action": "created",
+            "action": action,
             "employee_id": employee.id,
             "user_id": user.id if user else None,
             "role_label": label,
         }
 
-    def _ensure_user(self, Users, Employee, row, group, default_password, existing_emp_id):
-        orphan_user = self.repo.find_user_by_login(row["email"])
-        if orphan_user:
-            other_emp = Employee.search(
-                [("user_id", "=", orphan_user.id)], limit=1
-            )
-            if existing_emp_id and other_emp and other_emp.id != existing_emp_id:
-                raise UserError(
-                    _("Login '%s' is already linked to a different employee.")
-                    % row["email"]
-                )
-            if not existing_emp_id and other_emp:
-                raise UserError(
-                    _("Login '%s' is already linked to employee #%d.")
-                    % (row["email"], other_emp.id)
-                )
-            if not orphan_user.active:
-                orphan_user.sudo().write({"active": True})
-            orphan_user.sudo().write({
-                "name": row["name"],
-                "group_ids": self._role_group_commands(group),
-            })
-            return orphan_user
+    def _resolve_user(self, Users, Employee, row, group, default_password,
+                      existing_emp, create_user):
+        """Return the single login user for this person, mapping or creating.
 
+        Preference order (never creates a duplicate user):
+
+        1. The user already linked to the matched employee.
+        2. An existing user whose login matches the row email - mapped
+           automatically *even when create_user is off*, because mapping an
+           existing account is not the same as creating one.
+        3. A brand-new user, only when ``create_user`` is enabled.
+        """
+        # 1. Employee already has a user.
+        linked = existing_emp.user_id if existing_emp else Users.browse()
+        if linked:
+            if not linked.active:
+                linked.sudo().write({"active": True})
+            return linked
+
+        # 2. An existing login matches this email - map it automatically.
+        match = self.repo.find_user_by_login(row["email"]) if row["email"] \
+            else Users.browse()
+        if match:
+            owner = Employee.search([("user_id", "=", match.id)], limit=1)
+            if owner and (not existing_emp or owner.id != existing_emp.id):
+                raise UserError(_(
+                    "Login '%(login)s' is already linked to a different "
+                    "employee '%(name)s' (#%(id)d). Reconcile before importing."
+                ) % {"login": row["email"], "name": owner.name, "id": owner.id})
+            if not match.active:
+                match.sudo().write({"active": True})
+            match.sudo().write({"name": row["name"]})
+            return match
+
+        # 3. Create a new user only when allowed.
+        if not create_user:
+            return Users.browse()
         vals = {
             "name": row["name"],
             "login": row["email"],

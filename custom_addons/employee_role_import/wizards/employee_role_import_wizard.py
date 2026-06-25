@@ -31,8 +31,11 @@ class EmployeeRoleImportWizard(models.TransientModel):
     csv_filename = fields.Char(string="Filename")
     csv_row_count = fields.Integer(string="Rows in File", readonly=True)
 
+    def _selection_assignable_role(self):
+        return self.env["hr.employee"]._assignable_role_selection()
+
     role = fields.Selection(
-        selection=ROLE_SELECTION,
+        selection="_selection_assignable_role",
         string="Default Role",
         help="Applied to every row whose role is still empty. "
         "Use the button next to it to push this value into the preview rows.",
@@ -467,6 +470,11 @@ class EmployeeRoleImportWizard(models.TransientModel):
 
     def action_import(self):
         self.ensure_one()
+        # The import wires the reporting hierarchy in a second pass (a member's
+        # manager may be a later row in the same file), so defer the hard
+        # mandatory-hierarchy constraint here; rows missing a required manager
+        # are flagged per-row instead. Keeps the constraint active for UI/API.
+        self = self.with_context(etp_importing=True)
         if self.state == "done":
             # Save-time auto-import (see write()/create()) already ran the
             # import and discarded its navigation action because ORM mutations
@@ -485,6 +493,22 @@ class EmployeeRoleImportWizard(models.TransientModel):
             }
         if not self.line_ids:
             raise UserError(_("Upload a CSV file first — no preview rows to import."))
+
+        # Block the ENTIRE import/save while any row is invalid (e.g. a QL/QR
+        # with no PL): the user must fix every flagged row before saving.
+        blocking = self.line_ids.filtered(lambda l: l.has_issues)
+        if blocking:
+            details = "\n".join(
+                "• %s: %s" % (
+                    ln.name or ln.employee_code or _("row"),
+                    ln.issue_text or _("validation issue"),
+                )
+                for ln in blocking
+            )
+            raise UserError(_(
+                "Cannot import — %d row(s) still have validation issues. "
+                "Fix them first (e.g. assign the required PL/QL/TPM):\n%s"
+            ) % (len(blocking), details))
 
         Employee = self.env["hr.employee"].sudo().with_context(active_test=False)
         Users = self.env["res.users"].sudo().with_context(active_test=False)
@@ -521,6 +545,24 @@ class EmployeeRoleImportWizard(models.TransientModel):
                     continue
                 if not role_key:
                     log.append(f"Row {row_idx}: ERROR - no role set for this row")
+                    errors += 1
+                    continue
+
+                # Mandatory hierarchy: each role must have its immediate higher
+                # tier selected (Tasker->QL/QR, QL/QR->PL, PL->TPM). The model
+                # constraint is deferred during import, so enforce it here and
+                # reject the row instead of saving an incomplete record.
+                _required = {
+                    "tasker": ("assigned_ql_id", "QL/QR"),
+                    "qr": ("assigned_pl_id", "PL"),
+                    "ql": ("assigned_pl_id", "PL"),
+                    "pl": ("assigned_tpm_id", "TPM"),
+                }.get(role_key)
+                if _required and not line[_required[0]]:
+                    log.append(
+                        f"Row {row_idx}: ERROR - a {_required[1]} must be "
+                        f"assigned for role '{role_key}'"
+                    )
                     errors += 1
                     continue
                 if email in seen_emails_in_batch:
@@ -572,7 +614,10 @@ class EmployeeRoleImportWizard(models.TransientModel):
                     if existing_user and not existing_user.active:
                         existing_user.write({"active": True})
 
-                    if not existing_user and self.create_user:
+                    if not existing_user:
+                        # Map an existing login by email first - this happens
+                        # regardless of create_user, because linking an
+                        # existing account is not the same as creating one.
                         orphan_user = Users.search([("login", "=ilike", email)], limit=1)
                         if orphan_user:
                             other_emp = Employee.search(
@@ -591,7 +636,7 @@ class EmployeeRoleImportWizard(models.TransientModel):
                             if not orphan_user.active:
                                 orphan_user.write({"active": True})
                             existing_user = orphan_user
-                        else:
+                        elif self.create_user:
                             user_vals = {
                                 "name": name,
                                 "login": email,
@@ -629,38 +674,41 @@ class EmployeeRoleImportWizard(models.TransientModel):
                     continue
 
                 user = False
-                if self.create_user:
-                    orphan_user = Users.search([("login", "=ilike", email)], limit=1)
-                    if orphan_user:
-                        other_emp = Employee.search(
-                            [("user_id", "=", orphan_user.id)],
-                            limit=1,
+                # Map an existing login by email first (regardless of
+                # create_user); only fall back to *creating* a user when the
+                # create_user flag is enabled.
+                orphan_user = Users.search([("login", "=ilike", email)], limit=1)
+                if orphan_user:
+                    other_emp = Employee.search(
+                        [("user_id", "=", orphan_user.id)],
+                        limit=1,
+                    )
+                    if other_emp:
+                        errors += 1
+                        log.append(
+                            f"Row {row_idx}: ERROR - login '{email}' is already "
+                            f"linked to employee #{other_emp.id} ({other_emp.name}). "
+                            f"Reconcile the two records before re-importing."
                         )
-                        if other_emp:
-                            errors += 1
-                            log.append(
-                                f"Row {row_idx}: ERROR - login '{email}' is already "
-                                f"linked to employee #{other_emp.id} ({other_emp.name}). "
-                                f"Reconcile the two records before re-importing."
-                            )
-                            continue
-                        if not orphan_user.active:
-                            orphan_user.write({"active": True})
-                        user = orphan_user
-                        user.write({
-                            "name": name,
-                            "group_ids": self._role_group_commands(group),
-                        })
-                    else:
-                        user_vals = {
-                            "name": name,
-                            "login": email,
-                            "email": email,
-                            "group_ids": self._role_group_commands(group),
-                        }
-                        if self.default_password:
-                            user_vals["password"] = self.default_password
-                        user = Users.create(user_vals)
+                        continue
+                    if not orphan_user.active:
+                        orphan_user.write({"active": True})
+                    user = orphan_user
+                    user.write({
+                        "name": name,
+                        "group_ids": self._role_group_commands(group),
+                    })
+                elif self.create_user:
+                    user_vals = {
+                        "name": name,
+                        "login": email,
+                        "email": email,
+                        "group_ids": self._role_group_commands(group),
+                    }
+                    if self.default_password:
+                        user_vals["password"] = self.default_password
+                    user = Users.create(user_vals)
+                if user:
                     touched_user_ids.add(user.id)
 
                 employee = False

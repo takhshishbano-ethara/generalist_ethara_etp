@@ -161,6 +161,15 @@ class EmployeeService:
         except (ValidationError, AccessError) as exc:
             raise EmployeeServiceError(str(exc)) from exc
 
+        # Apply the reporting hierarchy BEFORE the role: the mandatory-hierarchy
+        # constraint fires when the role is set, so the assigned manager must
+        # already be in place for a valid single-record create.
+        direct_hierarchy_vals = self._collect_direct_hierarchy_vals(emp, payload)
+        if direct_hierarchy_vals:
+            self.repo.update_employee(emp, direct_hierarchy_vals)
+        else:
+            self.repo.propagate_task_forge_chain(emp)
+
         if role_key:
             try:
                 emp.sudo().role = role_key
@@ -169,12 +178,6 @@ class EmployeeService:
                     "Role assignment skipped for new employee #%s: %s",
                     emp.id, exc,
                 )
-
-        direct_hierarchy_vals = self._collect_direct_hierarchy_vals(emp, payload)
-        if direct_hierarchy_vals:
-            self.repo.update_employee(emp, direct_hierarchy_vals)
-        else:
-            self.repo.propagate_task_forge_chain(emp)
         return self.serialize(emp)
 
     # ── Update ──────────────────────────────────────────────────────────────
@@ -295,8 +298,86 @@ class EmployeeService:
                     code="not_found",
                     http_status=404,
                 )
+            # Security: an assigned reporting manager must actually outrank the
+            # target employee for this slot — never trust the payload to do this.
+            self._validate_hierarchy_manager(emp, field, target)
             out[field] = target.id
         return out
+
+    # Reporting-slot field -> hierarchy tier key used in ROLE_HIERARCHY_FIELDS.
+    # The QL field and the QR field are BOTH the quality tier ('ql').
+    _HIERARCHY_FIELD_TIER = {
+        "task_forge_ql_id": "ql",
+        "task_forge_qr_id": "ql",
+        "task_forge_pl_id": "pl",
+        "task_forge_tpm_id": "tpm",
+    }
+    # Which manager roles may legitimately fill each reporting slot.
+    _HIERARCHY_FIELD_MANAGER_ROLES = {
+        "task_forge_ql_id": ("ql", "qr"),
+        "task_forge_qr_id": ("ql", "qr"),
+        "task_forge_pl_id": ("pl",),
+        "task_forge_tpm_id": ("tpm",),
+    }
+
+    def _validate_hierarchy_manager(self, emp, field, manager):
+        """Enforce role-hierarchy rules for one reporting-slot assignment.
+
+        Raises :class:`EmployeeServiceError` (http_status=400) when *manager*
+        may not occupy reporting slot *field* for *emp*; returns ``None`` when
+        the assignment is valid.  Missing roles are handled defensively: the
+        strictly-higher comparison is skipped when either role is unknown,
+        while applicability and tier checks still apply where roles are known.
+        """
+        tier = self._HIERARCHY_FIELD_TIER.get(field)
+        if tier is None:
+            return None
+
+        emp_role = emp.role or None
+        manager_role = manager.role or None
+        emp_label = ROLE_LABELS.get(emp_role, emp_role)
+        manager_label = ROLE_LABELS.get(manager_role, manager_role)
+        tier_label = ROLE_LABELS.get(tier, tier)
+
+        # 1. Applicability: this reporting slot must apply to the employee role.
+        if emp_role is not None and tier not in ROLE_HIERARCHY_FIELDS.get(
+            emp_role, ()
+        ):
+            raise EmployeeServiceError(
+                _(
+                    "Cannot assign a %(tier)s manager to a %(emp)s — this "
+                    "reporting slot does not apply to that role."
+                )
+                % {"tier": tier_label, "emp": emp_label},
+                http_status=400,
+            )
+
+        # 2. Manager tier match: the manager's role must fit the slot's tier.
+        if manager_role is not None and manager_role not in (
+            self._HIERARCHY_FIELD_MANAGER_ROLES.get(field, ())
+        ):
+            raise EmployeeServiceError(
+                _(
+                    "Cannot assign %(mgr)s to the %(tier)s reporting slot — "
+                    "the assigned manager must be a %(tier)s."
+                )
+                % {"mgr": manager_label, "tier": tier_label},
+                http_status=400,
+            )
+
+        # 3. Strictly-higher: the manager must outrank the employee.
+        if emp_role is not None and manager_role is not None and (
+            ROLE_LEVEL.get(manager_role, 0) <= ROLE_LEVEL.get(emp_role, 0)
+        ):
+            raise EmployeeServiceError(
+                _(
+                    "Cannot assign %(mgr)s as the manager of a %(emp)s — "
+                    "assigned manager must be a higher role."
+                )
+                % {"mgr": manager_label, "emp": emp_label},
+                http_status=400,
+            )
+        return None
 
     # ── Delete ──────────────────────────────────────────────────────────────
     def delete(self, employee_id: int) -> dict:
@@ -579,9 +660,14 @@ class EmployeeService:
         if not emp:
             return {}
         applicable = ROLE_HIERARCHY_FIELDS.get(emp.role or "", ())
-        assigned_ql = self.repo.resolve_assigned_ql(emp) if "ql" in applicable else None
-        assigned_pl = self.repo.resolve_assigned_pl(emp) if "pl" in applicable else None
-        assigned_tpm = self.repo.resolve_assigned_tpm(emp) if "tpm" in applicable else None
+        # Resolve the assigned managers from the stored task_forge_* values
+        # regardless of the employee's own role: non-applicable tiers are
+        # naturally empty (their task_forge_*_id is unset), and role-less
+        # imported employees (e.g. imported without a login user, so role is "")
+        # still surface their assigned QL/PL/TPM instead of returning null.
+        assigned_ql = self.repo.resolve_assigned_ql(emp)
+        assigned_pl = self.repo.resolve_assigned_pl(emp)
+        assigned_tpm = self.repo.resolve_assigned_tpm(emp)
         return {
             "id": emp.id,
             "employee_id": emp.employee_code or "",

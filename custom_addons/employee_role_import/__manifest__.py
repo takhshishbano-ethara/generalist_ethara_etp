@@ -1,6 +1,6 @@
 {
     "name": "Employee Role Import",
-    "version": "19.0.3.1.0",
+    "version": "19.0.3.2.0",
     "category": "Human Resources",
     "summary": "Bulk-import employees from CSV (UI wizard + REST API) and assign ETP roles.",
     "description": """

@@ -344,11 +344,15 @@ class EmployeeProfileController(http.Controller):
     def _build_basic_info(self, employee):
         joining = _joining_date(employee)
         session_str, working_status = self._employee_session(employee)
+        # The Task Forge hierarchy fields auto-populate from the reporting
+        # chain (see employee_role_import), so we read the existing fields
+        # directly.  task_forge_qr_id is the single QL/QR quality field.
         return {
             "emp_id": employee.id,
             "employee_name": employee.name or "",
             "joining_date": joining.isoformat() if joining else None,
             "pl_name": employee.task_forge_pl_id.name or "",
+            "tpm_name": employee.task_forge_tpm_id.name or "",
             "qr_name": employee.task_forge_qr_id.name or "",
             "user_role": employee.user_id.user_role.name or "",
             "user_session": session_str,

@@ -174,19 +174,20 @@
                                     <field name="assigned_ql_id"
                                            string="Assigned QL"
                                            options="{'no_create': True, 'no_create_edit': True}"
-                                           readonly="role in ('pl','tpm','cto','dm','hr_admin','it_admin')"/>
+                                           readonly="role != 'tasker'"/>
                                     <field name="assigned_pl_id"
                                            string="Assigned PL"
                                            options="{'no_create': True, 'no_create_edit': True}"
-                                           readonly="role in ('tpm','cto','dm','hr_admin','it_admin')"/>
+                                           readonly="role not in ('qr','ql')"/>
                                     <field name="assigned_tpm_id"
                                            string="Assigned TPM"
                                            options="{'no_create': True, 'no_create_edit': True}"
-                                           readonly="role in ('tpm','cto','dm','hr_admin','it_admin')"/>
+                                           readonly="role != 'pl'"/>
                                     <field name="status"
                                            widget="badge"
                                            decoration-success="status == 'ready'"
                                            decoration-warning="status == 'exists'"
+                                           decoration-danger="status == 'invalid'"
                                            readonly="1"/>
                                     <field name="has_issues" column_invisible="1"/>
                                     <field name="issue_text" optional="hide" readonly="1"/>
@@ -234,15 +235,19 @@
                 <field name="role" decoration-danger="not role"/>
                 <field name="job_title" string="Job Title"/>
                 <field name="assigned_ql_id" string="Assigned QL"
-                       options="{'no_create': True, 'no_create_edit': True}"/>
+                       options="{'no_create': True, 'no_create_edit': True}"
+                       readonly="role != 'tasker'"/>
                 <field name="assigned_pl_id" string="Assigned PL"
-                       options="{'no_create': True, 'no_create_edit': True}"/>
+                       options="{'no_create': True, 'no_create_edit': True}"
+                       readonly="role not in ('qr','ql')"/>
                 <field name="assigned_tpm_id" string="Assigned TPM"
-                       options="{'no_create': True, 'no_create_edit': True}"/>
+                       options="{'no_create': True, 'no_create_edit': True}"
+                       readonly="role != 'pl'"/>
                 <field name="status"
                        widget="badge"
                        decoration-success="status == 'ready'"
                        decoration-warning="status == 'exists'"
+                       decoration-danger="status == 'invalid'"
                        readonly="1"/>
                 <field name="has_issues" column_invisible="1"/>
                 <field name="issue_text" optional="hide" readonly="1"/>

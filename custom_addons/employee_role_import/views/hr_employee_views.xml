@@ -48,15 +48,15 @@
                 <field name="task_forge_ql_id"
                        string="Assigned QL"
                        options="{'no_create': True, 'no_create_edit': True}"
-                       readonly="role in ('pl','tpm','cto','dm','hr_admin','it_admin')"/>
+                       readonly="role != 'tasker'"/>
                 <field name="task_forge_pl_id"
                        string="Assigned PL"
                        options="{'no_create': True, 'no_create_edit': True}"
-                       readonly="role in ('tpm','cto','dm','hr_admin','it_admin')"/>
+                       readonly="role not in ('qr','ql')"/>
                 <field name="task_forge_tpm_id"
                        string="Assigned TPM"
                        options="{'no_create': True, 'no_create_edit': True}"
-                       readonly="role in ('tpm','cto','dm','hr_admin','it_admin')"/>
+                       readonly="role != 'pl'"/>
                 <field name="active" string="Status" widget="boolean_toggle"/>
                 <button name="action_delete_with_user"
                         type="object"
@@ -115,6 +115,32 @@
             <p class="o_view_nocontent_smiling_face">
                 No employees yet. Import some using the wizard.
             </p>
+        </field>
+    </record>
+
+    <!-- Make Task Forge hierarchy fields read-only (visible, but not fillable)
+         when they do not apply to the employee's own role. QL and QR are the
+         same level, so a QL/QR employee gets no quality-tier (QR) manager; a PL
+         gets no PL manager; TPM/CTO/HR get none. Lives here (not in
+         task_forge_bridge) because the `role` field is added by this module,
+         which loads after task_forge_bridge. -->
+    <record id="view_employee_form_task_forge_role_filter" model="ir.ui.view">
+        <field name="name">hr.employee.form.task.forge.role.filter</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="task_forge_bridge.view_employee_form_task_forge"/>
+        <field name="arch" type="xml">
+            <xpath expr="//page[@name='task_forge']//field[@name='task_forge_tpm_id']" position="before">
+                <field name="role" invisible="1"/>
+            </xpath>
+            <xpath expr="//page[@name='task_forge']//field[@name='task_forge_qr_id']" position="attributes">
+                <attribute name="readonly">role != 'tasker'</attribute>
+            </xpath>
+            <xpath expr="//page[@name='task_forge']//field[@name='task_forge_pl_id']" position="attributes">
+                <attribute name="readonly">role not in ('qr','ql')</attribute>
+            </xpath>
+            <xpath expr="//page[@name='task_forge']//field[@name='task_forge_tpm_id']" position="attributes">
+                <attribute name="readonly">role != 'pl'</attribute>
+            </xpath>
         </field>
     </record>
 

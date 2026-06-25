@@ -924,6 +924,10 @@ class EmployeeController(http.Controller):
                     'pl_name': emp.task_forge_pl_id.name if emp.task_forge_pl_id and emp.task_forge_pl_id.name else "",
                     'qr_id': emp.task_forge_qr_id.id if emp.task_forge_qr_id else 0,
                     'qr_name': emp.task_forge_qr_id.name if emp.task_forge_qr_id and emp.task_forge_qr_id.name else "",
+                    'ql_id': emp.task_forge_ql_id.id if emp.task_forge_ql_id else 0,
+                    'ql_name': emp.task_forge_ql_id.name if emp.task_forge_ql_id and emp.task_forge_ql_id.name else "",
+                    'tpm_id': emp.task_forge_tpm_id.id if emp.task_forge_tpm_id else 0,
+                    'tpm_name': emp.task_forge_tpm_id.name if emp.task_forge_tpm_id and emp.task_forge_tpm_id.name else "",
                     'active': emp.active or False,
                     'last_active': str(active_task.write_date + IST_OFFSET) if active_task else "",
                     'total_task_count': total_task_count,
@@ -1015,70 +1019,6 @@ class EmployeeController(http.Controller):
                 status=200,
                 data={'data': temp}
             )
-        except Exception as e:
-            return return_Response(message=str(e), status=400)
-
-    @http.route('/api/v2/get_pl_employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
-    @validate_token
-    def get_pl_employees_list(self, **kwargs):
-        try:
-            user = request.env.user
-            employee = user.employee_id
-            if not employee:
-                return return_Response(message="Employee profile not found", status=404)
-
-            Employee = request.env['hr.employee'].sudo()
-            domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_pl_technical').id,
-                                       request.env.ref('api_auth_gateway.role_pl_stem').id,
-                                       request.env.ref('api_auth_gateway.role_pl_non_stem').id]), ('task_forge_active', '=', True)]
-            employees = Employee.search(domain)
-            data = []
-            for emp in employees:
-                data.append({
-                    'id': emp.id if emp else 0,
-                    'name': emp.name if emp and emp.name else "",
-                    'email': emp.work_email if emp and emp.work_email else "",
-                    'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
-                    'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else ""
-                })
-            return return_Response(
-                message=f"{len(data)} employees found",
-                status=200,
-                data={
-                    'data': data,
-                    "total": len(data)
-                })
-        except Exception as e:
-            return return_Response(message=str(e), status=400)
-
-    @http.route('/api/v2/get_qr_employees_list', methods=['GET'], type='http', auth='none', csrf=False, cors='*')
-    @validate_token
-    def get_qr_employees_list(self, **kwargs):
-        try:
-            user = request.env.user
-            employee = user.employee_id
-            if not employee:
-                return return_Response(message="Employee profile not found", status=404)
-
-            Employee = request.env['hr.employee'].sudo()
-            domain = [('user_id.user_role', 'in', [request.env.ref('api_auth_gateway.role_qc_technical').id, request.env.ref('api_auth_gateway.role_qc_stem').id, request.env.ref('api_auth_gateway.role_qc_non_stem').id]), ('task_forge_active', '=', True)]
-            employees = Employee.search(domain)
-            data = []
-            for emp in employees:
-                data.append({
-                    'id': emp.id if emp else 0,
-                    'name': emp.name if emp and emp.name else "",
-                    'email': emp.work_email if emp and emp.work_email else "",
-                    'role_id': emp.user_id.user_role.id if emp.user_id.user_role else 0,
-                    'role': emp.user_id.user_role.name if emp.user_id.user_role and emp.user_id.user_role.name else ""
-                })
-            return return_Response(
-                message=f"{len(data)} employees found",
-                status=200,
-                data={
-                    'data': data,
-                    "total": len(data)
-                })
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
