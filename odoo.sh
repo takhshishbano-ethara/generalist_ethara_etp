@@ -1,6 +1,8 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
+export OPENSSL_CONF="$(pwd)/openssl-legacy.cnf"
+
 PIDFILE="$HOME/.odoo.pid"
 LOGFILE="$HOME/odoo.log"
 
