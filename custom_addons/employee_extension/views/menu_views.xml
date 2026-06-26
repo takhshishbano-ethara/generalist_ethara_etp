@@ -24,4 +24,10 @@
               action="action_hr_employee_assignment_history"
               sequence="2"/>
 
+    <menuitem id="menu_employee_import_wizard"
+              name="Import Employees"
+              parent="menu_employee_extension_root"
+              action="action_employee_import_wizard"
+              sequence="3"/>
+
 </odoo>

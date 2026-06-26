@@ -10,8 +10,8 @@ class HrEmployee(models.Model):
     # which is the canonical Employee ID populated by the CSV import and shown in
     # the form/list/search views. This field is no longer referenced by any view
     # and is retained only to avoid dropping its column; do not use it for new code.
-    emp_id = fields.Char(
-        string='Employee ID (deprecated)',
+    employee_code = fields.Char(
+        string='Employee Code (deprecated)',
         copy=False,
         index=True,
         help='Deprecated. Use employee_code instead (the Employee ID set at import time).',

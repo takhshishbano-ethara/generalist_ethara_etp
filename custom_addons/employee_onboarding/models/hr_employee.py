@@ -1,4 +1,9 @@
+import re
+
 from odoo import api, fields, models
+
+
+PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 
 
 SCORE_TYPE_SELECTION = [
@@ -283,34 +288,35 @@ class HrEmployee(models.Model):
                     ok = False
             emp.onboarding_completed = ok
 
-    @api.constrains("aadhaar_number")
-    def _check_aadhaar_number(self):
-        for rec in self:
-            value = (rec.aadhaar_number or "").strip()
-            if value and (not value.isdigit() or len(value) != 12):
-                from odoo.exceptions import ValidationError
+    @api.onchange("aadhaar_number")
+    def _onchange_aadhaar_number(self):
+        value = (self.aadhaar_number or "").strip()
+        if value and (not value.isdigit() or len(value) != 12):
+            return {
+                "warning": {
+                    "title": "Invalid Aadhaar Number",
+                    "message": "Aadhaar Number must be exactly 12 digits.",
+                }
+            }
 
-                raise ValidationError("Aadhaar Number must be exactly 12 digits.")
+    @api.onchange("pan_number")
+    def _onchange_pan_number(self):
+        value = (self.pan_number or "").strip().upper()
+        if value and not PAN_PATTERN.match(value):
+            return {
+                "warning": {
+                    "title": "Invalid PAN Number",
+                    "message": "PAN Number must follow the format AAAAA9999A (5 letters, 4 digits, 1 letter).",
+                }
+            }
 
-    @api.constrains("pan_number")
-    def _check_pan_number(self):
-        import re
-
-        pattern = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
-        for rec in self:
-            value = (rec.pan_number or "").strip().upper()
-            if value and not pattern.match(value):
-                from odoo.exceptions import ValidationError
-
-                raise ValidationError(
-                    "PAN Number must follow the format AAAAA9999A (5 letters, 4 digits, 1 letter)."
-                )
-
-    @api.constrains("uan_number")
-    def _check_uan_number(self):
-        for rec in self:
-            value = (rec.uan_number or "").strip()
-            if value and (not value.isdigit() or len(value) != 12):
-                from odoo.exceptions import ValidationError
-
-                raise ValidationError("UAN Number must be exactly 12 digits.")
+    @api.onchange("uan_number")
+    def _onchange_uan_number(self):
+        value = (self.uan_number or "").strip()
+        if value and (not value.isdigit() or len(value) != 12):
+            return {
+                "warning": {
+                    "title": "Invalid UAN Number",
+                    "message": "UAN Number must be exactly 12 digits.",
+                }
+            }

@@ -3,9 +3,30 @@ from odoo.http import request
 from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request,
 )
-from odoo.addons.employee_role_import.models.hr_employee import (
-    ROLE_LEVEL, ROLE_HIERARCHY_FIELDS, ROLE_SELECTION,
-)
+ROLE_GROUP_MAP = {
+    "tasker": ("etp_user_roles.group_tasker", "Tasker"),
+    "ql": ("etp_user_roles.group_quality_lead", "Quality Lead"),
+    "qr": ("etp_user_roles.group_quality_reviewer", "Quality Reviewer"),
+    "pl": ("etp_user_roles.group_project_lead", "Project Lead"),
+    "dm": ("etp_user_roles.group_delivery_manager", "Delivery Manager"),
+    "tpm": ("etp_user_roles.group_tpm", "TPM"),
+    "cto": ("etp_user_roles.group_cto", "CTO"),
+    "hr_admin": ("etp_user_roles.group_hr_admin", "HR Admin"),
+    "it_admin": ("etp_user_roles.group_it_admin", "IT Admin"),
+}
+ROLE_SELECTION = [(k, v[1]) for k, v in ROLE_GROUP_MAP.items()]
+ROLE_LEVEL = {
+    "tasker": 1,
+    "qr": 2,
+    "ql": 2,
+    "pl": 4,
+    "dm": 4,
+    "tpm": 5,
+    "cto": 6,
+    "hr_admin": 6,
+    "it_admin": 6,
+}
+
 import logging
 
 _logger = logging.getLogger(__name__)

@@ -27,10 +27,10 @@ This module extends the hr.employee functionality with:
     "data": [
         "security/ir.model.access.csv",
         "data/onboarding_email_template.xml",
-        "views/hr_employee_views.xml",
         "views/hr_applicant_views.xml",
         "views/allocation_request_views.xml",
         "views/assignment_history_views.xml",
+        "views/employee_import_wizard_views.xml",
         "views/menu_views.xml",
     ],
     "installable": True,

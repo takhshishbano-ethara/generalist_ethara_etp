@@ -9,3 +9,7 @@ access_hr_employee_assignment_history_admin,hr.employee.assignment.history.admin
 access_employee_college_public,employee.college.public,model_employee_college,base.group_public,1,0,0,0
 access_employee_college_user,employee.college.user,model_employee_college,base.group_user,1,0,0,0
 access_employee_college_hr_manager,employee.college.hr_manager,model_employee_college,hr.group_hr_manager,1,1,1,1
+access_employee_import_wizard_user,employee.import.wizard.user,model_employee_import_wizard,hr.group_hr_user,1,1,1,1
+access_employee_import_wizard_manager,employee.import.wizard.manager,model_employee_import_wizard,hr.group_hr_manager,1,1,1,1
+access_employee_import_line_user,employee.import.line.user,model_employee_import_line,hr.group_hr_user,1,1,1,1
+access_employee_import_line_manager,employee.import.line.manager,model_employee_import_line,hr.group_hr_manager,1,1,1,1

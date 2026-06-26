@@ -116,8 +116,8 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Personal email is invalid")
         if not is_valid_email(work_email) or not work_email.endswith(ETHARA_DOMAIN):
             errors.append("Ethara email must be a valid @ethara.ai address")
-        if not EMP_CODE_PATTERN.match(employee_code):
-            errors.append("Employee code must match the format GRPXXXX (e.g. GRP1234)")
+        # if not EMP_CODE_PATTERN.match(employee_code):
+        #     errors.append("Employee code must match the format GRPXXXX (e.g. GRP1234)")
         if not department_id:
             errors.append("Department is required")
         if not designation_id:
