@@ -232,6 +232,6 @@ pytesseract==0.3.13
 pyzbar==0.1.9
 pyaadhaar==2.0.2
 pyzk==0.9                  
-pyodbc==5.1.0              
+pyodbc           
 xmltodict==0.13.0          
 apscheduler==3.10.4       

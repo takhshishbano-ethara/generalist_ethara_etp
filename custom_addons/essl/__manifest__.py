@@ -10,8 +10,6 @@
     "data": [
         "security/essl_security.xml",
         "security/ir.model.access.csv",
-        "data/ir_cron_data.xml",
-        "data/disable_base_crons.xml",
         "data/api_config.xml",
         "views/essl_attendance_log_views.xml",
         "views/essl_server_views.xml",
