@@ -40,7 +40,7 @@ class FenrirTaskAttachment(models.Model):
         selection=[
             ("root", "Root"),
             ("resources", "Resources"),
-            ("tests", "Tests"),
+            # ("tests", "Tests"),
             ("environment", "Environment"),
             ("data", "Data"),
         ],

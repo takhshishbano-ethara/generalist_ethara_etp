@@ -87,9 +87,9 @@ class FenrirDriveConfig(models.Model):
              "(Cloudflare R2, MinIO, Backblaze B2, etc.).")
     s3_presigned_url_expiry_days = fields.Integer(
         string="Presigned URL Expiry (days)",
-        default=7,
+        default=30,
         help="How long the Drive-side download links stay valid. "
-             "AWS caps at 7 days for SigV4.")
+             "AWS caps at 30 days for SigV4.")
 
     # ── Computed display helpers ─────────────────────────────────────────
     @api.depends("parent_folder_id")
