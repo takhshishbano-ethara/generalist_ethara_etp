@@ -1,12 +1,12 @@
 {
     "name": "Lynceus - Prompt-to-Tasker Allocation",
-    "version": "19.0.6.1.6",
+    "version": "19.0.12.0.4",
     "category": "Operations/Quality",
     "summary": (
-        "Generate AI-image adversarial prompts via Anthropic Claude, allocate "
-        "them fairly to active taskers, capture outcomes, and recycle untouched "
-        "prompts after 12h inactivity. No prompt is ever duplicated, double-worked, "
-        "lost, or regenerated."
+        "Generate AI-image adversarial prompts via Gemini 3.5 Flash on GCP Vertex AI "
+        "(batched, one LLM call yields N prompts as N records), distribute them fairly "
+        "to active taskers, capture outcomes, and recycle untouched prompts after 24h "
+        "inactivity. No prompt is ever duplicated, double-worked, lost, or regenerated."
     ),
     "author": "Ethara",
     "license": "LGPL-3",
@@ -25,7 +25,6 @@
         "views/lynceus_prompt_views.xml",
         "views/lynceus_batch_views.xml",
         "views/lynceus_tasker_queue_views.xml",
-        "views/lynceus_assignment_log_views.xml",
         "views/lynceus_dashboard_views.xml",
         "views/res_config_settings_views.xml",
         "views/lynceus_menus.xml",

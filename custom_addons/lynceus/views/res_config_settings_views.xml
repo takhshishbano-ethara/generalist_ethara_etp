@@ -7,62 +7,32 @@
         <field name="arch" type="xml">
             <xpath expr="//form" position="inside">
                 <app data-string="Lynceus" string="Lynceus" name="lynceus" groups="lynceus.group_lynceus_manager">
-                    <block title="LLM Provider" name="lynceus_provider_block">
-                        <setting id="lynceus_provider_setting" string="Active Provider"
-                                 help="Selects which LLM is used for batch generation. Both keys can be kept configured; only the active provider is called.">
-                            <field name="lynceus_provider"/>
-                        </setting>
-                    </block>
-
-                    <block title="Anthropic Claude" name="lynceus_anthropic_block">
-                        <setting id="lynceus_anthropic_key_setting" string="API Key"
+                    <block title="Vertex AI (Gemini)" name="lynceus_vertex_block">
+                        <setting id="lynceus_vertex_key_setting" string="API Key"
                                  help="Stored encrypted. Once set, the field shows a mask - submit a new value to rotate.">
-                            <field name="lynceus_anthropic_api_key"
+                            <field name="lynceus_vertex_api_key"
                                    password="True"
-                                   placeholder="sk-ant-..."/>
-                            <div invisible="not lynceus_anthropic_api_key_is_set">
+                                   placeholder="AIza..."/>
+                            <div invisible="not lynceus_vertex_api_key_is_set">
                                 <span class="badge text-bg-success">API key configured</span>
                             </div>
                         </setting>
-                        <setting id="lynceus_anthropic_model_setting" string="Model">
-                            <field name="lynceus_anthropic_model"/>
+                        <setting id="lynceus_vertex_model_setting" string="Model"
+                                 help="Gemini model ID as exposed by Vertex AI Express endpoint, e.g. gemini-3.5-flash.">
+                            <field name="lynceus_vertex_model"/>
                         </setting>
-                        <setting id="lynceus_anthropic_base_url_setting" string="Base URL">
-                            <field name="lynceus_anthropic_base_url"/>
+                        <setting id="lynceus_vertex_base_url_setting" string="Base URL">
+                            <field name="lynceus_vertex_base_url"/>
                         </setting>
-                        <setting id="lynceus_anthropic_version_setting" string="API Version">
-                            <field name="lynceus_anthropic_version"/>
+                        <setting id="lynceus_vertex_retries_setting" string="Max Retries">
+                            <field name="lynceus_vertex_max_retries"/>
                         </setting>
-                        <setting id="lynceus_max_tokens_setting" string="Max Tokens / Call">
-                            <field name="lynceus_max_tokens_per_call"/>
+                        <setting id="lynceus_batch_call_size_setting" string="Prompts per LLM Call"
+                                 help="How many prompts a single Gemini call returns. Each parsed prompt becomes one DB record.">
+                            <field name="lynceus_batch_call_size"/>
                         </setting>
-                    </block>
-
-                    <block title="OpenRouter (Gemini / multi-model)" name="lynceus_openrouter_block">
-                        <setting id="lynceus_openrouter_key_setting" string="API Key"
-                                 help="Stored encrypted. Once set, the field shows a mask - submit a new value to rotate.">
-                            <field name="lynceus_openrouter_api_key"
-                                   password="True"
-                                   placeholder="sk-or-v1-..."/>
-                            <div invisible="not lynceus_openrouter_api_key_is_set">
-                                <span class="badge text-bg-success">API key configured</span>
-                            </div>
-                        </setting>
-                        <setting id="lynceus_openrouter_model_setting" string="Model Slug"
-                                 help="Any OpenRouter model slug. e.g. google/gemini-3.5-flash, anthropic/claude-3.5-sonnet, openai/gpt-4o-mini.">
-                            <field name="lynceus_openrouter_model"/>
-                        </setting>
-                        <setting id="lynceus_openrouter_base_url_setting" string="Base URL">
-                            <field name="lynceus_openrouter_base_url"/>
-                        </setting>
-                        <setting id="lynceus_openrouter_app_title_setting" string="App Title">
-                            <field name="lynceus_openrouter_app_title"/>
-                        </setting>
-                        <setting id="lynceus_openrouter_http_referer_setting" string="HTTP Referer">
-                            <field name="lynceus_openrouter_http_referer"/>
-                        </setting>
-                        <setting id="lynceus_openrouter_retries_setting" string="Max Retries">
-                            <field name="lynceus_openrouter_max_retries"/>
+                        <setting id="lynceus_vertex_max_tokens_setting" string="Max Output Tokens / Call">
+                            <field name="lynceus_vertex_max_output_tokens"/>
                         </setting>
                     </block>
 
@@ -83,7 +53,7 @@
 
                     <block title="Performance" name="lynceus_performance_block">
                         <setting id="lynceus_parallel_setting" string="Parallel API Calls"
-                                 help="Max concurrent HTTP requests during batch generation. Higher = faster, but check provider rate limits. Recommended: 10 for OpenRouter Gemini Flash, 5-8 for paid Anthropic Claude.">
+                                 help="Max concurrent HTTP requests during batch generation. Higher = faster, but check Vertex AI rate limits.">
                             <field name="lynceus_parallel_calls"/>
                         </setting>
                         <setting id="lynceus_bulk_insert_setting" string="Bulk Insert Chunk Size"

@@ -11,8 +11,7 @@ _logger = logging.getLogger(__name__)
 _ENCRYPTED_PREFIX = "fernet:1:"
 
 ENCRYPTED_PARAMS = frozenset({
-    "lynceus.anthropic_api_key",
-    "lynceus.openrouter_api_key",
+    "lynceus.vertex_api_key",
 })
 
 _key_cache_lock = threading.Lock()

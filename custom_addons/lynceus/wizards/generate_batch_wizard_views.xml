@@ -10,10 +10,10 @@
                         <field name="target_n"/>
                     </group>
                     <div class="alert alert-info" role="alert">
-                        Each call to Anthropic returns exactly one prompt (per seed-prompt rule).
-                        Lynceus will SHA256-deduplicate every output against the History Registry
-                        and keep retrying with fresh SEED= until N unique prompts enter the pool.
-                        Dedup rejection rate grows as the pool matures - watch the batch stats.
+                        Each Gemini call returns a batch of prompts (configurable, default 20).
+                        Lynceus SHA256-deduplicates every parsed prompt against the History
+                        Registry and creates one DB record per unique prompt. Maximum target
+                        per batch: 10000.
                     </div>
                 </sheet>
                 <footer>

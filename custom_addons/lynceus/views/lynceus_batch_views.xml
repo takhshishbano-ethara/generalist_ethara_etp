@@ -32,7 +32,12 @@
                 <header>
                     <button name="action_queue" string="Queue" type="object"
                             class="btn-primary" invisible="state not in ('draft','failed')"
-                            confirm="Queue this batch? It will start within 1 minute."/>
+                            confirm="Queue this batch? It will start shortly."/>
+                    <button name="action_mark_failed" string="Mark as Failed (Force)"
+                            type="object" class="btn-danger"
+                            invisible="not is_stuck"
+                            groups="base.group_system"
+                            confirm="Force-release this batch? Auto-recovery has already failed - generated prompts remain in the pool."/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,pending,running,done"/>
                 </header>
@@ -50,6 +55,8 @@
                                    invisible="state in ('draft','pending')"/>
                             <field name="generated_count" readonly="1"/>
                             <field name="dedup_rejected" readonly="1"/>
+                            <field name="llm_returned_total" readonly="1"/>
+                            <field name="parse_loss" readonly="1"/>
                             <field name="api_calls" readonly="1"/>
                             <field name="cost_usd" readonly="1"/>
                             <field name="started_at" readonly="1"/>
@@ -58,16 +65,37 @@
                     </group>
                     <div class="alert alert-info" role="alert" invisible="state != 'pending'">
                         <i class="fa fa-clock-o"/>
-                        Batch is queued. The scheduler runs every minute and will pick this up automatically.
+                        Batch is queued. It will start shortly and progress will appear here automatically.
                         You can refresh this page periodically to watch progress.
                     </div>
-                    <div class="alert alert-info" role="alert" invisible="state != 'running'">
+                    <div class="alert alert-info" role="alert" invisible="state != 'running' or is_recovering or is_stuck">
                         <i class="fa fa-cog fa-spin"/>
                         Generation in progress. Counters and progress bar update every 25 prompts.
                         Refresh this page to see the latest numbers.
                     </div>
+                    <div class="alert alert-warning" role="alert" invisible="not is_recovering">
+                        <h4><i class="fa fa-spinner fa-spin"/> Batch paused - auto-recovery in progress</h4>
+                        <p>
+                            The orchestrator stopped writing progress momentarily. It will resume shortly from
+                            <field name="generated_count" readonly="1" nolabel="1" class="oe_inline"/>
+                            /
+                            <field name="target_n" readonly="1" nolabel="1" class="oe_inline"/>.
+                            Keep this page open and refresh - progress will continue automatically.
+                        </p>
+                    </div>
+                    <div class="alert alert-danger" role="alert"
+                         invisible="not is_stuck"
+                         groups="base.group_system">
+                        <h4><i class="fa fa-exclamation-triangle"/> Batch is Stuck - Auto-Recovery Failed</h4>
+                        <p>
+                            This batch has been in <strong>running</strong> state with no heartbeat for
+                            <field name="seconds_since_last_activity" readonly="1" nolabel="1" class="oe_inline"/>
+                            seconds. Auto-recovery via Postgres advisory-lock + cron should have fired within 1-2 minutes - see diagnosis below.
+                        </p>
+                        <field name="stuck_diagnosis" widget="text" readonly="1" nolabel="1"/>
+                    </div>
                     <notebook>
-                        <page string="Generated Prompts">
+                        <page string="Generated Prompts" name="generated_prompts">
                             <field name="prompt_ids" readonly="1">
                                 <list>
                                     <field name="lynceus_id"/>
@@ -78,8 +106,53 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Error Log" invisible="not error_log">
+                        <page string="Error Log" name="error_log" invisible="not error_log">
                             <field name="error_log" widget="text" readonly="1"/>
+                        </page>
+                        <page string="LLM Call Details" name="llm_call_details" groups="base.group_system">
+                            <field name="llm_call_ids" readonly="1">
+                                <list>
+                                    <field name="sequence"/>
+                                    <field name="model"/>
+                                    <field name="requested_count"/>
+                                    <field name="returned_count"/>
+                                    <field name="input_tokens"/>
+                                    <field name="output_tokens"/>
+                                    <field name="thoughts_tokens"/>
+                                    <field name="cost_usd"/>
+                                    <field name="finish_reason"/>
+                                    <field name="create_date"/>
+                                </list>
+                                <form>
+                                    <sheet>
+                                        <group>
+                                            <group string="Metadata">
+                                                <field name="sequence"/>
+                                                <field name="model"/>
+                                                <field name="seed"/>
+                                                <field name="finish_reason"/>
+                                                <field name="create_date"/>
+                                            </group>
+                                            <group string="Counts &amp; Tokens">
+                                                <field name="requested_count"/>
+                                                <field name="returned_count"/>
+                                                <field name="input_tokens"/>
+                                                <field name="output_tokens"/>
+                                                <field name="thoughts_tokens"/>
+                                                <field name="cost_usd"/>
+                                            </group>
+                                        </group>
+                                        <notebook>
+                                            <page string="Parse Errors" name="parse_errors_page">
+                                                <field name="parse_errors" widget="text" nolabel="1"/>
+                                            </page>
+                                            <page string="Raw Response JSON" name="raw_response_page">
+                                                <field name="raw_response" widget="text" nolabel="1"/>
+                                            </page>
+                                        </notebook>
+                                    </sheet>
+                                </form>
+                            </field>
                         </page>
                     </notebook>
                 </sheet>

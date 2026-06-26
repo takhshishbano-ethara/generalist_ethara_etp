@@ -8,3 +8,4 @@ access_lynceus_generate_batch_wizard_manager,lynceus.generate.batch.wizard.manag
 access_lynceus_import_active_taskers_wizard_manager,lynceus.import.active.taskers.wizard.manager,model_lynceus_import_active_taskers_wizard,group_lynceus_manager,1,1,1,1
 access_lynceus_mark_bad_wizard_tasker,lynceus.mark.bad.wizard.tasker,model_lynceus_mark_bad_wizard,group_lynceus_tasker,1,1,1,1
 access_lynceus_mark_bad_wizard_manager,lynceus.mark.bad.wizard.manager,model_lynceus_mark_bad_wizard,group_lynceus_manager,1,1,1,1
+access_lynceus_llm_call_admin,lynceus.llm.call.admin,model_lynceus_llm_call,base.group_system,1,0,1,1
