@@ -234,8 +234,3 @@ class LynceusPrompt(models.Model):
     def _cron_reclaim_idle(self):
         from ..services import reclaimer
         reclaimer.cron_reclaim(self.env)
-
-    @api.model
-    def _cron_pool_depletion_alert(self):
-        from ..services import reclaimer
-        reclaimer.cron_pool_depletion_alert(self.env)

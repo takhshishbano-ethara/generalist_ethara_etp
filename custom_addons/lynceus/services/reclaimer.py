@@ -54,15 +54,3 @@ def sweep(env, reclaim_hours: int | None = None) -> int:
 
 def cron_reclaim(env) -> None:
     sweep(env)
-
-
-def cron_pool_depletion_alert(env) -> None:
-    ICP = env["ir.config_parameter"].sudo()
-    threshold = int(ICP.get_param("lynceus.pool_depletion_threshold", "500") or "500")
-    available = env["lynceus.prompt"].sudo().search_count([("state", "=", "available")])
-    if available < threshold:
-        _logger.warning(
-            "Lynceus pool depletion: %d AVAILABLE prompts (threshold %d). "
-            "Trigger a new generation batch.",
-            available, threshold,
-        )
