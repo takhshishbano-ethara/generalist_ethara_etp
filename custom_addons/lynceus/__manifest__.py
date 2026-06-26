@@ -1,6 +1,6 @@
 {
     "name": "Lynceus - Prompt-to-Tasker Allocation",
-    "version": "19.0.12.0.4",
+    "version": "19.0.12.0.5",
     "category": "Operations/Quality",
     "summary": (
         "Generate AI-image adversarial prompts via Gemini 3.5 Flash on GCP Vertex AI "
