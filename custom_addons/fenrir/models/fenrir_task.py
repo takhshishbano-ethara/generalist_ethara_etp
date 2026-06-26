@@ -1,6 +1,7 @@
 import base64
 import io
 import json
+import logging
 import re
 import zipfile
 
@@ -8,6 +9,9 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from . import fenrir_generators as gen
+
+
+_logger = logging.getLogger(__name__)
 
 
 def _slug(name):
@@ -252,6 +256,9 @@ class FenrirTask(models.Model):
             raise UserError("Only managers can approve tasks.")
         drive = self.env["fenrir.drive.service"]
         for rec in self:
+            _logger.info(
+                "Fenrir: user %s clicked Approve on task %s",
+                self.env.user.login, rec.code)
             drive.upload_task(rec)
             rec.status = "approved"
 
@@ -260,6 +267,9 @@ class FenrirTask(models.Model):
             raise UserError("Only managers can re-approve tasks.")
         drive = self.env["fenrir.drive.service"]
         for rec in self:
+            _logger.info(
+                "Fenrir: user %s clicked Re-approve on task %s",
+                self.env.user.login, rec.code)
             drive.upload_task(rec)
             rec.message_post(
                 body="Task re-approved — files regenerated and overwritten "
@@ -284,6 +294,9 @@ class FenrirTask(models.Model):
             rec._regenerate_task_package()
             rec.status = "pending_review"
             rec.submitted_at = fields.Datetime.now()
+            _logger.info(
+                "Fenrir: user %s clicked Submit on task %s",
+                self.env.user.login, rec.code)
 
     # ── Submit-time validation ────────────────────────────────────────────
     _REQUIRED_TASK_FIELDS = (
@@ -555,7 +568,7 @@ class FenrirTask(models.Model):
             "Instructions.md", "Data (media)",
             "Resources (refs & supporting docs)", "Environment", "Tests",
             "License", "Task Metadata.json", "ratings.json",
-            "Deliverables and data",
+            "Deliverables",
         ]
         widths = [6, 14, 18, 28, 40, 40, 30, 24, 12, 14, 22, 30, 18, 12,
                   60, 16, 16, 18, 22, 40, 40, 40, 40, 18, 22, 22, 60]
@@ -565,26 +578,45 @@ class FenrirTask(models.Model):
         ws.freeze_panes(1, 0)
         ws.set_row(0, 32)
 
-        # Drive URL cache: {task_id: {relative_path: webViewLink}}
-        # Populated lazily per task when status is approved/completed and
-        # the task has a Drive folder. Falls back to file names if Drive
-        # is unreachable.
+        # Drive URL cache: {task_id: {relative_path: webViewLink}}.
+        # We try task.drive_folder_id first (fast path). If that's empty,
+        # we list every sub-folder under the configured Drive parent ONCE
+        # and look up the task by its code. That way the export still
+        # finds Drive URLs for tasks whose drive_folder_id was never
+        # written back to Odoo (e.g. seed tasks, or rows re-imported from
+        # outside the standard upload flow).
         drive_cache = {}
         DriveService = self.env["fenrir.drive.service"]
+        parent_state = {"listed": False, "map": {}}
+
+        def _parent_subfolders():
+            if not parent_state["listed"]:
+                parent_state["map"] = DriveService.list_task_subfolders()
+                parent_state["listed"] = True
+                _logger.info(
+                    "Fenrir export: parent folder listing returned "
+                    "%d subfolders",
+                    len(parent_state["map"]))
+            return parent_state["map"]
 
         def _drive_urls(task):
             if task.id in drive_cache:
                 return drive_cache[task.id]
             urls = {}
-            if (task.status in ("approved", "completed")
-                    and task.drive_folder_id):
+            folder_id = (task.drive_folder_id or "").strip()
+            origin = "task.drive_folder_id"
+
+            if not folder_id:
+                folder_id = _parent_subfolders().get(task.code or "", "")
+                origin = "parent lookup by code"
+
+            if folder_id:
                 try:
-                    urls = DriveService.list_files_with_urls(
-                        task.drive_folder_id)
+                    urls = DriveService.list_files_with_urls(folder_id)
                     _logger.info(
                         "Fenrir export: drive lookup task=%s folder=%s "
-                        "returned %d entries",
-                        task.code, task.drive_folder_id, len(urls))
+                        "(%s) returned %d entries",
+                        task.code, folder_id, origin, len(urls))
                 except Exception:  # noqa: BLE001
                     _logger.warning(
                         "Fenrir export: drive lookup FAILED task=%s",
@@ -593,12 +625,18 @@ class FenrirTask(models.Model):
             else:
                 _logger.info(
                     "Fenrir export: skip drive lookup task=%s "
-                    "(status=%s, drive_folder_id=%r)",
-                    task.code, task.status, task.drive_folder_id)
+                    "(no folder_id; not under Drive parent either)",
+                    task.code)
             drive_cache[task.id] = urls
             return urls
 
         def _atts(task, folder):
+            """Fallback listing of filename — URL pairs in `folder`.
+
+            Used when no single folder URL is available (e.g. Drive walk
+            couldn't reach the folder) so the cell still shows what's
+            attached to the task instead of going blank.
+            """
             files = task.attachment_ids.filtered(lambda a: a.folder == folder)
             urls = _drive_urls(task)
             lines = []
@@ -611,6 +649,10 @@ class FenrirTask(models.Model):
                 lines.append(f"{f.file_name} — {url}" if url
                              else f.file_name)
             return "\n".join(lines) or ""
+
+        def _folder_url(task, folder):
+            """Return the Drive URL of the task sub-folder if known."""
+            return _drive_urls(task).get(folder, "") or ""
 
         def _drive_url_for(task, *candidate_paths):
             urls = _drive_urls(task)
@@ -628,10 +670,20 @@ class FenrirTask(models.Model):
                 lines.append(att.name or "")
             return "\n".join(l for l in lines if l)
 
-        # Columns that describe the task (merged when a task has >1 offer)
-        # and columns that describe an individual seller offer (one row each).
-        TASK_COLS = (0, 1, 2, 3, 4, 5, 6, 7, 8, 9,
-                     18, 19, 20, 21, 22, 23, 24, 25)
+        def _deliv_file_urls(task, offer, seller_dir):
+            """Per-file Drive URLs for an offer's deliverables, newline-joined."""
+            urls = _drive_urls(task)
+            lines = []
+            for d in offer.deliverable_file_ids:
+                fn = _norm_filename(d.file_name or f"deliverable_{d.id}")
+                url = urls.get(f"{seller_dir}/deliverables/{fn}", "")
+                lines.append(url or d.file_name or "")
+            for att in offer.deliverable_attachment_ids:
+                fn = _norm_filename(att.name or f"deliverable_{att.id}")
+                url = urls.get(f"{seller_dir}/deliverables/{fn}", "")
+                lines.append(url or att.name or "")
+            return "\n".join(l for l in lines if l)
+
         url_fmt = wb.add_format({
             "valign": "top", "text_wrap": True,
             "color": "#0563C1", "underline": 1,
@@ -661,7 +713,7 @@ class FenrirTask(models.Model):
             n = len(offers)
             r0, r1 = row, row + n - 1
 
-            # Per-seller rows: cols 10..17 and 26
+            # Per-seller rows: cols 10..17, 25 (ratings.json), 26 (deliverables)
             for i, offer in enumerate(offers):
                 r = row + i
                 if offer:
@@ -683,12 +735,32 @@ class FenrirTask(models.Model):
                     else:
                         _put(r, 16, "")
                     _put(r, 17, offer.accepted_delivery)
-                    _put(r, 26, _delivs(offer))
+
+                    seller_dir = (
+                        f"submissions/seller_{offer.seller_no or offer.id}"
+                    )
+                    ratings_url = _drive_url_for(
+                        task, f"{seller_dir}/ratings.json")
+                    if ratings_url:
+                        ws.write_url(r, 25, ratings_url, url_fmt,
+                                     string=ratings_url)
+                    else:
+                        _put(r, 25, "ratings.json (generated)")
+
+                    delivs_url = _drive_url_for(
+                        task, f"{seller_dir}/deliverables")
+                    if delivs_url:
+                        ws.write_url(r, 26, delivs_url, url_fmt,
+                                     string=delivs_url)
+                    else:
+                        _put(r, 26,
+                             _deliv_file_urls(task, offer, seller_dir)
+                             or _delivs(offer))
                 else:
-                    for c in (10, 11, 12, 13, 14, 15, 16, 17, 26):
+                    for c in (10, 11, 12, 13, 14, 15, 16, 17, 25, 26):
                         _put(r, c, "")
 
-            # Per-task columns: cols 0..9 and 18..25 — merged across seller rows.
+            # Per-task columns: cols 0..9 and 18..24 — merged across seller rows.
             _put_task_cell(r0, r1, 0, sr)
             _put_task_cell(r0, r1, 1, task.code)
             _put_task_cell(r0, r1, 2, task.category_id.name)
@@ -696,8 +768,18 @@ class FenrirTask(models.Model):
             _put_task_cell(r0, r1, 4, task.overview)
             _put_task_cell(r0, r1, 5, task.scope_of_work)
             _put_task_cell(r0, r1, 6, task.company_details)
-            prd = task.assets_url or task.assets_filename or ""
-            _put_task_cell(r0, r1, 7, prd, url=bool(task.assets_url))
+            prd_url = task.assets_url or ""
+            if not prd_url and task.assets_filename:
+                norm = _norm_filename(task.assets_filename)
+                prd_url = _drive_url_for(
+                    task,
+                    f"resources/{norm}",
+                    f"resources/{task.assets_filename}",
+                    norm,
+                    task.assets_filename,
+                )
+            prd = prd_url or task.assets_filename or ""
+            _put_task_cell(r0, r1, 7, prd, url=bool(prd_url))
             _put_task_cell(r0, r1, 8, task.price_tier)
             if task.delivery_time:
                 if r1 > r0:
@@ -713,14 +795,32 @@ class FenrirTask(models.Model):
                 r0, r1, 18,
                 instr_url or (task.instruction_md_filename or ""),
                 url=bool(instr_url))
-            _put_task_cell(r0, r1, 19, _atts(task, "data"))
-            _put_task_cell(r0, r1, 20, _atts(task, "resources"))
-            env_parts = [_atts(task, "environment")]
-            if task.environment_base_runtime:
-                env_parts.insert(0, f"base: {task.environment_base_runtime}")
-            _put_task_cell(r0, r1, 21,
-                           "\n".join(p for p in env_parts if p))
-            _put_task_cell(r0, r1, 22, _atts(task, "tests"))
+            data_url = _folder_url(task, "data")
+            _put_task_cell(
+                r0, r1, 19,
+                data_url or _atts(task, "data"),
+                url=bool(data_url))
+            res_url = _folder_url(task, "resources")
+            _put_task_cell(
+                r0, r1, 20,
+                res_url or _atts(task, "resources"),
+                url=bool(res_url))
+            env_url = _folder_url(task, "environment")
+            if env_url:
+                _put_task_cell(r0, r1, 21, env_url, url=True)
+            else:
+                env_parts = [_atts(task, "environment")]
+                if task.environment_base_runtime:
+                    env_parts.insert(
+                        0, f"base: {task.environment_base_runtime}")
+                _put_task_cell(
+                    r0, r1, 21,
+                    "\n".join(p for p in env_parts if p))
+            tests_url = _folder_url(task, "tests")
+            _put_task_cell(
+                r0, r1, 22,
+                tests_url or _atts(task, "tests"),
+                url=bool(tests_url))
             lic_url = _drive_url_for(task, "license.json")
             _put_task_cell(
                 r0, r1, 23,
@@ -731,23 +831,6 @@ class FenrirTask(models.Model):
                 r0, r1, 24,
                 meta_url or "task_metadata.json (generated)",
                 url=bool(meta_url))
-            ratings_url = ""
-            if offers and offers[0]:
-                # ratings.json lives per-seller under sellers/<seller>/...
-                for o in offers:
-                    seller_slug = (o.seller or "").strip()
-                    candidates = [
-                        f"sellers/{seller_slug}/ratings.json",
-                        "ratings.json",
-                    ]
-                    ratings_url = _drive_url_for(task, *candidates)
-                    if ratings_url:
-                        break
-            _put_task_cell(
-                r0, r1, 25,
-                ratings_url or (
-                    "ratings.json (generated)" if any(offers) else ""),
-                url=bool(ratings_url))
 
             row += n
             sr += 1
@@ -1053,8 +1136,8 @@ class FenrirTask(models.Model):
                 for s in offer.rubric_score_ids.sorted("rubric_sequence")
             ],
             "rater_id": (
-                f"rater_{offer.task_id.lead_user_id.id:03d}"
-                if offer.task_id.lead_user_id else ""
+                f"rater_{offer.task_id.create_uid.id:03d}"
+                if offer.task_id.create_uid else ""
             ),
             # rating_date: user-set on the seller offer. Falls back to the
             # latest rubric-score write_date (then offer create_date) for

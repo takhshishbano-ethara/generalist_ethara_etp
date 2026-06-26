@@ -111,11 +111,19 @@ class FenrirDriveService(models.AbstractModel):
     # ── Low-level Drive helpers ──────────────────────────────────────────
     @staticmethod
     def _folder_exists(service, folder_id):
+        """True only if the folder is reachable AND not in Drive Trash.
+
+        A trashed folder still resolves via files.get(), but writing
+        children into it makes them invisible to the standard listing
+        query (`trashed = false`). Treating trashed as non-existent
+        forces _upload_task_inner to fall through to creating a fresh
+        folder instead of reusing the trashed one.
+        """
         try:
-            service.files().get(
+            meta = service.files().get(
                 fileId=folder_id, fields="id, trashed",
                 supportsAllDrives=True).execute()
-            return True
+            return not meta.get("trashed")
         except Exception:  # noqa: BLE001 — Drive HttpError + any net failure
             return False
 
@@ -177,12 +185,58 @@ class FenrirDriveService(models.AbstractModel):
             fileId=folder_id, body={"trashed": True},
             supportsAllDrives=True).execute()
 
+    def list_task_subfolders(self):
+        """Return {folder_name: folder_id} for every immediate sub-folder
+        of the configured Drive parent folder. Used by the All-Tasks Excel
+        export to discover per-task Drive folders by code, even when
+        task.drive_folder_id was never written back to Odoo.
+        Empty dict on any Drive failure (export still proceeds)."""
+        try:
+            service, parent_id = self._build_client()
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "Fenrir Drive: list_task_subfolders — client init failed.",
+                exc_info=True)
+            return {}
+        if not parent_id:
+            return {}
+
+        result = {}
+        page_token = None
+        while True:
+            try:
+                resp = service.files().list(
+                    q=(f"'{parent_id}' in parents and trashed = false "
+                       f"and mimeType = '{DRIVE_FOLDER_MIME}'"),
+                    fields="nextPageToken, files(id, name)",
+                    pageToken=page_token,
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                ).execute()
+            except Exception:  # noqa: BLE001
+                _logger.warning(
+                    "Fenrir Drive: list_task_subfolders page failed.",
+                    exc_info=True)
+                return result
+            for f in resp.get("files", []):
+                result[f["name"]] = f["id"]
+            page_token = resp.get("nextPageToken")
+            if not page_token:
+                break
+        return result
+
     def list_files_with_urls(self, root_folder_id):
         """Walk a Drive folder tree and return {relative_path: webViewLink}.
 
         Used by the All-Tasks Excel export to put real Drive URLs in the
         attachment columns instead of just file names. Returns an empty dict
         if the root folder cannot be reached (so the export still proceeds).
+
+        Both files AND folders are recorded — folders are keyed by their
+        relative path with no trailing slash (e.g. ``"data"`` or
+        ``"submissions/seller_1"``), so the export can put a single folder
+        URL in the Data / Resources / Environment / Tests columns instead of
+        a list of individual file URLs.
         """
         if not root_folder_id:
             return {}
@@ -192,6 +246,30 @@ class FenrirDriveService(models.AbstractModel):
             _logger.warning(
                 "Fenrir Drive: list_files_with_urls — client init failed; "
                 "skipping URL lookup.", exc_info=True)
+            return {}
+
+        # Detect a trashed root folder up front. The walk's children query
+        # uses `trashed = false`, which silently returns 0 results for a
+        # trashed parent — indistinguishable from "folder exists and is
+        # genuinely empty". A single get() here surfaces the real cause
+        # in the log so re-uploads / Drive Trash restores are obvious.
+        try:
+            meta = service.files().get(
+                fileId=root_folder_id,
+                fields="id, name, trashed",
+                supportsAllDrives=True,
+            ).execute()
+        except Exception:  # noqa: BLE001
+            _logger.warning(
+                "Fenrir Drive: cannot read folder %s metadata; "
+                "URL lookup will return empty.",
+                root_folder_id, exc_info=True)
+            return {}
+        if meta.get("trashed"):
+            _logger.warning(
+                "Fenrir Drive: folder %s (%r) is in Drive Trash — "
+                "restore it or re-upload the task to populate URLs.",
+                root_folder_id, meta.get("name"))
             return {}
 
         result = {}
@@ -217,6 +295,7 @@ class FenrirDriveService(models.AbstractModel):
                     name = f["name"]
                     path = f"{prefix}{name}"
                     if f["mimeType"] == DRIVE_FOLDER_MIME:
+                        result[path] = f.get("webViewLink") or ""
                         walk(f["id"], f"{path}/")
                     else:
                         result[path] = f.get("webViewLink") or ""
