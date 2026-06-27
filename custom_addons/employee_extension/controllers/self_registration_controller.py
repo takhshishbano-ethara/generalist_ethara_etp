@@ -210,7 +210,7 @@ class EmployeeSelfRegistrationController(http.Controller):
         )
         if not company:
             return return_Response(message="No company configured", status=500)
-        dep_id = Department.search([('id', '=', department_id)], limit=1, order='id asc')
+        dep_id = request.env['hr.employee.designation'].sudo().search([('id', '=', designation_id)], limit=1, order='id asc')
         new_user = ResUsers.with_company(company).with_context(
             no_reset_password=True,
             mail_create_nosubscribe=True,
