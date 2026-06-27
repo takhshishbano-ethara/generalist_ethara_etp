@@ -20,6 +20,12 @@
             <field name="user_type">hr</field>
         </record>
 
+        <record id="role_candidate_technical" model="api.role">
+            <field name="name">Candidate</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">candidate</field>
+        </record>
+
         <record id="role_pl_technical" model="api.role">
             <field name="name">PL</field>
             <field name="project_type">technical</field>
