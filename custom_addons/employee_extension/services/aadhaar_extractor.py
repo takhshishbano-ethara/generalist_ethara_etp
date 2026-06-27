@@ -34,8 +34,11 @@ _OCR_MAX_DIM = 2200        # downscale long edge before OCR to bound CPU time
 
 
 _AADHAAR_RE = re.compile(r'(?<!\d)(\d{4})\s?(\d{4})\s?(\d{4})(?!\d)')
+# [DP][O0Q][BS580] tolerates OCR drift on "DOB" — Tesseract often reads
+# D as P at higher DPIs, B as S/8/5/0, and O as 0/Q. The trailing date
+# pattern guards against false positives like the words "DOS" or "POS".
 _DOB_RE = re.compile(
-    r'(?:DOB|D\s*\.?\s*O\s*\.?\s*B\.?|Date\s*of\s*Birth)\s*[:\-]?\s*'
+    r'(?:[DP][O0Q][BS580]|D\s*\.?\s*O\s*\.?\s*B\.?|Date\s*of\s*Birth)\s*[:\-]?\s*'
     r'(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})',
     re.IGNORECASE,
 )
@@ -58,8 +61,11 @@ _NAME_INITIAL_RE = re.compile(r'^[A-Z]\.?$')          # single initial, e.g. "A.
 # Anchors that the name sits next to. The name is the clean line(s) directly
 # ABOVE a relationship / dated-DOB line, and directly BELOW a "To" line.
 _RELATION_RE = re.compile(
-    r'^\s*(?:S\s*/\s*O|D\s*/\s*O|W\s*/\s*O|C\s*/\s*O|'
-    r'SON\s+OF|DAUGHTER\s+OF|WIFE\s+OF|CARE\s+OF)\b',
+    r'^\s*(?:'
+    r'(?:S|D|W|C)\s*/\s*O\b|'
+    r'(?:SON|DAUGHTER|WIFE|CARE)\s+OF\b|'
+    r'(?:FATHER|MOTHER|HUSBAND|GUARDIAN)\s*[:\-]'
+    r')',
     re.IGNORECASE,
 )
 _TO_RE = re.compile(r'^\s*to\s*:?\s*$', re.IGNORECASE)
@@ -224,18 +230,92 @@ def _downscale_for_ocr(img):
         return img
 
 
+_DIGIT_OCR_CFG = '--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789 '
+_NUMBER_STRIP_THRESHOLDS = (80, 100, 120, 60)
+
+
+def _ocr_aadhaar_from_bottom(img):
+    """Last-resort digit pass: the green-gradient watermark behind the bottom
+    number row blurs Tesseract's digit recognition (it usually returns only
+    the first 4 digits). Crop+4x upscale+low-threshold binarise erases the
+    watermark so all 12 digits read; the threshold sweep handles cards with
+    different shading."""
+    if _pytesseract is None or _PIL_Image is None:
+        return None
+    try:
+        w, h = img.size
+    except Exception:
+        return None
+    if w < 200 or h < 200:
+        return None
+    strip = img.crop(
+        (int(w * 0.05), int(h * 0.55), w, h)
+    ).convert('L')
+    strip = strip.resize(
+        (strip.size[0] * 4, strip.size[1] * 4), _PIL_Image.LANCZOS,
+    )
+    for threshold in _NUMBER_STRIP_THRESHOLDS:
+        binarized = strip.point(lambda p, t=threshold: 0 if p < t else 255)
+        try:
+            text = _pytesseract.image_to_string(
+                binarized, lang='eng', config=_DIGIT_OCR_CFG,
+                timeout=_OCR_PAGE_TIMEOUT,
+            )
+        except Exception:
+            _logger.debug("Bottom-strip OCR failed", exc_info=True)
+            continue
+        for m in _AADHAAR_RE.finditer(text):
+            digits = m.group(1) + m.group(2) + m.group(3)
+            if digits[0] in '23456789':
+                return digits
+    return None
+
+
+def _ocr_page(img, config=''):
+    if _pytesseract is None:
+        return ''
+    try:
+        return _pytesseract.image_to_string(
+            _downscale_for_ocr(img), lang='eng',
+            config=config, timeout=_OCR_PAGE_TIMEOUT,
+        )
+    except Exception:
+        # Includes Tesseract's timeout — skip the page rather than hang.
+        _logger.debug("Tesseract failed or timed out", exc_info=True)
+        return ''
+
+
+def _parse_fields(text, out):
+    if not out.get('aadhaar_number'):
+        for m in _AADHAAR_RE.finditer(text):
+            digits = m.group(1) + m.group(2) + m.group(3)
+            if digits[0] in '23456789':
+                out['aadhaar_number'] = digits
+                out['aadhaar_last4'] = digits[-4:]
+                break
+    if not out.get('dob'):
+        m = _DOB_RE.search(text)
+        if m:
+            out['dob'] = _normalize_dob(m.group(1))
+    if not out.get('dob'):
+        m = _YOB_RE.search(text)
+        if m:
+            out['dob'] = f"{m.group(1)}-01-01"
+    if not out.get('gender'):
+        m = _GENDER_RE.search(text)
+        if m:
+            v = m.group(1).upper()
+            if v in _GENDER_MAP:
+                out['gender'] = _GENDER_MAP[v]
+    if not out.get('name'):
+        out['name'] = _extract_name_from_text(text)
+
+
 def _try_ocr(images):
     if _pytesseract is None:
         return None
-    chunks = []
-    for img in images:
-        try:
-            chunks.append(_pytesseract.image_to_string(
-                _downscale_for_ocr(img), lang='eng', timeout=_OCR_PAGE_TIMEOUT,
-            ))
-        except Exception:
-            # Includes Tesseract's timeout — skip the page rather than hang.
-            _logger.debug("Tesseract failed or timed out on page", exc_info=True)
+    chunks = [_ocr_page(img) for img in images]
+    chunks = [c for c in chunks if c]
     if not chunks:
         return None
 
@@ -248,29 +328,26 @@ def _try_ocr(images):
         'gender': None,
         'is_masked': bool(_MASK_RE.search(text)),
     }
+    _parse_fields(text, out)
 
-    for m in _AADHAAR_RE.finditer(text):
-        digits = m.group(1) + m.group(2) + m.group(3)
-        if digits[0] in '23456789':
-            out['aadhaar_number'] = digits
-            out['aadhaar_last4'] = digits[-4:]
-            break
+    # PSM 3 (default, auto-segmentation) sometimes drops a whole text block
+    # near the photo — most commonly the cardholder's English name. PSM 6
+    # treats the page as one block and picks those up. Only retry when a
+    # critical field is still missing, to keep clean cards on the fast path.
+    if not (out['name'] and out['dob'] and out['aadhaar_number']):
+        psm6_chunks = [_ocr_page(img, config='--oem 3 --psm 6') for img in images]
+        psm6_text = '\n'.join(c for c in psm6_chunks if c)
+        if psm6_text.strip():
+            out['is_masked'] = out['is_masked'] or bool(_MASK_RE.search(psm6_text))
+            _parse_fields(psm6_text, out)
 
-    m = _DOB_RE.search(text)
-    if m:
-        out['dob'] = _normalize_dob(m.group(1))
-    if not out['dob']:
-        m = _YOB_RE.search(text)
-        if m:
-            out['dob'] = f"{m.group(1)}-01-01"
-
-    m = _GENDER_RE.search(text)
-    if m:
-        v = m.group(1).upper()
-        if v in _GENDER_MAP:
-            out['gender'] = _GENDER_MAP[v]
-
-    out['name'] = _extract_name_from_text(text)
+    if not out['aadhaar_number']:
+        for img in images:
+            recovered = _ocr_aadhaar_from_bottom(img)
+            if recovered:
+                out['aadhaar_number'] = recovered
+                out['aadhaar_last4'] = recovered[-4:]
+                break
 
     return out
 
@@ -287,7 +364,7 @@ def _name_token_kind(tok):
     return None
 
 
-def _name_candidate(line):
+def _name_candidate(line, allow_single=False):
     """Score a single OCR line as a possible person name.
 
     Returns ``(clean_name, score)`` or ``(None, 0.0)`` when the line is not a
@@ -295,6 +372,11 @@ def _name_candidate(line):
     ("Akshita Dixit"); OCR of the Devanagari name line above it (run in
     ``lang='eng'``) tends to come out as ALLCAPS/short junk ("STU FT HY a"),
     so Title-case words are scored far higher and win the tie-break.
+
+    ``allow_single=True`` accepts single-token names (e.g. "Sahiba") — used
+    only when the line sits next to a strong anchor (DOB, relationship, To)
+    so we don't have to settle for noisy fallback hits. Single tokens are
+    still required to be Title-case and >= 4 chars to filter OCR junk.
     """
     upper = line.upper()
     if any(skip in upper for skip in _NAME_SKIP_TOKENS):
@@ -311,20 +393,18 @@ def _name_candidate(line):
         if kind is None:
             break
         kept.append((kind, tok.strip('.')))
-    if len(kept) < 2:
+    if not kept:
         return None, 0.0
 
     title = sum(1 for kind, _ in kept if kind == 'title')
     caps = sum(1 for kind, _ in kept if kind == 'caps')
 
-    # A real name has consistent casing. If the line has Title-case words, keep
-    # only those (plus initials) and drop stray ALLCAPS tokens, which are almost
-    # always OCR junk merged onto the line ("Akshita Dixit STU" -> "Akshita
-    # Dixit"). Otherwise treat it as an ALLCAPS name and keep the caps tokens.
     primary = 'title' if title else 'caps'
     words = [t for kind, t in kept if kind in (primary, 'initial')]
+
     if len(words) < 2:
-        return None, 0.0
+        if not (allow_single and len(words) == 1 and title == 1 and len(words[0]) >= 4):
+            return None, 0.0
 
     # Reject lines that are only short ALLCAPS tokens (classic OCR noise from
     # the Hindi name line), e.g. "STU FT HY".
@@ -367,7 +447,7 @@ def _extract_name_from_text(text):
         for off in range(1, 4):
             j = idx + direction * off
             if 0 <= j < n:
-                name, score = _name_candidate(lines[j])
+                name, score = _name_candidate(lines[j], allow_single=True)
                 if name:
                     candidates.append((score, off, name))
 
@@ -387,14 +467,100 @@ def _extract_name_from_text(text):
     return best[2]
 
 
-def _names_match(extracted_name, entered_name):
-    e = re.sub(r'[^a-zA-Z\s]', ' ', extracted_name).lower()
-    n = re.sub(r'[^a-zA-Z\s]', ' ', entered_name).lower()
-    e_tokens = {t for t in e.split() if len(t) > 1}
-    n_tokens = {t for t in n.split() if len(t) > 1}
-    if not e_tokens or not n_tokens:
+_NAME_HONORIFICS = frozenset({
+    'mr', 'mrs', 'ms', 'miss', 'dr', 'prof', 'shri', 'sri', 'smt',
+    'shrimati', 'ji', 'late',
+})
+
+
+def _name_tokens(name):
+    cleaned = re.sub(r'[^a-zA-Z\s]', ' ', name or '').lower()
+    words, initials = [], []
+    for tok in cleaned.split():
+        if tok in _NAME_HONORIFICS:
+            continue
+        if len(tok) == 1:
+            initials.append(tok)
+        else:
+            words.append(tok)
+    return words, initials
+
+
+def _initials_compatible(short_words, short_initials, long_words):
+    """Every short-side token must map to a long-side token.
+
+    A short word matches if it equals a long word. A short initial matches
+    if some long word starts with that letter (and isn't already claimed by
+    another short token).
+    """
+    if not short_words and not short_initials:
         return False
-    return e_tokens == n_tokens
+    remaining = list(long_words)
+    for w in short_words:
+        if w in remaining:
+            remaining.remove(w)
+        else:
+            return False
+    for i in short_initials:
+        match = next((w for w in remaining if w.startswith(i)), None)
+        if match is None:
+            return False
+        remaining.remove(match)
+    return True
+
+
+def _names_match(extracted_name, entered_name):
+    """Identity-check name match — strict enough for KYC, lenient enough to
+    accept the same person spelled with or without middle names, honorifics,
+    or initials.
+
+    Accepts:
+      * exact token set match ("Bhushan Diwakar" == "Bhushan Diwakar")
+      * one name is a subset of the other AND they share >= 2 tokens
+        (covers "Bhushan Diwakar" vs "Bhushan Kumar Diwakar")
+      * first AND last name match (covers reordered middle names)
+      * initial-vs-full-name match ("B Diwakar" vs "Bhushan Diwakar")
+      * single-token names if that token appears in the other name
+
+    Honorifics (Mr, Mrs, Dr, Shri, Smt, ...) are stripped from both sides.
+    """
+    e_words, e_initials = _name_tokens(extracted_name)
+    n_words, n_initials = _name_tokens(entered_name)
+    if not (e_words or e_initials) or not (n_words or n_initials):
+        return False
+
+    e_set, n_set = set(e_words), set(n_words)
+    if e_set and e_set == n_set:
+        return True
+
+    if e_set and n_set:
+        shared = e_set & n_set
+        if len(shared) >= 2 and (e_set <= n_set or n_set <= e_set):
+            return True
+        if (
+            len(e_words) >= 2
+            and len(n_words) >= 2
+            and e_words[0] == n_words[0]
+            and e_words[-1] == n_words[-1]
+        ):
+            return True
+
+    # Initial-vs-full handling: try matching the shorter side against the
+    # longer side both ways round so it's symmetric.
+    if _initials_compatible(e_words, e_initials, n_words):
+        return True
+    if _initials_compatible(n_words, n_initials, e_words):
+        return True
+
+    # Single-token fallback: a single word on one side that appears on the
+    # other (handles users entering just first or last name when the card
+    # only has two name tokens).
+    if len(e_words) == 1 and len(n_words) >= 1 and e_words[0] in n_set:
+        return True
+    if len(n_words) == 1 and len(e_words) >= 1 and n_words[0] in e_set:
+        return True
+
+    return False
 
 
 def extract_aadhaar(file_bytes, filename):
@@ -487,19 +653,41 @@ def verify_against_input(extracted, entered_aadhaar, entered_dob=None, entered_n
             "Please upload a clearer, unmasked scan."
         ), checks
 
-    if entered_dob and extracted.get('dob'):
-        checks['dob_match'] = (extracted['dob'] == entered_dob)
+    if entered_dob:
+        if extracted.get('dob'):
+            checks['dob_match'] = (extracted['dob'] == entered_dob)
+        else:
+            checks['dob_match'] = False
 
-    if entered_name and extracted.get('name'):
-        checks['name_match'] = _names_match(extracted['name'], entered_name)
+    if entered_name:
+        if extracted.get('name'):
+            checks['name_match'] = _names_match(extracted['name'], entered_name)
+        else:
+            checks['name_match'] = False
 
+    unreadable = []
     failed = []
+    if checks['dob_match'] is False and not extracted.get('dob'):
+        unreadable.append('dob')
+    elif checks['dob_match'] is False:
+        failed.append('dob')
+    if checks['name_match'] is False and not extracted.get('name'):
+        unreadable.append('name')
+    elif checks['name_match'] is False:
+        failed.append('name')
     if checks['aadhaar_match'] is False:
         failed.append('aadhaar')
-    if checks['dob_match'] is False:
-        failed.append('dob')
-    if checks['name_match'] is False:
-        failed.append('name')
+
+    if unreadable:
+        unreadable_labels = {
+            'dob': 'Date of Birth',
+            'name': 'name',
+        }
+        joined = ' and '.join(unreadable_labels[f] for f in unreadable)
+        return False, (
+            f"Could not read the {joined} from the uploaded Aadhaar card. "
+            "Please upload a clearer image of the original Aadhaar."
+        ), checks
 
     if failed:
         single_messages = {

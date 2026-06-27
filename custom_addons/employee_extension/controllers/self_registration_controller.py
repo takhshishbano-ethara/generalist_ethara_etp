@@ -751,13 +751,17 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors = []
             if not is_valid_aadhaar(entered_aadhaar):
                 errors.append("Aadhaar number must be 12 digits and start with 2-9")
-            if not aadhaar_b64:
-                errors.append("Aadhaar card upload is required")
-            if entered_dob:
+            if not entered_name:
+                errors.append("Name is required")
+            if not entered_dob:
+                errors.append("Date of birth is required")
+            else:
                 try:
                     datetime.strptime(entered_dob, '%Y-%m-%d')
                 except ValueError:
                     errors.append("Date of birth must be in YYYY-MM-DD format")
+            if not aadhaar_b64:
+                errors.append("Aadhaar card upload is required")
             if errors:
                 return return_Response(message=errors[0], status=400, errors=errors)
 
