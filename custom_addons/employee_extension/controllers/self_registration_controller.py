@@ -116,8 +116,8 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Personal email is invalid")
         if not is_valid_email(work_email) or not work_email.endswith(ETHARA_DOMAIN):
             errors.append("Ethara email must be a valid @ethara.ai address")
-        if not EMP_CODE_PATTERN.match(employee_code):
-            errors.append("Employee code must match the format GRPXXXX (e.g. GRP1234)")
+        # if not EMP_CODE_PATTERN.match(employee_code):
+        #     errors.append("Employee code must match the format GRPXXXX (e.g. GRP1234)")
         if not department_id:
             errors.append("Department is required")
         if not designation_id:
@@ -210,7 +210,7 @@ class EmployeeSelfRegistrationController(http.Controller):
         )
         if not company:
             return return_Response(message="No company configured", status=500)
-
+        dep_id = request.env['hr.employee.designation'].sudo().search([('id', '=', designation_id)], limit=1, order='id asc')
         new_user = ResUsers.with_company(company).with_context(
             no_reset_password=True,
             mail_create_nosubscribe=True,
@@ -223,6 +223,7 @@ class EmployeeSelfRegistrationController(http.Controller):
             'password': password,
             'company_id': company.id,
             'company_ids': [(6, 0, [company.id])],
+            'user_role': dep_id.user_role.id if dep_id and dep_id.user_role else False
         })
 
         employee_vals = {
@@ -435,6 +436,7 @@ class EmployeeSelfRegistrationController(http.Controller):
             return return_Response(message="No company configured", status=500)
 
         portal_group = admin_env.ref('base.group_portal', raise_if_not_found=False)
+        user_role = request.env.ref('api_auth_gateway.role_candidate_technical')
         user_vals = {
             'name': name,
             'login': personal_email,
@@ -442,6 +444,7 @@ class EmployeeSelfRegistrationController(http.Controller):
             'password': password,
             'company_id': company.id,
             'company_ids': [(6, 0, [company.id])],
+            'user_role': user_role.id if user_role else False,
         }
         if portal_group:
             user_vals['group_ids'] = [(6, 0, [portal_group.id])]

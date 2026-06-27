@@ -18,6 +18,7 @@ import base64
 import logging
 import mimetypes
 import os
+import re
 import time
 import uuid
 
@@ -35,6 +36,8 @@ _logger = logging.getLogger(__name__)
 
 
 S3_PREFIX = "employee_onboarding"
+
+PAN_PATTERN = re.compile(r"^[A-Z]{5}[0-9]{4}[A-Z]$")
 
 ALLOWED_DOCUMENT_TYPES = {
     "resume",
@@ -76,6 +79,32 @@ def _normalize_gender(value):
     if not value:
         return False
     return GENDER_MAP.get(str(value).strip().lower(), False)
+
+
+def _validate_identity_keys(params):
+    errors = []
+
+    aadhaar = params.get("aadhaar_number")
+    if aadhaar not in (None, ""):
+        value = str(aadhaar).strip()
+        if not value.isdigit() or len(value) != 12:
+            errors.append("Aadhaar Number must be exactly 12 digits.")
+
+    pan = params.get("pan_number")
+    if pan not in (None, ""):
+        value = str(pan).strip().upper()
+        if not PAN_PATTERN.match(value):
+            errors.append(
+                "PAN Number must follow the format AAAAA9999A (5 letters, 4 digits, 1 letter)."
+            )
+
+    uan = params.get("uan_number")
+    if uan not in (None, ""):
+        value = str(uan).strip()
+        if not value.isdigit() or len(value) != 12:
+            errors.append("UAN Number must be exactly 12 digits.")
+
+    return errors
 
 
 def _upload_to_s3(b64data, document_type, employee_id, original_filename=None):
@@ -427,6 +456,14 @@ class EmployeeOnboardingController(http.Controller):
 
             step = params.pop("step", None)
             final_submit = _truthy(params.pop("final_submit", None))
+
+            identity_errors = _validate_identity_keys(params)
+            if identity_errors:
+                return return_Response(
+                    message="Invalid identity details.",
+                    status=400,
+                    errors=identity_errors,
+                )
 
             vals = _vals_from_params(params)
 

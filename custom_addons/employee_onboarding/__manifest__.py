@@ -33,7 +33,6 @@ persisted. REST APIs are exposed under /api/v2/employee-onboarding for create
         "api_auth_gateway",
         "s3_connector",
         "hr_employee_updation",
-        "employee_role_import",
         "project_extension",
     ],
     "data": [

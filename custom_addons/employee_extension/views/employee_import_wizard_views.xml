@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_employee_import_wizard_form" model="ir.ui.view">
+        <field name="name">employee.import.wizard.form</field>
+        <field name="model">employee.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Employees from CSV">
+                <header>
+                    <button name="action_import"
+                            string="Import"
+                            type="object"
+                            class="btn-primary"
+                            invisible="state == 'done' or not line_ids"/>
+                    <button name="action_view_imported_employees"
+                            string="View Imported Employees"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state != 'done' or not imported_employee_ids"/>
+                    <button name="action_view_imported_users"
+                            string="View Created Users"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="state != 'done' or not imported_user_ids"/>
+                    <button name="action_reset"
+                            string="Reset"
+                            type="object"
+                            class="btn-secondary"/>
+                    <button special="cancel"
+                            string="Close"
+                            class="btn-secondary"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Upload">
+                            <field name="csv_file"
+                                   filename="csv_filename"
+                                   readonly="state == 'done'"/>
+                            <field name="csv_filename" invisible="1"/>
+                            <field name="create_user" readonly="state == 'done'"/>
+                            <field name="default_password"
+                                   password="True"
+                                   invisible="not create_user"
+                                   readonly="state == 'done'"/>
+                        </group>
+                        <group string="Summary" invisible="not line_ids">
+                            <field name="total_count" readonly="1"/>
+                            <field name="ready_count" readonly="1"/>
+                            <field name="issue_count" readonly="1"/>
+                        </group>
+                        <group string="Results" invisible="state != 'done'">
+                            <field name="import_count" readonly="1"/>
+                            <field name="update_count" readonly="1"/>
+                            <field name="user_count" readonly="1"/>
+                            <field name="error_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <div class="alert alert-info" role="status"
+                         invisible="line_ids">
+                        Upload a CSV with columns:
+                        <b>name</b>, <b>email</b>, <b>employee_code</b>,
+                        <b>role</b>, <b>reporting_manager</b>.
+                        Roles: tasker, qr, ql, pl, tpm, cto, hr_admin.
+                        Reporting manager is required for tasker/qr/ql/pl
+                        and must point to an employee with the next-tier role.
+                    </div>
+                    <notebook>
+                        <page string="Preview" name="preview" invisible="not line_ids">
+                            <field name="line_ids" readonly="state == 'done'">
+                                <list editable="bottom"
+                                      decoration-danger="has_issues"
+                                      decoration-warning="status == 'exists'"
+                                      decoration-success="status == 'ready'">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name" required="1"/>
+                                    <field name="email" required="1"/>
+                                    <field name="employee_code"/>
+                                    <field name="role" required="1"/>
+                                    <field name="requires_manager" column_invisible="1"/>
+                                    <field name="allowed_manager_role_id" column_invisible="1"/>
+                                    <field name="reporting_manager_id"
+                                           readonly="not requires_manager"
+                                           required="requires_manager"
+                                           domain="[('user_id.user_role', '=', allowed_manager_role_id)]"
+                                           options="{'no_create': True, 'no_open': True}"/>
+                                    <field name="status"
+                                           widget="badge"
+                                           decoration-success="status == 'ready'"
+                                           decoration-warning="status == 'exists'"
+                                           decoration-danger="status == 'invalid'"/>
+                                    <field name="issue_text"
+                                           optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Import Log" name="log" invisible="not log_text">
+                            <field name="log_text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_employee_import_wizard" model="ir.actions.act_window">
+        <field name="name">Import Employees from CSV</field>
+        <field name="res_model">employee.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

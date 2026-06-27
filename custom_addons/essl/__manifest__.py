@@ -5,7 +5,7 @@
     "category": "Human Resources",
     "author": "Ethara",
     "license": "LGPL-3",
-    "depends": ["hr_attendance", "hr", "mail", "employee_role_import"],
+    "depends": ["hr_attendance", "hr", "mail"],
     "external_dependencies": {"python": ["pyodbc"]},
     "data": [
         "security/essl_security.xml",

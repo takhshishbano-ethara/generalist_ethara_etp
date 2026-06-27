@@ -7,6 +7,8 @@ class EmployeeDesignation(models.Model):
     name = fields.name = fields.Char(string="Designation Name", required=True)
     code = fields.Char(string="Code")
     active = fields.Boolean(default=True)
+    user_role = fields.Many2one('api.role', string='User Role')
+
 
 class HrEmployee(models.Model):
     _inherit = 'hr.employee'
