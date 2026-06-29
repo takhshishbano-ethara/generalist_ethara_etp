@@ -10,6 +10,26 @@ _logger = logging.getLogger(__name__)
 
 _IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# Tried in order. Driver 17 (and 13) don't suffer from the OpenSSL 3
+# "legacy sigalg disallowed" handshake failure that Driver 18 hits when
+# the SQL Server presents a SHA-1 / legacy self-signed certificate.
+_DRIVER_PREFERENCE = (
+    "ODBC Driver 18 for SQL Server",
+    "ODBC Driver 17 for SQL Server",
+    "ODBC Driver 13 for SQL Server",
+)
+
+# Substrings that indicate a TLS/sigalg handshake failure worth retrying
+# with an older driver. Anything else (auth, network, db missing) is fatal
+# and must surface immediately.
+_TLS_FALLBACK_MARKERS = (
+    "legacy sigalg",
+    "SSL Provider",
+    "SSL routines",
+    "ssl handshake",
+    "TLS",
+)
+
 DEVICE_SOURCE_COLUMNS = (
     "DeviceId",
     "DeviceFName",
@@ -94,30 +114,58 @@ class EsslServer(models.Model):
                 "pyodbc is not installed on the Odoo server. "
                 "Install it with: pip install pyodbc (also requires ODBC Driver 18 for SQL Server)"
             ))
+
+        installed = {d.strip() for d in pyodbc.drivers()}
+        candidates = [d for d in _DRIVER_PREFERENCE if d in installed]
+        if not candidates:
+            raise UserError(_(
+                "No supported SQL Server ODBC driver found on the Odoo host. "
+                "Installed drivers: %s. Install msodbcsql18 (or 17)."
+            ) % (", ".join(sorted(installed)) or _("none")))
+
         timeout = self.db_timeout or 10
-        conn_str = (
-            "DRIVER={ODBC Driver 18 for SQL Server};"
-            "SERVER=%s,%d;"
-            "DATABASE=%s;"
-            "UID=%s;"
-            "PWD=%s;"
-            "Encrypt=no;"
-            "TrustServerCertificate=yes;"
-            "Connection Timeout=%d;"
-        ) % (
-            self.db_host,
-            self.db_port or 1433,
-            self.db_name,
-            self.db_username,
-            self.db_password or "",
-            timeout,
-        )
-        try:
-            conn = pyodbc.connect(conn_str, timeout=timeout)
-        except Exception as exc:
-            raise UserError(_("Connection failed: %s") % exc)
-        conn.timeout = timeout
-        return conn
+        last_exc = None
+        for driver in candidates:
+            conn_str = (
+                "DRIVER={%s};"
+                "SERVER=%s,%d;"
+                "DATABASE=%s;"
+                "UID=%s;"
+                "PWD=%s;"
+                "Encrypt=no;"
+                "TrustServerCertificate=yes;"
+                "Connection Timeout=%d;"
+            ) % (
+                driver,
+                self.db_host,
+                self.db_port or 1433,
+                self.db_name,
+                self.db_username,
+                self.db_password or "",
+                timeout,
+            )
+            try:
+                conn = pyodbc.connect(conn_str, timeout=timeout)
+            except Exception as exc:
+                last_exc = exc
+                msg = str(exc)
+                if any(marker in msg for marker in _TLS_FALLBACK_MARKERS):
+                    _logger.warning(
+                        "ESSL %s: driver %r failed TLS handshake (%s); trying next driver",
+                        self.name, driver, msg.splitlines()[0][:200],
+                    )
+                    continue
+                raise UserError(_("Connection failed: %s") % exc)
+            if driver != candidates[0]:
+                _logger.info(
+                    "ESSL %s: connected via fallback driver %r", self.name, driver,
+                )
+            conn.timeout = timeout
+            return conn
+
+        raise UserError(_(
+            "Connection failed for all installed drivers (%s). Last error: %s"
+        ) % (", ".join(candidates), last_exc))
 
     def action_test_connection(self):
         self.ensure_one()
