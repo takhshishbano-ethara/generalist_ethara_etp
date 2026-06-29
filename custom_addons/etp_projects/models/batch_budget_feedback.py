@@ -10,12 +10,12 @@ RATING_SELECTION = [
 
 class EtpBatchBudgetFeedback(models.Model):
     _name = "etp.batch.budget.feedback"
-    _description = "Batch Budget Client Feedback"
+    _description = "Phase Budget Client Feedback"
     _order = "date desc, id desc"
 
     batch_id = fields.Many2one(
         "etp.batch.budget",
-        string="Batch Budget",
+        string="Phase Budget",
         required=True,
         ondelete="cascade",
         index=True,

@@ -83,6 +83,12 @@ class EtpProjectAwsBudget(models.Model):
              "to auto-pick the right budget once a project + project type are chosen.",
     )
     active = fields.Boolean(default=True)
+    attachment_ids = fields.Text(
+        string="Attachment URLs",
+        help="Comma-separated S3 URLs of files attached to this budget. "
+             "Populated by the project_budget create/update REST endpoints when "
+             "the caller posts files as multipart/form-data under the 'attachments' key.",
+    )
     state = fields.Selection(
         [
             ("draft", "Draft"),
@@ -110,11 +116,37 @@ class EtpProjectAwsBudget(models.Model):
         tracking=True,
         help="Buffer percentage applied on top of the budget.",
     )
+    total_tasks = fields.Integer(
+        string="Total Tasks",
+        default=0,
+        tracking=True,
+        help="Total number of tasks planned across all phases for this project budget. "
+             "Source of truth used to compute the AI model cost component "
+             "(total_tasks x sum(model_line.per_task_cost)).",
+    )
+    description = fields.Text(
+        string="Description",
+        tracking=True,
+        help="Free-form description / justification supplied when the budget was created.",
+    )
+    priority = fields.Selection(
+        [
+            ("low", "Low"),
+            ("normal", "Normal"),
+            ("high", "High"),
+            ("urgent", "Urgent"),
+        ],
+        string="Priority",
+        default="normal",
+        tracking=True,
+        help="Priority of this project budget. Also stamped onto the initial "
+             "phase budget request that is auto-created at project budget creation.",
+    )
     model_line_ids = fields.One2many(
         "etp.project.budget.model.line",
         "budget_id",
         string="Model Lines",
-        help="AI models and their per-task cost. Used by Operations budgets and Batch Budget snapshots.",
+        help="AI models and their per-task cost. Used by Operations budgets and Phase Budget snapshots.",
     )
     infra_line_ids = fields.One2many(
         "etp.project.budget.infra.line",
@@ -122,7 +154,12 @@ class EtpProjectAwsBudget(models.Model):
         string="Infrastructure Lines",
         help="Infrastructure cost components (EC2, S3, RDS, ...).",
     )
-
+    subscription_line_ids = fields.One2many(
+        "etp.project.budget.subscription.line",
+        "budget_id",
+        string="Subscription Lines",
+        help="Monthly/daily SaaS or service subscriptions tied to this project budget.",
+    )
     aws_access_key_id = fields.Char(string="AWS Access Key ID")
     aws_secret_access_key = fields.Char(string="AWS Secret Access Key")
     aws_region = fields.Char(default="us-east-1", string="AWS Region")
@@ -282,30 +319,30 @@ class EtpProjectAwsBudget(models.Model):
         "user_id",
         string="Approvers",
         default=lambda self: [(6, 0, self._get_default_approver_user_ids())],
-        help="Users authorised to approve Batch Budget and Top-up requests on this project. "
+        help="Users authorised to approve Phase Budget and Top-up requests on this project. "
              "New budgets are pre-filled from the 'Default Project Budget Approvers' "
              "configured under Settings.",
     )
     cto_user_id = fields.Many2one(
         "res.users",
         string="CTO (Threshold Alerts)",
-        help="Recipient of batch consumption threshold alert mails.",
+        help="Recipient of phase consumption threshold alert mails.",
     )
     batch_budget_ids = fields.One2many(
-        "etp.batch.budget", "project_budget_id", string="Batch Budgets",
+        "etp.batch.budget", "project_budget_id", string="Phase Budgets",
     )
     topup_ids = fields.One2many(
         "etp.project.budget.topup", "project_budget_id", string="Top-up Requests",
     )
     allocated_amount = fields.Float(
-        string="Allocated to Batches (USD)",
+        string="Allocated to Phases (USD)",
         compute="_compute_batch_totals", store=False,
-        help="Unallocated leftover from delivered batches, waiting to be "
-             "carried into the next new or restarted batch (becomes zero "
+        help="Unallocated leftover from delivered phases, waiting to be "
+             "carried into the next new or restarted phase (becomes zero "
              "once carried over).",
     )
     consumed_amount = fields.Float(
-        string="Consumed by Batches (USD)",
+        string="Consumed by Phases (USD)",
         compute="_compute_batch_totals", store=False,
     )
     topup_total_amount = fields.Float(
@@ -320,7 +357,7 @@ class EtpProjectAwsBudget(models.Model):
         string="Available to Allocate (USD)",
         compute="_compute_batch_totals", store=False,
         help="Project funding (initial budget + approved top-ups) not yet "
-             "allocated to batches. New batch requests draw from this.",
+             "allocated to phases. New phase requests draw from this.",
     )
     consumed_pct = fields.Float(
         string="Consumed %",
@@ -350,8 +387,18 @@ class EtpProjectAwsBudget(models.Model):
     total_approved_amount = fields.Float(
         string="Total Approved Budget (USD)",
         compute="_compute_batch_totals", store=False,
-        help="Sum of the Approved Amount across all batches (batch-wise "
+        help="Sum of the Approved Amount across all phases (phase-wise "
              "approved budget).",
+    )
+    done_tasks = fields.Integer(
+        string="Done Tasks",
+        compute="_compute_batch_totals", store=False,
+        help="Sum of Done Tasks across all phases (from each phase's Daily Task Log).",
+    )
+    remaining_tasks = fields.Integer(
+        string="Remaining Tasks",
+        compute="_compute_batch_totals", store=False,
+        help="Total Tasks minus Done Tasks. Clamped at zero.",
     )
     batch_budget_remain = fields.Float(
         string="Delivered Leftover Pool (USD)",
@@ -359,8 +406,8 @@ class EtpProjectAwsBudget(models.Model):
         readonly=True,
         copy=False,
         tracking=True,
-        help="Unused approved amount from delivered batches. Auto-allocated "
-             "to the next new or restarted batch.",
+        help="Unused approved amount from delivered phases. Auto-allocated "
+             "to the next new or restarted phase.",
     )
 
     @api.model
@@ -423,11 +470,13 @@ class EtpProjectAwsBudget(models.Model):
 
     @api.depends(
         "budget_amount",
+        "total_tasks",
         "batch_budget_ids.state",
         "batch_budget_ids.approved_amount",
         "batch_budget_ids.carried_over_amount",
         "batch_budget_ids.consumed_cost",
         "batch_budget_ids.closed_remaining",
+        "batch_budget_ids.done_tasks",
         "batch_budget_remain",
         "topup_ids.state",
         "topup_ids.amount",
@@ -455,12 +504,17 @@ class EtpProjectAwsBudget(models.Model):
             #  carried over into it from a delivered batch).
             approved_total = 0.0
             consumed = 0.0
+            done = 0
             for batch in rec.batch_budget_ids:
                 if batch.state in ("rejected", "withdrawn"):
                     continue
                 approved_total += batch.approved_amount or 0.0
                 consumed += batch.consumed_cost or 0.0
+                done += batch.done_tasks or 0
             rec.total_approved_amount = approved_total
+            rec.done_tasks = done
+            remaining = (rec.total_tasks or 0) - done
+            rec.remaining_tasks = remaining if remaining > 0 else 0
             # Allocated to Batches = unallocated delivered-leftover pool,
             # waiting to be carried into the next new/restarted batch.
             rec.allocated_amount = rec.batch_budget_remain or 0.0
@@ -627,6 +681,35 @@ class EtpProjectAwsBudget(models.Model):
             "params": {
                 "type": notif_type,
                 "title": _("GCP cost fetch"),
+                "message": "\n".join(messages) or _("No records."),
+                "sticky": True,
+            },
+        }
+
+    def action_resync_ai_catalogs(self):
+        messages = []
+        for rec in self:
+            lines = rec.cost_line_ids
+            counts = lines._ensure_ai_models_from_lines() or {}
+            messages.append(
+                "%s: lines=%s model=%s infra=%s skipped=%s "
+                "(created models=%s, infra=%s)"
+                % (
+                    rec.name,
+                    counts.get("total", 0),
+                    counts.get("model", 0),
+                    counts.get("infra", 0),
+                    counts.get("skipped", 0),
+                    counts.get("models_created", 0),
+                    counts.get("infra_created", 0),
+                )
+            )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": "info",
+                "title": _("AI / Infra catalog resync"),
                 "message": "\n".join(messages) or _("No records."),
                 "sticky": True,
             },
@@ -1021,7 +1104,9 @@ class EtpProjectAwsBudget(models.Model):
                 usd = float(row.get("usage") or 0.0)
             except (TypeError, ValueError):
                 usd = 0.0
-            model = (row.get("model") or "").strip() or "unknown"
+            permaslug = (row.get("model_permaslug") or "").strip()
+            requested = (row.get("model") or "").strip()
+            model = permaslug or requested or "unknown"
             try:
                 inp = int(row.get("prompt_tokens") or 0)
             except (TypeError, ValueError):

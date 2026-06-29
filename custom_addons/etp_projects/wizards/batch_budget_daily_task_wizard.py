@@ -1,7 +1,3 @@
-from datetime import datetime, time
-
-import pytz
-
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -10,22 +6,13 @@ WARNING_RATIO = 1.0
 CRITICAL_RATIO = 1.1
 
 
-def _user_today_bounds(env):
-    tz = pytz.timezone(env.user.tz or "UTC")
-    today_local = fields.Date.context_today(env.user)
-    start_local = tz.localize(datetime.combine(today_local, time.min))
-    end_local = tz.localize(datetime.combine(today_local, time(23, 59, 59)))
-    to_utc = lambda d: d.astimezone(pytz.UTC).replace(tzinfo=None)
-    return to_utc(start_local), to_utc(end_local)
-
-
 class EtpBatchBudgetDailyTaskWizard(models.TransientModel):
     _name = "etp.batch.budget.daily.task.wizard"
-    _description = "Batch Budget Daily Task Wizard"
+    _description = "Phase Budget Daily Task Wizard"
 
     batch_id = fields.Many2one(
         "etp.batch.budget",
-        string="Batch Budget",
+        string="Phase Budget",
         required=True,
         ondelete="cascade",
     )
@@ -34,24 +21,39 @@ class EtpBatchBudgetDailyTaskWizard(models.TransientModel):
         string="Source Model",
         readonly=True,
     )
-    start_date = fields.Datetime(
-        string="Start Date",
+    entry_date = fields.Date(
+        string="Date",
         required=True,
-        default=lambda self: _user_today_bounds(self.env)[0],
+        default=fields.Date.context_today,
     )
-    end_date = fields.Datetime(
-        string="End Date",
-        required=True,
-        default=lambda self: _user_today_bounds(self.env)[1],
+    done_count = fields.Integer(string="Done Tasks", required=True)
+    total_cost = fields.Float(string="Total Cost (USD)", required=True)
+    no_of_trajectory = fields.Integer(
+        string="No. of Trajectories",
+        compute="_compute_totals",
     )
-    done_count = fields.Integer(string="Done Tasks", readonly=True)
-    total_cost = fields.Float(string="Total Cost (USD)")
     per_task_cost = fields.Float(
         string="Per Task Cost (USD)",
         compute="_compute_totals",
     )
+    per_trajectory_cost = fields.Float(
+        string="Per Trajectory Cost (USD)",
+        compute="_compute_totals",
+    )
     ideal_per_task_cost = fields.Float(
         string="Ideal Per Task Cost (USD)",
+        compute="_compute_totals",
+    )
+    ideal_per_trajectory_cost = fields.Float(
+        string="Ideal Per Trajectory Cost (USD)",
+        compute="_compute_totals",
+    )
+    infra_cost = fields.Float(
+        string="Infra Cost (USD)",
+        compute="_compute_totals",
+    )
+    subscription_cost = fields.Float(
+        string="Subscription Cost (USD)",
         compute="_compute_totals",
     )
     health_status = fields.Selection(
@@ -71,15 +73,35 @@ class EtpBatchBudgetDailyTaskWizard(models.TransientModel):
         "done_count",
         "total_cost",
         "batch_id.model_line_ids.per_task_cost",
+        "batch_id.model_line_ids.per_trajectory_cost",
+        "batch_id.model_line_ids.iterations",
+        "batch_id.infra_line_ids.per_day_cost",
+        "batch_id.subscription_line_ids.per_day_cost",
     )
     def _compute_totals(self):
         for wiz in self:
-            if wiz.done_count and wiz.total_cost:
-                wiz.per_task_cost = wiz.total_cost / wiz.done_count
-            else:
-                wiz.per_task_cost = 0.0
-            wiz.ideal_per_task_cost = sum(
-                wiz.batch_id.model_line_ids.mapped("per_task_cost")
+            model_lines = wiz.batch_id.model_line_ids
+            iterations_per_task = sum(model_lines.mapped("iterations"))
+            wiz.no_of_trajectory = (wiz.done_count or 0) * iterations_per_task
+            wiz.per_task_cost = (
+                (wiz.total_cost / wiz.done_count)
+                if (wiz.done_count and wiz.total_cost)
+                else 0.0
+            )
+            wiz.per_trajectory_cost = (
+                (wiz.total_cost / wiz.no_of_trajectory)
+                if (wiz.no_of_trajectory and wiz.total_cost)
+                else 0.0
+            )
+            wiz.ideal_per_task_cost = sum(model_lines.mapped("per_task_cost"))
+            wiz.ideal_per_trajectory_cost = sum(
+                model_lines.mapped("per_trajectory_cost")
+            )
+            wiz.infra_cost = sum(
+                wiz.batch_id.infra_line_ids.mapped("per_day_cost")
+            )
+            wiz.subscription_cost = sum(
+                wiz.batch_id.subscription_line_ids.mapped("per_day_cost")
             )
             wiz.health_status = wiz._derive_health(
                 wiz.per_task_cost, wiz.ideal_per_task_cost
@@ -96,86 +118,46 @@ class EtpBatchBudgetDailyTaskWizard(models.TransientModel):
             return "warning"
         return "critical"
 
-    def action_fetch_done_count(self):
-        self.ensure_one()
-        if not self.connected_model:
-            raise UserError(
-                _("Pick a project with a connected table before fetching.")
-            )
-        if not (self.start_date and self.end_date):
-            raise UserError(_("Set both start and end dates before fetching."))
-        if self.end_date < self.start_date:
-            raise UserError(_("End date must be on or after start date."))
-        model = self.env.get(self.connected_model)
-        if model is None:
-            raise UserError(
-                _("Model %s is not installed.") % self.connected_model
-            )
-        self.done_count = model.sudo().search_count(
-            [
-                ("create_date", ">=", self.start_date),
-                ("create_date", "<=", self.end_date),
-            ]
-        )
-        return {
-            "type": "ir.actions.act_window",
-            "res_model": self._name,
-            "res_id": self.id,
-            "view_mode": "form",
-            "target": "new",
-            "context": self.env.context,
-        }
-
     def action_save(self):
         self.ensure_one()
         if not self.done_count:
-            raise UserError(_("Fetch the done task count before saving."))
+            raise UserError(_("Done task count is required."))
         if not self.total_cost:
             raise UserError(_("Total cost is required."))
+        start = self.batch_id.start_date
+        end = self.batch_id.end_date
+        if self.entry_date and start and self.entry_date < start:
+            raise UserError(_(
+                "Date %(date)s is before the phase budget start date "
+                "%(start)s."
+            ) % {
+                "date": fields.Date.to_string(self.entry_date),
+                "start": fields.Date.to_string(start),
+            })
+        if self.entry_date and end and self.entry_date > end:
+            raise UserError(_(
+                "Date %(date)s is after the phase budget end date "
+                "%(end)s."
+            ) % {
+                "date": fields.Date.to_string(self.entry_date),
+                "end": fields.Date.to_string(end),
+            })
         self.env["etp.batch.budget.daily.task"].create(
             {
                 "batch_id": self.batch_id.id,
-                "start_date": self.start_date,
-                "end_date": self.end_date,
+                "entry_date": self.entry_date,
                 "connected_model": self.connected_model or False,
                 "done_count": self.done_count,
+                "no_of_trajectory": self.no_of_trajectory,
                 "per_task_cost": self.per_task_cost,
+                "per_trajectory_cost": self.per_trajectory_cost,
                 "total_cost": self.total_cost,
                 "ideal_per_task_cost": self.ideal_per_task_cost,
+                "ideal_per_trajectory_cost": self.ideal_per_trajectory_cost,
+                "infra_cost": self.infra_cost,
+                "subscription_cost": self.subscription_cost,
                 "health_status": self.health_status,
                 "note": self.note or False,
             }
         )
-        self._sync_connected_records()
         return {"type": "ir.actions.act_window_close"}
-
-    def _sync_connected_records(self):
-        self.ensure_one()
-        model_name = self.connected_model
-        if not model_name:
-            return
-        source_model = self.env.get(model_name)
-        if source_model is None:
-            return
-        if not (self.start_date and self.end_date):
-            return
-        source_ids = source_model.sudo().search(
-            [
-                ("create_date", ">=", self.start_date),
-                ("create_date", "<=", self.end_date),
-            ]
-        ).ids
-        if not source_ids:
-            return
-        existing_ids = set(
-            self.batch_id.connected_record_ids.filtered(
-                lambda r: r.connected_model == model_name
-            ).mapped("res_id")
-        )
-        new_ids = [rid for rid in source_ids if rid not in existing_ids]
-        if not new_ids:
-            return
-        self.env["etp.batch.budget.connected.record"].sudo().create([
-            {"batch_id": self.batch_id.id, "res_id": rid}
-            for rid in new_ids
-        ])

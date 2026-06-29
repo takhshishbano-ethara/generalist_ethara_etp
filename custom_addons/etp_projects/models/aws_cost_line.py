@@ -1,4 +1,8 @@
+import logging
+
 from odoo import api, fields, models
+
+_logger = logging.getLogger(__name__)
 
 SOURCE_SELECTION = [
     ("aws", "AWS"),
@@ -20,6 +24,22 @@ TOKEN_TYPE_SELECTION = [
     ("cache_write", "Cache Write"),
     ("other", "Other"),
 ]
+
+BEDROCK_SERVICE_NAME = "Amazon Bedrock"
+OPENROUTER_SERVICE_NAME = "OpenRouter"
+INFRA_TAG_KEYS = {"project"}
+MODEL_NAME_FROM_MODEL_FIELD_KEYWORDS = ("Amazon Bedrock", "OpenRouter")
+
+
+def _normalize_tag_key(value):
+    return (value or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _service_uses_model_name_field(service):
+    s = (service or "").strip().lower()
+    if s in MODEL_NAME_FROM_MODEL_FIELD_KEYWORDS:
+        return True
+    return False
 
 
 class EtpProjectAwsCostLine(models.Model):
@@ -71,22 +91,98 @@ class EtpProjectAwsCostLine(models.Model):
             else:
                 rec.period_label = rec.period.strftime("%Y-%m")
 
+    _CATALOG_TRIGGER_FIELDS = frozenset(
+        {"service_name", "model_name", "source", "source_tag_key"}
+    )
+
     @api.model_create_multi
     def create(self, vals_list):
         records = super().create(vals_list)
         records._ensure_ai_models_from_lines()
         return records
 
+    def write(self, vals):
+        res = super().write(vals)
+        if self and self._CATALOG_TRIGGER_FIELDS.intersection(vals or {}):
+            self._ensure_ai_models_from_lines()
+        return res
+
+    def _classify_for_catalog(self, rec):
+        source = rec.source or ""
+        service = (rec.service_name or "").strip()
+        model = (rec.model_name or "").strip()
+        tag_key = _normalize_tag_key(rec.source_tag_key)
+        source_label = dict(SOURCE_SELECTION).get(source, source)
+
+        if source == "aws" and tag_key in INFRA_TAG_KEYS:
+            return ("infra", service, "") if service else (None, "", "")
+
+        name = model if _service_uses_model_name_field(service) else service
+        if not name:
+            return (None, "", "")
+        return ("model", name, source_label)
+
     def _ensure_ai_models_from_lines(self):
-        names = set()
+        AiModel = self.env["etp.ai.model"].sudo().with_context(active_test=False)
+        Infra = self.env["etp.infra.type"].sudo().with_context(active_test=False)
+
+        models_by_name = {}
+        infra_names = set()
+        counts = {"model": 0, "infra": 0, "skipped": 0}
+        skipped_samples = []
         for rec in self:
-            effective = (rec.model_name or rec.service_name or "").strip()
-            if effective:
-                names.add(effective)
-        if not names:
-            return
-        Model = self.env["etp.ai.model"].sudo().with_context(active_test=False)
-        existing = set(Model.search([("name", "in", list(names))]).mapped("name"))
-        to_create = [{"name": n} for n in sorted(names - existing)]
-        if to_create:
-            Model.create(to_create)
+            kind, name, provider = self._classify_for_catalog(rec)
+            if kind == "model" and name:
+                models_by_name.setdefault(name, provider)
+                counts["model"] += 1
+            elif kind == "infra" and name:
+                infra_names.add(name)
+                counts["infra"] += 1
+            else:
+                counts["skipped"] += 1
+                if len(skipped_samples) < 10:
+                    skipped_samples.append(
+                        f"source={rec.source!r} service={rec.service_name!r} "
+                        f"model={rec.model_name!r} tag_key={rec.source_tag_key!r}"
+                    )
+
+        models_created = 0
+        if models_by_name:
+            existing_models = AiModel.search([("name", "in", list(models_by_name))])
+            existing_names = set(existing_models.mapped("name"))
+            to_create = [
+                {"name": n, "provider": p}
+                for n, p in sorted(models_by_name.items())
+                if n not in existing_names
+            ]
+            if to_create:
+                AiModel.create(to_create)
+                models_created = len(to_create)
+            for m in existing_models:
+                provider = models_by_name.get(m.name)
+                if provider and not m.provider:
+                    m.provider = provider
+
+        infra_created = 0
+        if infra_names:
+            existing_infra = set(
+                Infra.search([("name", "in", list(infra_names))]).mapped("name")
+            )
+            to_create_infra = [{"name": n} for n in sorted(infra_names - existing_infra)]
+            if to_create_infra:
+                Infra.create(to_create_infra)
+                infra_created = len(to_create_infra)
+
+        _logger.info(
+            "etp.project.aws.cost.line catalog sync: lines=%s "
+            "classified_model=%s classified_infra=%s skipped=%s "
+            "models_created=%s infra_created=%s. Skipped samples: %s",
+            len(self),
+            counts["model"], counts["infra"], counts["skipped"],
+            models_created, infra_created,
+            skipped_samples,
+        )
+        counts["models_created"] = models_created
+        counts["infra_created"] = infra_created
+        counts["total"] = len(self)
+        return counts

@@ -5,7 +5,7 @@
         <field name="name">etp.batch.budget.request.list</field>
         <field name="model">etp.batch.budget.request</field>
         <field name="arch" type="xml">
-            <list string="Batch Budget Requests"
+            <list string="Phase Budget Requests"
                   decoration-info="state == 'pending'"
                   decoration-success="state in ('approved','partially_approved')"
                   decoration-danger="state == 'rejected'"
@@ -18,6 +18,7 @@
                 <field name="requester_id"/>
                 <field name="requested_total" sum="USD"/>
                 <field name="approved_total" sum="USD"/>
+                <field name="parent_request_id" optional="hide"/>
                 <field name="approver_id" optional="show"/>
                 <field name="approval_date" optional="hide"/>
                 <field name="state" widget="badge"
@@ -33,7 +34,7 @@
         <field name="name">etp.batch.budget.request.form</field>
         <field name="model">etp.batch.budget.request</field>
         <field name="arch" type="xml">
-            <form string="Batch Budget Request">
+            <form string="Phase Budget Request">
                 <header>
                     <button name="action_submit_for_approval" type="object"
                             string="Submit for Approval" class="btn-primary"
@@ -47,10 +48,35 @@
                     <button name="action_withdraw" type="object"
                             string="Withdraw" class="btn-secondary"
                             invisible="state not in ('draft','pending')"/>
+                    <button name="action_create_follow_up" type="object"
+                            string="Create Follow-up Request" class="btn-primary"
+                            invisible="not can_follow_up"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,pending,approved"/>
                 </header>
                 <sheet>
+                    <field name="is_followup" invisible="1"/>
+                    <field name="can_follow_up" invisible="1"/>
+                    <field name="has_active_followup" invisible="1"/>
+                    <field name="follow_up_count" invisible="1"/>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_view_follow_ups" type="object"
+                                class="oe_stat_button" icon="fa-list-alt"
+                                invisible="follow_up_count == 0">
+                            <field name="follow_up_count" widget="statinfo"
+                                   string="Follow-ups"/>
+                        </button>
+                        <button name="action_open_parent_request" type="object"
+                                class="oe_stat_button" icon="fa-arrow-up"
+                                invisible="not parent_request_id">
+                            <div class="o_field_widget o_stat_info">
+                                <span class="o_stat_text">Parent</span>
+                                <span class="o_stat_value">
+                                    <field name="parent_request_id" readonly="1" nolabel="1"/>
+                                </span>
+                            </div>
+                        </button>
+                    </div>
                     <div class="oe_title">
                         <h1><field name="name" readonly="1"/></h1>
                     </div>
@@ -84,6 +110,8 @@
                         </group>
                         <group>
                             <field name="approved_total"/>
+                            <field name="remaining_amount"
+                                   invisible="state != 'partially_approved'"/>
                         </group>
                     </group>
                     <notebook>
@@ -95,8 +123,14 @@
                                            readonly="parent.state != 'draft'"/>
                                     <field name="description"
                                            readonly="parent.state != 'draft'"/>
-                                    <field name="per_task_cost"
+                                    <field name="cost_type"
                                            readonly="parent.state != 'draft'"/>
+                                    <field name="per_trajectory_cost"
+                                           readonly="parent.state != 'draft' or cost_type == 'per_task'"/>
+                                    <field name="iterations"
+                                           readonly="parent.state != 'draft' or cost_type == 'per_task'"/>
+                                    <field name="per_task_cost"
+                                           readonly="parent.state != 'draft' or cost_type == 'per_trajectory'"/>
                                     <field name="requested_amount" sum="USD"
                                            readonly="1"/>
                                     <field name="approved_amount" sum="USD"
@@ -116,6 +150,31 @@
                                            readonly="parent.state != 'draft'"/>
                                     <field name="approved_amount" sum="USD"
                                            readonly="parent.state not in ('draft','pending')"/>
+                                    <field name="start_date"
+                                           readonly="parent.state not in ('draft','pending')"/>
+                                    <field name="end_date"
+                                           readonly="parent.state not in ('draft','pending')"/>
+                                    <field name="per_day_requested" sum="USD"/>
+                                    <field name="per_day_approved" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Subscriptions" name="subscriptions">
+                            <field name="subscription_line_ids"
+                                   readonly="state not in ('draft','pending')">
+                                <list editable="bottom">
+                                    <field name="subscription_id"
+                                           readonly="parent.state != 'draft'"/>
+                                    <field name="assigned_user_ids" widget="many2many_tags"
+                                           readonly="parent.state != 'draft'"/>
+                                    <field name="cost_per_subscription"/>
+                                    <field name="subscription_count"/>
+                                    <field name="final_amount" sum="USD"/>
+                                    <field name="requested_amount" sum="USD"
+                                           readonly="parent.state != 'draft'"/>
+                                    <field name="approved_amount" sum="USD"
+                                           readonly="parent.state not in ('draft','pending')"/>
+                                    <field name="per_day_cost" sum="USD"/>
                                 </list>
                             </field>
                         </page>
@@ -145,7 +204,7 @@
         <field name="name">etp.batch.budget.request.search</field>
         <field name="model">etp.batch.budget.request</field>
         <field name="arch" type="xml">
-            <search string="Batch Budget Requests">
+            <search string="Phase Budget Requests">
                 <field name="name"/>
                 <field name="batch_id"/>
                 <field name="project_id"/>
@@ -157,12 +216,17 @@
                 <filter name="filter_partial" string="Partially Approved" domain="[('state','=','partially_approved')]"/>
                 <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
                 <separator/>
+                <filter name="filter_followups" string="Follow-ups Only"
+                        domain="[('parent_request_id','!=', False)]"/>
+                <filter name="filter_originals" string="Originals Only"
+                        domain="[('parent_request_id','=', False)]"/>
+                <separator/>
                 <filter name="filter_my_requests" string="My Requests"
                         domain="[('requester_id','=', uid)]"/>
                 <filter name="filter_to_approve" string="To Approve"
                         domain="[('state','=','pending'), ('project_budget_id.approver_user_ids','in', uid)]"/>
                 <group>
-                    <filter name="group_batch" string="Batch" context="{'group_by':'batch_id'}"/>
+                    <filter name="group_batch" string="Phase" context="{'group_by':'batch_id'}"/>
                     <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
                     <filter name="group_state" string="State" context="{'group_by':'state'}"/>
                     <filter name="group_requester" string="Requester" context="{'group_by':'requester_id'}"/>
@@ -178,7 +242,7 @@
         <field name="search_view_id" ref="view_etp_batch_budget_request_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">No budget requests yet</p>
-            <p>Open a Batch Budget and click <b>Request Budget</b> to submit a new request.</p>
+            <p>Open a Phase Budget and click <b>Request Budget</b> to submit a new request.</p>
         </field>
     </record>
 

@@ -16,7 +16,7 @@ TERMINAL_APPROVED_STATES = ("approved", "partially_approved")
 
 class EtpBatchBudgetRequest(models.Model):
     _name = "etp.batch.budget.request"
-    _description = "Batch Budget Request"
+    _description = "Phase Budget Request"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "request_date desc, id desc"
     _rec_name = "name"
@@ -31,7 +31,7 @@ class EtpBatchBudgetRequest(models.Model):
     )
     batch_id = fields.Many2one(
         "etp.batch.budget",
-        string="Batch Budget",
+        string="Phase Budget",
         required=True,
         ondelete="cascade",
         index=True,
@@ -55,7 +55,7 @@ class EtpBatchBudgetRequest(models.Model):
         string="Request #",
         compute="_compute_sequence_number",
         store=True,
-        help="Position of this request among the batch's requests.",
+        help="Position of this request among the phase's requests.",
     )
     request_date = fields.Datetime(
         string="Requested On",
@@ -138,6 +138,12 @@ class EtpBatchBudgetRequest(models.Model):
         string="Infrastructure Lines",
         copy=True,
     )
+    subscription_line_ids = fields.One2many(
+        "etp.batch.budget.request.subscription.line",
+        "request_id",
+        string="Subscription Lines",
+        copy=True,
+    )
     requested_total = fields.Float(
         string="Requested Total (USD)",
         help="Auto-suggested as (sum of line requested amounts) x "
@@ -149,6 +155,44 @@ class EtpBatchBudgetRequest(models.Model):
         help="Auto-suggested as (sum of line approved amounts) x "
              "(1 + buffer %) when lines or buffer change. Fully editable - "
              "the value is not recomputed on the server.",
+    )
+    parent_request_id = fields.Many2one(
+        "etp.batch.budget.request",
+        string="Parent Request",
+        readonly=True,
+        copy=False,
+        index=True,
+        ondelete="restrict",
+        help="The partially-approved request this follow-up extends. "
+             "Empty for fresh requests.",
+    )
+    follow_up_request_ids = fields.One2many(
+        "etp.batch.budget.request",
+        "parent_request_id",
+        string="Follow-up Requests",
+    )
+    follow_up_count = fields.Integer(
+        string="Follow-up Count",
+        compute="_compute_follow_up_count",
+    )
+    is_followup = fields.Boolean(
+        string="Is Follow-up",
+        compute="_compute_is_followup",
+        store=True,
+    )
+    remaining_amount = fields.Float(
+        string="Remaining (USD)",
+        compute="_compute_remaining_amount",
+        help="Requested Total minus Approved Total. Acts as the cap "
+             "for the next follow-up request against this one.",
+    )
+    has_active_followup = fields.Boolean(
+        string="Has Active Follow-up",
+        compute="_compute_has_active_followup",
+    )
+    can_follow_up = fields.Boolean(
+        string="Can Create Follow-up",
+        compute="_compute_can_follow_up",
     )
 
     @api.depends(
@@ -170,6 +214,46 @@ class EtpBatchBudgetRequest(models.Model):
                     pos = idx
                     break
             rec.sequence_number = pos
+
+    @api.depends("follow_up_request_ids")
+    def _compute_follow_up_count(self):
+        for rec in self:
+            rec.follow_up_count = len(rec.follow_up_request_ids)
+
+    @api.depends("parent_request_id")
+    def _compute_is_followup(self):
+        for rec in self:
+            rec.is_followup = bool(rec.parent_request_id)
+
+    @api.depends("requested_total", "approved_total")
+    def _compute_remaining_amount(self):
+        for rec in self:
+            rec.remaining_amount = max(
+                0.0,
+                (rec.requested_total or 0.0) - (rec.approved_total or 0.0),
+            )
+
+    @api.depends(
+        "follow_up_request_ids",
+        "follow_up_request_ids.state",
+    )
+    def _compute_has_active_followup(self):
+        for rec in self:
+            rec.has_active_followup = any(
+                child.state in (
+                    "draft", "pending", "approved", "partially_approved",
+                )
+                for child in rec.follow_up_request_ids
+            )
+
+    @api.depends("state", "remaining_amount", "has_active_followup")
+    def _compute_can_follow_up(self):
+        for rec in self:
+            rec.can_follow_up = (
+                rec.state == "partially_approved"
+                and (rec.remaining_amount or 0.0) > 0.0
+                and not rec.has_active_followup
+            )
 
     @api.onchange("total_tasks")
     def _onchange_total_tasks_update_lines(self):
@@ -198,6 +282,35 @@ class EtpBatchBudgetRequest(models.Model):
             rec.requested_total = requested_base * factor
             rec.approved_total = approved_base * factor
 
+    def _distribute_approved_amount(self):
+        self.ensure_one()
+        for line in self.subscription_line_ids:
+            line.approved_amount = line.final_amount or 0.0
+        for line in self.infra_line_ids:
+            if (
+                line.start_date
+                and line.end_date
+                and line.end_date >= line.start_date
+            ):
+                days = (line.end_date - line.start_date).days + 1
+                per_day = (line.requested_amount or 0.0) / 30.0
+                line.approved_amount = days * per_day
+            else:
+                line.approved_amount = line.requested_amount or 0.0
+        total_tasks = self.total_tasks or self.batch_id.total_tasks or 0
+        for line in self.model_line_ids:
+            line.approved_amount = total_tasks * (line.per_task_cost or 0.0)
+        factor = 1.0 + ((self.buffer_pct or 0.0) / 100.0)
+        base = (
+            sum(self.model_line_ids.mapped("approved_amount"))
+            + sum(self.infra_line_ids.mapped("approved_amount"))
+        )
+        self.approved_total = base * factor
+
+    def action_auto_distribute_approved(self):
+        for rec in self:
+            rec._distribute_approved_amount()
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
@@ -211,7 +324,7 @@ class EtpBatchBudgetRequest(models.Model):
     def _check_can_approve(self):
         self.ensure_one()
         if not self.batch_id:
-            raise UserError(_("Request has no batch budget."))
+            raise UserError(_("Request has no phase budget."))
         project_budget = self.batch_id.project_budget_id
         if self.env.user not in project_budget.approver_user_ids:
             raise UserError(_(
@@ -266,12 +379,50 @@ class EtpBatchBudgetRequest(models.Model):
                 raise UserError(_(
                     "Project Budget has no approvers configured."
                 ))
+            if rec.parent_request_id:
+                parent = rec.parent_request_id
+                if parent.state != "partially_approved":
+                    raise UserError(_(
+                        "Parent request must be in 'Partially Approved' "
+                        "state to accept a follow-up."
+                    ))
+                sibling_active = any(
+                    child.state in (
+                        "pending", "approved", "partially_approved",
+                    )
+                    for child in parent.follow_up_request_ids
+                    if child.id != rec.id
+                )
+                if sibling_active:
+                    raise UserError(_(
+                        "Parent request already has an active follow-up. "
+                        "Resolve it before submitting another."
+                    ))
+                if (rec.requested_total or 0.0) > (
+                    parent.remaining_amount or 0.0
+                ) + 0.00001:
+                    raise UserError(_(
+                        "Follow-up requested total (USD %(req).2f) exceeds "
+                        "parent request's remaining amount (USD %(rem).2f)."
+                    ) % {
+                        "req": rec.requested_total,
+                        "rem": parent.remaining_amount,
+                    })
             for line in rec.model_line_ids:
                 if not line.approved_amount:
                     line.approved_amount = line.requested_amount
             for line in rec.infra_line_ids:
                 if not line.approved_amount:
                     line.approved_amount = line.requested_amount
+                if not line.start_date:
+                    line.start_date = rec.batch_id.start_date
+                if not line.end_date:
+                    line.end_date = rec.batch_id.end_date
+            for line in rec.subscription_line_ids:
+                if not line.approved_amount:
+                    line.approved_amount = (
+                        line.requested_amount or line.final_amount
+                    )
             if not rec.approved_total:
                 rec.approved_total = rec.requested_total
             rec.state = "pending"
@@ -291,6 +442,7 @@ class EtpBatchBudgetRequest(models.Model):
             if rec.state != "pending":
                 raise UserError(_("Only pending requests can be approved."))
             rec._check_can_approve()
+            rec._distribute_approved_amount()
             if (rec.approved_total or 0.0) <= 0.0:
                 raise UserError(_(
                     "Approved total must be greater than zero. "
@@ -335,6 +487,56 @@ class EtpBatchBudgetRequest(models.Model):
             "view_mode": "form",
             "target": "new",
             "context": {"default_request_id": self.id},
+        }
+
+    def action_create_follow_up(self):
+        self.ensure_one()
+        if self.state != "partially_approved":
+            raise UserError(_(
+                "Only Partially Approved requests can be followed up."
+            ))
+        if (self.remaining_amount or 0.0) <= 0.0:
+            raise UserError(_(
+                "This request has no remaining amount to follow up."
+            ))
+        if self.has_active_followup:
+            raise UserError(_(
+                "This request already has an active follow-up."
+            ))
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Follow-up Budget Request"),
+            "res_model": "etp.batch.budget.request.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_batch_id": self.batch_id.id,
+                "default_parent_request_id": self.id,
+            },
+        }
+
+    def action_view_follow_ups(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Follow-up Requests"),
+            "res_model": "etp.batch.budget.request",
+            "view_mode": "list,form",
+            "domain": [("parent_request_id", "=", self.id)],
+            "context": {"default_parent_request_id": self.id},
+        }
+
+    def action_open_parent_request(self):
+        self.ensure_one()
+        if not self.parent_request_id:
+            raise UserError(_("This request has no parent."))
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("Parent Request"),
+            "res_model": "etp.batch.budget.request",
+            "res_id": self.parent_request_id.id,
+            "view_mode": "form",
+            "target": "current",
         }
 
     def _do_reject(self, reason):
@@ -387,6 +589,9 @@ class EtpBatchBudgetRequest(models.Model):
                 BatchModelLine.create({
                     "batch_id": batch.id,
                     "ai_model_id": line.ai_model_id.id,
+                    "cost_type": line.cost_type or "per_task",
+                    "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+                    "iterations": line.iterations or 0,
                     "per_task_cost": line.per_task_cost or 0.0,
                 })
                 batch_existing_models.add(line.ai_model_id.id)
@@ -394,6 +599,9 @@ class EtpBatchBudgetRequest(models.Model):
                 ProjectModelLine.create({
                     "budget_id": project_budget.id,
                     "ai_model_id": line.ai_model_id.id,
+                    "cost_type": line.cost_type or "per_task",
+                    "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+                    "iterations": line.iterations or 0,
                     "per_task_cost": line.per_task_cost or 0.0,
                 })
                 project_existing_models.add(line.ai_model_id.id)
@@ -413,6 +621,8 @@ class EtpBatchBudgetRequest(models.Model):
                     "infra_type_id": line.infra_type_id.id,
                     "description": line.description or False,
                     "budget_amount": line.approved_amount or 0.0,
+                    "start_date": line.start_date or False,
+                    "end_date": line.end_date or False,
                 })
                 batch_existing_infra.add(line.infra_type_id.id)
             if line.infra_type_id.id not in project_existing_infra:
@@ -421,8 +631,38 @@ class EtpBatchBudgetRequest(models.Model):
                     "infra_type_id": line.infra_type_id.id,
                     "description": line.description or False,
                     "budget_amount": line.approved_amount or 0.0,
+                    "start_date": line.start_date or False,
+                    "end_date": line.end_date or False,
                 })
                 project_existing_infra.add(line.infra_type_id.id)
+
+        BatchSubLine = self.env["etp.batch.budget.subscription.line"]
+        ProjectSubLine = self.env["etp.project.budget.subscription.line"]
+        batch_existing_subs = {
+            line.subscription_id.id for line in batch.subscription_line_ids
+        }
+        project_existing_subs = {
+            line.subscription_id.id for line in project_budget.subscription_line_ids
+        }
+        for line in self.subscription_line_ids:
+            if (line.approved_amount or 0.0) <= 0.0:
+                continue
+            if line.subscription_id.id not in batch_existing_subs:
+                BatchSubLine.create({
+                    "batch_id": batch.id,
+                    "subscription_id": line.subscription_id.id,
+                    "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
+                    "approved_amount": line.approved_amount or 0.0,
+                })
+                batch_existing_subs.add(line.subscription_id.id)
+            if line.subscription_id.id not in project_existing_subs:
+                ProjectSubLine.create({
+                    "budget_id": project_budget.id,
+                    "subscription_id": line.subscription_id.id,
+                    "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
+                    "approved_amount": line.approved_amount or 0.0,
+                })
+                project_existing_subs.add(line.subscription_id.id)
 
         new_state = "approved" if batch.state in (
             "draft", "rejected", "withdrawn", "pending"
@@ -432,7 +672,7 @@ class EtpBatchBudgetRequest(models.Model):
 
 class EtpBatchBudgetRequestRejectWizard(models.TransientModel):
     _name = "etp.batch.budget.request.reject.wizard"
-    _description = "Reject Batch Budget Request Wizard"
+    _description = "Reject Phase Budget Request Wizard"
 
     request_id = fields.Many2one(
         "etp.batch.budget.request",

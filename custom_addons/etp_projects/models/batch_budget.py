@@ -31,7 +31,7 @@ ACTIVE_STATES = ("approved", "in_progress", "delivered", "closed")
 
 class EtpBatchBudget(models.Model):
     _name = "etp.batch.budget"
-    _description = "Batch Budget"
+    _description = "Phase Budget"
     _inherit = ["mail.thread", "mail.activity.mixin"]
     _order = "create_date desc, id desc"
     _rec_name = "name"
@@ -77,6 +77,12 @@ class EtpBatchBudget(models.Model):
         string="Infrastructure Lines",
         copy=True,
     )
+    subscription_line_ids = fields.One2many(
+        "etp.batch.budget.subscription.line",
+        "batch_id",
+        string="Subscription Lines",
+        copy=True,
+    )
     request_ids = fields.One2many(
         "etp.batch.budget.request",
         "batch_id",
@@ -87,6 +93,18 @@ class EtpBatchBudget(models.Model):
         compute="_compute_request_count",
     )
     total_tasks = fields.Integer(string="Total Tasks", tracking=True)
+    done_tasks = fields.Integer(
+        string="Done Tasks",
+        compute="_compute_task_progress",
+        store=True,
+        help="Sum of done counts from the Daily Task Log.",
+    )
+    remaining_tasks = fields.Integer(
+        string="Remaining Tasks",
+        compute="_compute_task_progress",
+        store=True,
+        help="Total Tasks minus Done Tasks. Clamped at zero.",
+    )
     estimated_cost = fields.Float(
         string="Estimated Cost (USD)",
         compute="_compute_estimated_cost",
@@ -99,7 +117,7 @@ class EtpBatchBudget(models.Model):
         help="Buffer percentage applied on top of estimated cost.",
     )
     batch_budget = fields.Float(
-        string="Batch Budget (USD)",
+        string="Phase Budget (USD)",
         compute="_compute_batch_budget",
         store=True,
         help="Initial estimate (estimated_cost + buffer). The actual "
@@ -149,12 +167,12 @@ class EtpBatchBudget(models.Model):
         readonly=True,
         tracking=True,
         copy=False,
-        help="Project budget remaining auto-allocated to this batch on creation or restart.",
+        help="Project budget remaining auto-allocated to this phase on creation or restart.",
     )
     consumed_cost = fields.Float(
         string="Consumed (AWS) USD",
         compute="_compute_consumed_cost",
-        help="Sum of project AWS cost lines within the batch date range.",
+        help="Sum of project AWS cost lines within the phase date range.",
     )
     consumed_pct = fields.Float(
         string="Consumed %",
@@ -205,11 +223,35 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             rec.request_count = len(rec.request_ids)
 
-    @api.depends("total_tasks", "model_line_ids.per_task_cost")
+    @api.depends("total_tasks", "daily_task_ids.done_count")
+    def _compute_task_progress(self):
+        for rec in self:
+            done = sum(rec.daily_task_ids.mapped("done_count"))
+            rec.done_tasks = done
+            remaining = (rec.total_tasks or 0) - done
+            rec.remaining_tasks = remaining if remaining > 0 else 0
+
+    @api.depends(
+        "total_tasks",
+        "model_line_ids.per_task_cost",
+        "infra_line_ids.per_day_cost",
+        "subscription_line_ids.per_day_cost",
+        "start_date",
+        "end_date",
+    )
     def _compute_estimated_cost(self):
         for rec in self:
             per_task = sum(rec.model_line_ids.mapped("per_task_cost"))
-            rec.estimated_cost = (rec.total_tasks or 0) * per_task
+            infra_per_day = sum(rec.infra_line_ids.mapped("per_day_cost"))
+            sub_per_day = sum(rec.subscription_line_ids.mapped("per_day_cost"))
+            duration_days = 0
+            if rec.start_date and rec.end_date and rec.end_date >= rec.start_date:
+                duration_days = (rec.end_date - rec.start_date).days + 1
+            rec.estimated_cost = (
+                (rec.total_tasks or 0) * per_task
+                + duration_days * infra_per_day
+                + duration_days * sub_per_day
+            )
 
     @api.depends("estimated_cost", "buffer_pct")
     def _compute_batch_budget(self):
@@ -242,18 +284,30 @@ class EtpBatchBudget(models.Model):
             ("period", "<=", self.end_date),
         ]
 
-    @api.depends("project_id", "start_date", "end_date", "approved_amount")
+    @api.depends(
+        "start_date",
+        "end_date",
+        "done_tasks",
+        "model_line_ids.per_task_cost",
+        "infra_line_ids.per_day_cost",
+        "subscription_line_ids.per_day_cost",
+        "approved_amount",
+    )
     def _compute_consumed_cost(self):
-        Line = self.env["etp.project.aws.cost.line"]
+        today = fields.Date.context_today(self)
         for rec in self:
-            domain = rec._cost_line_domain()
-            if not domain:
-                rec.consumed_cost = 0.0
-                rec.consumed_pct = 0.0
-                rec.remaining_cost = rec.approved_amount or 0.0
-                continue
-            lines = Line.sudo().search(domain)
-            consumed = sum(lines.mapped("amount_source"))
+            per_task = sum(rec.model_line_ids.mapped("per_task_cost"))
+            infra_per_day = sum(rec.infra_line_ids.mapped("per_day_cost"))
+            sub_per_day = sum(rec.subscription_line_ids.mapped("per_day_cost"))
+            elapsed_days = 0
+            if rec.start_date and today >= rec.start_date:
+                cap = rec.end_date if rec.end_date and rec.end_date < today else today
+                elapsed_days = (cap - rec.start_date).days + 1
+            consumed = (
+                (rec.done_tasks or 0) * per_task
+                + elapsed_days * infra_per_day
+                + elapsed_days * sub_per_day
+            )
             rec.consumed_cost = consumed
             rec.remaining_cost = (rec.approved_amount or 0.0) - consumed
             rec.consumed_pct = (
@@ -294,6 +348,9 @@ class EtpBatchBudget(models.Model):
             self.model_line_ids = [
                 (0, 0, {
                     "ai_model_id": line.ai_model_id.id,
+                    "cost_type": line.cost_type or "per_task",
+                    "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+                    "iterations": line.iterations or 0,
                     "per_task_cost": line.per_task_cost,
                 })
                 for line in self.project_budget_id.model_line_ids
@@ -313,6 +370,9 @@ class EtpBatchBudget(models.Model):
                 rec.model_line_ids = [
                     (0, 0, {
                         "ai_model_id": line.ai_model_id.id,
+                        "cost_type": line.cost_type or "per_task",
+                        "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+                        "iterations": line.iterations or 0,
                         "per_task_cost": line.per_task_cost,
                     })
                     for line in rec.project_budget_id.model_line_ids
@@ -338,6 +398,9 @@ class EtpBatchBudget(models.Model):
             rec.model_line_ids = [(5, 0, 0)] + [
                 (0, 0, {
                     "ai_model_id": line.ai_model_id.id,
+                    "cost_type": line.cost_type or "per_task",
+                    "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+                    "iterations": line.iterations or 0,
                     "per_task_cost": line.per_task_cost,
                 })
                 for line in rec.project_budget_id.model_line_ids
@@ -347,7 +410,7 @@ class EtpBatchBudget(models.Model):
         self.ensure_one()
         if self.state in ("delivered", "closed", "rejected", "withdrawn"):
             raise UserError(_(
-                "Cannot open a new request for a %s batch."
+                "Cannot open a new request for a %s phase."
             ) % dict(STATE_SELECTION).get(self.state, self.state))
         if not self.project_budget_id:
             raise UserError(_("Pick a Project Budget first."))
@@ -357,7 +420,7 @@ class EtpBatchBudget(models.Model):
             ))
         return {
             "type": "ir.actions.act_window",
-            "name": _("Request Batch Budget"),
+            "name": _("Request Phase Budget"),
             "res_model": "etp.batch.budget.request.wizard",
             "view_mode": "form",
             "target": "new",
@@ -379,11 +442,11 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             if rec.state != "draft":
                 raise UserError(_(
-                    "Only Draft batches can be withdrawn."
+                    "Only Draft phases can be withdrawn."
                 ))
             if rec.requester_id and self.env.user != rec.requester_id:
                 raise UserError(_(
-                    "Only the requester can withdraw this batch."
+                    "Only the requester can withdraw this phase."
                 ))
             rec.state = "withdrawn"
 
@@ -391,7 +454,7 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             if rec.state not in ("rejected", "withdrawn"):
                 raise UserError(_(
-                    "Only Rejected or Withdrawn batches can be reset."
+                    "Only Rejected or Withdrawn phases can be reset."
                 ))
             rec.write({
                 "state": "draft",
@@ -404,7 +467,7 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             if rec.state not in ("approved", "in_progress"):
                 raise UserError(_(
-                    "Only Approved or In Progress batches can be delivered."
+                    "Only Approved or In Progress phases can be delivered."
                 ))
             remaining = (rec.approved_amount or 0.0) - (rec.consumed_cost or 0.0)
             if remaining < 0.0:
@@ -423,7 +486,7 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             if rec.state != "delivered":
                 raise UserError(_(
-                    "Only Delivered batches can be closed."
+                    "Only Delivered phases can be closed."
                 ))
             rec.state = "closed"
 
@@ -431,7 +494,7 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             if rec.state != "delivered":
                 raise UserError(_(
-                    "Only Delivered batches can be restarted."
+                    "Only Delivered phases can be restarted."
                 ))
             project_budget = rec.project_budget_id
             pool = (project_budget.batch_budget_remain or 0.0) if project_budget else 0.0
