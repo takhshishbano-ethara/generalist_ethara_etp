@@ -624,9 +624,24 @@ def _request_type_label(value):
     return dict(selection).get(value, value)
 
 
+def _with_date(user_dict, date_value):
+    if user_dict is None:
+        return None
+    return {
+        **user_dict,
+        "date": (
+            fields.Datetime.to_string(date_value) if date_value else None
+        ),
+    }
+
+
 def _request_to_summary(req):
     req.ensure_one()
     has_request_type = "request_type" in req._fields
+    cto_reviewer = getattr(req, "cto_reviewer_id", False)
+    cto_review_date = getattr(req, "cto_review_date", False)
+    cfo_approver = getattr(req, "cfo_approver_id", False)
+    cfo_approval_date = getattr(req, "cfo_approval_date", False)
     return {
         "id": req.id,
         "name": req.name,
@@ -639,18 +654,16 @@ def _request_to_summary(req):
         "revision_no": getattr(req, "revision_no", 0) or 0,
         "request_date": fields.Datetime.to_string(req.request_date) if req.request_date else None,
         "priority": req.priority,
-        "requester": _user_brief(req.requester_id),
-        "cto_reviewer": _user_brief(getattr(req, "cto_reviewer_id", False)),
+        "requester": _with_date(_user_brief(req.requester_id), req.request_date),
+        "cto_reviewer": _with_date(_user_brief(cto_reviewer), cto_review_date),
         "cto_review_date": (
-            fields.Datetime.to_string(req.cto_review_date)
-            if getattr(req, "cto_review_date", False) else None
+            fields.Datetime.to_string(cto_review_date) if cto_review_date else None
         ),
-        "cfo_approver": _user_brief(getattr(req, "cfo_approver_id", False)),
+        "cfo_approver": _with_date(_user_brief(cfo_approver), cfo_approval_date),
         "cfo_approval_date": (
-            fields.Datetime.to_string(req.cfo_approval_date)
-            if getattr(req, "cfo_approval_date", False) else None
+            fields.Datetime.to_string(cfo_approval_date) if cfo_approval_date else None
         ),
-        "approver": _user_brief(req.approver_id),
+        "approver": _with_date(_user_brief(req.approver_id), req.approval_date),
         "approval_date": fields.Datetime.to_string(req.approval_date) if req.approval_date else None,
         "batch": {
             "id": req.batch_id.id,
@@ -661,6 +674,10 @@ def _request_to_summary(req):
             "id": req.project_id.id,
             "name": req.project_id.display_name,
         } if req.project_id else None,
+        "project_budget": {
+            "id": req.project_budget_id.id,
+            "name": req.project_budget_id.name or "",
+        } if req.project_budget_id else None,
         "project_budget_id": req.project_budget_id.id if req.project_budget_id else None,
         "total_tasks": req.total_tasks,
         "requested_total": req.requested_total,
