@@ -32,5 +32,35 @@
             <field name="active" eval="True"/>
         </record>
 
+        <record id="ir_cron_render_pending_images" model="ir.cron">
+            <field name="name">ETP Assessment: Auto-render pending question images</field>
+            <field name="model_id" ref="model_etp_assessment_pro_prompt_question"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_render_pending_images()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_extract_pending_skills" model="ir.cron">
+            <field name="name">ETP Assessment: Drain queued skill extraction</field>
+            <field name="model_id" ref="model_etp_assessment_pro_prompt"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_extract_pending_skills()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
+        <record id="ir_cron_generate_pending_questions" model="ir.cron">
+            <field name="name">ETP Assessment: Drain queued question generation</field>
+            <field name="model_id" ref="model_etp_assessment_pro_prompt"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_generate_pending_questions()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">minutes</field>
+            <field name="active" eval="True"/>
+        </record>
+
     </data>
 </odoo>

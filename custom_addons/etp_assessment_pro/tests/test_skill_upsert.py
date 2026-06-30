@@ -81,9 +81,18 @@ class TestSkillUpsert(_Base):
         self.assertEqual(len(self.prompt.skill_bank_ids), 2)
 
     def test_action_extract_button_updates_summary(self):
-        with patch.object(vertex, "_call_vertex", return_value=SAMPLE_SKILLS):
-            self.prompt.action_extract_skills()
+        # The button now QUEUES extraction; the background cron does the (slow)
+        # LLM call off the web request and writes the summary.
+        self.prompt.action_extract_skills()
+        self.assertEqual(self.prompt.extract_state, "queued")
+        # The cron commits before the slow LLM call (to dodge the managed-PG
+        # idle-in-transaction reaper); commit is forbidden in a test cursor, so
+        # neutralize it here while still exercising the real cron logic.
+        with patch.object(vertex, "_call_vertex", return_value=SAMPLE_SKILLS), \
+                patch.object(self.env.cr, "commit"):
+            self.env["etp.assessment.pro.prompt"]._cron_extract_pending_skills()
         self.prompt.invalidate_recordset()
+        self.assertEqual(self.prompt.extract_state, "done")
         self.assertTrue(self.prompt.last_extract_summary)
 
 

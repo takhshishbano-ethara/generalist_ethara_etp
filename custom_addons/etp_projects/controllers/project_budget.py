@@ -1,3 +1,5 @@
+import base64
+import json
 import logging
 
 from odoo import fields, http
@@ -5,6 +7,7 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
+    generate_s3_link,
     return_Response,
     validate_token,
 )
@@ -22,6 +25,73 @@ LLM_SOURCES = ("openai", "openrouter", "moonshot", "gcp")
 APPROVED_REQUEST_STATES = ("approved", "partially_approved")
 ACTIVE_BATCH_STATES = ("approved", "in_progress", "draft")
 COMPLETED_BATCH_STATES = ("delivered", "closed")
+
+
+ATTACHMENT_PREFIX = "etp_projects/project_budget"
+
+
+def _parse_attachment_links(raw):
+    if not raw:
+        return []
+    return [s.strip() for s in str(raw).split(",") if s.strip()]
+
+
+def _serialize_attachment_links(urls):
+    seen = []
+    for u in urls or []:
+        if not u:
+            continue
+        s = str(u).strip()
+        if s and s not in seen:
+            seen.append(s)
+    return ",".join(seen)
+
+
+def _read_multipart_or_json():
+    content_type = (request.httprequest.content_type or "").lower()
+    if content_type.startswith("multipart/form-data"):
+        files = list(request.httprequest.files.getlist("attachments") or [])
+        raw = request.httprequest.form.get("payload") or ""
+        jdata = {}
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    jdata = parsed
+            except (ValueError, TypeError):
+                jdata = {}
+        return jdata, files
+    return (_read_json_body() or {}), []
+
+
+def _upload_attachments_to_s3(files, prefix=ATTACHMENT_PREFIX):
+    urls = []
+    for f in files or []:
+        try:
+            content = f.read()
+        except Exception:
+            _logger.exception("project_budget attachment: failed to read uploaded file")
+            continue
+        if not content:
+            continue
+        try:
+            b64 = base64.b64encode(content).decode("utf-8")
+        except Exception:
+            _logger.exception("project_budget attachment: failed to base64-encode file")
+            continue
+        try:
+            url = generate_s3_link(
+                b64, prefix=prefix, filename=getattr(f, "filename", None),
+            )
+        except Exception:
+            _logger.exception(
+                "project_budget attachment: generate_s3_link raised for %s",
+                getattr(f, "filename", "<unknown>"),
+            )
+            continue
+        if url:
+            urls.append(url)
+    return urls
 
 
 def _budget_types():
@@ -174,6 +244,8 @@ def _request_to_dict(req, llm_cost_cache=None):
                 "description": line.description or "",
                 "requested_amount": line.requested_amount or 0.0,
                 "approved_amount": line.approved_amount or 0.0,
+                "per_day_requested": line.per_day_requested or 0.0,
+                "per_day_approved": line.per_day_approved or 0.0,
             }
             for line in req.infra_line_ids
         ],
@@ -246,6 +318,7 @@ def _batch_detail(batch):
                 "infra_type_id": _m2o(line.infra_type_id),
                 "description": line.description or "",
                 "budget_amount": line.budget_amount or 0.0,
+                "per_day_cost": line.per_day_cost or 0.0,
             }
             for line in batch.infra_line_ids
         ],
@@ -391,11 +464,13 @@ def _budget_detail(b):
                 "infra_type_id": _m2o(line.infra_type_id),
                 "description": line.description or "",
                 "budget_amount": line.budget_amount or 0.0,
+                "per_day_cost": line.per_day_cost or 0.0,
             }
             for line in b.infra_line_ids
         ],
         "total_per_task_cost": sum(b.model_line_ids.mapped("per_task_cost")),
         "total_infra_budget": sum(b.infra_line_ids.mapped("budget_amount")),
+        "attachment_ids": _parse_attachment_links(b.attachment_ids),
     }
 
 
@@ -407,6 +482,184 @@ def _missing_ids(model, ids):
         return []
     found = set(request.env[model].sudo().browse(ids).exists().ids)
     return [i for i in ids if i not in found]
+
+
+VALID_COST_TYPES = ("per_task", "per_trajectory")
+
+
+def _parse_model_line(line):
+    if not isinstance(line, dict):
+        return None, "Each model line must be an object."
+    ai_model_id = line.get("ai_model_id")
+    if not isinstance(ai_model_id, int):
+        return None, "Each model line needs an integer 'ai_model_id'."
+    cost_type = line.get("cost_type") or "per_task"
+    if cost_type not in VALID_COST_TYPES:
+        return None, "'cost_type' must be one of %s." % list(VALID_COST_TYPES)
+    try:
+        per_task_cost = float(line.get("per_task_cost") or 0.0)
+        per_trajectory_cost = float(line.get("per_trajectory_cost") or 0.0)
+    except (TypeError, ValueError):
+        return None, "'per_task_cost'/'per_trajectory_cost' must be numbers."
+    iterations = line.get("iterations") or 0
+    if not isinstance(iterations, int) or iterations < 0:
+        return None, "'iterations' must be a non-negative integer."
+    if cost_type == "per_trajectory" and not per_task_cost:
+        per_task_cost = per_trajectory_cost * iterations
+    return {
+        "ai_model_id": ai_model_id,
+        "cost_type": cost_type,
+        "per_task_cost": per_task_cost,
+        "per_trajectory_cost": per_trajectory_cost,
+        "iterations": iterations,
+    }, None
+
+
+def _parse_subscription_line(line):
+    if not isinstance(line, dict):
+        return None, None, "Each subscription line must be an object."
+    sub_id = line.get("subscription_id")
+    if not isinstance(sub_id, int):
+        return None, None, "Each subscription line needs an integer 'subscription_id'."
+    assigned_to = (
+        line.get("assigned_to")
+        or line.get("assigned_user_ids")
+        or []
+    )
+    if not isinstance(assigned_to, list) or not all(
+        isinstance(x, int) for x in assigned_to
+    ):
+        return None, None, "'assigned_to' must be a list of user ids."
+    cost = line.get("cost")
+    if cost is not None:
+        try:
+            cost = float(cost)
+        except (TypeError, ValueError):
+            return None, None, "'cost' must be a number."
+        if cost < 0:
+            return None, None, "'cost' must be non-negative."
+    return {
+        "subscription_id": sub_id,
+        "assigned_user_ids": [(6, 0, assigned_to)],
+    }, cost, None
+
+
+VALID_PRIORITIES = ("low", "normal", "high", "urgent")
+
+
+def _normalize_batch_input(raw, fallback_buffer_pct=0.0):
+    if not isinstance(raw, dict):
+        return None, "Each batch entry must be an object."
+    raw_tc = raw.get("task_count")
+    task_count = raw_tc if isinstance(raw_tc, int) and raw_tc > 0 else 1
+    today = fields.Date.context_today(request.env.user)
+    try:
+        start_date = _coerce_date(raw.get("start_date"), "start_date") or today
+    except ValidationError:
+        start_date = today
+    try:
+        end_date = _coerce_date(raw.get("end_date"), "end_date") or today
+    except ValidationError:
+        end_date = today
+    if end_date < start_date:
+        end_date = start_date
+    raw_priority = raw.get("priority")
+    priority = raw_priority if raw_priority in VALID_PRIORITIES else "normal"
+    try:
+        buffer_pct = float(raw.get("buffer_pct", fallback_buffer_pct) or 0.0)
+    except (TypeError, ValueError):
+        return None, "'buffer_pct' must be a number."
+    return {
+        "name": (raw.get("name") or "").strip() or None,
+        "task_count": task_count,
+        "start_date": start_date,
+        "end_date": end_date,
+        "justification": (raw.get("justification") or "").strip()
+        or "Auto-generated batch budget request.",
+        "priority": priority,
+        "buffer_pct": buffer_pct,
+    }, None
+
+
+def _create_batch_with_request(budget, spec, budget_amount=0.0):
+    batch_vals = {
+        "project_budget_id": budget.id,
+        "total_tasks": spec["task_count"],
+        "start_date": spec["start_date"],
+        "end_date": spec["end_date"],
+        "buffer_pct": spec["buffer_pct"],
+    }
+    if spec.get("name"):
+        batch_vals["name"] = spec["name"]
+    if budget.infra_line_ids:
+        batch_vals["infra_line_ids"] = [
+            (0, 0, {
+                "infra_type_id": line.infra_type_id.id,
+                "description": line.description or False,
+                "budget_amount": line.budget_amount or 0.0,
+            })
+            for line in budget.infra_line_ids
+        ]
+    batch = request.env["etp.batch.budget"].sudo().create(batch_vals)
+    req = None
+    if not (budget.model_line_ids or budget.infra_line_ids):
+        return batch, req
+    task_count = spec["task_count"]
+    buffer_pct = spec["buffer_pct"]
+    wiz_model_cmds = [
+        (0, 0, {
+            "ai_model_id": line.ai_model_id.id,
+            "cost_type": line.cost_type or "per_task",
+            "per_task_cost": line.per_task_cost or 0.0,
+            "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+            "iterations": line.iterations or 0,
+            "requested_amount": (task_count or 0) * (line.per_task_cost or 0.0),
+        })
+        for line in budget.model_line_ids
+    ]
+    wiz_infra_cmds = [
+        (0, 0, {
+            "infra_type_id": line.infra_type_id.id,
+            "description": line.description or False,
+            "requested_amount": line.budget_amount or 0.0,
+        })
+        for line in budget.infra_line_ids
+    ]
+    subtotal = (
+        sum(c[2]["requested_amount"] for c in wiz_model_cmds)
+        + sum(c[2]["requested_amount"] for c in wiz_infra_cmds)
+    )
+    suggested_total = subtotal * (1.0 + (buffer_pct / 100.0))
+    if budget_amount and budget_amount > 0:
+        suggested_total = budget_amount
+    try:
+        with request.env.cr.savepoint():
+            wiz_vals = {
+                "batch_id": batch.id,
+                "justification": spec["justification"],
+                "priority": spec["priority"],
+                "total_tasks": task_count,
+                "buffer_pct": buffer_pct,
+                "requested_total": suggested_total,
+            }
+            if wiz_model_cmds:
+                wiz_vals["model_line_ids"] = wiz_model_cmds
+            if wiz_infra_cmds:
+                wiz_vals["infra_line_ids"] = wiz_infra_cmds
+            wizard = request.env["etp.batch.budget.request.wizard"].sudo().create(wiz_vals)
+            result = wizard.action_submit()
+            new_req_id = result.get("res_id") if isinstance(result, dict) else None
+            if new_req_id:
+                candidate = request.env[REQUEST_MODEL].sudo().browse(new_req_id)
+                if candidate.exists():
+                    req = candidate
+    except Exception as wexc:
+        _logger.warning(
+            "batch budget request skipped for budget %s batch %s: %s",
+            budget.id, batch.id, wexc,
+        )
+        req = None
+    return batch, req
 
 
 def _pagination(params, default_limit=100, max_limit=500):
@@ -436,7 +689,10 @@ def _budget_to_dict(budget):
             {
                 "ai_model_id": line.ai_model_id.id,
                 "model_name": line.ai_model_id.display_name,
+                "cost_type": line.cost_type or "per_task",
                 "per_task_cost": line.per_task_cost or 0.0,
+                "per_trajectory_cost": line.per_trajectory_cost or 0.0,
+                "iterations": line.iterations or 0,
             }
             for line in budget.model_line_ids
         ],
@@ -446,9 +702,23 @@ def _budget_to_dict(budget):
                 "infra_name": line.infra_type_id.display_name,
                 "description": line.description or "",
                 "budget_amount": line.budget_amount or 0.0,
+                "per_day_cost": line.per_day_cost or 0.0,
             }
             for line in budget.infra_line_ids
         ],
+        "subscription_lines": [
+            {
+                "subscription_id": line.subscription_id.id,
+                "subscription_name": line.subscription_id.display_name,
+                "cost": line.cost_per_subscription or 0.0,
+                "assigned_to": line.assigned_user_ids.ids,
+                "subscription_count": line.subscription_count or 0,
+                "monthly_cost": line.final_amount or 0.0,
+                "per_day_cost": line.per_day_cost or 0.0,
+            }
+            for line in budget.subscription_line_ids
+        ],
+        "attachment_ids": _parse_attachment_links(budget.attachment_ids),
     }
 
 
@@ -491,6 +761,44 @@ class EtpProjectBudgetController(http.Controller):
             data={"data": {
                 "budget_types": [
                     {"value": key, "label": label} for key, label in _budget_types()
+                ],
+            }},
+        )
+
+    # GET — subscription catalog dropdown. Optional ?search=  ?include_inactive=1  ?limit=  ?offset=
+    @http.route(
+        "/api/v1/etp_projects/project_budget/subscriptions",
+        methods=["GET"], type="http", auth="none", csrf=False, cors="*",
+    )
+    @validate_token
+    def project_budget_subscriptions(self, **params):
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
+        domain = []
+        if not params.get("include_inactive"):
+            domain.append(("active", "=", True))
+        search = (params.get("search") or "").strip()
+        if search:
+            domain.append(("name", "ilike", search))
+        Subscription = request.env["etp.subscription"].sudo()
+        total = Subscription.search_count(domain)
+        records = Subscription.search(
+            domain, order="sequence, name", limit=limit, offset=offset,
+        )
+        return return_Response(
+            message="OK", status=200,
+            data={"data": {
+                "total": total, "limit": limit, "offset": offset,
+                "subscriptions": [
+                    {
+                        "id": s.id,
+                        "name": s.name or "",
+                        "cost": s.cost or 0.0,
+                        "per_day_cost": (s.cost or 0.0) / 30.0,
+                        "active": bool(s.active),
+                    }
+                    for s in records
                 ],
             }},
         )
@@ -614,7 +922,7 @@ class EtpProjectBudgetController(http.Controller):
         batch = request.env["etp.batch.budget"].sudo().browse(batch_id)
         if not batch.exists():
             return return_Response(
-                message="Batch %s not found." % batch_id, status=404,
+                message="Phase %s not found." % batch_id, status=404,
             )
         return return_Response(
             message="OK", status=200, data={"data": _batch_detail(batch)},
@@ -886,7 +1194,7 @@ class EtpProjectBudgetController(http.Controller):
         batch = request.env["etp.batch.budget"].sudo().browse(batch_id)
         if not batch.exists():
             return return_Response(
-                message="Batch %s not found." % batch_id, status=400,
+                message="Phase %s not found." % batch_id, status=400,
             )
 
         justification = (jdata.get("justification") or "").strip()
@@ -1075,7 +1383,7 @@ class EtpProjectBudgetController(http.Controller):
     )
     @validate_token
     def project_budget_create(self, **params):
-        jdata = _read_json_body()
+        jdata, uploaded_files = _read_multipart_or_json()
 
         # Step 1 — Project Details
         name = (jdata.get("name") or "").strip()
@@ -1144,16 +1452,10 @@ class EtpProjectBudgetController(http.Controller):
         model_lines = jdata.get("model_lines") or []
         line_cmds = []
         for line in model_lines:
-            ai_model_id = line.get("ai_model_id")
-            if not isinstance(ai_model_id, int):
-                return return_Response(
-                    message="Each model line needs an integer 'ai_model_id'.",
-                    status=400,
-                )
-            line_cmds.append((0, 0, {
-                "ai_model_id": ai_model_id,
-                "per_task_cost": line.get("per_task_cost") or 0.0,
-            }))
+            parsed, err = _parse_model_line(line)
+            if err:
+                return return_Response(message=err, status=400)
+            line_cmds.append((0, 0, parsed))
         missing = _missing_ids(
             "etp.ai.model", [c[2]["ai_model_id"] for c in line_cmds],
         )
@@ -1189,8 +1491,58 @@ class EtpProjectBudgetController(http.Controller):
         if infra_cmds:
             vals["infra_line_ids"] = infra_cmds
 
-        # Step 5 — Optional batch + budget request (Operations only, best-effort)
+        # Step 4.5 — Subscriptions
+        subscription_lines = jdata.get("subscription_lines") or []
+        sub_cmds = []
+        sub_cost_updates = []
+        for line in subscription_lines:
+            parsed, cost, err = _parse_subscription_line(line)
+            if err:
+                return return_Response(message=err, status=400)
+            sub_cmds.append((0, 0, parsed))
+            if cost is not None:
+                sub_cost_updates.append((parsed["subscription_id"], cost))
+        missing = _missing_ids(
+            "etp.subscription",
+            [c[2]["subscription_id"] for c in sub_cmds],
+        )
+        if missing:
+            return return_Response(
+                message="Subscription(s) not found: %s" % missing, status=400,
+            )
+        sub_assigned_ids = sorted({
+            uid
+            for c in sub_cmds
+            for uid in c[2]["assigned_user_ids"][0][2]
+        })
+        missing_users = _missing_ids("res.users", sub_assigned_ids)
+        if missing_users:
+            return return_Response(
+                message="Assigned user(s) not found: %s" % missing_users,
+                status=400,
+            )
+        if sub_cmds:
+            vals["subscription_line_ids"] = sub_cmds
+
+        provided_links = jdata.get("attachment_ids") or []
+        if provided_links and not (
+            isinstance(provided_links, list)
+            and all(isinstance(x, str) for x in provided_links)
+        ):
+            return return_Response(
+                message="'attachment_ids' must be a list of S3 URL strings.",
+                status=400,
+            )
+        uploaded_links = _upload_attachments_to_s3(uploaded_files)
+        merged_links = _serialize_attachment_links(list(provided_links) + uploaded_links)
+        if merged_links:
+            vals["attachment_ids"] = merged_links
+
         try:
+            for sub_id, new_cost in sub_cost_updates:
+                request.env["etp.subscription"].sudo().browse(sub_id).write(
+                    {"cost": new_cost},
+                )
             budget = request.env[BUDGET_MODEL].sudo().create(vals)
         except (UserError, ValidationError) as e:
             request.env.cr.rollback()
@@ -1202,117 +1554,54 @@ class EtpProjectBudgetController(http.Controller):
                 message="Something went wrong.", status=400, errors=[str(e)],
             )
 
-        batch = None
-        req = None
-        today = fields.Date.context_today(request.env.user)
-        raw_tc = jdata.get("task_count")
-        task_count = raw_tc if isinstance(raw_tc, int) and raw_tc > 0 else 1
-        try:
-            start_date = _coerce_date(jdata.get("start_date"), "start_date") or today
-        except ValidationError:
-            start_date = today
-        try:
-            end_date = _coerce_date(jdata.get("end_date"), "end_date") or today
-        except ValidationError:
-            end_date = today
-        if end_date < start_date:
-            end_date = start_date
-        justification = (jdata.get("justification") or "").strip() or "Auto-generated batch budget request."
-        raw_priority = jdata.get("priority")
-        priority = raw_priority if raw_priority in ("low", "normal", "high", "urgent") else "normal"
+        # Step 5 — Batches (one or many) + auto-submitted budget requests (best-effort)
         buffer_pct = float(vals.get("buffer_pct") or 0.0)
+        budget_amount = float(vals.get("budget_amount") or 0.0)
+        raw_batches = jdata.get("batches")
+        if isinstance(raw_batches, list):
+            batch_inputs = raw_batches
+        else:
+            batch_inputs = [{
+                "task_count": jdata.get("task_count"),
+                "start_date": jdata.get("start_date"),
+                "end_date": jdata.get("end_date"),
+                "justification": jdata.get("justification"),
+                "priority": jdata.get("priority"),
+                "buffer_pct": buffer_pct,
+            }]
 
-        try:
-            with request.env.cr.savepoint():
-                batch_vals = {
-                    "project_budget_id": budget.id,
-                    "total_tasks": task_count,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                    "buffer_pct": buffer_pct,
-                }
-                if budget.infra_line_ids:
-                    batch_vals["infra_line_ids"] = [
-                        (0, 0, {
-                            "infra_type_id": line.infra_type_id.id,
-                            "description": line.description or False,
-                            "budget_amount": line.budget_amount or 0.0,
-                        })
-                        for line in budget.infra_line_ids
-                    ]
-                batch = request.env["etp.batch.budget"].sudo().create(batch_vals)
-                if budget.model_line_ids or budget.infra_line_ids:
-                    # requested_amount/requested_total set explicitly: wizard onchange does not fire on server-side create().
-                    wiz_model_cmds = [
-                        (0, 0, {
-                            "ai_model_id": line.ai_model_id.id,
-                            "per_task_cost": line.per_task_cost or 0.0,
-                            "requested_amount": (task_count or 0) * (line.per_task_cost or 0.0),
-                        })
-                        for line in budget.model_line_ids
-                    ]
-                    wiz_infra_cmds = [
-                        (0, 0, {
-                            "infra_type_id": line.infra_type_id.id,
-                            "description": line.description or False,
-                            "requested_amount": line.budget_amount or 0.0,
-                        })
-                        for line in budget.infra_line_ids
-                    ]
-                    subtotal = (
-                        sum(c[2]["requested_amount"] for c in wiz_model_cmds)
-                        + sum(c[2]["requested_amount"] for c in wiz_infra_cmds)
+        batches = []
+        reqs = []
+        for raw_batch in batch_inputs:
+            spec, err = _normalize_batch_input(raw_batch, fallback_buffer_pct=buffer_pct)
+            if err:
+                return return_Response(message=err, status=400)
+            try:
+                with request.env.cr.savepoint():
+                    batch, req = _create_batch_with_request(
+                        budget, spec, budget_amount=budget_amount,
                     )
-                    suggested_total = subtotal * (1.0 + (buffer_pct / 100.0))
-                    try:
-                        try:
-                            suggested_total = budget_amount if budget_amount > 0 else suggested_total
-                        except Exception as e:
-                            pass
-                        with request.env.cr.savepoint():
-                            wiz_vals = {
-                                "batch_id": batch.id,
-                                "justification": justification,
-                                "priority": priority,
-                                "total_tasks": task_count,
-                                "buffer_pct": buffer_pct,
-                                "requested_total": suggested_total,
-                            }
-                            if wiz_model_cmds:
-                                wiz_vals["model_line_ids"] = wiz_model_cmds
-                            if wiz_infra_cmds:
-                                wiz_vals["infra_line_ids"] = wiz_infra_cmds
-                            wizard = request.env["etp.batch.budget.request.wizard"].sudo().create(wiz_vals)
-                            result = wizard.action_submit()
-                            new_req_id = result.get("res_id") if isinstance(result, dict) else None
-                            if new_req_id:
-                                candidate = request.env[REQUEST_MODEL].sudo().browse(new_req_id)
-                                if candidate.exists():
-                                    req = candidate
-                    except Exception as wexc:
-                        _logger.warning(
-                            "project_budget_create: batch budget request skipped for budget %s: %s",
-                            budget.id, wexc,
-                        )
-                        req = None
-        except Exception as bexc:
-            _logger.warning(
-                "project_budget_create: batch creation skipped for budget %s: %s",
-                budget.id, bexc,
-            )
-            batch = None
-            req = None
+            except Exception as bexc:
+                _logger.warning(
+                    "project_budget_create: batch creation skipped for budget %s: %s",
+                    budget.id, bexc,
+                )
+                continue
+            if batch and batch.exists():
+                batches.append(batch)
+            if req and req.exists():
+                reqs.append(req)
 
         inner_data = _budget_to_dict(budget)
-        if batch is not None and batch.exists():
-            inner_data["batch"] = _batch_summary(batch)
-        if req is not None and req.exists():
-            inner_data["request"] = _request_to_dict(req)
+        inner_data["batches"] = [_batch_summary(b) for b in batches]
+        inner_data["requests"] = [_request_to_dict(r) for r in reqs]
 
-        if req is not None and req.exists():
-            message = "Project budget, batch and budget request created."
-        elif batch is not None and batch.exists():
-            message = "Project budget and batch created."
+        if reqs:
+            message = "Project budget, %d phase(s) and %d budget request(s) created." % (
+                len(batches), len(reqs),
+            )
+        elif batches:
+            message = "Project budget and %d phase(s) created." % len(batches)
         else:
             message = "Project budget created."
 
@@ -1327,7 +1616,7 @@ class EtpProjectBudgetController(http.Controller):
     )
     @validate_token
     def project_budget_update(self, **params):
-        jdata = _read_json_body()
+        jdata, uploaded_files = _read_multipart_or_json()
         budget_id = jdata.get("id")
         if not isinstance(budget_id, int):
             return return_Response(message="'id' is required.", status=400)
@@ -1388,16 +1677,10 @@ class EtpProjectBudgetController(http.Controller):
         if "model_lines" in jdata:
             line_cmds = [(5, 0, 0)]
             for line in jdata.get("model_lines") or []:
-                ai_model_id = line.get("ai_model_id")
-                if not isinstance(ai_model_id, int):
-                    return return_Response(
-                        message="Each model line needs an integer 'ai_model_id'.",
-                        status=400,
-                    )
-                line_cmds.append((0, 0, {
-                    "ai_model_id": ai_model_id,
-                    "per_task_cost": line.get("per_task_cost") or 0.0,
-                }))
+                parsed, err = _parse_model_line(line)
+                if err:
+                    return return_Response(message=err, status=400)
+                line_cmds.append((0, 0, parsed))
             missing = _missing_ids(
                 "etp.ai.model", [c[2]["ai_model_id"] for c in line_cmds[1:]],
             )
@@ -1432,7 +1715,73 @@ class EtpProjectBudgetController(http.Controller):
                 )
             vals["infra_line_ids"] = infra_cmds
 
-        budget.write(vals)
+        # Step 4.5 — Subscriptions (send the key to replace all subscription lines)
+        sub_cost_updates = []
+        if "subscription_lines" in jdata:
+            sub_cmds = [(5, 0, 0)]
+            for line in jdata.get("subscription_lines") or []:
+                parsed, cost, err = _parse_subscription_line(line)
+                if err:
+                    return return_Response(message=err, status=400)
+                sub_cmds.append((0, 0, parsed))
+                if cost is not None:
+                    sub_cost_updates.append((parsed["subscription_id"], cost))
+            missing = _missing_ids(
+                "etp.subscription",
+                [c[2]["subscription_id"] for c in sub_cmds[1:]],
+            )
+            if missing:
+                return return_Response(
+                    message="Subscription(s) not found: %s" % missing, status=400,
+                )
+            sub_assigned_ids = sorted({
+                uid
+                for c in sub_cmds[1:]
+                for uid in c[2]["assigned_user_ids"][0][2]
+            })
+            missing_users = _missing_ids("res.users", sub_assigned_ids)
+            if missing_users:
+                return return_Response(
+                    message="Assigned user(s) not found: %s" % missing_users,
+                    status=400,
+                )
+            vals["subscription_line_ids"] = sub_cmds
+
+        has_attachment_key = "attachment_ids" in jdata
+        if has_attachment_key or uploaded_files:
+            provided_links = jdata.get("attachment_ids") if has_attachment_key else []
+            if provided_links is None:
+                provided_links = []
+            if not (
+                isinstance(provided_links, list)
+                and all(isinstance(x, str) for x in provided_links)
+            ):
+                return return_Response(
+                    message="'attachment_ids' must be a list of S3 URL strings.",
+                    status=400,
+                )
+            uploaded_links = _upload_attachments_to_s3(uploaded_files)
+            append = bool(jdata.get("append_attachments"))
+            base = _parse_attachment_links(budget.attachment_ids) if append else []
+            vals["attachment_ids"] = _serialize_attachment_links(
+                base + list(provided_links) + uploaded_links,
+            )
+
+        try:
+            for sub_id, new_cost in sub_cost_updates:
+                request.env["etp.subscription"].sudo().browse(sub_id).write(
+                    {"cost": new_cost},
+                )
+            budget.write(vals)
+        except (UserError, ValidationError) as e:
+            request.env.cr.rollback()
+            return return_Response(message=str(e), status=400)
+        except Exception:
+            request.env.cr.rollback()
+            _logger.exception("project_budget_update failed")
+            return return_Response(
+                message="Failed to update project budget.", status=500,
+            )
         return return_Response(
             message="Project budget updated.", status=200,
             data={"data": _budget_to_dict(budget)},

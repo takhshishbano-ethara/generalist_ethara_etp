@@ -1,7 +1,13 @@
+import json
 import logging
 
 from odoo import models, fields, api
 from odoo.exceptions import UserError
+
+from ..constants import (
+    QUESTION_TYPE_SELECTION, DIFFICULTY_SELECTION, IMAGE_QUESTION_TYPES,
+    option_name_reveals_reasoning, text_has_source_reference,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -56,6 +62,22 @@ class EtpAssessmentPrompt(models.Model):
     question_count = fields.Integer(compute="_compute_counts")
     approved_count = fields.Integer(compute="_compute_counts")
     last_extract_summary = fields.Char(readonly=True)
+    extract_state = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("queued", "Queued"),
+            ("extracting", "Extracting"),
+            ("done", "Extracted"),
+            ("failed", "Failed"),
+        ],
+        default="idle", copy=False, string="Extraction State",
+        help="Skill extraction runs in the background: clicking Extract Skills "
+             "queues it and a cron does the (slow) LLM call OFF the web request. "
+             "This is what prevents the 'cursor already closed' crash on managed "
+             "Postgres, where a long in-request call lets the DB connection be "
+             "reaped mid-flight.")
+    extract_error = fields.Char(
+        string="Extraction Error", readonly=True, copy=False)
     quick_upload_file = fields.Binary(string="Upload SOP / Doc")
     quick_upload_filename = fields.Char()
     upload_sop_file = fields.Binary(string="Upload SOP")
@@ -64,6 +86,12 @@ class EtpAssessmentPrompt(models.Model):
     upload_vendor_filename = fields.Char()
     upload_client_file = fields.Binary(string="Upload Client Doc")
     upload_client_filename = fields.Char()
+    has_sop_resource = fields.Boolean(
+        string="Has SOP", compute="_compute_has_sop_resource",
+        help="True once at least one SOP document is attached. Drives the "
+             "mandatory-SOP indicator: the upload stays required until a SOP "
+             "resource exists (the upload field itself clears after each file, "
+             "so the requirement tracks the resource, not the transient field).")
 
     def _add_resource(self, data, filename, category):
         if not data:
@@ -105,6 +133,12 @@ class EtpAssessmentPrompt(models.Model):
         )
         self.upload_client_file = False
         self.upload_client_filename = False
+
+    @api.depends("resource_ids", "resource_ids.category")
+    def _compute_has_sop_resource(self):
+        for rec in self:
+            rec.has_sop_resource = any(
+                r.category == "sop" for r in rec.resource_ids)
 
     @api.depends("question_ids", "question_ids.state")
     def _compute_counts(self):
@@ -157,59 +191,187 @@ class EtpAssessmentPrompt(models.Model):
         return category
 
     def action_extract_skills(self):
+        """Queue skill extraction for the background cron instead of running the
+        LLM call inside this web request. A reasoning model can take minutes, and
+        a long in-request call lets managed Postgres / pgbouncer reap the idle DB
+        connection mid-flight, which crashes with 'cursor already closed'. The
+        cron (`_cron_extract_pending_skills`) does the call off the request and
+        commits the skills in its own transaction."""
         self.ensure_one()
-        from ..services import vertex
-        self.skill_ids.unlink()
-        summary = vertex.extract_skills(self.env, self)
-        self.write({
-            "state": "skills_ready",
-            "last_extract_summary": "Created %s, Skipped %s, Total %s" % (
-                summary.get("created", 0),
-                summary.get("skipped", 0),
-                summary.get("total", 0),
-            ),
-        })
+        self.write({"extract_state": "queued", "extract_error": False})
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Skill Extraction Complete",
-                "message": "Created %s new, skipped %s existing (of %s extracted)." % (
-                    summary.get("created", 0),
-                    summary.get("skipped", 0),
-                    summary.get("total", 0),
-                ),
+                "title": "Skill Extraction Queued",
+                "message": "Extraction is running in the background. The skills "
+                           "will appear here within about a minute — refresh the "
+                           "page to see them.",
                 "type": "success",
                 "sticky": False,
             },
         }
 
-    def action_generate_questions(self):
-        self.ensure_one()
+    @api.model
+    def _cron_extract_pending_skills(self):
+        """Background drainer for queued skill extraction. The slow LLM call runs
+        HERE, off the web request, and — critically — we COMMIT before it so the
+        DB connection is NOT 'idle in a transaction' while we wait minutes for the
+        model. A connection idle-in-transaction is what managed Postgres /
+        pgbouncer reaps mid-flight, which is the 'cursor already closed' crash.
+        Claiming a prompt as 'extracting' and committing also stops a second cron
+        worker from re-picking it, so no advisory lock is needed."""
         from ..services import vertex
+        prompts = self.search([("extract_state", "=", "queued")], limit=3)
+        if not prompts:
+            return
+        _logger.info(
+            "etp_assessment extract cron: %d queued prompt(s)", len(prompts))
+        for prompt in prompts:
+            # Claim + clear old skills, then COMMIT so the long call below holds
+            # no open transaction (this is what avoids the connection reaper).
+            prompt.write({"extract_state": "extracting", "extract_error": False})
+            prompt.skill_ids.unlink()
+            self.env.cr.commit()
+            try:
+                summary = vertex.extract_skills(self.env, prompt)
+                prompt.write({
+                    "state": "skills_ready",
+                    "extract_state": "done",
+                    "extract_error": False,
+                    "last_extract_summary": "Created %s, Skipped %s, Total %s"
+                    % (summary.get("created", 0), summary.get("skipped", 0),
+                       summary.get("total", 0)),
+                })
+                self.env.cr.commit()
+                _logger.info(
+                    "etp_assessment extract cron: prompt %s -> %s",
+                    prompt.id, prompt.last_extract_summary)
+            except Exception as exc:  # noqa: BLE001 - isolate per prompt
+                self.env.cr.rollback()
+                _logger.exception(
+                    "Skill extraction failed for prompt %s", prompt.id)
+                prompt.write({
+                    "extract_state": "failed", "extract_error": str(exc)[:300]})
+                self.env.cr.commit()
+
+    def action_generate_questions(self):
+        """Queue per-skill question generation for the background cron. Each skill
+        is a slow LLM call; running them in the web request lets managed Postgres
+        reap the idle DB connection mid-flight ('cursor already closed'). The cron
+        (`_cron_generate_pending_questions`) generates each skill OFF the request,
+        committing before the call, with per-skill gen_state for isolation/retry."""
+        self.ensure_one()
         if not self.selected_skill_ids:
             raise UserError(
                 "Pick at least one skill from 'Skills to Generate For' before generating."
             )
-        self.question_ids.filtered(lambda q: q.state == "draft").unlink()
         self.state = "generating"
-        total = 0
-        for skill in self.selected_skill_ids:
-            draft_ids = vertex.generate_questions(self.env, self, skill)
-            total += len(draft_ids)
-        self.state = "done"
+        self.selected_skill_ids.write({
+            "gen_state": "queued", "gen_error": False, "gen_prompt_id": self.id})
+        _logger.info(
+            "etp_assessment generate queued: prompt=%s skills=%d (%s)",
+            self.id, len(self.selected_skill_ids),
+            ", ".join(self.selected_skill_ids.mapped("name")))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Question Drafts Ready",
-                "message": "Generated %s drafts across %s skill(s)." % (
-                    total, len(self.selected_skill_ids)
-                ),
+                "title": "Question Generation Queued",
+                "message": "Generation is running in the background, one skill at "
+                           "a time. Drafts will appear here within a minute or two "
+                           "— refresh the page to see them.",
                 "type": "success",
                 "sticky": False,
             },
         }
+
+    @api.model
+    def _cron_generate_pending_questions(self):
+        """Background drainer for queued question generation. Per skill we claim
+        it, clear ONLY its old drafts, COMMIT (so the long LLM call holds no open
+        transaction and dodges the managed-Postgres idle-in-transaction reaper),
+        then generate. Per-skill isolation means a failing skill never blocks the
+        others, and gen_state stays retryable. A prompt flips to 'done' once none
+        of its skills are still pending."""
+        from ..services import vertex
+        Skill = self.env["etp.assessment.pro.skill"]
+        skills = Skill.search([
+            ("gen_state", "=", "queued"),
+            ("gen_prompt_id", "!=", False),
+        ], limit=3)
+        if not skills:
+            return
+        _logger.info(
+            "etp_assessment generate cron: %d queued skill(s)", len(skills))
+        touched = self.browse()
+        for skill in skills:
+            prompt = skill.gen_prompt_id
+            touched |= prompt
+            # Claim + clear this skill's old drafts, then COMMIT before the call.
+            skill.write({"gen_state": "generating", "gen_error": False})
+            prompt.question_ids.filtered(
+                lambda q: q.state == "draft" and q.skill_id.id == skill.id
+            ).unlink()
+            self.env.cr.commit()
+            try:
+                draft_ids = vertex.generate_questions(self.env, prompt, skill)
+                count = len(draft_ids)
+                skill.write({
+                    "gen_state": "done" if count else "failed",
+                    "gen_error": False if count
+                    else "model returned no usable questions"})
+                self.env.cr.commit()
+                _logger.info(
+                    "etp_assessment generate cron: skill %s -> %d draft(s)",
+                    skill.name, count)
+            except vertex.LLMRefusalError as exc:
+                self.env.cr.rollback()
+                _logger.warning(
+                    "Generation declined for skill %s: %s", skill.name, exc)
+                skill.write({"gen_state": "failed",
+                             "gen_error": "declined: %s" % str(exc)[:200]})
+                self.env.cr.commit()
+            except Exception as exc:  # noqa: BLE001 - isolate per skill
+                self.env.cr.rollback()
+                _logger.exception(
+                    "Generation failed for skill %s", skill.name)
+                skill.write({"gen_state": "failed",
+                             "gen_error": str(exc)[:200]})
+                self.env.cr.commit()
+        # Mark a prompt done once it has no more queued/generating skills.
+        for prompt in touched:
+            pending = Skill.search_count([
+                ("gen_prompt_id", "=", prompt.id),
+                ("gen_state", "in", ("queued", "generating"))])
+            if not pending and prompt.state == "generating":
+                prompt.write({"state": "done"})
+                self.env.cr.commit()
+
+    def action_retry_failed_skills(self):
+        """Re-run generation for ONLY the skills whose last generation failed.
+        The easy-recovery path: a transient model error on a couple of skills
+        does not force regenerating (and losing) the whole bank."""
+        self.ensure_one()
+        failed = self.selected_skill_ids.filtered(
+            lambda s: s.gen_state == "failed")
+        if not failed:
+            failed = self.skill_bank_ids.filtered(
+                lambda s: s.gen_state == "failed")
+        if not failed:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {"title": "Nothing to retry",
+                           "message": "No skills are in a failed state.",
+                           "type": "info"},
+            }
+        previous = self.selected_skill_ids
+        try:
+            self.selected_skill_ids = [(6, 0, failed.ids)]
+            return self.action_generate_questions()
+        finally:
+            self.selected_skill_ids = [(6, 0, previous.ids)]
 
 class EtpAssessmentPromptSkill(models.Model):
     _name = "etp.assessment.pro.prompt.skill"
@@ -224,20 +386,13 @@ class EtpAssessmentPromptSkill(models.Model):
     tags = fields.Char()
     sequence = fields.Integer(default=10)
     question_type = fields.Selection(
-        [
-            ("mcq", "Objective - MCQ"),
-            ("msq", "Objective - MSQ"),
-            ("subjective_justification", "Subjective - Justification"),
-            ("subjective_rubric", "Subjective - Rubric"),
-            ("image_ab", "Image - A/B Evaluation"),
-            ("image_text", "Image - Prompt/Labelling"),
-        ],
+        QUESTION_TYPE_SELECTION,
         default="mcq",
     )
     question_count = fields.Integer(default=5)
     time_minutes = fields.Integer(default=10)
     difficulty = fields.Selection(
-        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
+        DIFFICULTY_SELECTION,
         default="medium",
     )
     bank_skill_id = fields.Many2one(
@@ -276,18 +431,26 @@ class EtpAssessmentPromptQuestion(models.Model):
              "(or created as) bank skills on approve when skill_id is blank.")
     time_minutes = fields.Integer(string="Time (minutes)", default=0)
     question_type = fields.Selection(
-        [
-            ("mcq", "Objective - MCQ"),
-            ("msq", "Objective - MSQ"),
-            ("subjective_justification", "Subjective - Justification"),
-            ("subjective_rubric", "Subjective - Rubric"),
-            ("image_ab", "Image - A/B Evaluation"),
-            ("image_text", "Image - Prompt/Labelling"),
-        ],
+        QUESTION_TYPE_SELECTION,
         default="mcq",
     )
+    medium_display = fields.Char(
+        string="Medium", compute="_compute_medium_display",
+        help="Image for the image question types (A/B Evaluation, "
+             "Prompt/Labelling) — the only ones that render a picture; Text "
+             "otherwise. Derived from the question type.")
+    has_revealing_option = fields.Boolean(
+        compute="_compute_has_revealing_option",
+        help="True when an objective option name embeds its rationale "
+             "(\"Image B, because ...\"). Option names are shown to the "
+             "candidate, so the rationale must live in the hidden answer key.")
+    has_source_reference = fields.Boolean(
+        compute="_compute_has_source_reference",
+        help="True when the question or its answer key cites the source "
+             "material the candidate never sees (\"according to the SOP\", "
+             "\"Section 2.1\"). Items must be self-contained.")
     difficulty = fields.Selection(
-        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
+        DIFFICULTY_SELECTION,
     )
     options_json = fields.Text(string="Options (JSON)")
     correct_answer_json = fields.Text(string="Correct Answer (JSON)")
@@ -309,6 +472,32 @@ class EtpAssessmentPromptQuestion(models.Model):
              "(or base64 data) are uploaded to S3 on approve when S3 is "
              "configured, else the URL is stored as-is / the binary kept on "
              "the record.")
+    image_brief_json = fields.Text(
+        string="Image Briefs (JSON)",
+        help='JSON list of {"slot","label","prompt"} render briefs produced by '
+             "the text model. The image model renders these on demand "
+             "(Generate / Regenerate). Editable so Growth can tweak a brief "
+             "before regenerating.")
+    image_state = fields.Selection(
+        [
+            ("none", "No Images Needed"),
+            ("pending", "Images Pending"),
+            ("rendered", "Images Rendered"),
+            ("uploaded", "Image Uploaded"),
+            ("failed", "Render Failed"),
+        ],
+        default="none", string="Image State", copy=False,
+        help="Lifecycle of this draft's images: pending = briefs exist but no "
+             "picture yet; rendered = the image model produced them; uploaded "
+             "= Growth supplied their own; failed = a render attempt failed.")
+    upload_image = fields.Binary(
+        string="Upload Replacement Image", attachment=True,
+        help="Upload your own image when a generated one is wrong. Pick the "
+             "slot, attach the file, then use 'Apply Uploaded Image'.")
+    upload_slot = fields.Char(
+        string="Upload Slot", default="a",
+        help="Which slot the uploaded image replaces (a / b for A/B, or "
+             "single / reference / output for prompt-labelling).")
     state = fields.Selection(
         [
             ("draft", "Pending"),
@@ -320,6 +509,42 @@ class EtpAssessmentPromptQuestion(models.Model):
     approved_question_id = fields.Many2one(
         "etp.assessment.pro.question", string="Bank Question", readonly=True
     )
+    # Editable, presentable answer key (one axis per dimension; a single
+    # "Answer" axis for MCQ/MSQ). Authoritative over the raw JSON once present:
+    # _dimension_specs() reads these first, so the preview and approve follow
+    # what the reviewer edits here. Seeded from the LLM JSON on create.
+    answer_dimension_ids = fields.One2many(
+        "etp.assessment.pro.prompt.question.dimension", "draft_id",
+        string="Answer Key")
+    # Editable rubric answer key (subjective_* + image_text). These mirror the
+    # EXACT keys the grader reads out of subjective_rubric_json (services/
+    # scoring.py), surfaced as friendly fields so a reviewer never edits raw
+    # JSON. Computed from rubric_json and written straight back to it (other
+    # keys preserved), so approve -> bank -> scoring is unchanged.
+    ak_ideal_answer = fields.Text(
+        string="Ideal Answer", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields",
+        help="image_text: the model answer the candidate is graded against.")
+    ak_mandatory_elements = fields.Text(
+        string="Mandatory Elements", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields",
+        help="One per line. Elements the answer MUST contain.")
+    ak_penalty_rules = fields.Text(
+        string="Penalty Rules", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields", help="One per line.")
+    ak_scoring_guide = fields.Text(
+        string="Scoring Guide", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields")
+    ak_checklist = fields.Text(
+        string="Checklist", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields",
+        help="subjective_rubric: one required point per line.")
+    ak_constraints = fields.Text(
+        string="Constraints", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields", help="One per line.")
+    ak_pass_condition = fields.Text(
+        string="Pass Condition", compute="_compute_answer_key_fields",
+        inverse="_inverse_answer_key_fields")
     # Reviewer-facing previews so an imported draft READS like the real bank
     # question (images render, dimensions show as a clean list) instead of raw
     # JSON. The preview is derived from the same dimensions_json/images_json
@@ -331,9 +556,77 @@ class EtpAssessmentPromptQuestion(models.Model):
         string="Images", compute="_compute_previews", sanitize=False)
     has_images = fields.Boolean(compute="_compute_previews")
     has_dimensions = fields.Boolean(compute="_compute_previews")
+    image_summary = fields.Char(
+        string="Image Files", compute="_compute_image_summary",
+        help="Human-readable summary of the stored images (slot, label, size). "
+             "The raw base64 image data is never shown in the UI.")
+
+    @api.depends("question_type")
+    def _compute_medium_display(self):
+        for rec in self:
+            rec.medium_display = (
+                "Image" if rec.question_type in IMAGE_QUESTION_TYPES else "Text")
+
+    @api.depends("question_type", "options_json",
+                 "answer_dimension_ids.option_line_ids.name")
+    def _compute_has_revealing_option(self):
+        for rec in self:
+            flag = False
+            if rec.question_type in ("mcq", "msq"):
+                names = rec.answer_dimension_ids.option_line_ids.mapped("name")
+                if not names and rec.options_json:
+                    try:
+                        names = json.loads(rec.options_json) or []
+                    except (ValueError, TypeError):
+                        names = []
+                flag = any(option_name_reveals_reasoning(n) for n in names)
+            rec.has_revealing_option = flag
+
+    @api.depends("question_prompt", "official_reasoning", "options_json",
+                 "rubric_json")
+    def _compute_has_source_reference(self):
+        for rec in self:
+            rec.has_source_reference = text_has_source_reference(
+                rec.question_prompt, rec.official_reasoning,
+                rec.options_json, rec.rubric_json)
+
+    @api.depends("images_json")
+    def _compute_image_summary(self):
+        import json as _json
+        for rec in self:
+            raw = (rec.images_json or "").strip()
+            if not raw or raw in ("[]", "{}"):
+                rec.image_summary = False
+                continue
+            try:
+                specs = _json.loads(raw)
+            except (ValueError, TypeError):
+                rec.image_summary = "unparseable images_json"
+                continue
+            if isinstance(specs, dict):
+                specs = [specs]
+            parts = []
+            for s in (specs or []):
+                if not isinstance(s, dict):
+                    continue
+                src = s.get("data") or s.get("url") or ""
+                if isinstance(src, str) and src.startswith("data:"):
+                    kb = max(1, int(len(src) * 0.75 / 1024))
+                    where = "rendered ~%dKB" % kb
+                elif src:
+                    where = "url"
+                else:
+                    where = "empty"
+                parts.append("%s/%s [%s]" % (
+                    s.get("slot") or "?", s.get("label") or "", where))
+            rec.image_summary = "; ".join(parts) if parts else False
 
     @api.depends("dimensions_json", "options_json", "correct_answer_json",
-                 "images_json", "question_type")
+                 "images_json", "question_type",
+                 "answer_dimension_ids.label",
+                 "answer_dimension_ids.sequence",
+                 "answer_dimension_ids.option_line_ids.name",
+                 "answer_dimension_ids.option_line_ids.is_correct")
     def _compute_previews(self):
         import html as _html
         for rec in self:
@@ -393,6 +686,60 @@ class EtpAssessmentPromptQuestion(models.Model):
             rec.image_preview = "".join(imgs) if imgs else False
             rec.has_images = bool(imgs)
 
+    # Map of friendly rubric field -> the JSON key the grader reads. Scalar
+    # (prose) keys and list (one-per-line) keys are handled separately.
+    _RUBRIC_STR_KEYS = (("ak_ideal_answer", "ideal_answer"),
+                        ("ak_scoring_guide", "scoring_guide"),
+                        ("ak_pass_condition", "pass_condition"))
+    _RUBRIC_LIST_KEYS = (("ak_mandatory_elements", "mandatory_elements"),
+                         ("ak_penalty_rules", "penalty_rules"),
+                         ("ak_checklist", "checklist"),
+                         ("ak_constraints", "constraints"))
+
+    @api.depends("rubric_json")
+    def _compute_answer_key_fields(self):
+        import json as _json
+        for rec in self:
+            try:
+                data = _json.loads(rec.rubric_json or "{}")
+                if not isinstance(data, dict):
+                    data = {}
+            except (ValueError, TypeError):
+                data = {}
+            for fname, key in rec._RUBRIC_STR_KEYS:
+                rec[fname] = data.get(key) or False
+            for fname, key in rec._RUBRIC_LIST_KEYS:
+                val = data.get(key) or []
+                if not isinstance(val, list):
+                    val = [val]
+                rec[fname] = "\n".join(str(x) for x in val) or False
+
+    def _inverse_answer_key_fields(self):
+        """Write the friendly rubric fields back into rubric_json, preserving
+        any other keys. One shared inverse for all of them: it rebuilds from the
+        current field values, so it is correct no matter how many fired."""
+        import json as _json
+        for rec in self:
+            try:
+                data = _json.loads(rec.rubric_json or "{}")
+                if not isinstance(data, dict):
+                    data = {}
+            except (ValueError, TypeError):
+                data = {}
+            for fname, key in rec._RUBRIC_STR_KEYS:
+                if (rec[fname] or "").strip():
+                    data[key] = rec[fname]
+                else:
+                    data.pop(key, None)
+            for fname, key in rec._RUBRIC_LIST_KEYS:
+                items = [ln.strip() for ln in (rec[fname] or "").splitlines()
+                         if ln.strip()]
+                if items:
+                    data[key] = items
+                else:
+                    data.pop(key, None)
+            rec.rubric_json = _json.dumps(data, ensure_ascii=False) if data else False
+
     def _resolve_skill_ids(self):
         """Resolve skill_id + any pipe-separated skill_names into bank skill
         ids, creating skills by name when missing (mirrors bank_import)."""
@@ -443,6 +790,31 @@ class EtpAssessmentPromptQuestion(models.Model):
     def _dimension_specs(self):
         """Normalize this draft's answer key to a list of dimension specs:
         ``[{"label", "options":[str], "correct":[str]}]``.
+
+        The editable ``answer_dimension_ids`` records are authoritative when
+        present (so the preview + approve follow what the reviewer edited);
+        otherwise fall back to parsing the raw LLM JSON.
+        """
+        self.ensure_one()
+        if self.answer_dimension_ids:
+            specs = []
+            for d in self.answer_dimension_ids:
+                options = [o.name for o in d.option_line_ids if o.name]
+                if not options:
+                    continue
+                correct = [o.name for o in d.option_line_ids
+                           if o.is_correct and o.name]
+                specs.append({
+                    "label": (d.label or self.name or "Answer")[:200],
+                    "options": options,
+                    "correct": correct,
+                })
+            if specs:
+                return specs
+        return self._specs_from_json()
+
+    def _specs_from_json(self):
+        """Parse the raw LLM JSON answer key into dimension specs.
 
         Source of truth is dimensions_json when present (multi-dimension,
         e.g. image_ab); otherwise fall back to the single-dimension
@@ -536,6 +908,46 @@ class EtpAssessmentPromptQuestion(models.Model):
                 if 0 <= idx < len(options):
                     out.append(options[idx])
         return out
+
+    def _sync_answer_relational_from_json(self):
+        """(Re)build the editable answer_dimension_ids from the raw LLM JSON.
+        Seeds the relational answer key on create and rebuilds it on demand
+        after a raw-JSON edit. Types with no option set (subjective / image_text
+        rubric) yield no axes, so they are simply left empty here."""
+        for rec in self:
+            specs = rec._specs_from_json()
+            commands = [(5, 0, 0)]
+            for si, spec in enumerate(specs):
+                correct = {c.strip().casefold() for c in spec["correct"]}
+                opt_cmds = [
+                    (0, 0, {"name": o, "sequence": (i + 1) * 10,
+                            "is_correct": o.strip().casefold() in correct})
+                    for i, o in enumerate(spec["options"])
+                ]
+                commands.append((0, 0, {
+                    "label": spec["label"], "sequence": (si + 1) * 10,
+                    "option_line_ids": opt_cmds,
+                }))
+            rec.answer_dimension_ids = commands
+
+    def action_rebuild_answer_key_from_json(self):
+        """Button: overwrite the editable answer key from the raw JSON (use
+        after hand-editing the Advanced raw JSON)."""
+        self._sync_answer_relational_from_json()
+        return True
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        # Seed the editable answer key from whatever JSON the generator / import
+        # wrote, unless the caller already supplied relational answer lines.
+        for rec, vals in zip(records, vals_list):
+            if rec.answer_dimension_ids:
+                continue
+            if (vals.get("dimensions_json") or vals.get("options_json")
+                    or vals.get("correct_answer_json")):
+                rec._sync_answer_relational_from_json()
+        return records
 
     def _materialize_dimensions(self, bank_question):
         """Create one PRIVATE question.dimension per spec, flagging the correct
@@ -658,6 +1070,140 @@ class EtpAssessmentPromptQuestion(models.Model):
     def action_approve_all(self):
         self.filtered(lambda r: r.state == "draft").action_approve()
         return True
+
+    # ------------------------------------------------------------------
+    # Image lifecycle (Model 2 render + Growth controls). Decoupled from
+    # generation so slow image calls never run in the generate request.
+    # ------------------------------------------------------------------
+    def _briefs(self):
+        """Parse image_brief_json into a list of {slot,label,prompt}."""
+        import json as _json
+        self.ensure_one()
+        raw = (self.image_brief_json or "").strip()
+        if not raw or raw in ("[]", "{}"):
+            return []
+        try:
+            parsed = _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        return [b for b in parsed if isinstance(b, dict)] \
+            if isinstance(parsed, list) else []
+
+    def _current_images(self):
+        """Parse images_json into a list of {slot,label,data|url}."""
+        import json as _json
+        self.ensure_one()
+        raw = (self.images_json or "").strip()
+        if not raw or raw in ("[]", "{}"):
+            return []
+        try:
+            parsed = _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        if isinstance(parsed, dict):
+            parsed = [parsed]
+        return [i for i in parsed if isinstance(i, dict)] \
+            if isinstance(parsed, list) else []
+
+    def _notify(self, title, message, kind="success", sticky=False):
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {"title": title, "message": message,
+                       "type": kind, "sticky": sticky},
+        }
+
+    def _render_all_images(self):
+        """Render ALL of this draft's image briefs and store them. Returns True
+        when at least one image was produced. Shared by the auto-render-on-
+        generate path and the cron drainer."""
+        import json as _json
+        from ..services import vertex
+        self.ensure_one()
+        briefs = self._briefs()
+        if not briefs:
+            return False
+        images = vertex.render_draft_images(
+            self.env, briefs,
+            usage_ctx={"operation": "generate_image",
+                       "prompt_id": self.prompt_id.id,
+                       "skill_id": self.skill_id.id, "note": self.name})
+        if images:
+            self.write({
+                "images_json": _json.dumps(images, ensure_ascii=False),
+                "image_state": "rendered",
+            })
+            return True
+        self.write({"image_state": "failed"})
+        return False
+
+    @api.model
+    def _cron_render_pending_images(self):
+        """Background drainer: render image drafts that were created
+        with briefs but no pixels yet (image_state='pending'). This is what makes
+        the FIRST image generation automatic WITHOUT reintroducing the
+        synchronous-render request-timeout crash — rendering happens here, off
+        the web request, a few drafts per tick. Idempotent + advisory-locked so
+        two cron workers never render the same draft twice.
+        """
+        # Advisory lock (distinct key from the scoring cron) so concurrent cron
+        # workers don't double-render; auto-releases at commit/rollback.
+        self.env.cr.execute(
+            "SELECT pg_try_advisory_xact_lock(%s)", (827194,))
+        if not self.env.cr.fetchone()[0]:
+            return
+        # Small batch per tick to stay well under any worker timeout even when a
+        # large generation just produced many image drafts.
+        drafts = self.search([
+            ("question_type", "in", list(IMAGE_QUESTION_TYPES)),
+            ("image_state", "=", "pending"),
+            ("image_brief_json", "!=", False),
+        ], limit=10)
+        if not drafts:
+            return
+        _logger.info(
+            "etp_assessment image cron: %d pending draft(s) to render", len(drafts))
+        rendered = 0
+        for draft in drafts:
+            try:
+                with self.env.cr.savepoint():
+                    if draft._render_all_images():
+                        rendered += 1
+            except Exception:  # noqa: BLE001 - isolate per draft
+                _logger.exception(
+                    "Auto-render failed for draft %s", draft.id)
+                draft.write({"image_state": "failed"})
+                continue
+        _logger.info(
+            "etp_assessment image cron: rendered %d/%d draft(s)",
+            rendered, len(drafts))
+
+    def action_apply_uploaded_image(self):
+        """Apply a Growth-uploaded binary as the image for upload_slot,
+        replacing any generated image in that slot."""
+        import json as _json
+        self.ensure_one()
+        if not self.upload_image:
+            return self._notify(
+                "No File", "Attach an image in 'Upload Replacement Image' "
+                "first.", "warning")
+        slot = (self.upload_slot or "a").strip().lower()
+        raw_b64 = self.upload_image
+        if isinstance(raw_b64, bytes):
+            raw_b64 = raw_b64.decode("ascii", errors="ignore")
+        data_url = "data:image/png;base64,%s" % raw_b64
+        kept = [i for i in self._current_images()
+                if (i.get("slot") or "").lower() != slot]
+        kept.append({"slot": slot, "label": slot.title(), "data": data_url})
+        self.write({
+            "images_json": _json.dumps(kept, ensure_ascii=False),
+            "image_state": "uploaded",
+            "upload_image": False,
+        })
+        return self._notify(
+            "Image Uploaded", "Your image now fills slot %r." % slot)
 
 
 class EtpAssessmentPromptResource(models.Model):

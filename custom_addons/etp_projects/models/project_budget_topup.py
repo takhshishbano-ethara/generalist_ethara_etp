@@ -156,6 +156,12 @@ class EtpProjectBudgetTopup(models.Model):
         self.ensure_one()
         if not partner_ids:
             return
+        project = self.project_id
+        if project:
+            project._etp_post_budget_message(
+                template_xmlid, self, partner_ids,
+            )
+            return
         template = self.env.ref(template_xmlid, raise_if_not_found=False)
         if not template:
             return

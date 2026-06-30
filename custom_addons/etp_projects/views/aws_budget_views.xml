@@ -9,6 +9,11 @@
                 <field name="project_id"/>
                 <field name="name"/>
                 <field name="project_type" optional="show"/>
+                <field name="priority" optional="show" widget="badge"
+                       decoration-muted="priority == 'low'"
+                       decoration-info="priority == 'normal'"
+                       decoration-warning="priority == 'high'"
+                       decoration-danger="priority == 'urgent'"/>
                 <field name="budget_amount" optional="show" sum="USD"/>
                 <field name="tags_summary"/>
                 <field name="last_fetched_at"/>
@@ -27,6 +32,8 @@
                     <button name="action_fetch_moonshot" type="object" string="Fetch Moonshot" class="btn-secondary" invisible="not moonshot_enabled"/>
                     <button name="action_fetch_openai" type="object" string="Fetch OpenAI" class="btn-secondary" invisible="not openai_enabled"/>
                     <button name="action_fetch_gcp" type="object" string="Fetch GCP" class="btn-secondary" invisible="not gcp_enabled"/>
+                    <button name="action_resync_ai_catalogs" type="object" string="Sync AI / Infra Catalogs" class="btn-secondary"/>
+                    <button name="action_download_llm_ledger" type="object" string="Download LLM Ledger" class="btn-secondary"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
@@ -36,7 +43,11 @@
                         <group string="Project">
                             <field name="project_id"/>
                             <field name="project_type"/>
+                            <field name="priority"/>
                             <field name="budget_amount"/>
+                            <field name="total_tasks"/>
+                            <field name="done_tasks" readonly="1"/>
+                            <field name="remaining_tasks" readonly="1"/>
                             <field name="active"/>
                         </group>
                         <group string="Status">
@@ -140,7 +151,13 @@
                             <field name="model_line_ids">
                                 <list editable="bottom">
                                     <field name="ai_model_id"/>
-                                    <field name="per_task_cost" sum="USD"/>
+                                    <field name="cost_type"/>
+                                    <field name="per_trajectory_cost"
+                                           readonly="cost_type == 'per_task'"/>
+                                    <field name="iterations"
+                                           readonly="cost_type == 'per_task'"/>
+                                    <field name="per_task_cost" sum="USD"
+                                           readonly="cost_type == 'per_trajectory'"/>
                                 </list>
                             </field>
                         </page>
@@ -150,16 +167,31 @@
                             <field name="infra_type_id"/>
                             <field name="description"/>
                             <field name="budget_amount" sum="USD"/>
+                            <field name="per_day_cost" sum="USD"/>
                                 </list>
                             </field>
                         </page>
-                        <page string="Batches" name="batches">
+                        <page string="Subscriptions" name="subscriptions">
+                            <field name="subscription_line_ids">
+                                <list editable="bottom">
+                                    <field name="subscription_id"/>
+                                    <field name="assigned_user_ids" widget="many2many_tags"/>
+                                    <field name="cost_per_subscription"/>
+                                    <field name="subscription_count"/>
+                                    <field name="final_amount" sum="USD"/>
+                                    <field name="per_day_cost" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Phases" name="batches">
                             <field name="batch_budget_ids" readonly="1">
                                 <list create="0" delete="0" edit="0">
                                     <field name="name"/>
                                     <field name="start_date"/>
                                     <field name="end_date"/>
                                     <field name="total_tasks"/>
+                                    <field name="done_tasks"/>
+                                    <field name="remaining_tasks"/>
                                     <field name="batch_budget" sum="USD" optional="hide"/>
                                     <field name="approved_amount" sum="USD"/>
                                     <field name="consumed_cost" sum="USD"/>
@@ -368,7 +400,9 @@
     <menuitem id="menu_etp_project_aws_root" name="AWS Budgets" parent="project.menu_main_pm" sequence="80"/>
     <menuitem id="menu_etp_project_aws_budget" name="Project Budgets" parent="menu_etp_project_aws_root" action="action_etp_project_aws_budget" sequence="10"/>
     <menuitem id="menu_etp_project_aws_cost_line" name="AWS Cost by Service" parent="menu_etp_project_aws_root" action="action_etp_project_aws_cost_line" sequence="20"/>
-    <menuitem id="menu_etp_batch_budget" name="Batch Budgets" parent="menu_etp_project_aws_root" action="action_etp_batch_budget" sequence="15"/>
+    <menuitem id="menu_etp_batch_budget" name="Phase Budgets" parent="menu_etp_project_aws_root" action="action_etp_batch_budget" sequence="15"/>
     <menuitem id="menu_etp_ai_model" name="AI Models" parent="menu_etp_project_aws_root" action="action_etp_ai_model" sequence="30"/>
+    <menuitem id="menu_etp_infra_type" name="Infrastructure Types" parent="menu_etp_project_aws_root" action="action_etp_infra_type" sequence="40"/>
+    <menuitem id="menu_etp_subscription" name="Subscriptions" parent="menu_etp_project_aws_root" action="action_etp_subscription" sequence="50"/>
 
 </odoo>

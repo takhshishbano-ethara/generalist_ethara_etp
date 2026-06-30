@@ -1,14 +1,14 @@
-from odoo import fields, models
+from odoo import api, fields, models
 
 
 class EtpBatchBudgetModelLine(models.Model):
     _name = "etp.batch.budget.model.line"
-    _description = "Batch Budget Model Line"
+    _description = "Phase Budget Model Line"
     _order = "id"
 
     batch_id = fields.Many2one(
         "etp.batch.budget",
-        string="Batch Budget",
+        string="Phase Budget",
         required=True,
         ondelete="cascade",
         index=True,
@@ -18,4 +18,24 @@ class EtpBatchBudgetModelLine(models.Model):
         string="Model",
         required=True,
     )
+    cost_type = fields.Selection(
+        [
+            ("per_task", "Per Task"),
+            ("per_trajectory", "Per Trajectory"),
+        ],
+        string="Cost Type",
+        default="per_task",
+        required=True,
+    )
+    per_trajectory_cost = fields.Float(string="Per Trajectory Cost (USD)")
+    iterations = fields.Integer(string="No. of Trajectories per Task")
     per_task_cost = fields.Float(string="Per Task Cost (USD)")
+
+    @api.onchange("cost_type", "per_trajectory_cost", "iterations")
+    def _onchange_trajectory_inputs(self):
+        for line in self:
+            if line.cost_type == "per_trajectory":
+                line.per_task_cost = (
+                    (line.per_trajectory_cost or 0.0)
+                    * (line.iterations or 0)
+                )

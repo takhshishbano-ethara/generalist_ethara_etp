@@ -2,6 +2,11 @@
 <odoo>
     <data noupdate="1">
 
+        <record id="role_cfo_technical" model="api.role">
+            <field name="name">CFO</field>
+            <field name="project_type">technical</field>
+            <field name="user_type">CFO</field>
+        </record>
         <record id="role_cto_technical" model="api.role">
             <field name="name">CTO</field>
             <field name="project_type">technical</field>

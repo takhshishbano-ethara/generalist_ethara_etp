@@ -17,13 +17,21 @@ def _try_import(name):
 
 
 _PIL_Image = _try_import('PIL.Image')
+_PIL_ImageOps = _try_import('PIL.ImageOps')
 _pyzbar = _try_import('pyzbar.pyzbar')
 _pytesseract = _try_import('pytesseract')
 _fitz = _try_import('fitz')
+_easyocr = _try_import('easyocr')
+_numpy = _try_import('numpy')
 
 _pyaadhaar_mod = _try_import('pyaadhaar.decode') or _try_import('pyaadhaar.utils')
 _PYAADHAAR_SECURE = getattr(_pyaadhaar_mod, 'AadhaarSecureQr', None) if _pyaadhaar_mod else None
 _PYAADHAAR_OLD = getattr(_pyaadhaar_mod, 'AadhaarOldQr', None) if _pyaadhaar_mod else None
+
+# EasyOCR Reader spins up CRAFT + CRNN (~5-15s cold start, ~600MB model
+# download on first call). Cache once per Odoo worker process — without
+# this, every Aadhaar upload would pay the cold-start cost.
+_EASYOCR_READER = None
 
 # Performance bounds — keep the synchronous OCR/QR work well under the gateway
 # (Cloudflare/nginx) request timeout so the endpoint never hangs the client.
@@ -31,6 +39,111 @@ _RENDER_DPI = 200          # PDF page render resolution (enough for QR + OCR)
 _MAX_PDF_PAGES = 2         # Aadhaar data is on page 1; never OCR a whole booklet
 _OCR_PAGE_TIMEOUT = 18     # hard per-page Tesseract timeout (seconds)
 _OCR_MAX_DIM = 2200        # downscale long edge before OCR to bound CPU time
+_OSD_TIMEOUT = 5           # Tesseract orientation-detection timeout
+
+
+def _get_easyocr_reader():
+    global _EASYOCR_READER
+    if _easyocr is None or _numpy is None:
+        _logger.info(
+            "EasyOCR fallback disabled: easyocr=%s numpy=%s — pip install easyocr and restart Odoo.",
+            _easyocr is not None, _numpy is not None,
+        )
+        return None
+    if _EASYOCR_READER is None:
+        try:
+            _EASYOCR_READER = _easyocr.Reader(['en'], gpu=False, verbose=False)
+            _logger.info("EasyOCR Reader initialized (lang=en, cpu)")
+        except Exception:
+            _logger.warning("EasyOCR Reader init failed; disabling fallback", exc_info=True)
+            _EASYOCR_READER = False
+    return _EASYOCR_READER or None
+
+
+_ORIENTATION_LANDMARKS = re.compile(
+    r'\b(GOVERNMENT|INDIA|AADHAAR|GOVT|MALE|FEMALE|DOB|YOB|VID|UIDAI|UNIQUE'
+    r'|AUTHORITY|BIRTH|GENDER|ADDRESS|FATHER|MOTHER)\b',
+    re.IGNORECASE,
+)
+
+
+def _score_orientation(img):
+    # Landmark words decide orientation, not raw alpha count. A 90° vs 270°
+    # mirror of the same card produces the same letter-count from Tesseract,
+    # but only the upright rotation contains real words like GOVERNMENT,
+    # INDIA, DOB, MALE — the mirrored rotation yields gibberish like
+    # "BIDUY JO JUBWIWEAOS" (Government-of-India reversed). Each landmark
+    # hit is worth ~100 raw letters.
+    if _pytesseract is None:
+        return 0
+    try:
+        text = _pytesseract.image_to_string(
+            img, lang='eng', config='--oem 3 --psm 6', timeout=5,
+        )
+    except Exception:
+        return 0
+    landmark_hits = len(_ORIENTATION_LANDMARKS.findall(text))
+    alpha = sum(1 for c in text if c.isalpha())
+    return landmark_hits * 100 + alpha
+
+
+def _rotation_sweep(img):
+    # OSD failed (rotated text Tesseract can't read at all). Try each
+    # rotation, pick the one where Tesseract finds the most letters.
+    # Only flip if the win is decisive — borderline scores stay upright.
+    try:
+        thumb = img.copy()
+        thumb.thumbnail((900, 900))
+    except Exception:
+        return img
+    base_score = _score_orientation(thumb)
+    best_rot, best_score = 0, base_score
+    for rot in (90, 180, 270):
+        try:
+            rotated = thumb.rotate(-rot, expand=True)
+        except Exception:
+            continue
+        score = _score_orientation(rotated)
+        if score > best_score * 1.3:
+            best_score, best_rot = score, rot
+    if best_rot:
+        _logger.info(
+            "Rotation sweep picked %d° (score base=%d best=%d)",
+            best_rot, base_score, best_score,
+        )
+        try:
+            return img.rotate(-best_rot, expand=True)
+        except Exception:
+            _logger.debug("PIL rotate failed", exc_info=True)
+    return img
+
+
+def _autorotate(img):
+    if _pytesseract is None or _PIL_Image is None:
+        return img
+    if _PIL_ImageOps is not None:
+        try:
+            img = _PIL_ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+    try:
+        osd = _pytesseract.image_to_osd(img, timeout=_OSD_TIMEOUT)
+    except Exception:
+        # OSD raises "Too few characters" when the page is rotated badly
+        # enough that Tesseract can't read it at all in the current
+        # orientation. Fall back to brute-force sweep.
+        _logger.debug("Tesseract OSD failed; running rotation sweep", exc_info=True)
+        return _rotation_sweep(img)
+    m = re.search(r'Rotate:\s*(\d+)', osd or '')
+    if not m:
+        return _rotation_sweep(img)
+    rot = int(m.group(1)) % 360
+    if rot in (90, 180, 270):
+        try:
+            img = img.rotate(-rot, expand=True)
+        except Exception:
+            _logger.debug("PIL rotate failed", exc_info=True)
+    return img
 
 
 _AADHAAR_RE = re.compile(r'(?<!\d)(\d{4})\s?(\d{4})\s?(\d{4})(?!\d)')
@@ -69,6 +182,13 @@ _RELATION_RE = re.compile(
     re.IGNORECASE,
 )
 _TO_RE = re.compile(r'^\s*to\s*:?\s*$', re.IGNORECASE)
+# Label-anchored name on portal screenshots and digital eAadhaar layouts
+# ("Name: Akshita Dixit", "Name : RAVI KUMAR"). Stronger than the spatial
+# anchors below, so we check it first.
+_NAME_LABEL_RE = re.compile(
+    r'(?:^|\n)\s*(?:Name|Full\s*Name)\s*[:\-]\s*([A-Za-z][A-Za-z.\s]{2,80}?)\s*(?:\n|$)',
+    re.IGNORECASE,
+)
 
 _GENDER_MAP = {
     'M': 'male', 'F': 'female', 'T': 'other',
@@ -130,14 +250,14 @@ def _bytes_to_images(file_bytes, filename):
                 images.append(_PIL_Image.open(io.BytesIO(pix.tobytes('png'))).convert('RGB'))
         finally:
             doc.close()
-        return images, None
+        return [_autorotate(img) for img in images], None
 
     try:
         img = _PIL_Image.open(io.BytesIO(file_bytes))
         img.load()
         if img.mode != 'RGB':
             img = img.convert('RGB')
-        return [img], None
+        return [_autorotate(img)], None
     except Exception as e:
         return [], f"Could not decode image: {e}"
 
@@ -311,6 +431,44 @@ def _parse_fields(text, out):
         out['name'] = _extract_name_from_text(text)
 
 
+def _try_easyocr(images):
+    reader = _get_easyocr_reader()
+    if reader is None or _numpy is None:
+        return None
+    _logger.info("EasyOCR fallback invoked on %d image(s)", len(images))
+    chunks = []
+    for img in images:
+        try:
+            arr = _numpy.array(img)
+            lines = reader.readtext(arr, detail=0, paragraph=True)
+        except Exception:
+            _logger.debug("EasyOCR readtext failed", exc_info=True)
+            continue
+        if lines:
+            chunks.append('\n'.join(lines))
+    if not chunks:
+        _logger.info("EasyOCR returned no text on any page")
+        return None
+    text = '\n'.join(chunks)
+    _logger.info("EasyOCR text length=%d chars", len(text))
+    _logger.debug("EasyOCR raw text:\n%s", text)
+    out: dict[str, Any] = {
+        'aadhaar_number': None,
+        'aadhaar_last4': None,
+        'dob': None,
+        'name': None,
+        'gender': None,
+        'is_masked': bool(_MASK_RE.search(text)),
+    }
+    _parse_fields(text, out)
+    _logger.info(
+        "EasyOCR parsed: number=%s dob=%s name=%s gender=%s",
+        bool(out['aadhaar_number']), bool(out['dob']),
+        bool(out['name']), bool(out['gender']),
+    )
+    return out
+
+
 def _try_ocr(images):
     if _pytesseract is None:
         return None
@@ -381,14 +539,24 @@ def _name_candidate(line, allow_single=False):
     upper = line.upper()
     if any(skip in upper for skip in _NAME_SKIP_TOKENS):
         return None, 0.0
-    if re.search(r'\d', line):
+
+    # Drop a line only if digits dominate it (Aadhaar number / VID / dates).
+    # A single stray digit token next to the real name (common after rotation
+    # OCR, e.g. "3 K Vijay Bhaskar Reddy z tH") must not kill the candidate.
+    digit_chars = sum(1 for c in line if c.isdigit())
+    alpha_chars = sum(1 for c in line if c.isalpha())
+    if alpha_chars == 0 or digit_chars > alpha_chars:
         return None, 0.0
 
-    # Keep only the leading run of name-like tokens, so transliteration junk
-    # merged onto the same line ("Akshita Dixit अ" -> "Akshita Dixit STU") is
-    # dropped rather than appended to the name.
+    tokens = line.split()
+    # Skip leading non-name tokens (digit fragments, Devanagari residue,
+    # lowercase OCR noise) until we find the first name-like token. Then
+    # collect the consecutive run so trailing junk is still excluded.
+    start = 0
+    while start < len(tokens) and _name_token_kind(tokens[start]) is None:
+        start += 1
     kept = []
-    for tok in line.split():
+    for tok in tokens[start:]:
         kind = _name_token_kind(tok)
         if kind is None:
             break
@@ -430,6 +598,13 @@ def _extract_name_from_text(text):
       * directly ABOVE a relationship line ("D/O Ashwani Kumar")
       * directly BELOW a "To" line
     """
+    m = _NAME_LABEL_RE.search(text)
+    if m:
+        raw = m.group(1).strip().rstrip(':-').strip()
+        candidate, score = _name_candidate(raw, allow_single=True)
+        if candidate:
+            return candidate
+
     lines = [ln.strip() for ln in text.split('\n') if ln.strip()]
     n = len(lines)
 
@@ -605,6 +780,24 @@ def extract_aadhaar(file_bytes, filename):
         if ocr.get('is_masked'):
             result['is_masked'] = True
         result['source'] = 'qr+ocr' if result['source'] == 'qr' else 'ocr'
+
+    if not (result['aadhaar_number'] and result['dob'] and result['name']):
+        eo = _try_easyocr(images)
+        if eo:
+            if not result['aadhaar_number'] and eo.get('aadhaar_number'):
+                result['aadhaar_number'] = eo['aadhaar_number']
+            if not result['aadhaar_last4'] and eo.get('aadhaar_last4'):
+                result['aadhaar_last4'] = eo['aadhaar_last4']
+            if not result['dob'] and eo.get('dob'):
+                result['dob'] = eo['dob']
+            if not result['gender'] and eo.get('gender'):
+                result['gender'] = eo['gender']
+            if not result['name'] and eo.get('name'):
+                result['name'] = eo['name']
+            if eo.get('is_masked'):
+                result['is_masked'] = True
+            if eo.get('aadhaar_number') or eo.get('dob') or eo.get('name'):
+                result['source'] = f"{result['source']}+easyocr" if result['source'] else 'easyocr'
 
     has_any_marker = bool(
         result['aadhaar_number'] or result['aadhaar_last4'] or result['dob']

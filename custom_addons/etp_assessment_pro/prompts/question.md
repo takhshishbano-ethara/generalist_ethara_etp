@@ -20,6 +20,8 @@ Each element of the array MUST be a JSON object with the following keys:
 | `options`            | list[string]| see below| Required for `mcq` and `msq`                         |
 | `correct_answer`     | string/list | see below| Required for `mcq` (string) and `msq` (list)         |
 | `rubric`             | object      | see below| Required for `subjective_*`                          |
+| `image_specs`        | object      | see below| Required for `image_ab`/`image_text` (NOT options/correct_answer). Shape is defined by the per-request directive. |
+| `official_reasoning` | string      | optional | Hidden answer-key rationale (`mcq`/`msq`/`image_ab`). Stored for reviewers and scoring; **never shown to candidates**. Put the "why the keyed answer is correct" here — never inside an option. |
 
 ### Type-specific rules
 
@@ -29,18 +31,37 @@ Each element of the array MUST be a JSON object with the following keys:
   matching that option verbatim.
 - Distractors must be plausible but unambiguously wrong on a careful reading of
   the source material.
+- Each option is the **bare answer/verdict and nothing else** — the shortest
+  unambiguous label. The option text becomes the option's `name`, which is shown
+  to the candidate **verbatim**, so it must read like a choice on a ballot, not a
+  sentence that argues for itself.
+  - For comparison/evaluation items, use a **bare verdict exactly as the Image
+    A/B question does**: `"Image A"`, `"Image B"`, `"Both Good"`, `"Both Bad"`,
+    `"Tie"` — never `"Image B, because it adheres to the brief"`.
+  - For factual items, use the bare answer: `"30 days"`, never `"30 days, since
+    the SOP mandates it"`.
+- **NEVER put the rationale in an option.** No `because…`, `since…`, `due to…`,
+  `making it…`, `as it…` clauses anywhere in an option string. The reasoning is
+  what the candidate is being tested on; if it sits in the option name you have
+  handed them the answer. Record the rationale for the keyed answer **only** in
+  `official_reasoning` (hidden answer key), never in any option.
 
 **`msq` (multiple correct options):**
 - Provide 4–6 options as a JSON list of strings.
 - At least 2 options must be correct. `correct_answer` is a JSON list of all
   correct option strings.
 - The question prompt must make clear that multiple selections are expected.
+- Same option rule as `mcq`: each option is the **statement/claim itself only**,
+  never with an embedded justification. No `because…`/`since…`/`due to…` clauses.
+  The rationale belongs in `official_reasoning`, never in an option.
 
 **`subjective_justification` (short free-text reasoning):**
 - Omit `options` and `correct_answer`.
 - Provide a `rubric` object with keys:
   - `checklist`: list of strings — concrete points the answer must mention.
-  - `constraints`: list of strings — hard constraints (e.g. "must cite SOP §4.2").
+  - `constraints`: list of strings — hard constraints derived from the scenario
+    itself (e.g. "must name a specific deciding feature", "answer in one
+    paragraph"). Never a constraint to cite the source/SOP.
   - `pass_condition`: string — natural-language description of what passes.
 
 **`subjective_rubric` (longer-form structured response):**
@@ -52,6 +73,55 @@ Each element of the array MUST be a JSON object with the following keys:
 
 Author every item as evidence about one skill. Apply these rules — they are what
 separate a high-quality bank from generic trivia.
+
+**Self-contained — every item answerable from its own scenario (HARD RULE).**
+The candidate has ONLY this question's text plus their own trained skill — they
+never see the SOP, vendor docs, rubric, or any source you were given. Both gates
+below are mandatory for **every string you emit** — `prompt`, `options`,
+`rubric`, `official_reasoning`, and for image items every `image_specs` sub-field
+(`image_a_prompt`, `image_b_prompt`, `images[]`, `answer_key`, `ideal_answer`,
+`mandatory_elements`, `penalty_rules`, `scoring_guide`) and any field the runtime
+directive adds:
+
+1. **No external authority — by any name, any wording.** Do not refer to, cite,
+   quote, paraphrase, or point at any governing text or authority the candidate
+   cannot see — under ANY name (SOP, guideline, source, document, policy,
+   procedure, rubric, spec, brief, manual, guide, standard, handbook, protocol,
+   criteria, instructions, playbook, marking scheme, answer key, training, …) or
+   ANY locator (Section/Step/Clause/Rule/Item/Part N). Banned regardless of
+   wording: any phrase that locates the correct answer OUTSIDE this prompt — in
+   "training you received", "reviewer/project expectations", "established /
+   approved / standard practice", or any unseen text. Test: if a phrase implies
+   a correct answer exists in a text the candidate has not been given, delete it.
+
+2. **Answerability gate.** A competent person who has the skill but has NEVER
+   read any project document must be able to derive the keyed answer SOLELY from
+   facts written in this prompt plus general skill. If the only way to know the
+   answer is to recall what some procedure/standard says, the item is INVALID —
+   rewrite it so the deciding fact is explicitly present in the scenario. Never
+   ask "which is the correct procedure/policy/rating" unless the prompt itself
+   states the constraint that makes one answer correct.
+
+Bake in the **situation and its concrete details**, not a rule restated as a
+decree: the answer must follow from APPLYING the skill to the stated facts, not
+from obeying an authority sentence dropped into the prompt. ("Company policy
+requires X; should they follow it?" is still recall, not judgment — rework it.)
+
+`official_reasoning` must be a **stand-alone argument** from the scenario's
+stated facts and general skill. It may NOT appeal to or invoke any external
+authority under ANY verb (states, defines, requires, mandates, specifies,
+expects, calls for, treats as, is the convention/standard/accepted practice).
+Justify WHY the stated facts make the keyed answer correct, such that a skilled
+reader with no document reaches the same conclusion.
+
+- Bad (explicit citation): "According to the project SOP, which rating is correct?"
+- Bad (silent recall): "A team annotates product photos. Which is the correct
+  procedure for a blurry image?" — names no source, but the answer is pure recall
+  of an unseen rule, not derivable from any stated fact.
+- Good: "An evaluator must rate the pair below. The prompt asked only for 'a
+  ceramic mug' and stated no other constraint; Image B adds an unrequested floral
+  design. Which rating is correct?" — the deciding constraint is IN the scenario,
+  so a skilled reader derives the answer; `official_reasoning` argues from it.
 
 **One construct, one deciding detail.**
 - Build each item as a **generic, self-contained scenario** that exercises the
@@ -70,6 +140,10 @@ separate a high-quality bank from generic trivia.
 - Options must be **mutually exclusive, homogeneous, and parallel** in grammar
   and length, so the correct one is not detectable by length or qualifier
   density.
+- An option states **only the choice/verdict**, never its justification. The
+  reasoning is what the candidate is being tested on — putting it in the option
+  text hands them the answer. Keep options terse; move every "because/so/since"
+  rationale to `official_reasoning` (hidden answer key).
 - **Every distractor encodes a specific, named error mode** of the skill (a
   plausible wrong reasoning path), so choosing it diagnoses a real failure — not
   a random or absurd wrong answer.
@@ -90,12 +164,28 @@ separate a high-quality bank from generic trivia.
 - `pass_condition`: a single operative conclusion stated in closed, mutually
   exclusive terms drawn from the same vocabulary the item uses.
 - No checklist point may reuse a long run of words from the pass condition.
+- No checklist point, constraint, or pass_condition may require content the
+  candidate could only know from an unseen source (a specific number, named
+  procedure, or approved value not stated in the prompt). If a rubric element
+  turns on a value or rule, that value or rule must appear in the prompt itself.
 
 **Image questions (`image_ab`/`image_text`) — placeholder-authoritative briefs.**
-- Each image prompt is a **detailed, self-contained brief** stating every
-  visually deciding detail and **quoting verbatim** any text/labels/numbers that
-  must appear, so the picture is the single source of truth and renders legibly.
+- For image types, do NOT emit `options`/`correct_answer`. Instead emit a
+  non-empty `image_specs` object; the exact shape is given in the per-request
+  directive (image_a_prompt/image_b_prompt + dimensions + official_reasoning for
+  `image_ab`; images[] + answer_key for `image_text`). The runtime directive is
+  the single source of truth for the image_specs shape. For `image_ab` every
+  dimension winner is one of `Response A`, `Response B`, `Both Good`, `Both Bad`
+  (never `Tie`), and A and B must differ in the deciding detail plus at least
+  two incidental dimensions so the two renders are not near-identical.
+- Each image prompt inside `image_specs` is a **detailed, self-contained brief**
+  stating every visually deciding detail and **quoting verbatim** any
+  text/labels/numbers that must appear, so the picture is the single source of
+  truth and renders legibly.
 - The deciding detail of an image item must be visible in the image as briefed.
+- You are AUTHORING a question and its answer key by construction: you decide, by
+  writing the briefs, which response should win each axis. You are NOT evaluating
+  pre-existing images. The images are rendered later from your briefs.
 
 **House style (binds every authored string).**
 - Plain text only: no em dashes, no semicolons, no emojis, no markdown, no casual
@@ -104,8 +194,11 @@ separate a high-quality bank from generic trivia.
 
 ## Quality Bar
 
-- Every question must be **grounded** in the supplied source material — a
-  candidate who has read the SOP/vendor docs should be able to answer it.
+- Every question must be **grounded in the project's domain and standards** as
+  taught by the source material — but written so the candidate answers from the
+  scenario and their skill, **not** from having read the source (they have not).
+  The source calibrates *you* on what is correct; it must never appear in the item
+  (see the self-contained HARD RULE above).
 - Questions must be **specific to the named skill**. Do not drift into other
   topics. If the skill is "applying the refund decision tree", every question
   should require applying that tree.
@@ -133,5 +226,8 @@ The user message will contain:
 - Use double quotes only. No comments, no trailing commas, no markdown fences.
 - Do not include `id` or `skill` fields — the system links the question to the
   requested skill automatically.
+- Never write "SOP", "Section N", "Step N", "the guidelines/document/policy", or
+  any reference to the source material in a `prompt`, `option`, `rubric`, or
+  `official_reasoning`. Bake the principle into the scenario instead.
 - For `mcq`/`msq`, `correct_answer` strings must match an entry in `options`
   character-for-character (no whitespace drift).

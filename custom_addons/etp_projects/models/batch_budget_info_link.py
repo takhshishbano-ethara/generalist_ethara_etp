@@ -3,12 +3,12 @@ from odoo import fields, models
 
 class EtpBatchBudgetInfoLink(models.Model):
     _name = "etp.batch.budget.info.link"
-    _description = "Batch Budget General Info Link"
+    _description = "Phase Budget General Info Link"
     _order = "id"
 
     batch_id = fields.Many2one(
         "etp.batch.budget",
-        string="Batch Budget",
+        string="Phase Budget",
         required=True,
         ondelete="cascade",
         index=True,

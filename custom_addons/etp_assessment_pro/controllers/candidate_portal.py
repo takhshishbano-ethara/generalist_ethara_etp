@@ -1,17 +1,8 @@
 # -*- coding: utf-8 -*-
 """Candidate-facing "My Assessments" portal page.
 
-Candidates are PORTAL users (group_portal) — they have NO model ACL on the
-etp_assessment models, so every read here goes through ``sudo()`` (mirroring
-the exam portal in controllers/portal.py). The candidate is bound strictly by
-their linked ``hr.employee``: we only ever surface work that belongs to the
-logged-in user's employee.
-
-The page lists the candidate's assessments grouped into four buckets:
-Available now, In Progress, Upcoming (locked / scheduled), and Completed. Each
-item links to the proctored runner — ``/pro_assessment/day/<token>`` for multi-day
-sessions and ``/pro_assessment/<token>`` for single-mode tests. The runner pages
-themselves keep their own login gate + candidate guard untouched.
+Candidates are portal users with no model ACL, so every read goes through
+``sudo()`` and is bound strictly to the logged-in user's linked applicant.
 """
 from odoo import http
 from odoo.http import request, route
@@ -22,9 +13,7 @@ from odoo.addons.portal.controllers.portal import CustomerPortal
 class EtpCandidatePortal(http.Controller):
 
     def _resolve_applicant(self):
-        """Return the logged-in user's hr.applicant (sudo). Portal users can't
-        read hr.applicant directly, so resolve it with sudo by the direct
-        candidate link, falling back to a partner match."""
+        """Return the logged-in user's hr.applicant (sudo), by link then partner."""
         user = request.env.user
         Applicant = request.env["hr.applicant"].sudo()
         applicant = Applicant.search(
@@ -34,12 +23,8 @@ class EtpCandidatePortal(http.Controller):
                 [("partner_id", "=", user.partner_id.id)], limit=1)
         return applicant
 
-    # ------------------------------------------------------------------
-    # Item builders — normalize day-sessions and single evaluators into a
-    # uniform dict the template can render without branching on the source.
-    # ------------------------------------------------------------------
-    # status_kind drives only the badge colour in the template; it collapses
-    # the per-mode state vocabularies into one small palette.
+    # Item builders normalize day-sessions and single evaluators into a uniform
+    # dict. status_kind collapses per-mode states into the template's badge palette.
     _DAY_STATUS_KIND = {
         "available": "available", "in_progress": "progress",
         "locked": "locked", "submitted": "done", "scored": "done",
@@ -74,8 +59,7 @@ class EtpCandidatePortal(http.Controller):
 
     def _single_item(self, ev):
         assessment = ev.assessment_id
-        # Derive a coarse candidate-facing state for single mode from the
-        # evaluator + assessment lifecycle.
+        # Coarse candidate-facing state from the evaluator + assessment lifecycle.
         if ev.is_locked or ev.state == "submitted":
             state = "completed"
         elif assessment.state == "done":
@@ -129,7 +113,7 @@ class EtpCandidatePortal(http.Controller):
     def my_assessments(self, **kw):
         applicant = self._resolve_applicant()
         if not applicant:
-            # No linked candidate → friendly empty state (still authenticated).
+            # No linked candidate -> friendly empty state.
             return request.render(
                 "etp_assessment_pro.portal_my_assessments",
                 {"no_employee": True, "available": [], "in_progress": [],
@@ -217,8 +201,7 @@ class EtpPortalHome(CustomerPortal):
 
     @route()
     def home(self, **kw):
-        # Candidates are portal-only assessment takers — send them straight to
-        # their progress view instead of the generic "My account" home.
+        # Send candidates straight to their progress view, not the generic home.
         applicant = self._candidate_applicant()
         if applicant and self._candidate_assessment_count(applicant):
             return request.redirect("/my/pro_assessments")

@@ -2,9 +2,9 @@
 <odoo>
     <data noupdate="1">
         <record id="seq_etp_batch_budget" model="ir.sequence">
-            <field name="name">Batch Budget</field>
+            <field name="name">Phase Budget</field>
             <field name="code">etp.batch.budget</field>
-            <field name="prefix">BB/%(year)s/</field>
+            <field name="prefix">PB/%(year)s/</field>
             <field name="padding">5</field>
             <field name="company_id" eval="False"/>
         </record>
@@ -16,9 +16,9 @@
             <field name="company_id" eval="False"/>
         </record>
         <record id="seq_etp_batch_budget_request" model="ir.sequence">
-            <field name="name">Batch Budget Request</field>
+            <field name="name">Phase Budget Request</field>
             <field name="code">etp.batch.budget.request</field>
-            <field name="prefix">BBR/%(year)s/</field>
+            <field name="prefix">PBR/%(year)s/</field>
             <field name="padding">5</field>
             <field name="company_id" eval="False"/>
         </record>

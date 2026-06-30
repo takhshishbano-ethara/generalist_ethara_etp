@@ -7,6 +7,7 @@ class EtpAiModel(models.Model):
     _order = "sequence, name"
 
     name = fields.Char(string="Name", required=True)
+    provider = fields.Char(string="Provider", index=True)
     sequence = fields.Integer(default=10)
     active = fields.Boolean(default=True)
 

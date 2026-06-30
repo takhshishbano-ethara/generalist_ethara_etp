@@ -36,6 +36,7 @@
                     <group>
                         <group>
                             <field name="tags"/>
+                            <field name="medium"/>
                             <field name="question_type"/>
                             <field name="difficulty"/>
                         </group>
@@ -45,6 +46,14 @@
                             <field name="extracted_from_prompt_id" readonly="1"/>
                             <field name="active"/>
                         </group>
+                    </group>
+                    <group string="Image A/B Dimensions"
+                           invisible="question_type != 'image_ab'">
+                        <field name="image_ab_dimension_ids"
+                               widget="many2many_tags"
+                               options="{'no_create_edit': True}"
+                               nolabel="1"
+                               placeholder="Leave empty to use the default A/B rubric (Instruction Following, Visual Quality, Less AI Generated, Overall Choice)"/>
                     </group>
                     <field name="description" placeholder="What this skill covers..."/>
                     <notebook>

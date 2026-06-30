@@ -994,9 +994,11 @@
                                             <span t-attf-class="etp-tag {{ 'is-correct' if response.llm_passed else 'is-wrong' }}"
                                                   t-out="'Pass' if response.llm_passed else 'Fail'"/>
                                             <span class="etp-tag is-score">
-                                                <span t-out="response.llm_score"/> /
-                                                <span t-out="response.llm_max_score"/>
+                                                <t t-out="int(round(response.llm_raw_100))"/> / 100
                                             </span>
+                                        </span>
+                                        <span t-elif="response.llm_state == 'error'" class="etp-tag is-wrong">
+                                            Not scored
                                         </span>
                                         <span t-else="" class="etp-tag is-pending">
                                             Scoring in progress

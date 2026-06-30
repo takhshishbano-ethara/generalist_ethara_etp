@@ -1,17 +1,7 @@
 # -*- coding: utf-8 -*-
-"""Image attachments for image-evaluation question types.
+"""Image attachments for image-evaluation questions; ``slot`` identifies each picture.
 
-Each ``etp.assessment.pro.question.image`` is one picture shown to the
-candidate in the portal for an ``image_ab`` / ``image_text`` question. The
-``slot`` tells the portal/scorer which image is which:
-
-- ``image_ab`` uses ``a`` + ``b`` (Response A vs Response B).
-- ``image_text`` uses ``single`` / ``reference`` / ``output``.
-
-Storage: primary = Odoo Binary (``attachment=True``), always served by
-``/web/image/etp.assessment.pro.question.image/<id>/image``. An optional S3
-offload (see ``question.action_offload_images_s3``) pushes the binary to S3
-and stores the CDN/S3 URL in ``image_url``; when set, the portal prefers it.
+Storage: Odoo Binary, optionally offloaded to S3 (``image_url``, preferred when set).
 """
 from odoo import api, models, fields
 
@@ -48,9 +38,8 @@ class EtpAssessmentQuestionImage(models.Model):
         default="single",
         help="image_ab uses A + B; image_text uses Single / Reference / Output.",
     )
-    # UI-only helpers: each exposes just the slots valid for one question type
-    # and stays in sync with the canonical ``slot`` above (compute reads slot;
-    # inverse writes it back when the author edits the selector).
+    # UI-only helpers: each exposes the slots valid for one question type, synced
+    # to the canonical ``slot`` (compute reads it; inverse writes it back).
     slot_ab = fields.Selection(
         [("a", "Response A"), ("b", "Response B")],
         string="Slot",
@@ -91,8 +80,7 @@ class EtpAssessmentQuestionImage(models.Model):
 
     @api.onchange("question_type")
     def _onchange_question_type_slot_default(self):
-        """Give new rows a sensible slot for the parent question type so the
-        canonical slot never lingers on an out-of-type default value."""
+        """Default a new row's slot to one valid for its parent question type."""
         for rec in self:
             if rec.question_type == "image_ab" and rec.slot not in ("a", "b"):
                 rec.slot = "a"

@@ -1,17 +1,8 @@
 # -*- coding: utf-8 -*-
 """Multi-day plan: day rows + per-candidate per-day sessions.
 
-Greenfield against brief §2.2 + §3.1 + §4. Day binds a *skill* (not a
-category, unlike the legacy single-mode flow): the question pool for the
-day is ``skill.question_ids`` (active subset), and skill artifacts
-(question_count, time_minutes) default the day's count/duration via
-onchange. Manual mode lets the admin pick a subset of the skill's
-questions explicitly.
-
-Per-candidate-per-day execution lives on :class:`EtpAssessmentDaySession`:
-state machine ``locked -> available -> in_progress -> submitted/scored``
-(plus ``missed`` for expired-without-submit), driven by the candidate
-portal actions and the two crons in data/cron.xml.
+Session state machine: locked -> available -> in_progress -> submitted/scored
+(plus ``missed`` for expired-without-submit), driven by the portal and crons.
 """
 import json
 import logging
@@ -34,10 +25,8 @@ class EtpAssessmentDay(models.Model):
     assessment_id = fields.Many2one(
         "etp.assessment.pro", required=True, ondelete="cascade", index=True)
 
-    # skill_id is the day's binding to the question bank. NOT required at
-    # the model level so that action_scaffold_days can create blank rows
-    # before the admin assigns skills; enforced in action_generate_plan
-    # via a manual check (brief §9.2).
+    # skill_id is not required at model level (scaffold creates blank rows);
+    # the binding is enforced manually in action_generate_plan.
     pool_by = fields.Selection(
         [("skill", "Skill"), ("category", "Category")],
         default="skill", required=True, string="Pool By",
@@ -93,8 +82,7 @@ class EtpAssessmentDay(models.Model):
             rec.name = f"Day {rec.sequence}: {base}"
 
     def _pool_questions(self):
-        """Active question pool for this day: the skill's bank, or (category
-        mode) all active questions tagged with the category, across skills."""
+        """Active question pool for this day: the skill's bank, or the category's."""
         self.ensure_one()
         Question = self.env["etp.assessment.pro.question"]
         if self.pool_by == "category":
@@ -115,8 +103,7 @@ class EtpAssessmentDay(models.Model):
 
     @api.onchange("skill_id")
     def _onchange_skill_id(self):
-        # Auto-default count + duration from the skill's artifact fields
-        # the first time a skill is picked; admin can still override.
+        # Default count + duration from the skill the first time it's picked.
         if self.skill_id:
             if not self.question_count:
                 self.question_count = self.skill_id.question_count or 0
@@ -144,12 +131,7 @@ class EtpAssessmentDay(models.Model):
                     f"from its pool.")
 
     def _resolve_question_ids(self):
-        """Return a shuffled list of question.ids for one candidate's session.
-
-        Skill-pool mode: draws from ``skill.question_ids`` filtered to
-        active, capped at ``question_count`` (0 = unlimited).
-        Manual mode: uses the admin's hand-picked ``question_ids``.
-        """
+        """Return a shuffled list of question.ids for one candidate's session."""
         self.ensure_one()
         if self.question_source == "manual":
             pool = self.question_ids.ids
@@ -219,9 +201,7 @@ class EtpAssessmentDaySession(models.Model):
     max_score = fields.Integer(
         compute="_compute_score", store=True, string="Max Score")
 
-    # ---- Candidate "My Assessments" helpers -------------------------------
-    # The candidate hub groups day sessions into three buckets. Computing the
-    # bucket (stored) lets the kanban/list group by it cleanly.
+    # Candidate "My Assessments" helpers. Stored bucket lets views group cleanly.
     scheduled_start = fields.Datetime(
         related="day_id.scheduled_start", store=True, string="Scheduled Start")
     duration_minutes = fields.Integer(
@@ -272,8 +252,7 @@ class EtpAssessmentDaySession(models.Model):
                 rec.score_admin_display = "%s / %s" % (rec.score, rec.max_score)
 
     def action_open_test(self):
-        """Candidate launches/resumes this day's test in the proctored
-        runner. Returns the tokenized portal URL (full-screen, chrome-free)."""
+        """Launch/resume this day's test; returns the tokenized portal URL."""
         self.ensure_one()
         if self.state not in ("available", "in_progress"):
             raise UserError(
@@ -352,8 +331,7 @@ class EtpAssessmentDaySession(models.Model):
                     "auto_delete": False,
                 })
                 continue
-            # force_send=True: invitations must go out immediately when the
-            # plan is generated, not wait for the mail-queue cron.
+            # force_send: invitations go out immediately, not via the mail cron.
             tpl.send_mail(rec.id, force_send=True)
 
     def action_start_day(self):
@@ -379,9 +357,8 @@ class EtpAssessmentDaySession(models.Model):
             rec.evaluator_id._rollup_overall_from_days()
 
     def _ensure_unanswered_placeholders(self):
-        # Zero-score submitted rows for any unanswered question so the day's
-        # max_score denominator reflects ALL assigned questions, not just the
-        # ones answered (else answering 3/10 perfectly reads as 100%).
+        # Zero-score placeholders for unanswered questions so max_score reflects
+        # ALL assigned questions (else answering 3/10 perfectly reads as 100%).
         self.ensure_one()
         question_order = json.loads(self.question_order or "[]")
         Response = self.env["etp.assessment.pro.response"]
@@ -414,9 +391,8 @@ class EtpAssessmentDaySession(models.Model):
             })
 
     def _rollup_day_score(self):
-        # Flip state to ``scored`` only when every subjective response is
-        # either non-applicable or already LLM-scored; otherwise stay in
-        # ``submitted`` so the cron drainer (or admin button) finishes it.
+        # Flip to ``scored`` only once no subjective response is still pending
+        # LLM scoring; otherwise stay ``submitted`` for the cron drainer.
         for rec in self:
             pending_subj = rec.response_ids.filtered(
                 lambda r: r.needs_llm
@@ -426,11 +402,9 @@ class EtpAssessmentDaySession(models.Model):
                 rec.evaluator_id._apply_results_disclosure()
 
     def _unlock_next_day(self):
-        # Sequential mode: unlock day N+1 for THIS evaluator once day N is
-        # submitted — BUT only if day N+1's scheduled_start has already
-        # arrived (or it has none). A day scheduled for a future date stays
-        # LOCKED until that date; the open-scheduled cron flips it at midnight.
-        # Parallel mode: all days were already available — nothing to do.
+        # Sequential mode: unlock day N+1 for this evaluator once day N submits,
+        # unless N+1 is future-scheduled (the open-scheduled cron flips that).
+        # Parallel mode: all days already available, nothing to do.
         for rec in self:
             assessment = rec.assessment_id
             if not assessment.sequential_days:
@@ -447,9 +421,7 @@ class EtpAssessmentDaySession(models.Model):
             ], limit=1)
             if not next_session or next_session.state != "locked":
                 continue
-            # Honor a future scheduled_start — leave the day LOCKED for the
-            # open-scheduled cron to pick up at the right date. Completing the
-            # prior day must never open a day before its scheduled start.
+            # Honor a future scheduled_start: never open a day before its date.
             now = fields.Datetime.now()
             if next_day.scheduled_start and next_day.scheduled_start > now:
                 continue
@@ -457,9 +429,7 @@ class EtpAssessmentDaySession(models.Model):
 
     @api.model
     def _cron_open_scheduled_days(self):
-        """Flip ``locked`` to ``available`` when the day's scheduled_start
-        has arrived AND (sequential: the prior day is finished, OR
-        parallel: always)."""
+        """Flip ``locked`` to ``available`` once scheduled_start has arrived (and, in sequential mode, the prior day is finished)."""
         now = fields.Datetime.now()
         locked = self.search([("state", "=", "locked")])
         for sess in locked:
@@ -488,12 +458,7 @@ class EtpAssessmentDaySession(models.Model):
 
     @api.model
     def _cron_mark_missed(self):
-        """Auto-submit an in_progress session whose deadline has passed.
-
-        The portal already auto-submits on expiry, but this cron rescues
-        candidates who simply closed the tab — their session would
-        otherwise sit in_progress forever.
-        """
+        """Auto-submit an in_progress session whose deadline has passed (rescues candidates who closed the tab)."""
         now = fields.Datetime.now()
         stale = self.search([
             ("state", "=", "in_progress"),
@@ -511,17 +476,11 @@ class EtpAssessmentDaySession(models.Model):
 
 
 class EtpAssessmentMultiDayActions(models.Model):
-    """Re-open etp.assessment.pro to contribute the multi-day actions.
-
-    Keeps the day-aware code colocated with the day models. The actions
-    declared here are referenced as buttons in views/pro_assessment_views.xml.
-    """
+    """Re-open etp.assessment.pro to contribute the multi-day actions."""
     _inherit = "etp.assessment.pro"
 
     def action_scaffold_days(self):
-        # Idempotent: create only the missing sequence numbers up to
-        # num_days. Existing day rows are kept (re-running won't blow
-        # away admin-tuned skill/count/duration).
+        # Idempotent: create only missing sequences; keep existing day rows.
         for rec in self:
             if rec.assessment_mode != "multi_day":
                 raise UserError(
@@ -532,9 +491,7 @@ class EtpAssessmentMultiDayActions(models.Model):
                     "scaffolding.")
             existing_seqs = set(rec.day_ids.mapped("sequence"))
             Day = self.env["etp.assessment.pro.day"]
-            # Each day opens on a consecutive date at the SAME time-of-day as
-            # the assessment's Start Date (or now if unset): Day 1 = Start Date,
-            # Day 2 = +1 day, etc. Admin can edit any day's scheduled_start.
+            # Day N opens N-1 days after Start Date at the same time-of-day.
             base = fields.Datetime.to_datetime(
                 rec.start_date or fields.Datetime.now())
             new_days = []
@@ -551,8 +508,7 @@ class EtpAssessmentMultiDayActions(models.Model):
         return True
 
     def action_generate_plan(self):
-        # See brief §4 — exact algorithm. Idempotent: skip evaluator×day
-        # rows that already exist so re-runs don't double-create sessions.
+        # Idempotent: skip evaluator×day rows that already exist.
         DaySession = self.env["etp.assessment.pro.day.session"]
         now = fields.Datetime.now()
         notif_lines = []
@@ -585,10 +541,8 @@ class EtpAssessmentMultiDayActions(models.Model):
                     f"{', '.join(empty_pool)}. Generate or import questions "
                     "first, or switch the day to manual mode and pick "
                     "questions directly.")
-            # Guard: a day with no duration runs with NO timer (the deadline
-            # compute requires duration_minutes > 0). Managers were forgetting
-            # to set it, so the exam never expired. Block plan generation until
-            # every day has a positive duration.
+            # A day with no duration runs with no timer (deadline needs
+            # duration_minutes > 0), so block generation until every day has one.
             missing_duration = [
                 f"Day {d.sequence} ({d.name})"
                 for d in days
@@ -621,14 +575,12 @@ class EtpAssessmentMultiDayActions(models.Model):
                     if day.id in existing_day_ids:
                         continue
                     order = day._resolve_question_ids()
-                    # Default state: first day is available, others locked
-                    # in sequential mode; parallel = everything available.
+                    # Sequential: only the first day is available; parallel: all are.
                     if not rec.sequential_days or day.sequence == first_seq:
                         state = "available"
                     else:
                         state = "locked"
-                    # Future-scheduled days override to locked even on
-                    # day 1 (the open-scheduled cron will flip them).
+                    # Future-scheduled days stay locked for the cron to flip.
                     if day.scheduled_start and day.scheduled_start > now:
                         state = "locked"
                     new_sess = DaySession.create({

@@ -23,7 +23,6 @@ from odoo.addons.employee_extension.services.aadhaar_extractor import (
 
 _logger = logging.getLogger(__name__)
 
-EMP_CODE_PATTERN = re.compile(r'^GRP\d{3,}$')
 PASSWORD_PATTERN = re.compile(r'^(?=.*[A-Z])(?=.*\d).{8,}$')
 AADHAAR_ALLOWED_EXT = {'pdf', 'jpg', 'jpeg', 'png', 'webp'}
 RESUME_ALLOWED_EXT = {'pdf', 'doc', 'docx'}
@@ -38,6 +37,15 @@ def _ext_of(filename):
     if not filename or '.' not in filename:
         return ''
     return filename.rsplit('.', 1)[-1].lower()
+
+
+class _AbortRegistration(Exception):
+    # Carried error response; raising this inside the registration savepoint
+    # rolls back every record created so far (user, employee, applicant,
+    # college) so the client can retry without "already exists" conflicts.
+    def __init__(self, response):
+        super().__init__()
+        self.response = response
 
 
 class EmployeeSelfRegistrationController(http.Controller):
@@ -116,8 +124,6 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Personal email is invalid")
         if not is_valid_email(work_email) or not work_email.endswith(ETHARA_DOMAIN):
             errors.append("Ethara email must be a valid @ethara.ai address")
-        # if not EMP_CODE_PATTERN.match(employee_code):
-        #     errors.append("Employee code must match the format GRPXXXX (e.g. GRP1234)")
         if not department_id:
             errors.append("Department is required")
         if not designation_id:
@@ -211,102 +217,104 @@ class EmployeeSelfRegistrationController(http.Controller):
         if not company:
             return return_Response(message="No company configured", status=500)
         dep_id = request.env['hr.employee.designation'].sudo().search([('id', '=', designation_id)], limit=1, order='id asc')
-        new_user = ResUsers.with_company(company).with_context(
-            no_reset_password=True,
-            mail_create_nosubscribe=True,
-            mail_create_nolog=True,
-            tracking_disable=True,
-        ).create({
-            'name': name,
-            'login': work_email,
-            'email': work_email,
-            'password': password,
-            'company_id': company.id,
-            'company_ids': [(6, 0, [company.id])],
-            'user_role': dep_id.user_role.id if dep_id and dep_id.user_role else False
-        })
+        try:
+            with request.env.cr.savepoint():
+                new_user = ResUsers.with_company(company).with_context(
+                    no_reset_password=True,
+                    mail_create_nosubscribe=True,
+                    mail_create_nolog=True,
+                    tracking_disable=True,
+                ).create({
+                    'name': name,
+                    'login': work_email,
+                    'email': work_email,
+                    'password': password,
+                    'company_id': company.id,
+                    'company_ids': [(6, 0, [company.id])],
+                    'user_role': dep_id.user_role.id if dep_id and dep_id.user_role else False
+                })
 
-        employee_vals = {
-            'name': name,
-            'user_id': new_user.id,
-            'company_id': company.id,
-        }
-        # Write to the canonical fields the employee-onboarding detail form reads
-        # back (employee_onboarding/controllers/onboarding_controller.py serializer)
-        # so Aadhaar / phone / gender captured here are pre-filled on first load.
-        # `sex` is the hr.version gender field; `private_phone` backs the
-        # onboarding "contact number"; `aadhaar_number` is the dedicated field
-        # alongside the standard `identification_id`.
-        for fname, fval in (
-            ('gender', gender),
-            ('sex', gender),
-            ('work_phone', phone),
-            ('private_phone', phone),
-            ('work_email', work_email),
-            ('identification_id', aadhaar_number),
-            ('aadhaar_number', aadhaar_number),
-            ('private_email', personal_email),
-            ('employee_code', employee_code),
-        ):
-            if fval and fname in Employee._fields:
-                employee_vals[fname] = fval
-        if department_id and 'department_id' in Employee._fields:
-            employee_vals['department_id'] = department_id
-        if designation_id and 'designation_id' in Employee._fields:
-            employee_vals['designation_id'] = designation_id
-        if birthday_value and 'birthday' in Employee._fields:
-            employee_vals['birthday'] = birthday_value
+                employee_vals = {
+                    'name': name,
+                    'user_id': new_user.id,
+                    'company_id': company.id,
+                }
+                for fname, fval in (
+                    ('gender', gender),
+                    ('sex', gender),
+                    ('work_phone', phone),
+                    ('private_phone', phone),
+                    ('work_email', work_email),
+                    ('identification_id', aadhaar_number),
+                    ('aadhaar_number', aadhaar_number),
+                    ('private_email', personal_email),
+                    ('employee_code', employee_code),
+                ):
+                    if fval and fname in Employee._fields:
+                        employee_vals[fname] = fval
+                if department_id and 'department_id' in Employee._fields:
+                    employee_vals['department_id'] = department_id
+                if designation_id and 'designation_id' in Employee._fields:
+                    employee_vals['designation_id'] = designation_id
+                if birthday_value and 'birthday' in Employee._fields:
+                    employee_vals['birthday'] = birthday_value
 
-        employee = new_user.employee_id
-        if employee:
-            employee.write(employee_vals)
-        else:
-            employee = Employee.create(employee_vals)
+                employee = new_user.employee_id
+                if employee:
+                    employee.write(employee_vals)
+                else:
+                    employee = Employee.create(employee_vals)
 
-        aadhaar_b64 = base64.b64encode(aadhaar_bytes).decode('utf-8')
-        aadhaar_url = generate_s3_link(
-            aadhaar_b64,
-            prefix='employee/aadhaar',
-            uid=employee.id,
-            filename=aadhaar_filename or 'aadhaar',
-        )
-        if not aadhaar_url:
-            return return_Response(message="Failed to upload Aadhaar card to storage", status=500)
+                aadhaar_b64 = base64.b64encode(aadhaar_bytes).decode('utf-8')
+                aadhaar_url = generate_s3_link(
+                    aadhaar_b64,
+                    prefix='employee/aadhaar',
+                    uid=employee.id,
+                    filename=aadhaar_filename or 'aadhaar',
+                )
+                if not aadhaar_url:
+                    raise _AbortRegistration(return_Response(
+                        message="Failed to upload Aadhaar card to storage", status=500,
+                    ))
 
-        write_vals = {}
-        if 'aadhaar_card_url' in employee._fields:
-            write_vals['aadhaar_card_url'] = aadhaar_url
+                write_vals = {}
+                if 'aadhaar_card_url' in employee._fields:
+                    write_vals['aadhaar_card_url'] = aadhaar_url
 
-        resume_url = ''
-        if resume_bytes:
-            resume_b64 = base64.b64encode(resume_bytes).decode('utf-8')
-            resume_url = generate_s3_link(
-                resume_b64,
-                prefix='employee/resume',
-                uid=employee.id,
-                filename=resume_filename or 'resume',
-            )
-            if not resume_url:
-                return return_Response(message="Failed to upload resume to storage", status=500)
-            if 'resume_url' in employee._fields:
-                write_vals['resume_url'] = resume_url
+                resume_url = ''
+                if resume_bytes:
+                    resume_b64 = base64.b64encode(resume_bytes).decode('utf-8')
+                    resume_url = generate_s3_link(
+                        resume_b64,
+                        prefix='employee/resume',
+                        uid=employee.id,
+                        filename=resume_filename or 'resume',
+                    )
+                    if not resume_url:
+                        raise _AbortRegistration(return_Response(
+                            message="Failed to upload resume to storage", status=500,
+                        ))
+                    if 'resume_url' in employee._fields:
+                        write_vals['resume_url'] = resume_url
 
-        if write_vals:
-            employee.write(write_vals)
+                if write_vals:
+                    employee.write(write_vals)
 
-        return return_Response(
-            message="Registration successful. You can log in with your Ethara email and password.",
-            status=200,
-            data={'data': {
-                'type': 'employee',
-                'employee_id': employee.id,
-                'user_id': new_user.id,
-                'work_email': work_email,
-                'employee_code': employee_code,
-                'aadhaar_card_url': aadhaar_url,
-                'resume_url': resume_url,
-            }},
-        )
+                return return_Response(
+                    message="Registration successful. You can log in with your Ethara email and password.",
+                    status=200,
+                    data={'data': {
+                        'type': 'employee',
+                        'employee_id': employee.id,
+                        'user_id': new_user.id,
+                        'work_email': work_email,
+                        'employee_code': employee_code,
+                        'aadhaar_card_url': aadhaar_url,
+                        'resume_url': resume_url,
+                    }},
+                )
+        except _AbortRegistration as abort:
+            return abort.response
 
     def _process_candidate(
         self, data,
@@ -406,114 +414,132 @@ class EmployeeSelfRegistrationController(http.Controller):
         Applicant = admin_env['hr.applicant']
         College = admin_env['employee.college']
 
-        if not college_id and college_name:
-            existing_college = College.with_context(active_test=False).search(
-                [('name', '=ilike', college_name)], limit=1,
-            )
-            if existing_college:
-                college_id = existing_college.id
-            else:
-                college_id = College.create({
-                    'name': college_name,
-                    'active': True,
-                }).id
+        try:
+            with request.env.cr.savepoint():
+                if not college_id and college_name:
+                    existing_college = College.with_context(active_test=False).search(
+                        [('name', '=ilike', college_name)], limit=1,
+                    )
+                    if existing_college:
+                        college_id = existing_college.id
+                    else:
+                        college_id = College.create({
+                            'name': college_name,
+                            'active': True,
+                        }).id
 
-        if college_id and not College.browse(college_id).exists():
-            return return_Response(message=f"College id {college_id} does not exist", status=400)
+                if college_id and not College.browse(college_id).exists():
+                    raise _AbortRegistration(return_Response(
+                        message=f"College id {college_id} does not exist", status=400,
+                    ))
 
-        if ResUsers.search_count([('login', '=', personal_email)]):
-            return return_Response(message=f"An account already exists for {personal_email}", status=400)
-        if Applicant.search_count([('email_from', '=ilike', personal_email)]):
-            return return_Response(message=f"A candidate profile already exists for {personal_email}", status=400)
-        if aadhaar_number and Applicant.search_count([('aadhaar_number', '=', aadhaar_number)]):
-            return return_Response(message="Aadhaar number already registered as a candidate", status=400)
+                if ResUsers.search_count([('login', '=', personal_email)]):
+                    raise _AbortRegistration(return_Response(
+                        message=f"An account already exists for {personal_email}", status=400,
+                    ))
+                if Applicant.search_count([('email_from', '=ilike', personal_email)]):
+                    raise _AbortRegistration(return_Response(
+                        message=f"A candidate profile already exists for {personal_email}", status=400,
+                    ))
+                if aadhaar_number and Applicant.search_count([('aadhaar_number', '=', aadhaar_number)]):
+                    raise _AbortRegistration(return_Response(
+                        message="Aadhaar number already registered as a candidate", status=400,
+                    ))
 
-        company = (
-            admin_env.ref('base.main_company', raise_if_not_found=False)
-            or admin_env['res.company'].search([], limit=1, order='id asc')
-        )
-        if not company:
-            return return_Response(message="No company configured", status=500)
+                company = (
+                    admin_env.ref('base.main_company', raise_if_not_found=False)
+                    or admin_env['res.company'].search([], limit=1, order='id asc')
+                )
+                if not company:
+                    raise _AbortRegistration(return_Response(
+                        message="No company configured", status=500,
+                    ))
 
-        portal_group = admin_env.ref('base.group_portal', raise_if_not_found=False)
-        user_role = request.env.ref('api_auth_gateway.role_candidate_technical')
-        user_vals = {
-            'name': name,
-            'login': personal_email,
-            'email': personal_email,
-            'password': password,
-            'company_id': company.id,
-            'company_ids': [(6, 0, [company.id])],
-            'user_role': user_role.id if user_role else False,
-        }
-        if portal_group:
-            user_vals['group_ids'] = [(6, 0, [portal_group.id])]
-        new_user = ResUsers.with_company(company).with_context(
-            no_reset_password=True,
-            mail_create_nosubscribe=True,
-            mail_create_nolog=True,
-            tracking_disable=True,
-        ).create(user_vals)
+                portal_group = admin_env.ref('base.group_portal', raise_if_not_found=False)
+                user_role = request.env.ref('api_auth_gateway.role_candidate_technical')
+                user_vals = {
+                    'name': name,
+                    'login': personal_email,
+                    'email': personal_email,
+                    'password': password,
+                    'company_id': company.id,
+                    'company_ids': [(6, 0, [company.id])],
+                    'user_role': user_role.id if user_role else False,
+                }
+                if portal_group:
+                    user_vals['group_ids'] = [(6, 0, [portal_group.id])]
+                new_user = ResUsers.with_company(company).with_context(
+                    no_reset_password=True,
+                    mail_create_nosubscribe=True,
+                    mail_create_nolog=True,
+                    tracking_disable=True,
+                ).create(user_vals)
 
-        applicant_vals = {
-            'partner_name': name,
-            'partner_id': new_user.partner_id.id,
-            'email_from': personal_email,
-            'partner_phone': phone or False,
-            'company_id': company.id,
-            'gender': gender or False,
-            'birthday': birthday_value or False,
-            'aadhaar_number': aadhaar_number,
-            'experience': experience,
-            'experience_years': experience_years if experience == 'experienced' else 0.0,
-            'college_id': college_id or False,
-            'candidate_user_id': new_user.id,
-        }
-        applicant = Applicant.with_company(company).with_context(
-            mail_create_nosubscribe=True,
-            mail_create_nolog=True,
-            tracking_disable=True,
-        ).create(applicant_vals)
+                applicant_vals = {
+                    'partner_name': name,
+                    'partner_id': new_user.partner_id.id,
+                    'email_from': personal_email,
+                    'partner_phone': phone or False,
+                    'company_id': company.id,
+                    'gender': gender or False,
+                    'birthday': birthday_value or False,
+                    'aadhaar_number': aadhaar_number,
+                    'experience': experience,
+                    'experience_years': experience_years if experience == 'experienced' else 0.0,
+                    'college_id': college_id or False,
+                    'candidate_user_id': new_user.id,
+                }
+                applicant = Applicant.with_company(company).with_context(
+                    mail_create_nosubscribe=True,
+                    mail_create_nolog=True,
+                    tracking_disable=True,
+                ).create(applicant_vals)
 
-        aadhaar_b64 = base64.b64encode(aadhaar_bytes).decode('utf-8')
-        aadhaar_url = generate_s3_link(
-            aadhaar_b64,
-            prefix='candidate/aadhaar',
-            uid=applicant.id,
-            filename=aadhaar_filename or 'aadhaar',
-        )
-        if not aadhaar_url:
-            return return_Response(message="Failed to upload Aadhaar card to storage", status=500)
+                aadhaar_b64 = base64.b64encode(aadhaar_bytes).decode('utf-8')
+                aadhaar_url = generate_s3_link(
+                    aadhaar_b64,
+                    prefix='candidate/aadhaar',
+                    uid=applicant.id,
+                    filename=aadhaar_filename or 'aadhaar',
+                )
+                if not aadhaar_url:
+                    raise _AbortRegistration(return_Response(
+                        message="Failed to upload Aadhaar card to storage", status=500,
+                    ))
 
-        resume_b64 = base64.b64encode(resume_bytes).decode('utf-8')
-        resume_url = generate_s3_link(
-            resume_b64,
-            prefix='candidate/resume',
-            uid=applicant.id,
-            filename=resume_filename or 'resume',
-        )
-        if not resume_url:
-            return return_Response(message="Failed to upload resume to storage", status=500)
+                resume_b64 = base64.b64encode(resume_bytes).decode('utf-8')
+                resume_url = generate_s3_link(
+                    resume_b64,
+                    prefix='candidate/resume',
+                    uid=applicant.id,
+                    filename=resume_filename or 'resume',
+                )
+                if not resume_url:
+                    raise _AbortRegistration(return_Response(
+                        message="Failed to upload resume to storage", status=500,
+                    ))
 
-        applicant.write({
-            'aadhaar_card_url': aadhaar_url,
-            'resume_url': resume_url,
-        })
+                applicant.write({
+                    'aadhaar_card_url': aadhaar_url,
+                    'resume_url': resume_url,
+                })
 
-        return return_Response(
-            message="Candidate profile created. You can log in with your personal email and password.",
-            status=200,
-            data={'data': {
-                'type': 'candidate',
-                'applicant_id': applicant.id,
-                'user_id': new_user.id,
-                'personal_email': personal_email,
-                'experience': experience,
-                'experience_years': applicant.experience_years,
-                'aadhaar_card_url': aadhaar_url,
-                'resume_url': resume_url,
-            }},
-        )
+                return return_Response(
+                    message="Candidate profile created. You can log in with your personal email and password.",
+                    status=200,
+                    data={'data': {
+                        'type': 'candidate',
+                        'applicant_id': applicant.id,
+                        'user_id': new_user.id,
+                        'personal_email': personal_email,
+                        'experience': experience,
+                        'experience_years': applicant.experience_years,
+                        'aadhaar_card_url': aadhaar_url,
+                        'resume_url': resume_url,
+                    }},
+                )
+        except _AbortRegistration as abort:
+            return abort.response
 
     @http.route(
         '/api/v2/employees/registration_options',

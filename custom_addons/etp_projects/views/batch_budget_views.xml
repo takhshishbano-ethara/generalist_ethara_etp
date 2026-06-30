@@ -5,7 +5,7 @@
         <field name="name">etp.batch.budget.list</field>
         <field name="model">etp.batch.budget</field>
         <field name="arch" type="xml">
-            <list string="Batch Budgets"
+            <list string="Phase Budgets"
                   decoration-success="state == 'approved'"
                   decoration-primary="state == 'in_progress'"
                   decoration-muted="state in ('rejected','withdrawn','closed')">
@@ -15,6 +15,8 @@
                 <field name="start_date"/>
                 <field name="end_date"/>
                 <field name="total_tasks"/>
+                <field name="done_tasks"/>
+                <field name="remaining_tasks"/>
                 <field name="estimated_cost" sum="USD"/>
                 <field name="buffer_pct"/>
                 <field name="batch_budget" sum="USD" optional="hide"/>
@@ -40,7 +42,7 @@
         <field name="name">etp.batch.budget.form</field>
         <field name="model">etp.batch.budget</field>
         <field name="arch" type="xml">
-            <form string="Batch Budget">
+            <form string="Phase Budget">
                 <header>
                     <button name="action_open_request_wizard" type="object"
                             string="Request Budget" class="btn-primary"
@@ -51,11 +53,11 @@
                     <button name="action_deliver" type="object"
                             string="Deliver" class="btn-primary"
                             invisible="state not in ('approved','in_progress')"
-                            confirm="Deliver this batch? Remaining budget will be returned to the project."/>
+                            confirm="Deliver this phase? Remaining budget will be returned to the project."/>
                     <button name="action_restart" type="object"
                             string="Start" class="btn-primary"
                             invisible="state != 'delivered'"
-                            confirm="Restart this batch and pull any available project remaining into it?"/>
+                            confirm="Restart this phase and pull any available project remaining into it?"/>
                     <button name="action_close" type="object"
                             string="Close" class="btn-secondary"
                             invisible="state != 'delivered'"/>
@@ -66,6 +68,8 @@
                             string="Refresh Model Lines" class="btn-secondary"
                             confirm="Replace current model lines with a fresh snapshot from the Project Budget?"
                             invisible="state != 'draft' or not project_budget_id"/>
+                    <button name="action_download_llm_ledger" type="object"
+                            string="Download LLM Ledger" class="btn-secondary"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,approved,in_progress,delivered,closed"/>
                 </header>
@@ -92,6 +96,8 @@
                             <field name="start_date" readonly="state != 'draft'"/>
                             <field name="end_date" readonly="state != 'draft'"/>
                             <field name="total_tasks" readonly="state != 'draft'"/>
+                            <field name="done_tasks" readonly="1"/>
+                            <field name="remaining_tasks" readonly="1"/>
                             <field name="estimated_cost" readonly="1"/>
                             <field name="buffer_pct" readonly="state != 'draft'"/>
                             <field name="batch_budget" readonly="1" string="Estimated Budget"/>
@@ -122,7 +128,13 @@
                             <field name="model_line_ids" readonly="state != 'draft'">
                                 <list editable="bottom">
                                     <field name="ai_model_id"/>
-                                    <field name="per_task_cost" sum="USD"/>
+                                    <field name="cost_type"/>
+                                    <field name="per_trajectory_cost"
+                                           readonly="cost_type == 'per_task'"/>
+                                    <field name="iterations"
+                                           readonly="cost_type == 'per_task'"/>
+                                    <field name="per_task_cost" sum="USD"
+                                           readonly="cost_type == 'per_trajectory'"/>
                                 </list>
                             </field>
                         </page>
@@ -132,6 +144,19 @@
                                     <field name="infra_type_id"/>
                                     <field name="description"/>
                                     <field name="budget_amount" sum="USD"/>
+                                    <field name="per_day_cost" sum="USD"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Subscriptions" name="subscriptions">
+                            <field name="subscription_line_ids" readonly="state != 'draft'">
+                                <list editable="bottom">
+                                    <field name="subscription_id"/>
+                                    <field name="assigned_user_ids" widget="many2many_tags"/>
+                                    <field name="cost_per_subscription"/>
+                                    <field name="subscription_count"/>
+                                    <field name="final_amount" sum="USD"/>
+                                    <field name="per_day_cost" sum="USD"/>
                                 </list>
                             </field>
                         </page>
@@ -182,12 +207,15 @@
                             <field name="daily_task_ids" readonly="1">
                                 <list create="0" delete="0">
                                     <field name="entry_date"/>
-                                    <field name="start_date"/>
-                                    <field name="end_date"/>
                                     <field name="done_count" sum="Tasks"/>
+                                    <field name="no_of_trajectory" sum="Trajectories"/>
                                     <field name="per_task_cost"/>
                                     <field name="ideal_per_task_cost"/>
+                                    <field name="per_trajectory_cost"/>
+                                    <field name="ideal_per_trajectory_cost" optional="hide"/>
                                     <field name="total_cost" sum="USD"/>
+                                    <field name="infra_cost" sum="Infra USD"/>
+                                    <field name="subscription_cost" sum="Subs USD"/>
                                     <field name="health_status" widget="badge"
                                            decoration-success="health_status == 'healthy'"
                                            decoration-warning="health_status == 'warning'"
@@ -236,7 +264,7 @@
         <field name="name">etp.batch.budget.search</field>
         <field name="model">etp.batch.budget</field>
         <field name="arch" type="xml">
-            <search string="Batch Budgets">
+            <search string="Phase Budgets">
                 <field name="name"/>
                 <field name="project_id"/>
                 <field name="project_budget_id"/>
@@ -257,15 +285,75 @@
     </record>
 
     <record id="action_etp_batch_budget" model="ir.actions.act_window">
-        <field name="name">Batch Budgets</field>
+        <field name="name">Phase Budgets</field>
         <field name="res_model">etp.batch.budget</field>
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="view_etp_batch_budget_search"/>
         <field name="help" type="html">
-            <p class="o_view_nocontent_smiling_face">Create a Batch Budget</p>
+            <p class="o_view_nocontent_smiling_face">Create a Phase Budget</p>
             <p>Pick an Operations Project Budget, enter total tasks, dates and buffer %.
             Use <b>Request Budget</b> to submit one or more approval requests; each approved request
-            adds to the batch's approved amount.</p>
+            adds to the phase's approved amount.</p>
+        </field>
+    </record>
+
+    <record id="view_etp_batch_budget_daily_task_form" model="ir.ui.view">
+        <field name="name">etp.batch.budget.daily.task.form</field>
+        <field name="model">etp.batch.budget.daily.task</field>
+        <field name="arch" type="xml">
+            <form string="Daily Task Entry">
+                <sheet>
+                    <group>
+                        <group string="Entry">
+                            <field name="batch_id" readonly="1"/>
+                            <field name="entry_date" readonly="1"/>
+                            <field name="connected_model" readonly="1"/>
+                            <field name="done_count" readonly="1"/>
+                            <field name="no_of_trajectory" readonly="1"/>
+                            <field name="total_cost" readonly="1"/>
+                            <field name="note" readonly="1"/>
+                        </group>
+                        <group string="Per Task / Trajectory">
+                            <field name="per_task_cost" readonly="1"/>
+                            <field name="ideal_per_task_cost" readonly="1"/>
+                            <field name="per_trajectory_cost" readonly="1"/>
+                            <field name="ideal_per_trajectory_cost" readonly="1"/>
+                            <field name="infra_cost" readonly="1"/>
+                            <field name="subscription_cost" readonly="1"/>
+                            <field name="health_status" widget="badge"
+                                   decoration-success="health_status == 'healthy'"
+                                   decoration-warning="health_status == 'warning'"
+                                   decoration-danger="health_status == 'critical'"
+                                   decoration-muted="health_status == 'unknown'"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Model-wise Costing" name="model_breakdown">
+                            <field name="model_breakdown_ids" readonly="1">
+                                <list create="0" delete="0" edit="0">
+                                    <field name="ai_model_id"/>
+                                    <field name="cost_type"/>
+                                    <field name="per_task_cost"/>
+                                    <field name="per_trajectory_cost" optional="show"/>
+                                    <field name="iterations" optional="show"/>
+                                    <field name="done_count"/>
+                                    <field name="trajectory_count" optional="show"/>
+                                    <field name="ideal_cost" sum="Ideal USD"/>
+                                    <field name="allocated_cost" sum="Allocated USD"/>
+                                    <field name="variance" sum="Variance USD"
+                                           decoration-success="variance &lt;= 0"
+                                           decoration-danger="variance &gt; 0"/>
+                                    <field name="health_status" widget="badge"
+                                           decoration-success="health_status == 'healthy'"
+                                           decoration-warning="health_status == 'warning'"
+                                           decoration-danger="health_status == 'critical'"
+                                           decoration-muted="health_status == 'unknown'"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
         </field>
     </record>
 

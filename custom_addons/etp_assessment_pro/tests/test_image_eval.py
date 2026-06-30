@@ -82,7 +82,10 @@ class TestImageModelAndSeed(_Base):
 
 
 class TestImageAbObjectiveScore(_Base):
-    def test_partial_objective_score(self):
+    def test_image_ab_has_no_code_objective_pool(self):
+        # EQUAL MARKS: image_ab is graded as a single LLM mark, NOT a
+        # code-objective partial-credit pool. So _compute_score yields 0/0 and
+        # the response needs_llm (the axis picks are LLM grading input).
         q = self._build_image_ab([
             (self.dim_if, "Response A"),
             (self.dim_vq, "Response B"),
@@ -111,9 +114,9 @@ class TestImageAbObjectiveScore(_Base):
             "justification": "A is sharper and more realistic than B.",
             "line_ids": line_vals,
         })
-        self.assertEqual(resp.max_score, 4)
-        self.assertEqual(resp.score, 3)
-        self.assertTrue(resp.has_objective)
+        self.assertEqual(resp.max_score, 0)
+        self.assertEqual(resp.score, 0)
+        self.assertFalse(resp.has_objective)
         self.assertTrue(resp.needs_llm)
 
 
@@ -178,8 +181,9 @@ class TestImageTextScorer(_Base):
         self.assertEqual(resp.llm_state, "scored")
         self.assertAlmostEqual(resp.llm_raw_score, 0.8)
         self.assertTrue(resp.llm_passed)
-        self.assertEqual(resp.llm_max_score, 10)
-        self.assertEqual(resp.llm_score, 8)
+        # EQUAL MARKS: every question worth 1; pass earns the single mark.
+        self.assertEqual(resp.llm_max_score, 1)
+        self.assertEqual(resp.llm_score, 1)
 
     def test_image_text_scorer_fail_below_threshold(self):
         resp = self._image_text_response()
@@ -188,7 +192,8 @@ class TestImageTextScorer(_Base):
             scoring._score_image_text_items(self.env, resp)
         resp.invalidate_recordset()
         self.assertFalse(resp.llm_passed)
-        self.assertEqual(resp.llm_score, 4)
+        self.assertEqual(resp.llm_score, 0)
+        self.assertEqual(resp.llm_max_score, 1)
 
 
 class TestImageAbScorerStub(_Base):
@@ -215,7 +220,7 @@ class TestImageAbScorerStub(_Base):
             "line_ids": line_vals,
         })
         fixed = json.dumps([{
-            "id": resp.id, "score": 8, "alignment": "high",
+            "id": resp.id, "score": 80, "alignment": "high",
             "strengths": ["clear"], "issues": [], "feedback": "solid",
         }])
         with patch.object(vertex, "_call_vertex", return_value=fixed):
@@ -224,7 +229,9 @@ class TestImageAbScorerStub(_Base):
         self.assertEqual(resp.llm_state, "scored")
         self.assertAlmostEqual(resp.llm_raw_score, 0.8)
         self.assertTrue(resp.llm_passed)
-        self.assertEqual(resp.llm_score, 8)
+        # EQUAL MARKS: pass earns the single mark.
+        self.assertEqual(resp.llm_score, 1)
+        self.assertEqual(resp.llm_max_score, 1)
 
 
 class TestRecordResponse(_Base):

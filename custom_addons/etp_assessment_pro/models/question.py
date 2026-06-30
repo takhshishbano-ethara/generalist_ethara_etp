@@ -1,5 +1,10 @@
 from odoo import models, fields, api
 
+from ..constants import (
+    QUESTION_TYPE_SELECTION, DIFFICULTY_SELECTION, option_name_reveals_reasoning,
+    text_has_source_reference,
+)
+
 
 class EtpAssessmentQuestion(models.Model):
     _name = "etp.assessment.pro.question"
@@ -9,14 +14,7 @@ class EtpAssessmentQuestion(models.Model):
     name = fields.Char(string="Title", required=True)
     sequence = fields.Integer(default=10)
     question_type = fields.Selection(
-        [
-            ("mcq", "Objective - MCQ"),
-            ("msq", "Objective - MSQ"),
-            ("subjective_justification", "Subjective - Justification"),
-            ("subjective_rubric", "Subjective - Rubric"),
-            ("image_ab", "Image - A/B Evaluation"),
-            ("image_text", "Image - Prompt/Labelling"),
-        ],
+        QUESTION_TYPE_SELECTION,
         string="Question Type",
         required=True,
         default="mcq",
@@ -52,7 +50,7 @@ class EtpAssessmentQuestion(models.Model):
         help="image_ab: the official rationale the LLM grades the candidate's "
              "justification against.")
     difficulty = fields.Selection(
-        [("easy", "Easy"), ("medium", "Medium"), ("hard", "Hard")],
+        DIFFICULTY_SELECTION,
         string="Difficulty",
     )
     time_minutes = fields.Integer(string="Time (minutes)", default=0)
@@ -71,6 +69,55 @@ class EtpAssessmentQuestion(models.Model):
         string="Answer Key", compute="_compute_answer_key_preview",
         sanitize=False)
     has_answer_key = fields.Boolean(compute="_compute_answer_key_preview")
+    # Mis-keyed objective questions (mcq/msq with no correct option anywhere)
+    # are unscoreable and must NOT silently vanish from the grade. This flag
+    # surfaces them in the bank list/form so a reviewer can fix the key.
+    has_valid_key = fields.Boolean(
+        string="Answer Key OK", compute="_compute_has_valid_key", store=True,
+        help="False when an objective (MCQ/MSQ) question has no correct option "
+             "marked — it cannot be scored and needs a fix.")
+
+    has_revealing_option = fields.Boolean(
+        compute="_compute_has_revealing_option",
+        help="True when an objective option name embeds its rationale "
+             "(\"Image B, because ...\"). Option names are shown to the "
+             "candidate, so the rationale must live in the hidden answer key.")
+    has_source_reference = fields.Boolean(
+        compute="_compute_has_source_reference",
+        help="True when the question or its answer key cites the source "
+             "material the candidate never sees (\"according to the SOP\", "
+             "\"Section 2.1\"). Items must be self-contained.")
+
+    @api.depends("question_type",
+                 "question_dimension_ids.option_line_ids.is_correct")
+    def _compute_has_valid_key(self):
+        for rec in self:
+            if rec.question_type not in ("mcq", "msq"):
+                rec.has_valid_key = True
+                continue
+            has_correct = any(
+                qd.option_line_ids.filtered("is_correct")
+                for qd in rec.question_dimension_ids)
+            rec.has_valid_key = bool(has_correct)
+
+    @api.depends("question_type", "question_dimension_ids.option_line_ids.name")
+    def _compute_has_revealing_option(self):
+        for rec in self:
+            flag = False
+            if rec.question_type in ("mcq", "msq"):
+                names = rec.question_dimension_ids.option_line_ids.mapped("name")
+                flag = any(option_name_reveals_reasoning(n) for n in names)
+            rec.has_revealing_option = flag
+
+    @api.depends("prompt", "official_reasoning", "subjective_rubric_json",
+                 "description", "question_dimension_ids.option_line_ids.name")
+    def _compute_has_source_reference(self):
+        for rec in self:
+            opt_names = " ".join(
+                rec.question_dimension_ids.option_line_ids.mapped("name"))
+            rec.has_source_reference = text_has_source_reference(
+                rec.prompt, rec.official_reasoning, rec.subjective_rubric_json,
+                rec.description, opt_names)
 
     @api.depends("question_dimension_ids.option_line_ids.is_correct",
                  "question_dimension_ids.option_line_ids.name",
@@ -130,6 +177,35 @@ class EtpAssessmentQuestion(models.Model):
                 "sticky": False,
             },
         }
+
+    def _image_brief_json(self):
+        """Best-effort source of render briefs for a bank question: prefer the
+        originating draft's image_brief_json (kept after approval), else build
+        a brief per existing image slot from its label."""
+        self.ensure_one()
+        Draft = self.env["etp.assessment.pro.prompt.question"]
+        draft = Draft.search(
+            [("approved_question_id", "=", self.id)], limit=1)
+        if draft and draft.image_brief_json:
+            return draft.image_brief_json
+        return False
+
+    def _bank_notify(self, title, message, kind="success"):
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {"title": title, "message": message, "type": kind,
+                       "sticky": kind in ("danger", "warning")},
+        }
+
+    def action_upload_question_image(self):
+        """Open a small wizard-less prompt is overkill; instead this action is
+        a no-op placeholder. Upload is done directly on the question.image row
+        (Binary field) in the form. Kept for symmetry/help text."""
+        return self._bank_notify(
+            "Upload Image",
+            "Edit an image row below and use its Image field to upload your "
+            "own picture, or add a new image line.", "info")
 
     def _export_payload(self):
         import json

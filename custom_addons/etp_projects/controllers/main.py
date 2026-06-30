@@ -731,7 +731,7 @@ class EtpProjectsAwsCostController(http.Controller):
                 "tasks": [],
             })
         return {
-            "title": "Burn per batch",
+            "title": "Burn per phase",
             "batches": rows,
         }
 

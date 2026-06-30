@@ -5,20 +5,43 @@
         <field name="name">etp.batch.budget.request.wizard.form</field>
         <field name="model">etp.batch.budget.request.wizard</field>
         <field name="arch" type="xml">
-            <form string="Request Batch Budget">
+            <form string="Request Phase Budget">
                 <sheet>
+                    <field name="is_followup" invisible="1"/>
+                    <field name="parent_request_id" invisible="1"/>
+                    <div class="alert alert-info" role="alert"
+                         invisible="not is_followup">
+                        <strong>Follow-up Request</strong> against
+                        <field name="parent_request_id" readonly="1" nolabel="1"/>.
+                        Model and infrastructure lines are copied from the parent
+                        and locked. Only adjust <strong>Total Tasks</strong> and
+                        <strong>Requested Total</strong> (capped at parent's
+                        remaining amount).
+                    </div>
                     <group>
                         <group>
                             <field name="batch_id" readonly="1"/>
                             <field name="project_id" readonly="1"/>
                             <field name="project_budget_id" readonly="1"/>
+                            <field name="request_type" readonly="is_followup"/>
                         </group>
                         <group>
                             <field name="is_first_request" invisible="1"/>
-                            <field name="total_tasks"/>
-                            <field name="buffer_pct"/>
+                            <field name="total_tasks"
+                                   invisible="request_type == 'topup'"/>
+                            <field name="buffer_pct" readonly="is_followup"
+                                   invisible="request_type == 'topup'"/>
                             <field name="requested_total"/>
                             <field name="priority"/>
+                        </group>
+                    </group>
+                    <group string="Parent Request" invisible="not is_followup">
+                        <group>
+                            <field name="parent_requested_total"/>
+                            <field name="parent_approved_total"/>
+                        </group>
+                        <group>
+                            <field name="parent_remaining_amount"/>
                         </group>
                     </group>
                     <group>
@@ -33,18 +56,28 @@
                         <field name="attachment_ids" widget="many2many_binary"/>
                     </group>
                     <notebook>
-                        <page string="Model Lines" name="model_lines">
-                            <field name="model_line_ids">
+                        <page string="Model Lines" name="model_lines"
+                              invisible="request_type in ('topup', 'device')">
+                            <field name="model_line_ids"
+                                   readonly="is_followup">
                                 <list editable="bottom">
                                     <field name="ai_model_id"/>
                                     <field name="description"/>
-                                    <field name="per_task_cost"/>
+                                    <field name="cost_type"/>
+                                    <field name="per_trajectory_cost"
+                                           readonly="cost_type == 'per_task'"/>
+                                    <field name="iterations"
+                                           readonly="cost_type == 'per_task'"/>
+                                    <field name="per_task_cost"
+                                           readonly="cost_type == 'per_trajectory'"/>
                                     <field name="requested_amount" sum="USD" readonly="1"/>
                                 </list>
                             </field>
                         </page>
-                        <page string="Infrastructure" name="infrastructure">
-                            <field name="infra_line_ids">
+                        <page string="Infrastructure" name="infrastructure"
+                              invisible="request_type in ('topup', 'new_model')">
+                            <field name="infra_line_ids"
+                                   readonly="is_followup">
                                 <list editable="bottom">
                                     <field name="infra_type_id"/>
                                     <field name="description"/>
@@ -64,7 +97,7 @@
     </record>
 
     <record id="action_etp_batch_budget_request_wizard" model="ir.actions.act_window">
-        <field name="name">Request Batch Budget</field>
+        <field name="name">Request Phase Budget</field>
         <field name="res_model">etp.batch.budget.request.wizard</field>
         <field name="view_mode">form</field>
         <field name="view_id" ref="view_etp_batch_budget_request_wizard_form"/>

@@ -15,7 +15,6 @@ Adds an Internal/External classification to projects.
     'data': [
         'security/ir.model.access.csv',
         'data/sequence_data.xml',
-        'data/etp_ai_model_data.xml',
         'data/etp_infra_type_data.xml',
         'data/mail_template_data.xml',
         'views/project_team_csv_import_views.xml',
@@ -23,6 +22,8 @@ Adds an Internal/External classification to projects.
         'views/external_project_views.xml',
         'views/api_mapping_views.xml',
         'views/etp_ai_model_views.xml',
+        'views/etp_infra_type_views.xml',
+        'views/etp_subscription_views.xml',
         'wizards/batch_budget_daily_task_wizard_views.xml',
         'wizards/batch_budget_request_wizard_views.xml',
         'views/batch_budget_views.xml',

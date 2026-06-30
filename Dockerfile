@@ -42,7 +42,7 @@ RUN set -eux \
     && echo "deb [signed-by=/usr/share/keyrings/microsoft-prod.gpg] https://packages.microsoft.com/debian/12/prod bookworm main" \
         > /etc/apt/sources.list.d/mssql-release.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends msodbcsql18 \
+    && apt-get install -y --no-install-recommends msodbcsql18 msodbcsql17 \
     && mkdir -p /etc/apt/keyrings \
     && wget -qO /etc/apt/keyrings/githubcli-archive-keyring.gpg \
         https://cli.github.com/packages/githubcli-archive-keyring.gpg \

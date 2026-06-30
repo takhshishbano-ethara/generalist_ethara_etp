@@ -9,26 +9,27 @@
                 <sheet>
                     <field name="batch_id" invisible="1"/>
                     <field name="connected_model" invisible="1"/>
-                    <group string="Date Range">
-                        <field name="start_date"/>
-                        <field name="end_date"/>
-                        <field name="done_count" readonly="1"/>
-                        <button name="action_fetch_done_count"
-                                type="object"
-                                string="Fetch Done Count"
-                                class="btn-secondary"
-                                colspan="2"/>
-                    </group>
-                    <group string="Cost">
+                    <group string="Entry">
+                        <field name="entry_date"/>
+                        <field name="done_count"/>
                         <field name="total_cost"/>
+                        <field name="note"/>
+                    </group>
+                    <group string="Per Task / Trajectory">
                         <field name="per_task_cost" readonly="1"/>
                         <field name="ideal_per_task_cost" readonly="1"/>
+                        <field name="no_of_trajectory" readonly="1"/>
+                        <field name="per_trajectory_cost" readonly="1"/>
+                        <field name="ideal_per_trajectory_cost" readonly="1"/>
                         <field name="health_status" widget="badge"
                                decoration-success="health_status == 'healthy'"
                                decoration-warning="health_status == 'warning'"
                                decoration-danger="health_status == 'critical'"
                                decoration-muted="health_status == 'unknown'"/>
-                        <field name="note"/>
+                    </group>
+                    <group string="Daily Infra / Subscription">
+                        <field name="infra_cost" readonly="1"/>
+                        <field name="subscription_cost" readonly="1"/>
                     </group>
                 </sheet>
                 <footer>

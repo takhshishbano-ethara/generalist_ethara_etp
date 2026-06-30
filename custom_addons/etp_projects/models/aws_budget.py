@@ -83,6 +83,12 @@ class EtpProjectAwsBudget(models.Model):
              "to auto-pick the right budget once a project + project type are chosen.",
     )
     active = fields.Boolean(default=True)
+    attachment_ids = fields.Text(
+        string="Attachment URLs",
+        help="Comma-separated S3 URLs of files attached to this budget. "
+             "Populated by the project_budget create/update REST endpoints when "
+             "the caller posts files as multipart/form-data under the 'attachments' key.",
+    )
     state = fields.Selection(
         [
             ("draft", "Draft"),
@@ -102,7 +108,10 @@ class EtpProjectAwsBudget(models.Model):
     budget_amount = fields.Float(
         string="Budget (USD)",
         tracking=True,
-        help="Top-level budget envelope for this project (USD).",
+        help="Top-level budget envelope for this project (USD). "
+             "Populated by the create-budget API as "
+             "Sigma_batches(total_tasks * sum(model.per_task_cost) + duration_days * sum(infra.per_day_cost)) "
+             "+ total_phase_days * sum(subscription.per_day_cost).",
     )
     buffer_pct = fields.Float(
         string="Buffer %",
@@ -110,11 +119,37 @@ class EtpProjectAwsBudget(models.Model):
         tracking=True,
         help="Buffer percentage applied on top of the budget.",
     )
+    total_tasks = fields.Integer(
+        string="Total Tasks",
+        default=0,
+        tracking=True,
+        help="Total number of tasks planned across all phases for this project budget. "
+             "Source of truth used to compute the AI model cost component "
+             "(total_tasks x sum(model_line.per_task_cost)).",
+    )
+    description = fields.Text(
+        string="Description",
+        tracking=True,
+        help="Free-form description / justification supplied when the budget was created.",
+    )
+    priority = fields.Selection(
+        [
+            ("low", "Low"),
+            ("normal", "Normal"),
+            ("high", "High"),
+            ("urgent", "Urgent"),
+        ],
+        string="Priority",
+        default="normal",
+        tracking=True,
+        help="Priority of this project budget. Also stamped onto the initial "
+             "phase budget request that is auto-created at project budget creation.",
+    )
     model_line_ids = fields.One2many(
         "etp.project.budget.model.line",
         "budget_id",
         string="Model Lines",
-        help="AI models and their per-task cost. Used by Operations budgets and Batch Budget snapshots.",
+        help="AI models and their per-task cost. Used by Operations budgets and Phase Budget snapshots.",
     )
     infra_line_ids = fields.One2many(
         "etp.project.budget.infra.line",
@@ -122,7 +157,12 @@ class EtpProjectAwsBudget(models.Model):
         string="Infrastructure Lines",
         help="Infrastructure cost components (EC2, S3, RDS, ...).",
     )
-
+    subscription_line_ids = fields.One2many(
+        "etp.project.budget.subscription.line",
+        "budget_id",
+        string="Subscription Lines",
+        help="Monthly/daily SaaS or service subscriptions tied to this project budget.",
+    )
     aws_access_key_id = fields.Char(string="AWS Access Key ID")
     aws_secret_access_key = fields.Char(string="AWS Secret Access Key")
     aws_region = fields.Char(default="us-east-1", string="AWS Region")
@@ -282,30 +322,30 @@ class EtpProjectAwsBudget(models.Model):
         "user_id",
         string="Approvers",
         default=lambda self: [(6, 0, self._get_default_approver_user_ids())],
-        help="Users authorised to approve Batch Budget and Top-up requests on this project. "
+        help="Users authorised to approve Phase Budget and Top-up requests on this project. "
              "New budgets are pre-filled from the 'Default Project Budget Approvers' "
              "configured under Settings.",
     )
     cto_user_id = fields.Many2one(
         "res.users",
         string="CTO (Threshold Alerts)",
-        help="Recipient of batch consumption threshold alert mails.",
+        help="Recipient of phase consumption threshold alert mails.",
     )
     batch_budget_ids = fields.One2many(
-        "etp.batch.budget", "project_budget_id", string="Batch Budgets",
+        "etp.batch.budget", "project_budget_id", string="Phase Budgets",
     )
     topup_ids = fields.One2many(
         "etp.project.budget.topup", "project_budget_id", string="Top-up Requests",
     )
     allocated_amount = fields.Float(
-        string="Allocated to Batches (USD)",
+        string="Allocated to Phases (USD)",
         compute="_compute_batch_totals", store=False,
-        help="Unallocated leftover from delivered batches, waiting to be "
-             "carried into the next new or restarted batch (becomes zero "
+        help="Unallocated leftover from delivered phases, waiting to be "
+             "carried into the next new or restarted phase (becomes zero "
              "once carried over).",
     )
     consumed_amount = fields.Float(
-        string="Consumed by Batches (USD)",
+        string="Consumed by Phases (USD)",
         compute="_compute_batch_totals", store=False,
     )
     topup_total_amount = fields.Float(
@@ -320,7 +360,7 @@ class EtpProjectAwsBudget(models.Model):
         string="Available to Allocate (USD)",
         compute="_compute_batch_totals", store=False,
         help="Project funding (initial budget + approved top-ups) not yet "
-             "allocated to batches. New batch requests draw from this.",
+             "allocated to phases. New phase requests draw from this.",
     )
     consumed_pct = fields.Float(
         string="Consumed %",
@@ -350,8 +390,18 @@ class EtpProjectAwsBudget(models.Model):
     total_approved_amount = fields.Float(
         string="Total Approved Budget (USD)",
         compute="_compute_batch_totals", store=False,
-        help="Sum of the Approved Amount across all batches (batch-wise "
+        help="Sum of the Approved Amount across all phases (phase-wise "
              "approved budget).",
+    )
+    done_tasks = fields.Integer(
+        string="Done Tasks",
+        compute="_compute_batch_totals", store=False,
+        help="Sum of Done Tasks across all phases (from each phase's Daily Task Log).",
+    )
+    remaining_tasks = fields.Integer(
+        string="Remaining Tasks",
+        compute="_compute_batch_totals", store=False,
+        help="Total Tasks minus Done Tasks. Clamped at zero.",
     )
     batch_budget_remain = fields.Float(
         string="Delivered Leftover Pool (USD)",
@@ -359,8 +409,8 @@ class EtpProjectAwsBudget(models.Model):
         readonly=True,
         copy=False,
         tracking=True,
-        help="Unused approved amount from delivered batches. Auto-allocated "
-             "to the next new or restarted batch.",
+        help="Unused approved amount from delivered phases. Auto-allocated "
+             "to the next new or restarted phase.",
     )
 
     @api.model
@@ -423,11 +473,13 @@ class EtpProjectAwsBudget(models.Model):
 
     @api.depends(
         "budget_amount",
+        "total_tasks",
         "batch_budget_ids.state",
         "batch_budget_ids.approved_amount",
         "batch_budget_ids.carried_over_amount",
         "batch_budget_ids.consumed_cost",
         "batch_budget_ids.closed_remaining",
+        "batch_budget_ids.done_tasks",
         "batch_budget_remain",
         "topup_ids.state",
         "topup_ids.amount",
@@ -455,12 +507,17 @@ class EtpProjectAwsBudget(models.Model):
             #  carried over into it from a delivered batch).
             approved_total = 0.0
             consumed = 0.0
+            done = 0
             for batch in rec.batch_budget_ids:
                 if batch.state in ("rejected", "withdrawn"):
                     continue
                 approved_total += batch.approved_amount or 0.0
                 consumed += batch.consumed_cost or 0.0
+                done += batch.done_tasks or 0
             rec.total_approved_amount = approved_total
+            rec.done_tasks = done
+            remaining = (rec.total_tasks or 0) - done
+            rec.remaining_tasks = remaining if remaining > 0 else 0
             # Allocated to Batches = unallocated delivered-leftover pool,
             # waiting to be carried into the next new/restarted batch.
             rec.allocated_amount = rec.batch_budget_remain or 0.0
@@ -627,6 +684,35 @@ class EtpProjectAwsBudget(models.Model):
             "params": {
                 "type": notif_type,
                 "title": _("GCP cost fetch"),
+                "message": "\n".join(messages) or _("No records."),
+                "sticky": True,
+            },
+        }
+
+    def action_resync_ai_catalogs(self):
+        messages = []
+        for rec in self:
+            lines = rec.cost_line_ids
+            counts = lines._ensure_ai_models_from_lines() or {}
+            messages.append(
+                "%s: lines=%s model=%s infra=%s skipped=%s "
+                "(created models=%s, infra=%s)"
+                % (
+                    rec.name,
+                    counts.get("total", 0),
+                    counts.get("model", 0),
+                    counts.get("infra", 0),
+                    counts.get("skipped", 0),
+                    counts.get("models_created", 0),
+                    counts.get("infra_created", 0),
+                )
+            )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "type": "info",
+                "title": _("AI / Infra catalog resync"),
                 "message": "\n".join(messages) or _("No records."),
                 "sticky": True,
             },
@@ -1021,7 +1107,9 @@ class EtpProjectAwsBudget(models.Model):
                 usd = float(row.get("usage") or 0.0)
             except (TypeError, ValueError):
                 usd = 0.0
-            model = (row.get("model") or "").strip() or "unknown"
+            permaslug = (row.get("model_permaslug") or "").strip()
+            requested = (row.get("model") or "").strip()
+            model = permaslug or requested or "unknown"
             try:
                 inp = int(row.get("prompt_tokens") or 0)
             except (TypeError, ValueError):
@@ -1581,3 +1669,152 @@ class EtpProjectAwsBudget(models.Model):
     def _compute_fetch_log_count(self):
         for rec in self:
             rec.fetch_log_count = len(rec.fetch_log_ids)
+
+    def _llm_ledger_debit_domain(self):
+        self.ensure_one()
+        return [
+            ("budget_id", "=", self.id),
+            ("granularity", "=", "day"),
+            "|",
+            ("model_name", "!=", False),
+            ("source", "in", ["openrouter", "moonshot", "openai"]),
+        ]
+
+    def _collect_llm_ledger_entries(self):
+        self.ensure_one()
+        Request = self.env["etp.batch.budget.request"].sudo()
+        entries = []
+        reqs = Request.search([
+            ("project_budget_id", "=", self.id),
+            ("state", "in", ["approved", "partially_approved"]),
+        ])
+        for req in reqs:
+            when = req.approval_date or req.request_date
+            day = fields.Date.to_date(when) if when else fields.Date.context_today(self)
+            descr = "%s — %s" % (
+                req.batch_id.name or "",
+                req.approver_id.name or "auto",
+            )
+            entries.append({
+                "date": day,
+                "sort_key": (day, 0, req.id),
+                "kind": "Credit",
+                "reference": req.name or "",
+                "description": descr,
+                "credit": req.approved_total or 0.0,
+                "debit": 0.0,
+            })
+        Line = self.env["etp.project.aws.cost.line"].sudo()
+        grouped = {}
+        for ln in Line.search(self._llm_ledger_debit_domain()):
+            key = (ln.period, ln.service_name or "", ln.model_name or "")
+            grouped[key] = grouped.get(key, 0.0) + (ln.amount_source or 0.0)
+        for (period, service, model), amount in grouped.items():
+            if not period or amount <= 0.0:
+                continue
+            descr = "%s · %s" % (service, model) if model else service
+            entries.append({
+                "date": period,
+                "sort_key": (period, 1, service, model),
+                "kind": "Debit",
+                "reference": service,
+                "description": descr,
+                "credit": 0.0,
+                "debit": amount,
+            })
+        entries.sort(key=lambda e: e["sort_key"])
+        return entries
+
+    def _build_llm_ledger_xlsx(self):
+        self.ensure_one()
+        import base64
+        import io
+        import xlsxwriter
+
+        output = io.BytesIO()
+        wb = xlsxwriter.Workbook(output, {"in_memory": True})
+        title_fmt = wb.add_format({"bold": True, "font_size": 14})
+        label_fmt = wb.add_format({"bold": True})
+        header_fmt = wb.add_format({
+            "bold": True, "bg_color": "#dde6f0", "border": 1, "align": "center",
+        })
+        date_fmt = wb.add_format({"num_format": "yyyy-mm-dd", "border": 1})
+        text_fmt = wb.add_format({"border": 1})
+        money_fmt = wb.add_format({"num_format": "#,##0.0000", "border": 1})
+        total_fmt = wb.add_format({
+            "num_format": "#,##0.0000", "border": 1, "bold": True,
+            "bg_color": "#f4f4f4",
+        })
+
+        entries = self._collect_llm_ledger_entries()
+        total_credit = sum(e["credit"] for e in entries)
+        total_debit = sum(e["debit"] for e in entries)
+
+        sheet = wb.add_worksheet("Ledger")
+        sheet.set_column("A:A", 13)
+        sheet.set_column("B:B", 10)
+        sheet.set_column("C:C", 20)
+        sheet.set_column("D:D", 44)
+        sheet.set_column("E:G", 16)
+
+        sheet.write("A1", "LLM Usage Ledger — %s" % (self.name or ""), title_fmt)
+        sheet.write("A2", "Project Budget:", label_fmt)
+        sheet.write("B2", self.name or "")
+        sheet.write("A3", "Project:", label_fmt)
+        sheet.write(
+            "B3", self.project_id.display_name if self.project_id else "",
+        )
+        sheet.write("A4", "Approved Total:", label_fmt)
+        sheet.write("B4", self.total_approved_amount or 0.0, money_fmt)
+        sheet.write("A5", "Budget Amount:", label_fmt)
+        sheet.write("B5", self.budget_amount or 0.0, money_fmt)
+
+        headers = [
+            "Date", "Type", "Reference", "Description",
+            "Credit (USD)", "Debit (USD)", "Balance (USD)",
+        ]
+        for col, h in enumerate(headers):
+            sheet.write(6, col, h, header_fmt)
+        row = 7
+        balance = 0.0
+        for e in entries:
+            balance += (e["credit"] or 0.0) - (e["debit"] or 0.0)
+            if e["date"]:
+                sheet.write_datetime(row, 0, e["date"], date_fmt)
+            else:
+                sheet.write(row, 0, "", text_fmt)
+            sheet.write(row, 1, e["kind"], text_fmt)
+            sheet.write(row, 2, e["reference"], text_fmt)
+            sheet.write(row, 3, e["description"], text_fmt)
+            sheet.write(row, 4, e["credit"] or 0.0, money_fmt)
+            sheet.write(row, 5, e["debit"] or 0.0, money_fmt)
+            sheet.write(row, 6, balance, money_fmt)
+            row += 1
+        sheet.write(row, 0, "Totals", label_fmt)
+        sheet.write(row, 4, total_credit, total_fmt)
+        sheet.write(row, 5, total_debit, total_fmt)
+        sheet.write(row, 6, total_credit - total_debit, total_fmt)
+        sheet.freeze_panes(7, 0)
+
+        wb.close()
+        data = output.getvalue()
+        output.close()
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "_", self.name or "budget")
+        return "llm_ledger_%s.xlsx" % safe, data
+
+    def action_download_llm_ledger(self):
+        self.ensure_one()
+        import base64
+        fname, data = self._build_llm_ledger_xlsx()
+        attachment = self.env["ir.attachment"].sudo().create({
+            "name": fname,
+            "datas": base64.b64encode(data),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/web/content/%s?download=true" % attachment.id,
+            "target": "self",
+        }

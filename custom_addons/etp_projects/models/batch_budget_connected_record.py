@@ -3,12 +3,12 @@ from odoo import api, fields, models
 
 class EtpBatchBudgetConnectedRecord(models.Model):
     _name = "etp.batch.budget.connected.record"
-    _description = "Batch Budget Connected-Table Record"
+    _description = "Phase Budget Connected-Table Record"
     _order = "id"
 
     batch_id = fields.Many2one(
         "etp.batch.budget",
-        string="Batch Budget",
+        string="Phase Budget",
         required=True,
         ondelete="cascade",
         index=True,
