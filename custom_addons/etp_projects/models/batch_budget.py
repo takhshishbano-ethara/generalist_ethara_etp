@@ -1,3 +1,5 @@
+import re
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -287,27 +289,17 @@ class EtpBatchBudget(models.Model):
     @api.depends(
         "start_date",
         "end_date",
-        "done_tasks",
-        "model_line_ids.per_task_cost",
-        "infra_line_ids.per_day_cost",
-        "subscription_line_ids.per_day_cost",
+        "project_id",
         "approved_amount",
     )
     def _compute_consumed_cost(self):
-        today = fields.Date.context_today(self)
+        Line = self.env["etp.project.aws.cost.line"]
         for rec in self:
-            per_task = sum(rec.model_line_ids.mapped("per_task_cost"))
-            infra_per_day = sum(rec.infra_line_ids.mapped("per_day_cost"))
-            sub_per_day = sum(rec.subscription_line_ids.mapped("per_day_cost"))
-            elapsed_days = 0
-            if rec.start_date and today >= rec.start_date:
-                cap = rec.end_date if rec.end_date and rec.end_date < today else today
-                elapsed_days = (cap - rec.start_date).days + 1
-            consumed = (
-                (rec.done_tasks or 0) * per_task
-                + elapsed_days * infra_per_day
-                + elapsed_days * sub_per_day
-            )
+            domain = rec._cost_line_domain()
+            consumed = 0.0
+            if domain:
+                llm_domain = domain + [("model_name", "!=", False)]
+                consumed = sum(Line.sudo().search(llm_domain).mapped("amount_source"))
             rec.consumed_cost = consumed
             rec.remaining_cost = (rec.approved_amount or 0.0) - consumed
             rec.consumed_pct = (
@@ -463,6 +455,21 @@ class EtpBatchBudget(models.Model):
                 "rejection_reason": False,
             })
 
+    def _find_next_phase(self):
+        self.ensure_one()
+        if not self.project_budget_id:
+            return self.env["etp.batch.budget"]
+        domain = [
+            ("project_budget_id", "=", self.project_budget_id.id),
+            ("id", "!=", self.id),
+            ("state", "not in", ("delivered", "closed", "rejected", "withdrawn")),
+        ]
+        if self.start_date:
+            domain.append(("start_date", ">=", self.start_date))
+        return self.env["etp.batch.budget"].search(
+            domain, order="start_date asc, id asc", limit=1,
+        )
+
     def action_deliver(self):
         for rec in self:
             if rec.state not in ("approved", "in_progress"):
@@ -478,9 +485,15 @@ class EtpBatchBudget(models.Model):
                 "closed_remaining": remaining,
             })
             if remaining > 0.0 and rec.project_budget_id:
-                rec.project_budget_id.batch_budget_remain = (
-                    rec.project_budget_id.batch_budget_remain or 0.0
-                ) + remaining
+                next_phase = rec._find_next_phase()
+                if next_phase:
+                    next_phase.carried_over_amount = (
+                        next_phase.carried_over_amount or 0.0
+                    ) + remaining
+                else:
+                    rec.project_budget_id.batch_budget_remain = (
+                        rec.project_budget_id.batch_budget_remain or 0.0
+                    ) + remaining
 
     def action_close(self):
         for rec in self:
@@ -572,3 +585,158 @@ class EtpBatchBudget(models.Model):
                     partner_ids,
                 )
                 rec.alert_80_sent = True
+
+    def _llm_ledger_debit_domain(self):
+        self.ensure_one()
+        if not (self.project_id and self.start_date and self.end_date):
+            return None
+        return [
+            ("project_id", "=", self.project_id.id),
+            ("granularity", "=", "day"),
+            ("period", ">=", self.start_date),
+            ("period", "<=", self.end_date),
+            "|",
+            ("model_name", "!=", False),
+            ("source", "in", ["openrouter", "moonshot", "openai"]),
+        ]
+
+    def _collect_llm_ledger_entries(self):
+        self.ensure_one()
+        entries = []
+        for req in self.request_ids.filtered(
+            lambda r: r.state in ("approved", "partially_approved")
+        ):
+            when = req.approval_date or req.request_date
+            day = fields.Date.to_date(when) if when else fields.Date.context_today(self)
+            entries.append({
+                "date": day,
+                "sort_key": (day, 0, req.id),
+                "kind": "Credit",
+                "reference": req.name or "",
+                "description": req.approver_id.name or "auto",
+                "credit": req.approved_total or 0.0,
+                "debit": 0.0,
+            })
+        domain = self._llm_ledger_debit_domain()
+        if domain:
+            Line = self.env["etp.project.aws.cost.line"].sudo()
+            grouped = {}
+            for ln in Line.search(domain):
+                key = (ln.period, ln.service_name or "", ln.model_name or "")
+                grouped[key] = grouped.get(key, 0.0) + (ln.amount_source or 0.0)
+            for (period, service, model), amount in grouped.items():
+                if not period or amount <= 0.0:
+                    continue
+                descr = "%s · %s" % (service, model) if model else service
+                entries.append({
+                    "date": period,
+                    "sort_key": (period, 1, service, model),
+                    "kind": "Debit",
+                    "reference": service,
+                    "description": descr,
+                    "credit": 0.0,
+                    "debit": amount,
+                })
+        entries.sort(key=lambda e: e["sort_key"])
+        return entries
+
+    def _build_llm_ledger_xlsx(self):
+        self.ensure_one()
+        import io
+        import xlsxwriter
+
+        output = io.BytesIO()
+        wb = xlsxwriter.Workbook(output, {"in_memory": True})
+        title_fmt = wb.add_format({"bold": True, "font_size": 14})
+        label_fmt = wb.add_format({"bold": True})
+        header_fmt = wb.add_format({
+            "bold": True, "bg_color": "#dde6f0", "border": 1, "align": "center",
+        })
+        date_fmt = wb.add_format({"num_format": "yyyy-mm-dd", "border": 1})
+        text_fmt = wb.add_format({"border": 1})
+        money_fmt = wb.add_format({"num_format": "#,##0.0000", "border": 1})
+        total_fmt = wb.add_format({
+            "num_format": "#,##0.0000", "border": 1, "bold": True,
+            "bg_color": "#f4f4f4",
+        })
+
+        entries = self._collect_llm_ledger_entries()
+        total_credit = sum(e["credit"] for e in entries)
+        total_debit = sum(e["debit"] for e in entries)
+
+        sheet = wb.add_worksheet("Ledger")
+        sheet.set_column("A:A", 13)
+        sheet.set_column("B:B", 10)
+        sheet.set_column("C:C", 20)
+        sheet.set_column("D:D", 44)
+        sheet.set_column("E:G", 16)
+
+        sheet.write("A1", "LLM Usage Ledger — %s" % (self.name or ""), title_fmt)
+        sheet.write("A2", "Phase:", label_fmt)
+        sheet.write("B2", self.name or "")
+        sheet.write("A3", "Project Budget:", label_fmt)
+        sheet.write(
+            "B3", self.project_budget_id.name if self.project_budget_id else "",
+        )
+        sheet.write("A4", "Date Range:", label_fmt)
+        sheet.write(
+            "B4",
+            "%s → %s" % (
+                self.start_date.strftime("%Y-%m-%d") if self.start_date else "?",
+                self.end_date.strftime("%Y-%m-%d") if self.end_date else "?",
+            ),
+        )
+        sheet.write("A5", "Approved Amount:", label_fmt)
+        sheet.write("B5", self.approved_amount or 0.0, money_fmt)
+        sheet.write("A6", "Estimated Cost:", label_fmt)
+        sheet.write("B6", self.estimated_cost or 0.0, money_fmt)
+
+        headers = [
+            "Date", "Type", "Reference", "Description",
+            "Credit (USD)", "Debit (USD)", "Balance (USD)",
+        ]
+        for col, h in enumerate(headers):
+            sheet.write(7, col, h, header_fmt)
+        row = 8
+        balance = 0.0
+        for e in entries:
+            balance += (e["credit"] or 0.0) - (e["debit"] or 0.0)
+            if e["date"]:
+                sheet.write_datetime(row, 0, e["date"], date_fmt)
+            else:
+                sheet.write(row, 0, "", text_fmt)
+            sheet.write(row, 1, e["kind"], text_fmt)
+            sheet.write(row, 2, e["reference"], text_fmt)
+            sheet.write(row, 3, e["description"], text_fmt)
+            sheet.write(row, 4, e["credit"] or 0.0, money_fmt)
+            sheet.write(row, 5, e["debit"] or 0.0, money_fmt)
+            sheet.write(row, 6, balance, money_fmt)
+            row += 1
+        sheet.write(row, 0, "Totals", label_fmt)
+        sheet.write(row, 4, total_credit, total_fmt)
+        sheet.write(row, 5, total_debit, total_fmt)
+        sheet.write(row, 6, total_credit - total_debit, total_fmt)
+        sheet.freeze_panes(8, 0)
+
+        wb.close()
+        data = output.getvalue()
+        output.close()
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "_", self.name or "batch")
+        return "llm_ledger_%s.xlsx" % safe, data
+
+    def action_download_llm_ledger(self):
+        self.ensure_one()
+        import base64
+        fname, data = self._build_llm_ledger_xlsx()
+        attachment = self.env["ir.attachment"].sudo().create({
+            "name": fname,
+            "datas": base64.b64encode(data),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/web/content/%s?download=true" % attachment.id,
+            "target": "self",
+        }

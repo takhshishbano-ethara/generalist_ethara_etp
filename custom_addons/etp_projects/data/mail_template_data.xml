@@ -3,7 +3,7 @@
     <data>
 
         <!--
-            ETHARA PROJECT OPERATIONS MAIL TEMPLATES.
+            ETHARA.AI PROJECT OPERATIONS MAIL TEMPLATES.
             Shared visual system: 600px card, slate header, semantic pills.
             All budget mails cross-posted via project._etp_post_budget_message
             so they share one email-client thread per project.
@@ -24,7 +24,7 @@
       <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#0F172A;padding:20px 28px;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
-            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA</td>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
             <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Project Operations</td>
           </tr></table>
         </td></tr>
@@ -106,7 +106,7 @@
         </td></tr>
         <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
           <div style="font-size:11px;color:#94A3B8;line-height:1.6;">
-            This is an automated message from the Ethara Project Operations system.<br/>
+            This is an automated message from the Ethara.AI Project Operations system.<br/>
             All replies and follow-ups will be threaded under the project chatter.
           </div>
         </td></tr>
@@ -123,7 +123,7 @@
         <record id="mail_template_batch_threshold" model="mail.template">
             <field name="name">Phase Budget: Threshold Alert</field>
             <field name="model_id" ref="model_etp_batch_budget"/>
-            <field name="subject">[{{ object.project_id.name or 'Phase Budget' }}] {{ object.name }} at {{ '%.1f' % (object.consumed_pct or 0.0) }}%</field>
+            <field name="subject">[{{ object.project_id.name or 'Phase Budget' }}] {{ object.name }} at {{ round(object.consumed_pct or 0.0, 1) }}%</field>
             <field name="auto_delete" eval="False"/>
             <field name="body_html" type="html">
 <div style="margin:0;padding:0;background:#F1F5F9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -132,7 +132,7 @@
       <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#0F172A;padding:20px 28px;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
-            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA</td>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
             <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Threshold Alert</td>
           </tr></table>
         </td></tr>
@@ -153,7 +153,7 @@
           </tr></table>
         </td></tr>
         <tr><td style="padding:28px;color:#0F172A;font-size:14px;line-height:1.6;">
-          <p style="margin:0 0 16px;">Phase budget <strong t-out="object.name"></strong> has reached <strong><span t-out="'%.1f' % (object.consumed_pct or 0.0)"></span>%</strong> of its approved amount.</p>
+          <p style="margin:0 0 16px;">Phase budget <strong t-out="object.name"></strong> has reached <strong><span><t t-out="round(object.consumed_pct or 0.0, 1)"/>%</span></strong> of its approved amount.</p>
           <div style="font-size:11px;color:#64748B;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:18px 0 8px;">Consumption Snapshot</div>
           <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-size:13px;">
             <tr><td style="padding:8px 0;color:#64748B;width:45%;">Project</td><td style="padding:8px 0;color:#0F172A;font-weight:600;" t-out="object.project_id.display_name or ''"></td></tr>
@@ -164,7 +164,7 @@
           </table>
         </td></tr>
         <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
-          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara Project Operations system.</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara.AI Project Operations system.</div>
         </td></tr>
       </table>
     </td></tr>
@@ -189,7 +189,7 @@
       <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#0F172A;padding:20px 28px;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
-            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA</td>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
             <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Budget Top-up</td>
           </tr></table>
         </td></tr>
@@ -220,7 +220,7 @@
           </div>
         </td></tr>
         <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
-          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara Project Operations system.</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara.AI Project Operations system.</div>
         </td></tr>
       </table>
     </td></tr>
@@ -244,7 +244,7 @@
       <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#0F172A;padding:20px 28px;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
-            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA</td>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
             <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Budget Top-up</td>
           </tr></table>
         </td></tr>
@@ -273,7 +273,7 @@
           </div>
         </td></tr>
         <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
-          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara Project Operations system.</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara.AI Project Operations system.</div>
         </td></tr>
       </table>
     </td></tr>
@@ -297,7 +297,7 @@
       <table cellpadding="0" cellspacing="0" border="0" width="600" style="width:600px;max-width:100%;background:#FFFFFF;border-radius:12px;overflow:hidden;">
         <tr><td style="background:#0F172A;padding:20px 28px;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
-            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA</td>
+            <td style="font-size:14px;font-weight:700;letter-spacing:0.14em;color:#FFFFFF;text-transform:uppercase;">ETHARA.AI</td>
             <td align="right" style="font-size:11px;color:#94A3B8;letter-spacing:0.08em;text-transform:uppercase;">Budget Top-up</td>
           </tr></table>
         </td></tr>
@@ -325,7 +325,7 @@
           </div>
         </td></tr>
         <tr><td style="background:#F8FAFC;padding:16px 28px;border-top:1px solid #E2E8F0;text-align:center;">
-          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara Project Operations system.</div>
+          <div style="font-size:11px;color:#94A3B8;line-height:1.6;">This is an automated message from the Ethara.AI Project Operations system.</div>
         </td></tr>
       </table>
     </td></tr>
@@ -352,7 +352,7 @@
         <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
             <td>
-              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA</div>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
               <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
             </td>
             <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
@@ -411,7 +411,7 @@
             <tr><td style="padding:7px 0;color:#475569;">Sequence Number</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.sequence_number or 0"></td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Priority</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['priority'].selection).get(object.priority, object.priority or '')"></td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Total Tasks</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.total_tasks or 0"></td></tr>
-            <tr><td style="padding:7px 0;color:#475569;">Buffer Provision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="('%.2f' % (object.buffer_pct or 0.0)) + '%'"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Buffer Provision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;"><t t-out="'%.2f' % (object.buffer_pct or 0.0)"/>%</td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Submitted On</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.request_date or ''"></td></tr>
             <tr><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;border-top:1.5px solid #0F172A;">Requested Total</td><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;font-size:16px;border-top:1.5px solid #0F172A;" t-out="'%.2f USD' % (object.requested_total or 0.0)"></td></tr>
           </table>
@@ -484,7 +484,7 @@
           <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">4. Action Required</h3>
           <div style="padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
             <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Pending Your Decision</div>
-            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara platform to record your decision (approve or reject) on this request at your earliest convenience. Timely action will ensure that the project schedule remains uninterrupted.</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara.AI platform to record your decision (approve or reject) on this request at your earliest convenience. Timely action will ensure that the project schedule remains uninterrupted.</div>
           </div>
 
           <p style="margin:28px 0 4px;">With kind regards,</p>
@@ -495,7 +495,7 @@
 
         <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
           <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">Confidentiality Notice</div>
-          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara Project Operations system &#8211; please do not reply directly to this email.</div>
+          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara.AI Project Operations system &#8211; please do not reply directly to this email.</div>
         </td></tr>
 
       </table>
@@ -522,7 +522,7 @@
         <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
             <td>
-              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA</div>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
               <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
             </td>
             <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
@@ -669,7 +669,7 @@
 
         <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
           <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">Confidentiality Notice</div>
-          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara Project Operations system &#8211; please do not reply directly to this email.</div>
+          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara.AI Project Operations system &#8211; please do not reply directly to this email.</div>
         </td></tr>
 
       </table>
@@ -696,7 +696,7 @@
         <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
             <td>
-              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA</div>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
               <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
             </td>
             <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
@@ -831,7 +831,7 @@
 
         <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
           <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">Confidentiality Notice</div>
-          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara Project Operations system &#8211; please do not reply directly to this email.</div>
+          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara.AI Project Operations system &#8211; please do not reply directly to this email.</div>
         </td></tr>
 
       </table>
@@ -856,7 +856,7 @@
         <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
           <table width="100%" cellpadding="0" cellspacing="0"><tr>
             <td>
-              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA</div>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
               <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
             </td>
             <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
@@ -911,7 +911,7 @@
             <tr><td style="padding:7px 0;color:#475569;">Budget Type</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['project_type'].selection).get(object.project_type, object.project_type or '')"></td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Status</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['state'].selection).get(object.state, object.state or '')"></td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Total Tasks</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.total_tasks or 0"></td></tr>
-            <tr><td style="padding:7px 0;color:#475569;">Buffer Provision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="('%.2f' % (object.buffer_pct or 0.0)) + '%'"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Buffer Provision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;"><t t-out="'%.2f' % (object.buffer_pct or 0.0)"/>%</td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Initiated By</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="user.name or ''"></td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Initiated On</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.create_date or ''"></td></tr>
             <tr><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;border-top:1.5px solid #0F172A;">Total Budget Envelope</td><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;font-size:16px;border-top:1.5px solid #0F172A;" t-out="'%.2f USD' % (object.budget_amount or 0.0)"></td></tr>
@@ -998,7 +998,7 @@
           <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">6. Action Required</h3>
           <div style="padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
             <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Pending Your Decision</div>
-            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara platform to record your decision (approve or reject) on this project budget at your earliest convenience. Timely action will ensure that the project schedule remains uninterrupted.</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara.AI platform to record your decision (approve or reject) on this project budget at your earliest convenience. Timely action will ensure that the project schedule remains uninterrupted.</div>
           </div>
 
           <p style="margin:28px 0 4px;">With kind regards,</p>
@@ -1009,7 +1009,7 @@
 
         <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
           <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">Confidentiality Notice</div>
-          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara Project Operations system &#8211; please do not reply directly to this email.</div>
+          <div>This communication is intended solely for the addressed recipient(s) and may contain information that is privileged and confidential. If you are not the intended recipient, please notify the sender immediately and delete this message. This is a system-generated communication from the Ethara.AI Project Operations system &#8211; please do not reply directly to this email.</div>
         </td></tr>
 
       </table>

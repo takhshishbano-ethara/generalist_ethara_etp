@@ -68,6 +68,8 @@
                             string="Refresh Model Lines" class="btn-secondary"
                             confirm="Replace current model lines with a fresh snapshot from the Project Budget?"
                             invisible="state != 'draft' or not project_budget_id"/>
+                    <button name="action_download_llm_ledger" type="object"
+                            string="Download LLM Ledger" class="btn-secondary"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,approved,in_progress,delivered,closed"/>
                 </header>

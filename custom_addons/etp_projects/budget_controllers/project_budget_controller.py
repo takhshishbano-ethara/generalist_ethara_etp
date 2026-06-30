@@ -190,7 +190,7 @@ def _state_label(value):
     return dict(request.env[BUDGET_MODEL]._fields["state"].selection).get(value, value)
 
 
-def _parse_model_entry(entry, idx):
+def _parse_model_entry(entry, idx, allow_zero_cost=False):
     if not isinstance(entry, dict):
         return None, 0.0, f"models[{idx}] must be an object."
     model_id = _coerce_int(entry.get("model_id") or entry.get("ai_model_id"))
@@ -207,14 +207,14 @@ def _parse_model_entry(entry, idx):
         entry.get("no_of_trajectory") or entry.get("iterations"), 0
     ) or 0
     if cost_type == "per_trajectory":
-        if per_trajectory_cost <= 0.0 or iterations <= 0:
+        if not allow_zero_cost and (per_trajectory_cost <= 0.0 or iterations <= 0):
             return None, 0.0, (
                 f"models[{idx}] requires positive per_trajectory_cost and "
                 f"no_of_trajectory when cost_type='per_trajectory'."
             )
         per_task_cost = per_trajectory_cost * iterations
     else:
-        if per_task_cost <= 0.0:
+        if not allow_zero_cost and per_task_cost <= 0.0:
             return None, 0.0, (
                 f"models[{idx}].per_task_cost must be > 0 for cost_type='per_task'."
             )
@@ -906,6 +906,14 @@ class EtpBudgetController(http.Controller):
                 message=f"budget_type must be one of {valid_types}.",
                 status=400, data={},
             )
+        is_rnd = budget_type == "rnd"
+
+        initial_budget = _coerce_float(jdata.get("budget_amount"), 0.0)
+        if is_rnd and initial_budget <= 0.0:
+            return return_Response(
+                message="initial_budget is required and must be > 0 for R&D budgets.",
+                status=400, data={},
+            )
 
         total_tasks = _coerce_int(
             jdata.get("total_no_of_tasks") or jdata.get("total_tasks"), 0,
@@ -969,7 +977,9 @@ class EtpBudgetController(http.Controller):
             return return_Response(message="models must be a list.", status=400, data={})
         model_cmds, per_task_costs = [], []
         for idx, entry in enumerate(raw_models):
-            vals, per_task_cost, err = _parse_model_entry(entry, idx)
+            vals, per_task_cost, err = _parse_model_entry(
+                entry, idx, allow_zero_cost=is_rnd,
+            )
             if err:
                 return return_Response(message=err, status=400, data={})
             model_cmds.append((0, 0, vals))
@@ -1136,21 +1146,12 @@ class EtpBudgetController(http.Controller):
             })
             for ln in budget.infra_line_ids
         ]
-        batch_sub_clone = [
-            (0, 0, {
-                "subscription_id": ln.subscription_id.id,
-                "assigned_user_ids": [(6, 0, ln.assigned_user_ids.ids)],
-            })
-            for ln in budget.subscription_line_ids
-        ]
 
         created_batches = request.env[BATCH_MODEL].sudo()
         for spec in batch_specs:
             spec["project_budget_id"] = budget.id
             if batch_infra_clone:
                 spec["infra_line_ids"] = batch_infra_clone
-            if batch_sub_clone:
-                spec["subscription_line_ids"] = batch_sub_clone
             try:
                 with request.env.cr.savepoint():
                     created_batches |= request.env[BATCH_MODEL].sudo().create(spec)
@@ -1159,9 +1160,51 @@ class EtpBudgetController(http.Controller):
                     "Batch creation failed for spec %s on budget %s", spec, budget.id,
                 )
 
+        if created_batches:
+            total_phase_days = 0
+            target_budget_amount = initial_budget if is_rnd else 0.0
+            for batch in created_batches:
+                duration_days = 0
+                if (
+                    batch.start_date
+                    and batch.end_date
+                    and batch.end_date >= batch.start_date
+                ):
+                    duration_days = (batch.end_date - batch.start_date).days + 1
+                total_phase_days += duration_days
+                infra_per_day = sum(batch.infra_line_ids.mapped("per_day_cost"))
+                target_budget_amount += duration_days * infra_per_day
+                if not is_rnd:
+                    per_task = sum(batch.model_line_ids.mapped("per_task_cost"))
+                    target_budget_amount += (batch.total_tasks or 0) * per_task
+            sub_per_day = sum(budget.subscription_line_ids.mapped("per_day_cost"))
+            target_budget_amount += total_phase_days * sub_per_day
+            try:
+                if is_rnd:
+                    budget.sudo().write({"budget_amount": initial_budget})
+                else:
+                    budget.sudo().write({"budget_amount": target_budget_amount})
+            except Exception:
+                _logger.warning(
+                    "Failed to set budget_amount=%s on budget %s",
+                    target_budget_amount, budget.id,
+                )
+
         created_request = None
-        if created_batches and (budget.model_line_ids or budget.infra_line_ids):
-            first_batch = created_batches[0]
+        if created_batches and (is_rnd or budget.model_line_ids or budget.infra_line_ids):
+            first_batch = created_batches.sorted(
+                lambda b: (b.start_date or fields.Date.today(), b.id)
+            )[:1]
+            first_batch.ensure_one()
+            duration_days = 0
+            if (
+                first_batch.start_date
+                and first_batch.end_date
+                and first_batch.end_date >= first_batch.start_date
+            ):
+                duration_days = (
+                    first_batch.end_date - first_batch.start_date
+                ).days + 1
             wiz_model_cmds = [
                 (0, 0, {
                     "ai_model_id": ln.ai_model_id.id,
@@ -1177,10 +1220,17 @@ class EtpBudgetController(http.Controller):
                 (0, 0, {
                     "infra_type_id": ln.infra_type_id.id,
                     "description": ln.description or False,
-                    "requested_amount": ln.budget_amount or 0.0,
+                    "requested_amount": duration_days * ((ln.budget_amount or 0.0) / 30.0),
                 })
                 for ln in budget.infra_line_ids
             ]
+            buffer_factor = 1.0 + ((first_batch.buffer_pct or 0.0) / 100.0)
+            estimated_base = sum(
+                cmd[2]["requested_amount"] for cmd in wiz_model_cmds
+            ) + sum(
+                cmd[2]["requested_amount"] for cmd in wiz_infra_cmds
+            )
+            requested_total = initial_budget if is_rnd else estimated_base * buffer_factor
             try:
                 with request.env.cr.savepoint():
                     wiz_vals = {
@@ -1189,7 +1239,7 @@ class EtpBudgetController(http.Controller):
                         "priority": priority,
                         "total_tasks": first_batch.total_tasks,
                         "buffer_pct": first_batch.buffer_pct,
-                        "requested_total": budget.budget_amount or 0.0,
+                        "requested_total": requested_total,
                     }
                     if wiz_model_cmds:
                         wiz_vals["model_line_ids"] = wiz_model_cmds
@@ -1206,23 +1256,6 @@ class EtpBudgetController(http.Controller):
                 _logger.warning(
                     "Initial batch budget request skipped for budget %s batch %s: %s",
                     budget.id, first_batch.id, wexc,
-                )
-
-        if created_request and budget.subscription_line_ids:
-            sub_cmds = [
-                (0, 0, {
-                    "subscription_id": ln.subscription_id.id,
-                    "assigned_user_ids": [(6, 0, ln.assigned_user_ids.ids)],
-                    "requested_amount": ln.final_amount or 0.0,
-                })
-                for ln in budget.subscription_line_ids
-            ]
-            try:
-                created_request.sudo().write({"subscription_line_ids": sub_cmds})
-            except Exception:
-                _logger.warning(
-                    "Subscription lines could not be attached to request %s for budget %s",
-                    created_request.id, budget.id,
                 )
 
         try:

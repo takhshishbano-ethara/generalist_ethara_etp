@@ -108,7 +108,10 @@ class EtpProjectAwsBudget(models.Model):
     budget_amount = fields.Float(
         string="Budget (USD)",
         tracking=True,
-        help="Top-level budget envelope for this project (USD).",
+        help="Top-level budget envelope for this project (USD). "
+             "Populated by the create-budget API as "
+             "Sigma_batches(total_tasks * sum(model.per_task_cost) + duration_days * sum(infra.per_day_cost)) "
+             "+ total_phase_days * sum(subscription.per_day_cost).",
     )
     buffer_pct = fields.Float(
         string="Buffer %",
@@ -1666,3 +1669,152 @@ class EtpProjectAwsBudget(models.Model):
     def _compute_fetch_log_count(self):
         for rec in self:
             rec.fetch_log_count = len(rec.fetch_log_ids)
+
+    def _llm_ledger_debit_domain(self):
+        self.ensure_one()
+        return [
+            ("budget_id", "=", self.id),
+            ("granularity", "=", "day"),
+            "|",
+            ("model_name", "!=", False),
+            ("source", "in", ["openrouter", "moonshot", "openai"]),
+        ]
+
+    def _collect_llm_ledger_entries(self):
+        self.ensure_one()
+        Request = self.env["etp.batch.budget.request"].sudo()
+        entries = []
+        reqs = Request.search([
+            ("project_budget_id", "=", self.id),
+            ("state", "in", ["approved", "partially_approved"]),
+        ])
+        for req in reqs:
+            when = req.approval_date or req.request_date
+            day = fields.Date.to_date(when) if when else fields.Date.context_today(self)
+            descr = "%s — %s" % (
+                req.batch_id.name or "",
+                req.approver_id.name or "auto",
+            )
+            entries.append({
+                "date": day,
+                "sort_key": (day, 0, req.id),
+                "kind": "Credit",
+                "reference": req.name or "",
+                "description": descr,
+                "credit": req.approved_total or 0.0,
+                "debit": 0.0,
+            })
+        Line = self.env["etp.project.aws.cost.line"].sudo()
+        grouped = {}
+        for ln in Line.search(self._llm_ledger_debit_domain()):
+            key = (ln.period, ln.service_name or "", ln.model_name or "")
+            grouped[key] = grouped.get(key, 0.0) + (ln.amount_source or 0.0)
+        for (period, service, model), amount in grouped.items():
+            if not period or amount <= 0.0:
+                continue
+            descr = "%s · %s" % (service, model) if model else service
+            entries.append({
+                "date": period,
+                "sort_key": (period, 1, service, model),
+                "kind": "Debit",
+                "reference": service,
+                "description": descr,
+                "credit": 0.0,
+                "debit": amount,
+            })
+        entries.sort(key=lambda e: e["sort_key"])
+        return entries
+
+    def _build_llm_ledger_xlsx(self):
+        self.ensure_one()
+        import base64
+        import io
+        import xlsxwriter
+
+        output = io.BytesIO()
+        wb = xlsxwriter.Workbook(output, {"in_memory": True})
+        title_fmt = wb.add_format({"bold": True, "font_size": 14})
+        label_fmt = wb.add_format({"bold": True})
+        header_fmt = wb.add_format({
+            "bold": True, "bg_color": "#dde6f0", "border": 1, "align": "center",
+        })
+        date_fmt = wb.add_format({"num_format": "yyyy-mm-dd", "border": 1})
+        text_fmt = wb.add_format({"border": 1})
+        money_fmt = wb.add_format({"num_format": "#,##0.0000", "border": 1})
+        total_fmt = wb.add_format({
+            "num_format": "#,##0.0000", "border": 1, "bold": True,
+            "bg_color": "#f4f4f4",
+        })
+
+        entries = self._collect_llm_ledger_entries()
+        total_credit = sum(e["credit"] for e in entries)
+        total_debit = sum(e["debit"] for e in entries)
+
+        sheet = wb.add_worksheet("Ledger")
+        sheet.set_column("A:A", 13)
+        sheet.set_column("B:B", 10)
+        sheet.set_column("C:C", 20)
+        sheet.set_column("D:D", 44)
+        sheet.set_column("E:G", 16)
+
+        sheet.write("A1", "LLM Usage Ledger — %s" % (self.name or ""), title_fmt)
+        sheet.write("A2", "Project Budget:", label_fmt)
+        sheet.write("B2", self.name or "")
+        sheet.write("A3", "Project:", label_fmt)
+        sheet.write(
+            "B3", self.project_id.display_name if self.project_id else "",
+        )
+        sheet.write("A4", "Approved Total:", label_fmt)
+        sheet.write("B4", self.total_approved_amount or 0.0, money_fmt)
+        sheet.write("A5", "Budget Amount:", label_fmt)
+        sheet.write("B5", self.budget_amount or 0.0, money_fmt)
+
+        headers = [
+            "Date", "Type", "Reference", "Description",
+            "Credit (USD)", "Debit (USD)", "Balance (USD)",
+        ]
+        for col, h in enumerate(headers):
+            sheet.write(6, col, h, header_fmt)
+        row = 7
+        balance = 0.0
+        for e in entries:
+            balance += (e["credit"] or 0.0) - (e["debit"] or 0.0)
+            if e["date"]:
+                sheet.write_datetime(row, 0, e["date"], date_fmt)
+            else:
+                sheet.write(row, 0, "", text_fmt)
+            sheet.write(row, 1, e["kind"], text_fmt)
+            sheet.write(row, 2, e["reference"], text_fmt)
+            sheet.write(row, 3, e["description"], text_fmt)
+            sheet.write(row, 4, e["credit"] or 0.0, money_fmt)
+            sheet.write(row, 5, e["debit"] or 0.0, money_fmt)
+            sheet.write(row, 6, balance, money_fmt)
+            row += 1
+        sheet.write(row, 0, "Totals", label_fmt)
+        sheet.write(row, 4, total_credit, total_fmt)
+        sheet.write(row, 5, total_debit, total_fmt)
+        sheet.write(row, 6, total_credit - total_debit, total_fmt)
+        sheet.freeze_panes(7, 0)
+
+        wb.close()
+        data = output.getvalue()
+        output.close()
+        safe = re.sub(r"[^A-Za-z0-9_-]+", "_", self.name or "budget")
+        return "llm_ledger_%s.xlsx" % safe, data
+
+    def action_download_llm_ledger(self):
+        self.ensure_one()
+        import base64
+        fname, data = self._build_llm_ledger_xlsx()
+        attachment = self.env["ir.attachment"].sudo().create({
+            "name": fname,
+            "datas": base64.b64encode(data),
+            "res_model": self._name,
+            "res_id": self.id,
+            "mimetype": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        })
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/web/content/%s?download=true" % attachment.id,
+            "target": "self",
+        }

@@ -33,6 +33,7 @@
                     <button name="action_fetch_openai" type="object" string="Fetch OpenAI" class="btn-secondary" invisible="not openai_enabled"/>
                     <button name="action_fetch_gcp" type="object" string="Fetch GCP" class="btn-secondary" invisible="not gcp_enabled"/>
                     <button name="action_resync_ai_catalogs" type="object" string="Sync AI / Infra Catalogs" class="btn-secondary"/>
+                    <button name="action_download_llm_ledger" type="object" string="Download LLM Ledger" class="btn-secondary"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
