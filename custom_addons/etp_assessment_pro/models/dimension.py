@@ -52,10 +52,7 @@ class EtpAssessmentDimension(models.Model):
             rec.options_display = ", ".join(parts) if parts else ""
 
     def _guard_shared_option_edit(self):
-        """Refuse a structural option change (add/remove) on a master that is
-        shared by >1 question — it would silently rewrite every borrower.
-        Bypassed by the importer/approver via ``allow_shared_dimension_edit``.
-        """
+        """Refuse add/remove of options on a master shared by >1 question (would rewrite every borrower)."""
         if self.env.context.get("allow_shared_dimension_edit"):
             return
         counts = _questions_using_dimension(self.env, self.ids)
@@ -70,7 +67,6 @@ class EtpAssessmentDimension(models.Model):
                 "edit that question's own answer key instead." % names)
 
     def write(self, vals):
-        # Only guard structural option changes (adding/removing option lines).
         if "option_ids" in vals:
             self._guard_shared_option_edit()
         return super().write(vals)
@@ -88,11 +84,7 @@ class EtpAssessmentDimensionOption(models.Model):
     )
 
     def _guard_shared(self):
-        """Block rename/reorder of an option whose dimension is shared by >1
-        question — the per-question option text mirrors this master via a
-        stored related field, so a rename here silently rewrites every borrower.
-        Bypassed by the importer via ``allow_shared_dimension_edit``.
-        """
+        """Block rename/reorder when the dimension is shared by >1 question (a stored related field mirrors it to every borrower)."""
         if self.env.context.get("allow_shared_dimension_edit"):
             return
         dim_ids = self.mapped("dimension_id").ids
@@ -109,8 +101,7 @@ class EtpAssessmentDimensionOption(models.Model):
                 "answer key." % total)
 
     def write(self, vals):
-        # Renaming/reordering is the cross-edit footgun; setting nothing
-        # structural (or importer-driven writes) is fine.
+        # Rename/reorder is the cross-edit footgun; other writes are fine.
         if "name" in vals or "sequence" in vals:
             self._guard_shared()
         return super().write(vals)

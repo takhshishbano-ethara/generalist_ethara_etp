@@ -27,14 +27,8 @@
                         </setting>
                         <setting id="etp_vertex_model"
                                  string="Model"
-                                 help="Gemini model for skill extraction, question generation, and subjective scoring.">
+                                 help="Single Gemini model used for EVERY task: skill extraction, question generation, subjective scoring AND image rendering (image_ab / image_text).">
                             <field name="etp_assessment_pro_vertex_model"
-                                   placeholder="gemini-3.1-pro-preview"/>
-                        </setting>
-                        <setting id="etp_vertex_image_model"
-                                 string="Image Model"
-                                 help="Gemini image model used to generate pictures for image_ab / image_text questions.">
-                            <field name="etp_assessment_pro_vertex_image_model"
                                    placeholder="gemini-3-pro-image"/>
                         </setting>
                         <setting id="etp_vertex_api_key"
@@ -105,6 +99,29 @@
                         </setting>
                     </block>
 
+                    <block title="Scoring" name="etp_scoring_section">
+                        <setting id="etp_pass_threshold"
+                                 string="Overall Pass Threshold %"
+                                 help="A candidate passes when their score percent is >= this value (every question is worth equal marks).">
+                            <field name="etp_assessment_pro_pass_threshold"/>
+                        </setting>
+                        <setting id="etp_subjective_pass_threshold"
+                                 string="Per-Question Subjective Pass %"
+                                 help="An LLM-graded answer earns its single mark when its 0-100 score is >= this value.">
+                            <field name="etp_assessment_pro_subjective_pass_threshold"/>
+                        </setting>
+                        <setting id="etp_llm_max_attempts"
+                                 string="LLM Scoring Max Attempts"
+                                 help="After this many failed attempts a response resolves as a fail instead of staying pending.">
+                            <field name="etp_assessment_pro_llm_max_attempts"/>
+                        </setting>
+                        <setting id="etp_scoring_batch_size"
+                                 string="Scoring Batch Size"
+                                 help="Max answers graded in one Vertex call; large candidates are split into sub-batches of this size.">
+                            <field name="etp_assessment_pro_scoring_batch_size"/>
+                        </setting>
+                    </block>
+
                     <block title="System Prompts" name="etp_prompts_section">
                         <setting id="etp_skill_gen_prompt"
                                  string="Skill Generation Prompt (.md upload)"
@@ -140,6 +157,24 @@
                                 <br/>
                                 Custom override active. Clear at Technical → System
                                 Parameters → etp_assessment_pro.question_prompt to revert.
+                            </div>
+                        </setting>
+                        <setting id="etp_scoring_prompt"
+                                 string="Scoring Prompt (.md upload)"
+                                 help="Upload a .md to override the bundled prompts/scoring.md. Governs ALL graded types (subjective + image). Empty = use bundled.">
+                            <field name="scoring_prompt_upload"
+                                   widget="binary"
+                                   filename="scoring_prompt_upload_filename"/>
+                            <field name="scoring_prompt_upload_filename" invisible="1"/>
+                            <field name="etp_assessment_pro_scoring_prompt" invisible="1"/>
+                            <field name="etp_assessment_pro_scoring_prompt_filename" invisible="1"/>
+                            <div invisible="not etp_assessment_pro_scoring_prompt"
+                                 class="text-muted mt-1">
+                                Current: <field name="etp_assessment_pro_scoring_prompt_filename"
+                                              readonly="1" nolabel="1" class="d-inline-block"/>
+                                <br/>
+                                Custom override active. Clear at Technical → System
+                                Parameters → etp_assessment_pro.scoring_system_prompt to revert.
                             </div>
                         </setting>
                     </block>

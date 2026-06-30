@@ -1,22 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Candidate-facing portal — single-mode + multi-day routes.
-
-Single-mode: ``/pro_assessment/<token>`` — token resolves to an
-``etp.assessment.pro.evaluator`` (one record per candidate-per-assessment).
-The candidate progresses through ``question_order`` until every question
-has a submitted response.
-
-Multi-day: ``/pro_assessment/day/<token>`` — token resolves to an
-``etp.assessment.pro.day.session`` (one record per candidate-per-day). The
-unit of progress is the day; ``action_submit_day`` finalizes it, rolls
-up the day's score, unlocks the next day, and bumps the evaluator
-overall when all days are done.
-
-Both flavors honor the assessment's proctoring rules and route violation
-events to ``/violation``; ``violation_action='auto_submit'`` and
-``max_violations`` are enforced server-side at the violation endpoint
-(client JS can't be trusted).
-"""
+"""Candidate-facing exam portal — single-mode and multi-day routes."""
 import json
 import logging
 from urllib.parse import quote
@@ -28,9 +11,7 @@ _logger = logging.getLogger(__name__)
 
 
 def _rules_json(assessment):
-    """Serialize the assessment's proctoring rules to a JSON string for safe
-    injection into the runner's inline JS. Using json.dumps (not a Python
-    dict via t-esc) is what makes the emitted value valid JavaScript."""
+    """Serialize proctoring rules as JSON for safe injection into inline JS."""
     return json.dumps({
         "tab_switch": bool(assessment.rule_block_tab_switch),
         "copy_paste": bool(assessment.rule_block_copy_paste),
@@ -57,11 +38,8 @@ class EtpAssessmentPortal(http.Controller):
             [("access_token", "=", token)], limit=1)
 
     def _candidate_guard(self, evaluator, assessment):
-        # Bind the session to its assigned candidate: the logged-in user must
-        # be the candidate's linked user. Stops link-sharing and any other
-        # account (incl. admin/managers) from taking someone else's test.
-        # If the candidate has no linked user we cannot bind, so we block all
-        # but the manager group rather than let anyone through.
+        # Logged-in user must be the candidate's linked user (blocks link-
+        # sharing). No linked user: only managers may pass (preview).
         applicant = evaluator.applicant_id
         candidate_user = evaluator._candidate_user()
         current = request.env.user
@@ -87,9 +65,8 @@ class EtpAssessmentPortal(http.Controller):
         return self._candidate_guard(evaluator, assessment)
 
     def _is_real_candidate(self, evaluator):
-        # A manager/admin may pass _candidate_guard to PREVIEW a link, but they
-        # must never start the timer or write answers on the candidate's real
-        # session. Only the candidate's own linked user gets write access.
+        # Manager preview must never start the timer or write answers; only
+        # the candidate's own linked user gets write access.
         candidate_user = evaluator._candidate_user()
         return bool(candidate_user) and request.env.user.id == candidate_user.id
 
@@ -202,12 +179,7 @@ class EtpAssessmentPortal(http.Controller):
             finish_url=f"/pro_assessment/{token}/finish")
 
     def _unanswered_question_ids(self, evaluator, day_session):
-        """Question ids in this attempt's order that have NO submitted
-        response yet. A question only counts as answered once
-        ``_record_response`` saved it — and that helper rejects incomplete
-        mandatory fields — so 'unanswered' here also means 'required fields
-        not yet filled'. Used to block the voluntary final submit.
-        """
+        """Question ids in this attempt with no submitted response yet."""
         order = json.loads(
             (day_session.question_order if day_session
              else evaluator.question_order) or "[]")
@@ -221,16 +193,11 @@ class EtpAssessmentPortal(http.Controller):
         if not evaluator:
             return request.render("etp_assessment_pro.portal_invalid_token")
         if not evaluator.is_locked and evaluator.state != "submitted":
-            # Block the VOLUNTARY final submit while questions remain
-            # unanswered (mandatory fields not filled) — send the candidate
-            # back to review. The timer/violation auto-submit paths bypass
-            # this (time's up = finalize regardless), and an expired deadline
-            # here also finalizes.
+            # Voluntary final submit is blocked while questions remain
+            # unanswered; an expired deadline finalizes regardless.
             if (not evaluator.is_time_expired()
                     and self._unanswered_question_ids(evaluator, False)):
                 return request.redirect(f"/pro_assessment/{token}/review")
-            # Finalize: any unanswered questions get placeholder submissions,
-            # then the evaluator is locked + submitted (same as expiry path).
             self._auto_submit_remaining_single(evaluator)
         return request.redirect(f"/pro_assessment/{token}")
 
@@ -262,11 +229,7 @@ class EtpAssessmentPortal(http.Controller):
         sess = self._get_day_session_from_token(token)
         if not sess:
             return request.render("etp_assessment_pro.portal_invalid_token")
-        # Login gate: anonymous visitors are bounced to the standard Odoo
-        # login, which returns them to THIS exam URL afterwards (so they land
-        # on the test, never the backend). Already-logged-in users fall
-        # through straight to the exam. The token still authorizes which
-        # session they get; login just ties the attempt to a real account.
+        # Login gate: bounce anonymous visitors back to this exam URL after login.
         if request.env.user._is_public():
             return request.redirect(
                 "/web/login?redirect=/pro_assessment/day/%s" % token)
@@ -275,10 +238,8 @@ class EtpAssessmentPortal(http.Controller):
         if block:
             return block
         assessment = sess.assessment_id
-        # A finished day shows its result regardless of the parent
-        # assessment's global state (which flips to done once everyone
-        # submits) — otherwise a candidate who completed would see the
-        # "not available" closed page instead of their score.
+        # A finished day shows its result regardless of the parent assessment's
+        # global state, so a completed candidate sees their score not "closed".
         if sess.state in ("submitted", "scored", "missed"):
             return self._render_day_result(sess)
         if assessment.state not in ("in_progress",):
@@ -298,8 +259,7 @@ class EtpAssessmentPortal(http.Controller):
                  "submit_url": f"/pro_assessment/day/{token}/begin",
                  "preview": not self._is_real_candidate(
                      sess.evaluator_id)})
-        # In progress: deadline check, then render the requested (or first
-        # unanswered) question with FREE navigation.
+        # In progress: deadline check, then serve the question.
         if (sess.deadline_datetime
                 and sess.deadline_datetime < fields.Datetime.now()):
             self._auto_submit_day_on_expiry(sess)
@@ -309,8 +269,7 @@ class EtpAssessmentPortal(http.Controller):
             base="/pro_assessment/day/%s" % token, requested_q=q)
 
     def _render_day_result(self, sess):
-        # Gate: 'manual' release withholds the breakdown until an admin flips
-        # evaluator.results_released — responses stay submitted, scores hidden.
+        # 'manual' release hides the score breakdown until results_released.
         assessment = sess.assessment_id
         responses = sess.response_ids.filtered(
             lambda r: r.state == "submitted")
@@ -367,12 +326,10 @@ class EtpAssessmentPortal(http.Controller):
             return request.redirect(f"/pro_assessment/day/{token}")
         self._record_response(
             evaluator=sess.evaluator_id, day_session=sess, form=kw)
-        # Free navigation: compute the next index from nav intent.
         target = self._next_index(
             json.loads(sess.question_order or "[]"),
             current=kw.get("question_id"), nav=kw.get("nav") or "next")
         if target is None:
-            # Past the last question on 'next' -> go to review.
             return request.redirect(f"/pro_assessment/day/{token}/review")
         return request.redirect(f"/pro_assessment/day/{token}?q={target}")
 
@@ -403,9 +360,8 @@ class EtpAssessmentPortal(http.Controller):
         if block:
             return block
         if sess.state == "in_progress":
-            # Block the voluntary final submit while required questions remain
-            # unanswered — back to review. An expired day deadline finalizes
-            # regardless (timer/violation auto-submit handle that path).
+            # Voluntary final submit is blocked while questions remain
+            # unanswered; an expired day deadline finalizes regardless.
             deadline_passed = bool(
                 sess.deadline_datetime
                 and sess.deadline_datetime < fields.Datetime.now())
@@ -432,16 +388,7 @@ class EtpAssessmentPortal(http.Controller):
     @http.route("/pro_assessment/qimage/<string:token>/<int:image_id>",
                 type="http", auth="public", website=True)
     def serve_question_image(self, token, image_id, **kw):
-        """Serve an image-evaluation question image scoped by the exam token.
-
-        The candidate portal is rendered with sudo()+token by the runner, so
-        question images must not rely on Odoo's generic ACL/session-gated
-        ``/web/image`` route (which breaks for real portal candidates). We
-        resolve the token exactly like the runner does — single-mode
-        evaluator first, then a multi-day day.session — and only serve an
-        image whose ``question_id`` is in THIS token's ``question_order``, so
-        a candidate can fetch only images belonging to their own assessment.
-        """
+        """Serve an image-evaluation question image scoped by the exam token."""
         evaluator = self._get_evaluator_from_token(token)
         sess = False
         if evaluator:
@@ -454,8 +401,7 @@ class EtpAssessmentPortal(http.Controller):
             evaluator = sess.evaluator_id
             assessment = sess.assessment_id
             order_raw = sess.question_order
-        # Same candidate binding the exam runner enforces (real candidate or
-        # manager preview). Anything the guard rejects → 404, not the HTML.
+        # Same candidate binding as the runner; anything the guard rejects → 404.
         if self._candidate_guard(evaluator, assessment):
             return request.not_found()
         try:
@@ -466,8 +412,7 @@ class EtpAssessmentPortal(http.Controller):
             image_id)
         if not image.exists() or image.question_id.id not in order:
             return request.not_found()
-        # Prefer the stored binary (also fixes a broken external image_url);
-        # fall back to redirecting to the external/S3 URL when no binary.
+        # Prefer the stored binary; fall back to the external/S3 URL.
         if image.image:
             return request.env["ir.binary"]._get_image_stream_from(
                 image, field_name="image").get_response()
@@ -475,11 +420,7 @@ class EtpAssessmentPortal(http.Controller):
             return request.redirect(image.image_url, code=302, local=False)
         return request.not_found()
 
-    # ------------------------------------------------------------------
-    # Shared question-serving + navigation helpers (used by both single and
-    # day flows). The candidate can move freely between questions; answers
-    # are saved on every move, and a Review page lists answered/unanswered.
-    # ------------------------------------------------------------------
+    # Shared question-serving + navigation helpers (single and day flows).
     def _answered_question_ids(self, evaluator, day_session):
         domain = [("state", "=", "submitted")]
         if day_session:
@@ -501,8 +442,7 @@ class EtpAssessmentPortal(http.Controller):
             domain, limit=1)
 
     def _next_index(self, order, current, nav):
-        """Return the 1-based index to navigate to, or None when 'next' runs
-        off the end (caller then routes to review). 'prev' clamps at 1."""
+        """Return 1-based index to navigate to, or None when 'next' runs off the end."""
         n = len(order)
         if not n:
             return None
@@ -512,7 +452,7 @@ class EtpAssessmentPortal(http.Controller):
             cur_qid = 0
         cur_idx = order.index(cur_qid) if cur_qid in order else 0
         if nav == "prev":
-            return max(1, cur_idx)  # cur_idx is 0-based of current => prev is cur_idx
+            return max(1, cur_idx)  # cur_idx (0-based) is the 1-based prev
         nxt = cur_idx + 2  # 1-based next
         return nxt if nxt <= n else None
 
@@ -526,7 +466,7 @@ class EtpAssessmentPortal(http.Controller):
                 {"assessment": assessment, "evaluator": evaluator,
                  "day_session": sess})
         answered = self._answered_question_ids(evaluator, sess)
-        # Decide which index to show: explicit ?q wins; else first unanswered.
+        # Explicit ?q wins; otherwise show the first unanswered.
         idx = None
         if requested_q:
             try:
@@ -605,15 +545,7 @@ class EtpAssessmentPortal(http.Controller):
             })
 
     def _record_response(self, evaluator, day_session, form):
-        """Create or update one response from form POST data.
-
-        Form keys: ``question_id``, ``justification``, and one
-        ``dimension_<dim_id>`` per dimension whose value is the picked
-        ``etp.assessment.pro.dimension.option.id`` (MASTER option id). MSQ
-        questions submit the dim_<id> key MULTIPLE times — request.params
-        only keeps the last, so on MSQ the portal serializes the picks
-        into the single field as ``"o1,o2"`` and we split here.
-        """
+        """Create or update one response from form POST data."""
         Response = request.env["etp.assessment.pro.response"].sudo()
         try:
             qid = int(form.get("question_id") or 0)
@@ -631,8 +563,7 @@ class EtpAssessmentPortal(http.Controller):
                 and not justification:
             return False
 
-        # Build option picks per dimension. MSQ encodes multi-select as
-        # comma-separated values in the dimension_<id> form field.
+        # MSQ encodes multi-select as comma-separated values per dimension field.
         line_vals = []
         for qd in question.question_dimension_ids:
             key = f"dimension_{qd.dimension_id.id}"
@@ -664,13 +595,8 @@ class EtpAssessmentPortal(http.Controller):
             domain.append(("day_session_id", "=", day_session.id))
         existing = Response.search(domain, limit=1)
         if existing:
-            # Editable on back-navigation. The exam routes already block this
-            # endpoint once the evaluator/day session is locked, so reaching
-            # here means the candidate may still change their answer. A re-save
-            # MUST overwrite the prior justification + option picks — the old
-            # `state == "submitted"` early-return silently DROPPED the edit,
-            # which is why going back lost justifications, reverted MCQ picks,
-            # and left needs-justification questions marked "not needed".
+            # Editable on back-navigation: re-save MUST overwrite the prior
+            # justification + picks (an early-return here silently drops edits).
             existing.line_ids.unlink()
             existing.write({
                 "justification": justification,
@@ -679,10 +605,8 @@ class EtpAssessmentPortal(http.Controller):
             if existing.state != "submitted":
                 existing.action_submit()
             elif (existing.justification or "").strip():
-                # Already submitted on an earlier pass: content was just
-                # rewritten, so re-run the subjective scoring enqueue that
-                # action_submit would have done — needs_llm recomputes from the
-                # new justification, and llm_state moves off "not_needed".
+                # Already-submitted row was rewritten: re-enqueue subjective
+                # scoring so needs_llm/llm_state recompute from the new text.
                 existing.with_context(
                     autoscore=True)._enqueue_subjective_scoring()
             return existing
@@ -700,9 +624,7 @@ class EtpAssessmentPortal(http.Controller):
         return response
 
     def _record_violation_single(self, evaluator, reason):
-        # Increment counter, persist details, honor max_violations cap +
-        # violation_action. log_only stops here; auto_submit also fires
-        # the auto-submit when the cap is exceeded.
+        # Count + persist; auto_submit fires once the max_violations cap is hit.
         assessment = evaluator.assessment_id
         new_count = (evaluator.violation_count or 0) + 1
         evaluator.sudo().write({
@@ -720,8 +642,7 @@ class EtpAssessmentPortal(http.Controller):
             self._auto_submit_remaining_single(evaluator)
 
     def _record_violation_day(self, sess, reason):
-        # Same logic as single-mode but the auto-submit target is the
-        # current day session (action_submit_day handles rollup).
+        # Like single-mode, but the auto-submit target is the current day session.
         evaluator = sess.evaluator_id
         assessment = sess.assessment_id
         new_count = (evaluator.violation_count or 0) + 1
@@ -741,9 +662,8 @@ class EtpAssessmentPortal(http.Controller):
                 self._auto_submit_day_on_expiry(sess)
 
     def _auto_submit_remaining_single(self, evaluator):
-        # Fill in placeholder responses for any unanswered question, then
-        # flip the evaluator to submitted. Placeholder responses are
-        # marked llm_state=not_needed so they don't trigger LLM scoring.
+        # Placeholder responses (llm_state=not_needed, no LLM scoring) for
+        # unanswered questions, then flip the evaluator to submitted.
         question_order = json.loads(evaluator.question_order or "[]")
         Response = request.env["etp.assessment.pro.response"].sudo()
         for q_id in question_order:
@@ -779,9 +699,8 @@ class EtpAssessmentPortal(http.Controller):
             assessment.write({"state": "done"})
 
     def _auto_submit_day_on_expiry(self, sess):
-        # Same pattern as single-mode auto-submit but the unit is the day
-        # session. Fill placeholders, then run action_submit_day so the
-        # day's score rolls up and the next day unlocks.
+        # Like single-mode, but per day: fill placeholders then action_submit_day
+        # to roll up the score and unlock the next day.
         question_order = json.loads(sess.question_order or "[]")
         Response = request.env["etp.assessment.pro.response"].sudo()
         for q_id in question_order:

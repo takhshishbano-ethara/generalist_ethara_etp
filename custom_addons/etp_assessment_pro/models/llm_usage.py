@@ -1,12 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LLM usage ledger — one row per LLM/image API call in the assessment flow.
-
-Records tokens in/out (and the Gemini "thinking" tokens), image count, the
-operation that made the call, the model, and an ESTIMATED USD cost, so admins
-can size the budget of skill extraction, question generation, image generation
-and subjective scoring. Written best-effort by services/vertex.py (a logging
-failure never breaks a generation/scoring run).
-"""
+"""LLM usage ledger — one row per LLM/image API call; written best-effort by services/vertex.py."""
 from odoo import models, fields, api
 
 

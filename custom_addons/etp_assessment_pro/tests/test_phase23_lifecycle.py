@@ -478,7 +478,6 @@ class TestScoring(_Base):
 
     def test_subjective_score_above_threshold_passes(self):
         a, ev, q, r = self._subj_setup()
-        points = self.env["etp.assessment.pro.response"]._subjective_points()
         fake = json.dumps([{"id": r.id, "score": 0.9, "feedback": "good"}])
         with patch.object(vertex_svc, "_call_vertex", return_value=fake):
             scored = scoring_svc.score_evaluator(self.env, ev)
@@ -486,12 +485,12 @@ class TestScoring(_Base):
         r.invalidate_recordset()
         self.assertEqual(r.llm_state, "scored")
         self.assertTrue(r.llm_passed)
-        self.assertEqual(r.llm_score, points)
-        self.assertEqual(r.llm_max_score, points)
+        # EQUAL MARKS: every question worth 1; pass earns the single mark.
+        self.assertEqual(r.llm_score, 1)
+        self.assertEqual(r.llm_max_score, 1)
 
     def test_subjective_score_below_threshold_fails(self):
         a, ev, q, r = self._subj_setup()
-        points = self.env["etp.assessment.pro.response"]._subjective_points()
         fake = json.dumps([{"id": r.id, "score": 0.5, "feedback": "weak"}])
         with patch.object(vertex_svc, "_call_vertex", return_value=fake):
             scored = scoring_svc.score_evaluator(self.env, ev)
@@ -500,7 +499,7 @@ class TestScoring(_Base):
         self.assertEqual(r.llm_state, "scored")
         self.assertFalse(r.llm_passed)
         self.assertEqual(r.llm_score, 0)
-        self.assertEqual(r.llm_max_score, points)
+        self.assertEqual(r.llm_max_score, 1)
 
     def test_evaluator_score_percent(self):
         cat = self._make_category()
@@ -520,16 +519,14 @@ class TestScoring(_Base):
         r_subj = self._build_response(q_subj, ev, justification="reasoned answer")
         r_subj.write({"state": "submitted", "llm_state": "pending"})
 
-        points = self.env["etp.assessment.pro.response"]._subjective_points()
         fake = json.dumps([{"id": r_subj.id, "score": 0.9, "feedback": "y"}])
         ev.write({"state": "submitted"})
         with patch.object(vertex_svc, "_call_vertex", return_value=fake):
             scoring_svc.score_evaluator(self.env, ev)
         ev.invalidate_recordset()
+        # EQUAL MARKS: mcq mark 1, subjective mark 1, denominator = 2 questions.
         self.assertEqual(ev.total_score, 1)
-        self.assertEqual(ev.max_possible_score, 1)
-        self.assertEqual(ev.llm_total_score, points)
-        self.assertEqual(ev.llm_max_score, points)
+        self.assertEqual(ev.llm_total_score, 1)
         self.assertAlmostEqual(ev.score_percent, 100.0, places=1)
 
 
@@ -598,14 +595,13 @@ class TestEnqueueScoring(_Base):
         a, ev, q, r = self._ctx(llm_auto=True)
         r.write({"state": "submitted", "llm_state": "pending"})
         ev.write({"state": "submitted"})
-        points = self.env["etp.assessment.pro.response"]._subjective_points()
         fake = json.dumps([{"id": r.id, "score": 0.95, "feedback": "ok"}])
         with patch.object(vertex_svc, "_call_vertex", return_value=fake):
             self.Assessment._cron_llm_auto_score()
         r.invalidate_recordset()
         ev.invalidate_recordset()
         self.assertEqual(r.llm_state, "scored")
-        self.assertEqual(r.llm_score, points)
+        self.assertEqual(r.llm_score, 1)
         self.assertEqual(ev.llm_state, "scored")
 
 
@@ -902,9 +898,9 @@ class TestResultSummary(_Base):
     def test_summary_totals_match_evaluator_fields(self):
         ev = self._submitted_mixed(mcq_correct=True, subj_score=0.9)
         # The card's totals must equal the stored scoring fields exactly.
-        pts = self.env["etp.assessment.pro.response"]._subjective_points()
+        # EQUAL MARKS: a passed subjective answer is worth 1, not `points`.
         total = (ev.total_score or 0) + (ev.llm_total_score or 0)
-        self.assertEqual(ev.llm_total_score, pts)
+        self.assertEqual(ev.llm_total_score, 1)
         self.assertIn("%s / %s pts" % (total, ev.max_possible_score
                                        + ev.llm_max_score),
                       ev.result_summary or "")
@@ -928,7 +924,7 @@ class TestResultSummary(_Base):
         self.assertEqual(rows[0]["question"], "=== RESULT SUMMARY ===")
         # Its totals must equal the evaluator's stored scoring fields.
         self.assertEqual(int(s["objective_score"]), ev.total_score)
-        self.assertEqual(int(s["subjective_score"]), ev.llm_total_score)
+        self.assertEqual(int(s["subjective_mark"]), ev.llm_total_score)
         self.assertEqual(int(s["total_score"]),
                          ev.total_score + ev.llm_total_score)
         self.assertEqual(s["subjective_result"], ev.result)

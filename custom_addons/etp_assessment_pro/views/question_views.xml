@@ -43,6 +43,31 @@
                     </group>
                     <field name="prompt" placeholder="Question prompt..."/>
                     <field name="description" placeholder="Optional description..."/>
+                    <field name="has_valid_key" invisible="1"/>
+                    <field name="has_revealing_option" invisible="1"/>
+                    <field name="has_source_reference" invisible="1"/>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="has_valid_key">
+                        <strong>Missing answer key.</strong> This objective
+                        question has no correct option marked, so it cannot be
+                        scored. Mark the correct option(s) under Dimensions.
+                    </div>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="not has_revealing_option">
+                        <strong>Option reveals its rationale.</strong> An option
+                        name embeds a "…, because …" justification. Option names
+                        are shown to the candidate — keep them to the bare choice
+                        (e.g. <strong>Image B</strong>) and move the "why" to the
+                        hidden Answer Rationale. Regenerate or edit the option text.
+                    </div>
+                    <div class="alert alert-warning" role="alert"
+                         invisible="not has_source_reference">
+                        <strong>References the source material.</strong> This item
+                        (or its answer key) cites the SOP / guidelines / a Section,
+                        but the candidate never sees the source — the question must
+                        be self-contained. Regenerate, or rewrite so the deciding
+                        facts live in the scenario itself.
+                    </div>
                     <separator string="Answer Key" invisible="not has_answer_key"/>
                     <field name="has_answer_key" invisible="1"/>
                     <field name="answer_key_preview" widget="html"
@@ -82,11 +107,18 @@
                                 </form>
                             </field>
                         </page>
-                        <page string="Grading / Rubric">
+                        <page string="Grading / Rubric"
+                              invisible="question_type in ('image_ab','image_text') or (question_type in ('mcq','msq') and not official_reasoning)">
                             <group>
-                                <field name="grading_json" placeholder="{}" widget="text"/>
-                                <field name="subjective_rubric_json" placeholder="[]" widget="text"/>
-                                <field name="meta_json" placeholder="{}" widget="text"/>
+                                <field name="official_reasoning" readonly="1"
+                                       string="Answer Rationale (hidden from candidate)"
+                                       invisible="question_type not in ('mcq','msq')"/>
+                                <field name="subjective_rubric_json" placeholder="[]" widget="text"
+                                       invisible="question_type not in ('subjective_justification','subjective_rubric')"/>
+                                <field name="grading_json" placeholder="{}" widget="text"
+                                       invisible="not grading_json"/>
+                                <field name="meta_json" placeholder="{}" widget="text"
+                                       invisible="not meta_json"/>
                             </group>
                         </page>
                         <page string="Image Evaluation"

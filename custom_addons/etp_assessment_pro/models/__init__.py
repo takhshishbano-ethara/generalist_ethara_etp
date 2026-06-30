@@ -5,6 +5,7 @@ from . import question
 from . import question_image
 from . import question_dimension
 from . import prompt
+from . import prompt_question_dimension
 from . import bank_import
 from . import bank_import_wizard
 from . import res_config_settings

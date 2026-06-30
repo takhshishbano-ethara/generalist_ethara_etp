@@ -1,36 +1,16 @@
 # -*- coding: utf-8 -*-
-"""CSV exporters for assessment results and responses.
-
-Two distinct exports, both reachable from the assessment form and the second
-also per-candidate from the evaluator screen:
-
-- **Results** — ONE row per candidate: the scorecard (objective points,
-  subjective points, total, %, pass/fail, rank, day progress, violations).
-  This is the leaderboard / hiring-decision view.
-
-- **Responses** — ONE row per submitted answer, fully detailed: the
-  candidate's chosen options per dimension vs the correct key, objective
-  points, the subjective LLM verdict + raw 0-1 score + reasoning, the
-  justification text, and every question dimension. Scope can be the whole
-  assessment or a single candidate.
-
-Both return an ``ir.actions.act_url`` download of an ``ir.attachment`` (the
-house pattern used elsewhere in this addon).
-"""
+"""CSV exporters for assessment results and responses."""
 import base64
 import csv
 import io
 
 
-# ---------------------------------------------------------------------------
-# Column specs (single source of truth; mirrored by the standalone sample
-# generator so the docs and the live export never drift).
-# ---------------------------------------------------------------------------
+# Column specs (single source of truth; mirrored by the sample generator).
 RESULTS_COLUMNS = [
     "rank", "candidate", "email", "assessment", "assessment_state",
     "candidate_state", "days_done", "days_total", "day_progress",
     "objective_score", "objective_max",
-    "subjective_score", "subjective_max",
+    "subjective_marks", "subjective_max",
     "total_score", "total_max", "score_percent", "pass_threshold",
     "result", "subjective_scoring_state", "results_released",
     "is_locked", "violation_count", "started_at",
@@ -41,8 +21,8 @@ RESPONSES_COLUMNS = [
     "question", "question_type", "category", "difficulty", "prompt",
     "candidate_answer", "correct_answer", "dimension_detail",
     "objective_score", "objective_max",
-    "needs_subjective", "subjective_result", "subjective_score",
-    "subjective_max", "subjective_raw_0_1", "subjective_state",
+    "needs_subjective", "subjective_result", "subjective_score_0_100",
+    "subjective_mark", "subjective_max", "subjective_raw_0_1", "subjective_state",
     "subjective_reasoning", "justification",
     "total_score", "total_max", "response_state",
 ]
@@ -65,20 +45,10 @@ def _attachment_download(env, model, res_id, filename, content_bytes,
     }
 
 
-# ---------------------------------------------------------------------------
-# Per-response detail helpers.
-# ---------------------------------------------------------------------------
 def _dimension_detail(resp):
-    """Return (candidate_answer, correct_answer, detail) for one response.
-
-    - candidate_answer: "Dim A: Paris | Dim B: 3, 5" (chosen per dimension)
-    - correct_answer:   "Dim A: Paris | Dim B: 2, 3" (the key per dimension)
-    - detail:           per-dimension "label=[chosen vs correct] ✓/✗" audit
-      string so a reviewer can see exactly where points were won/lost.
-    """
+    """Return (candidate_answer, correct_answer, detail) for one response."""
     rec = resp.sudo()
     q = rec.question_id
-    # chosen master-option names grouped by dimension id
     chosen_by_dim = {}
     for line in rec.line_ids:
         if line.selected_option_id:
@@ -138,7 +108,8 @@ def _response_row(resp):
         "objective_max": obj_max,
         "needs_subjective": "yes" if rec.needs_llm else "no",
         "subjective_result": rec.subjective_result or "",
-        "subjective_score": subj,
+        "subjective_score_0_100": round(rec.llm_raw_100, 1) if rec.needs_llm else "",
+        "subjective_mark": subj,
         "subjective_max": subj_max,
         "subjective_raw_0_1": round(rec.llm_raw_score, 4) if rec.needs_llm else "",
         "subjective_state": rec.llm_state or "",
@@ -159,9 +130,6 @@ def _write_csv(columns, rows):
     return buf.getvalue().encode("utf-8")
 
 
-# ---------------------------------------------------------------------------
-# Public builders.
-# ---------------------------------------------------------------------------
 def results_rows(assessment):
     ranked = assessment.assessment_evaluator_ids.sorted(
         key=lambda e: (-(e.score_percent or 0.0),
@@ -185,7 +153,7 @@ def results_rows(assessment):
             "day_progress": ev.day_progress_label or "",
             "objective_score": obj,
             "objective_max": obj_max,
-            "subjective_score": subj,
+            "subjective_marks": subj,
             "subjective_max": subj_max,
             "total_score": obj + subj,
             "total_max": obj_max + subj_max,
@@ -211,12 +179,9 @@ def export_results(assessment):
 
 
 def _summary_row(ev):
-    """ONE summary row per candidate for the responses export: the post-scoring
-    scorecard (objective correct/total + points, subjective pass/total + points,
-    combined total, percent, result) laid into the response column schema so it
-    reads as the first row of that candidate's block. Derived from the SAME
-    stored response/evaluator fields as the detail rows below it — never a
-    separate calculation, so the summary can't disagree with the breakdown.
+    """One per-candidate scorecard summary row in the response column schema.
+
+    Derived from the SAME stored fields as the detail rows so it can't disagree.
     """
     submitted = ev.response_ids.filtered(lambda r: r.state == "submitted")
     obj = submitted.filtered(lambda r: r.has_objective)
@@ -261,7 +226,8 @@ def _summary_row(ev):
         "objective_max": obj_max,
         "needs_subjective": "yes" if subj_total else "no",
         "subjective_result": ev.result or "pending",
-        "subjective_score": sub_pts,
+        "subjective_score_0_100": "",
+        "subjective_mark": sub_pts,
         "subjective_max": sub_max,
         "subjective_raw_0_1": round(ev.score_percent or 0.0, 2),
         "subjective_state": ev.llm_state or "",
@@ -277,12 +243,7 @@ def _summary_row(ev):
 
 
 def export_responses(assessment, evaluator=None):
-    """Whole-assessment responses, or just one candidate's when ``evaluator``
-    is given. One row per response, submitted ones first, ordered by candidate
-    then day then question sequence. Each candidate's block is prefixed with a
-    SUMMARY row (the post-scoring scorecard) so an admin reading the export
-    sees the result at a glance before the per-answer detail.
-    """
+    """Responses for the whole assessment, or one candidate's when ``evaluator`` is given."""
     assessment.ensure_one()
     if evaluator is not None:
         responses = evaluator.response_ids
@@ -298,10 +259,7 @@ def export_responses(assessment, evaluator=None):
             r.day_session_id.day_sequence if r.day_session_id else 0,
             r.question_id.sequence or 0,
             r.id))
-    # Build rows, inserting a per-candidate summary row at the start of each
-    # candidate's block. For a single-candidate export that's just one summary
-    # row up top; for the whole-assessment export it's one per candidate, in
-    # the same candidate order as the detail rows.
+    # Prefix each candidate's block with a summary row, in detail-row order.
     rows = []
     if evaluator is not None:
         rows.append(_summary_row(evaluator))

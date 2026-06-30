@@ -1,19 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Question Bank Import wizard + shared CSV column spec.
+"""Question Bank Import wizard + shared CSV column spec (CSV-only; JSON is the LLM flow).
 
-Goal: stop the manual tedium of hand-building a question and EVERY dimension
-in the form. One CSV row is published straight into the bank — its dimensions,
-options, correct-answer flags, rubric, official reasoning, and images (URLs
-offloaded to S3 when configured) are all materialized via the same approve
-path the LLM generator uses, but fed by an import instead of the LLM.
-(JSON is reserved for the LLM-generation flow; this importer is CSV-only.)
-
-The wizard is deliberately spreadsheet-friendly: multi-dimension questions
-(e.g. image_ab with 4 axes, dense-bbox with many) are authored with INDEXED
-columns ``dim1_label / dim1_options / dim1_correct`` ... ``dimN_*`` — no JSON
-hand-authoring required. Options/correct/skills within a cell are split on
-``|``. A ``dimensions_json`` / ``images_json`` power column is still accepted
-for lossless round-trips of an export.
+Multi-dimension questions use INDEXED columns dim1_label/dim1_options/dim1_correct
+... dimN_*; values within a cell split on ``|``. dimensions_json / images_json power
+columns are accepted for lossless round-trips of an export.
 """
 import base64
 import csv
@@ -24,12 +14,12 @@ import logging
 from odoo import models, fields, api
 from odoo.exceptions import UserError
 
+from ..constants import QUESTION_TYPE_SHORT_LABELS, AB_DIMENSION_NAMES, AB_CHOICES
+
 _logger = logging.getLogger(__name__)
 
-# Canonical import column order. Export of the question bank uses the SAME
-# columns so a bank can be exported, edited in a spreadsheet, and re-imported
-# losslessly. ``MAX_DIMS`` / ``MAX_IMAGES`` bound the indexed-column template;
-# import itself scans for ANY dimN_/imgN_ index, so deeper banks still parse.
+# Canonical import column order, shared with bank export for lossless round-trips.
+# MAX_DIMS/MAX_IMAGES bound the template only; import scans for ANY dimN_/imgN_.
 MAX_DIMS = 4
 MAX_IMAGES = 3
 
@@ -101,9 +91,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 _logger.debug("Import preview parse failed: %s", exc)
                 rec.question_count = 0
 
-    # ------------------------------------------------------------------
     # Parsing -> a list of draft-vals dicts (prompt_id filled in later).
-    # ------------------------------------------------------------------
     def _decode(self):
         self.ensure_one()
         try:
@@ -149,9 +137,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
 
     @staticmethod
     def _is_junk_dim(spec):
-        """A gate dimension is junk when its label is a known filler prompt OR
-        it offers a single non-answer option (e.g. just 'Yes'/'OK') that tests
-        nothing. Such dims show as a pointless radio group to the candidate."""
+        """A gate dimension is junk when its label is filler or it has <=1 option."""
         label = (spec.get("label") or "").strip().lower()
         opts = [o for o in (spec.get("options") or []) if str(o).strip()]
         if any(j in label for j in EtpAssessmentBankImportWizard._JUNK_DIM_LABELS):
@@ -170,16 +156,12 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 f"unknown question_type '{qtype}'. "
                 f"Allowed: {', '.join(valid)}")
 
-        # --- dimensions FIRST: dimN_* indexed cols, then single options/correct
-        #     shorthand, then dimensions_json power column (highest precedence).
-        #     We need the answer-key stem before deciding the title/prompt. -----
+        # Dimensions FIRST (we need the answer-key stem before the title/prompt):
+        # dimN_* indexed cols, then options/correct shorthand, then dimensions_json.
         dims = self._collect_indexed_dims(row)
         single_options = _split(row.get("options"))
         if not dims and single_options:
-            # A single-choice MCQ/MSQ dimension reads as the QUESTION STEM
-            # itself (e.g. "Which of the following best describes…"), NOT a
-            # generic title. Prefer an explicit dimension_label, else the
-            # stem candidate (description/prompt), else a clean generic.
+            # A single-choice dimension reads as the QUESTION STEM, not a title.
             stem = (row.get("dimension_label")
                     or row.get("description")
                     or row.get("prompt")
@@ -194,16 +176,12 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
                 dims = json.loads(row["dimensions_json"])
             except (ValueError, TypeError):
                 raise UserError("dimensions_json is not valid JSON.")
-        # Drop junk gate dimensions so the candidate never sees a pointless
-        # "You read the image? · Yes" radio (defense in depth — even a sloppy
-        # CSV self-cleans).
+        # Drop junk gate dimensions (defense in depth — a sloppy CSV self-cleans).
         if dims:
             dims = [d for d in dims if not self._is_junk_dim(d)]
 
-        # --- prompt: the actual question/instruction shown to the candidate.
-        #     For an objective question whose prompt is generic filler ("choose
-        #     the correct option"), promote the answer-key stem so the candidate
-        #     sees the real question. --------------------------------------
+        # Prompt: for an objective question with generic filler prompt, promote
+        # the answer-key stem so the candidate sees the real question.
         raw_title = (row.get("title") or "").strip()
         raw_prompt = (row.get("prompt") or "").strip()
         category = (row.get("category") or "").strip()
@@ -217,28 +195,16 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         prompt = raw_prompt
         if qtype in ("mcq", "msq") and stem and \
                 raw_prompt.lower() in _GENERIC_PROMPTS:
-            # The real question lives in the stem; surface it as the prompt.
             prompt = stem
 
-        # --- title: a SHORT human label, NOT the question text. The title and
-        #     prompt are different kinds of thing — title names/categorizes the
-        #     question ("Non-STEM Baseline MCQ"), prompt holds the actual
-        #     question. We NEVER put the prompt (or a truncation of it) in the
-        #     title, which is what caused the doubled-text header. When the CSV
-        #     gives no usable title we build "<Category> <Type>".
-        _TYPE_LABELS = {
-            "mcq": "MCQ", "msq": "MSQ",
-            "subjective_justification": "Justification",
-            "subjective_rubric": "Rubric",
-            "image_ab": "Image Comparison",
-            "image_text": "Image + Text",
-        }
-        type_label = _TYPE_LABELS.get(qtype, qtype.replace("_", " ").title())
+        # Title: a SHORT label, never the prompt or a truncation of it (that
+        # doubled the header). No usable title => build "<Category> <Type>".
+        type_label = QUESTION_TYPE_SHORT_LABELS.get(
+            qtype, qtype.replace("_", " ").title())
 
         def _weak_title(t):
-            # A title is unusable as a label when it's empty, is just the
-            # category, is a known generic, or is actually the prompt text /
-            # a truncated prefix of it (the doubling bug we're fixing).
+            # Unusable when empty, == category, a known generic, or the prompt/
+            # a prefix of it (the doubling bug).
             if not t or t == category:
                 return True
             if t in ("Multiple Choice Question", "Image comparison",
@@ -274,7 +240,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         if dims:
             vals["dimensions_json"] = json.dumps(dims, ensure_ascii=False)
 
-        # --- rubric / official reasoning ----------------------------------
+        # rubric / official reasoning.
         if row.get("rubric_json"):
             # Accept raw JSON, or wrap a plain pass-condition string.
             rubric_raw = row["rubric_json"].strip()
@@ -288,7 +254,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
         if row.get("official_reasoning"):
             vals["official_reasoning"] = row["official_reasoning"]
 
-        # --- images: imgN_* indexed columns, then images_json ------------
+        # images: imgN_* indexed columns, then images_json.
         images = self._collect_indexed_images(row)
         if row.get("images_json"):
             try:
@@ -341,10 +307,8 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             })
         return images
 
-    # ------------------------------------------------------------------
     # Import action: build a generator prompt + its draft questions, then
     # open it on the Question Drafts tab for review/approve.
-    # ------------------------------------------------------------------
     def action_import(self):
         self.ensure_one()
         if not self.data_file:
@@ -357,12 +321,8 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
 
         batch_name = (self.generator_name
                       or ("Import: %s" % (self.data_filename or "bank")))[:120]
-        # One CSV import => ONE generator row in the Generators list, named after
-        # the file and carrying the imported drafts (so its Question/Approved
-        # counts are populated). The drafts are materialized straight into the
-        # bank (published), and the generator is KEPT as the batch's record —
-        # it is NOT deleted, so the import shows up in the list the same way an
-        # LLM generation batch does.
+        # One CSV import => ONE generator row, KEPT (not deleted) so the import
+        # shows in the Generators list like an LLM generation batch does.
         prompt = Prompt.create({
             "name": batch_name,
             "category_id": self.target_category_id.id or False,
@@ -392,15 +352,11 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             drafts |= Draft.create(vals)
             created += 1
 
-        # Materialize each draft into a published bank question (dimensions +
-        # options + correct flags + rubric + images). The drafts stay linked to
-        # this generator (state=approved) so its Question/Approved counts read
-        # correctly in the Generators list and form.
+        # Materialize each draft into a published bank question; drafts stay
+        # linked (state=approved) so the generator's counts read correctly.
         drafts.action_approve()
 
-        # Land the user on this import batch's generator form (Question Drafts
-        # tab) so they immediately see the imported questions in context — the
-        # same place an LLM generation batch opens.
+        # Land on this batch's generator form so the imported questions show in context.
         return {
             "type": "ir.actions.act_window",
             "name": "Imported Question Bank",
@@ -411,10 +367,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             "context": {},
         }
 
-    # ------------------------------------------------------------------
-    # Template download — a CSV with one dummy row per question type and
-    # every importable column populated, so the user can pick/keep/reorder.
-    # ------------------------------------------------------------------
+    # Template download — a CSV with one dummy row per question type.
     def action_download_template(self):
         content = build_template_csv()
         att = self.env["ir.attachment"].create({
@@ -432,9 +385,7 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
 
 
 def build_template_csv():
-    """Build the import template CSV string: header = full column list, one
-    fully-populated dummy row per question type. Shared by the wizard button
-    and the standalone sample-file generator."""
+    """Build the import template CSV string: one dummy row per question type."""
     cols = import_columns()
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore")
@@ -533,17 +484,17 @@ def _template_rows():
             "skills": "Image Comparison",
             "difficulty": "hard",
             "time_minutes": "5",
-            "dim1_label": "Instruction Following",
-            "dim1_options": "Response A|Response B|Both Good|Both Bad",
+            "dim1_label": AB_DIMENSION_NAMES["IF"],
+            "dim1_options": "|".join(AB_CHOICES),
             "dim1_correct": "Response B",
-            "dim2_label": "Visual Quality",
-            "dim2_options": "Response A|Response B|Both Good|Both Bad",
+            "dim2_label": AB_DIMENSION_NAMES["VQ"],
+            "dim2_options": "|".join(AB_CHOICES),
             "dim2_correct": "Response B",
-            "dim3_label": "Less AI Generated",
-            "dim3_options": "Response A|Response B|Both Good|Both Bad",
+            "dim3_label": AB_DIMENSION_NAMES["LAI"],
+            "dim3_options": "|".join(AB_CHOICES),
             "dim3_correct": "Both Good",
-            "dim4_label": "Overall Choice",
-            "dim4_options": "Response A|Response B|Both Good|Both Bad",
+            "dim4_label": AB_DIMENSION_NAMES["OC"],
+            "dim4_options": "|".join(AB_CHOICES),
             "dim4_correct": "Response B",
             "official_reasoning": "Response B shows the steam, stacked carpets "
                                   "and crowd the prompt asks for and is sharper.",

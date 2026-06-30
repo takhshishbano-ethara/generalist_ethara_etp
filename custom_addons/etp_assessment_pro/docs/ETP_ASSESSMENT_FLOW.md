@@ -235,6 +235,43 @@ view), `time_minutes` (default 10), `difficulty` (`easy|medium|hard`),
 | `/pro_etp/question_gen/drafts/<id>/approve` | jsonrpc, auth=user | approve draft |
 | `/pro_etp/question_gen/drafts/<id>/deny` | jsonrpc, auth=user | deny draft |
 
+### 3.4 Authoring guardrails (self-contained, terse, coherent)
+
+Generation runs on ONE model (`gemini-3-pro-image`, §8); `prompts/question.md`
+plus two **non-blocking reviewer flags** keep a bad item from shipping silently:
+
+- **Self-contained items (no source leak).** The candidate never sees the SOP /
+  source docs, so the prompt forbids citing them and adds an *answerability gate*:
+  every item must be answerable from its own scenario + the candidate's skill,
+  never by recalling "what the document says". Detection: computed flag
+  **`has_source_reference`** (`constants.text_has_source_reference`) raises a form
+  banner (draft + bank) when an item or its answer key cites the SOP / a Section /
+  the guidelines etc.
+- **Terse option names (no answer leak).** An option's `name` is shown to the
+  candidate verbatim, so MCQ/MSQ options must be bare verdicts (`Image B`,
+  `Both Good`) — never `Image B, because …`. The rationale lives in the hidden
+  **`official_reasoning`** (captured at generation, carried to the bank on
+  approve, reviewer-only). Detection flag **`has_revealing_option`**
+  (`constants.option_name_reveals_reasoning`).
+- **Coherent medium ↔ question type.** A bidirectional `@api.constrains` on
+  `etp.assessment.pro.skill` blocks the medium/type mismatch BOTH ways (image
+  medium ⇔ image question types only); an `@api.onchange` auto-aligns `medium`
+  when `question_type` changes, so "image medium + text type → no picture" can't
+  be created. Drafts also show a read-only `medium_display`.
+- **Editable draft answer keys (all 6 types).** Drafts expose a relational,
+  editable answer key (`answer_dimension_ids` → `option_line_ids` with
+  `is_correct`) for mcq/msq/image_ab and round-tripped `ak_*` fields for the
+  subjective/image_text rubric; the raw `*_json` lives behind a per-type
+  "Advanced (raw JSON)" tab.
+- **Mandatory SOP.** `has_sop_resource` (`prompt.py`) — the SOP upload is required
+  (asterisked in the UI).
+- **Async image rendering.** Image questions are authored as briefs
+  (`image_brief_json`, `image_state='pending'`); cron
+  **`_cron_render_pending_images`** renders them via `gemini-3-pro-image` into
+  `images_json` (`image_state='rendered'`, batches of 10). The old
+  "Regenerate"/"Re-align question" controls were removed — rendering is the only
+  image action.
+
 ---
 
 ## 4. Candidate Identity & Provisioning
@@ -386,22 +423,35 @@ single token → `etp.assessment.pro.evaluator`.
   candidate left a **non-placeholder** justification (not starting with
   `"[Auto-submitted"`).
 - `services/scoring.py:score_evaluator` — **ONE batched Vertex call per
-  candidate**: bundles all `needs_llm` responses, expects a JSON array of
-  `{id, score (0..1), feedback}`.
-  - `subjective_justification` → judged against an **empty rubric** (question
-    prompt only).
-  - `subjective_rubric` → includes the question's rubric (checklist /
-    constraints / pass_condition) via `_rubric_text` (`scoring.py:65`).
-  - Threshold `subjective_pass_threshold` (default **0.7**; values >1 divided by
-    100) decides PASS → `subjective_points` (default **10**) else 0.
-  - Writes `llm_state=scored`, `llm_raw_score`, `llm_passed`, `llm_score`,
-    `llm_max_score`, `llm_feedback`.
+  candidate** (SOP v6): bundles all `needs_llm` responses into one submission and
+  expects a JSON array of per-field results `{id, score (0-100), rubric_source,
+  gate, reference_answer, reasoning, feedback, flags}`.
+  - `subjective_justification` → grader **generates** a rubric from the prompt +
+    skill (empty supplied rubric).
+  - `subjective_rubric` → the question's supplied rubric (checklist /
+    constraints / pass_condition) via `_rubric_block` (`scoring.py`).
+  - `image_ab` → per-axis official vs candidate choice + `official_reasoning`,
+    generic over dimensions (no hardcoded axes).
+  - `image_text` → `ideal_answer` / `mandatory_elements` / `penalty_rules` /
+    `scoring_guide`.
+  - The grader's **raw 0-100 score is stored immutably** in `llm_raw_100`
+    (`_store_scored`). It NEVER decides pass/fail itself.
+- **Pass/fail is COMPUTED, live** (`_compute_subjective_marks`,
+  `@api.depends(llm_raw_100, llm_state, needs_llm)`): a needs_llm answer earns the
+  single equal mark (`llm_score = 1`, `llm_max_score = 1`) iff
+  `llm_raw_100 >= subjective_pass_threshold` (0-100, default **70**), else 0.
+  Because this is a computed field reading the live threshold, changing the
+  threshold in Settings re-decides every scored answer with **no re-scoring**
+  (`res_config_settings.set_values` nudges the recompute).
+- **Failure surfacing:** a scoring call/parse failure resolves (after
+  `llm_max_attempts`) to `llm_state='error'` — a visible terminal state, NOT a
+  silent scored-0. `failed` is the recoverable interim the cron retries.
 - **Trigger paths:**
-  - On submit, `_enqueue_subjective_scoring` (`assessment.py:1099`) — inline
+  - On submit, `_enqueue_subjective_scoring` (`assessment.py`) — inline
     score now if `llm_auto_score` ON, else mark `pending`.
   - Manual: `action_llm_score_all` (button "Score Subjective (All)") /
     per-evaluator `action_llm_score`.
-  - Cron `_cron_llm_auto_score` (`assessment.py:524`) — advisory-locked
+  - Cron `_cron_llm_auto_score` (`assessment.py`) — advisory-locked
     (`pg_try_advisory_xact_lock(827193)`), drains up to 20 evaluators where the
     assessment has `llm_auto_score` ON.
 - **Wrong-objective "hints"** on the result page = `correct_summary` (static,
@@ -411,17 +461,19 @@ single token → `etp.assessment.pro.evaluator`.
 
 | Level | Fields | Source |
 |---|---|---|
-| `response` | `score`/`max_score` (objective), `llm_score`/`llm_max_score` (subjective) | computed |
-| `day.session` | `total_questions`, `answered_count`, `score`, `max_score` (objective+subjective) | `assessment_day.py:283,289` |
-| `evaluator` | `total_questions` (dual: sum of day sessions, else `len(question_order)`), `answered_count`, `total_score`, `max_possible_score`, `llm_total_score`, `llm_max_score`, `subjective_pending`, `score_percent`, `result` | `assessment.py:738-775,851` |
+| `response` | `score`/`max_score` (objective), `llm_raw_100` (immutable 0-100), `llm_score`/`llm_max_score`/`llm_passed`/`subjective_result` (computed from raw vs live threshold) | mixed |
+| `day.session` | `total_questions`, `answered_count`, `score`, `max_score` (objective+subjective marks) | `assessment_day.py` |
+| `evaluator` | `total_questions` (dual: sum of day sessions, else `len(question_order)`), `answered_count`, `total_score`, `max_possible_score`, `llm_total_score`, `llm_max_score`, `subjective_pending`, `score_percent`, `result` | `assessment.py` |
 
-- **Result** (`_compute_result`, `assessment.py:749`): `score_percent =
-  (objective+subjective earned) / (objective+subjective possible) * 100`.
+- **Result** (`_compute_result`): `score_percent =
+  (objective+subjective marks earned) / total_questions * 100`.
   `result` stays `pending` unless `state=submitted` AND no subjective pending
   AND possible>0; then `pass` if `score_percent >= pass_threshold`
   (default **70**), else `fail`.
-- **Subjective Max scale** = `subjective_points × (# subjective questions)`
-  (e.g. 3 × 10 = 30).
+- **Equal marks:** every question (objective or subjective) is worth exactly
+  **1** mark. The subjective max is therefore `1 × (# subjective questions)` —
+  it never drifts (the old 10-point `subjective_points` placeholder was removed in
+  1.5.0).
 
 ---
 
@@ -454,21 +506,26 @@ margin. Raises a clear error if the wrong `jwt` PyPI package is installed.
 |---|---|---|
 | Skill extraction | System Param `etp_assessment_pro.skill_gen_prompt` → bundled `prompts/skill_gen.md` → inline `INLINE_SKILL_GEN_PROMPT` | `vertex.py:174` |
 | Question generation | System Param `etp_assessment_pro.question_prompt` → bundled `prompts/question.md` → inline `INLINE_QUESTION_PROMPT` | `vertex.py:183` |
-| Subjective scoring | System Param `etp_assessment_pro.scoring_system_prompt` → inline `DEFAULT_SCORING_PROMPT` (**no bundled file**) | `scoring.py:35` |
+| Subjective scoring | System Param `etp_assessment_pro.scoring_system_prompt` → bundled `prompts/scoring.md` → inline `DEFAULT_SCORING_PROMPT` | `scoring.py:_get_scoring_prompt` |
 
-Bundled prompt files present: **`prompts/skill_gen.md`** and
-**`prompts/question.md`** only.
+Bundled prompt files present: **`prompts/skill_gen.md`**, **`prompts/question.md`**,
+and **`prompts/scoring.md`**.
 
 ### 8.3 Call mechanics
 
-`_call_vertex` (`vertex.py:192`) POSTs `generateContent` with `systemInstruction`
-+ user `contents` + `generationConfig` (`maxOutputTokens`, `temperature`), via
-`httpx` (read timeout 180s). `_extract_json_array` strips ``` fences and parses
-the first JSON array. Model from `etp_assessment_pro.vertex_model`
-(default `gemini-2.5-pro`).
+`_call_vertex` (`vertex.py`) POSTs `generateContent` with `systemInstruction`
++ user `contents` + `generationConfig`, via `httpx`. Model from
+`etp_assessment_pro.vertex_model` (default **`gemini-3-pro-image`**) — ONE model
+for **every** task (extraction, generation, scoring, image rendering).
 
-> Note: this module has **no image-generation path** (no `vertex_image_model` /
-> Imagen code). The Settings UI exposes only the text/Vertex + S3 + prompt keys.
+> **Reasoning-model handling.** `gemini-3-pro-image` returns its chain-of-thought
+> in parts marked `thought=True` and the JSON answer in the remaining part, so
+> `_call_vertex` reads the **non-thought** parts (reading `parts[0]` would return
+> the thinking and fail to parse — this was the "Extract Skills 500" cause). Text
+> calls send `responseMimeType: application/json`; image rendering uses
+> `responseModalities: ["TEXT","IMAGE"]`. Retries on `MAX_TOKENS` and unparseable
+> JSON. `_vertex_image_model` just returns `vertex_model` (no separate image
+> model); the Settings UI exposes a single "Vertex Model" field.
 
 ---
 
@@ -480,17 +537,18 @@ where the field/XML sets one.
 | Key | Default | Purpose |
 |---|---|---|
 | `vertex_project_id` | — | GCP project |
-| `vertex_location` | **`us-central1`** | region (`global` switches host) |
-| `vertex_model` | `gemini-2.5-pro` | Gemini model id |
+| `vertex_location` | **`global`** | region (non-`global` switches host to `<region>-aiplatform`) |
+| `vertex_model` | `gemini-3-pro-image` | single Gemini model for ALL tasks (extraction, generation, scoring, image rendering) |
 | `vertex_api_key` | — | `AIza…` (Gemini dev) or `AQ.` (Express) key |
 | `vertex_access_token` | — | static OAuth bearer (takes precedence) |
 | `vertex_service_account_json` | — | SA JSON text (module mints bearers) |
 | `vertex_service_account_filename` | — | display name of uploaded SA |
 | `vertex_minted_token` | — | cached minted bearer (managed) |
 | `vertex_minted_token_expires` | — | epoch expiry of minted bearer (managed) |
-| `subjective_points` | `10` | points awarded on subjective PASS |
-| `subjective_pass_threshold` | `0.7` | 0..1 quality bar (>1 ⇒ /100) |
-| `pass_threshold` | `70` | overall pass % |
+| `subjective_pass_threshold` | `70` | per-answer subjective pass bar 0-100 (≤1 ⇒ ×100); drives computed pass/fail live |
+| `pass_threshold` | `70` | overall candidate pass % |
+| `llm_max_attempts` | `3` | scoring attempts before resolving to `error` |
+| `scoring_batch_size` | `8` | max answers per Vertex scoring call |
 | `scoring_system_prompt` | — | override subjective grader prompt |
 | `skill_gen_prompt` (+ `_filename`) | — | override skill prompt |
 | `question_prompt` (+ `_filename`) | — | override question prompt |
@@ -602,6 +660,7 @@ Root app **ETP Assessment Pro** (visible to evaluator group); all items below ar
 | Cron | Method | Interval | Purpose |
 |---|---|---|---|
 | Auto-score submitted candidates | `etp.assessment.pro._cron_llm_auto_score` | 1 min | drain pending subjective scoring (advisory-locked, `llm_auto_score` ON only) |
+| Render pending question images | `etp.assessment.pro.prompt._cron_render_pending_images` | 1 min | render `image_ab`/`image_text` briefs → `images_json` (batches of 10) |
 | Open scheduled day sessions | `etp.assessment.pro.day.session._cron_open_scheduled_days` | 5 min | flip `locked → available` once `scheduled_start` arrives (sequential: prior day finished) |
 | Mark missed day sessions | `etp.assessment.pro.day.session._cron_mark_missed` | 5 min | auto-submit `in_progress` sessions past their deadline (rescues closed tabs) |
 
@@ -609,17 +668,21 @@ Root app **ETP Assessment Pro** (visible to evaluator group); all items below ar
 
 ## 14. Migrations & Deployment
 
-- **`migrations/19.0.3.0.0/pre-migrate.py`** heals the `hr.employee →
-  hr.applicant` candidate-identity change:
-  1. **Clears stale attempt rows** (`etp_assessment_pro_response_line`,
-     `_response`, `_day_session`, `_evaluator`) that still hold old employee FKs
-     (definition data — assessments/skills/questions/categories — is **kept**).
-  2. Deletes the old `evaluator_ids` M2M link tables.
-  3. Deletes the `noupdate` mail templates + record rules (and their
-     `ir_model_data`) so the clean applicant-based XML **recreates** them in the
-     same upgrade.
-- **Deployment (EKS).** Because of the schema change, a deploy **must run
-  `-u etp_assessment_pro`** (ideally `-u all`) or you get
+- **`migrations/19.0.1.3.0/post-migrate.py`** is the **single consolidated**
+  upgrade (manifest version `19.0.1.3.0`, applied over stage's `19.0.1.2.0`
+  baseline). Idempotent; no comments, no personal references. It:
+  1. sets `vertex_location` → `global` and `vertex_model` → `gemini-3-pro-image`
+     when unset or on a superseded model;
+  2. removes the obsolete `subjective_points` param;
+  3. backfills `llm_raw_100` from the legacy `llm_raw_score`/`llm_score` for
+     already-scored responses;
+  4. seeds the relational draft answer keys (`answer_dimension_ids`) from the
+     legacy `*_json` fields.
+  Fresh installs **skip** migrations and use the data defaults. The new computed
+  flags (`has_source_reference`, `has_revealing_option`, `medium_display`) are
+  non-stored — no schema/migration impact.
+- **Deployment (EKS).** A deploy **must run `-u etp_assessment_pro`** (the upgrade
+  adds the `llm_raw_100` column and runs the migration above) or you get
   `column/field does not exist` 500s. Rebuild the image from the latest commit
   and rollout-restart (beware same-tag image caching).
 - **Flutter REST API** is provided by a **separate module**,
@@ -671,14 +734,17 @@ Root app **ETP Assessment Pro** (visible to evaluator group); all items below ar
 
 The following seed assumptions were **corrected** against the actual code:
 
-1. **No image generation.** There is no `vertex_image_model` / Imagen / per-model
-   region routing in `services/vertex.py`; the module is text-only. Removed those
-   from the params/Vertex sections.
-2. **`vertex_location` default is `us-central1`**, not `global`. `"global"` is
-   only a special case in host construction (`vertex.py:124`).
-3. **Scoring prompt is 2-tier** (System Param `scoring_system_prompt` → inline
-   `DEFAULT_SCORING_PROMPT`); there is **no bundled scoring `.md`**. Bundled
-   files are `skill_gen.md` and `question.md` (not `*_master.md`).
+1. **One model for everything.** `etp_assessment_pro.vertex_model`
+   (default `gemini-3-pro-image`) drives extraction, generation, scoring **and**
+   image rendering; `_vertex_image_model` just returns it (no separate image
+   model). It is a reasoning model — `_call_vertex` reads the non-`thought` parts
+   (see §8.3). Per-region host routing applies (non-`global` → `<region>-aiplatform`).
+2. **`vertex_location` default is `global`** (the Gemini-3 series endpoint), set
+   via `constants.VERTEX_DEFAULT_LOCATION`. A non-`global` value switches the host
+   in `_gemini_request`.
+3. **Scoring prompt is 3-tier** (System Param `scoring_system_prompt` → bundled
+   `prompts/scoring.md` → inline `DEFAULT_SCORING_PROMPT`). Bundled files are
+   `skill_gen.md`, `question.md`, and `scoring.md`.
 4. **Auth precedence**: a bearer (`vertex_access_token` or minted SA) is checked
    **before** the api_key; bearer ⇒ aiplatform host. The api_key branch
    (`AQ.` → aiplatform; `AIza` → generativelanguage) only runs when no bearer.

@@ -214,7 +214,7 @@
                                     <field name="total_questions"/>
                                     <field name="total_score"/>
                                     <field name="llm_total_score"
-                                           string="Subjective Points" optional="show"/>
+                                           string="Subjective Marks" optional="show"/>
                                     <field name="llm_state" widget="badge"
                                            optional="show"
                                            decoration-success="llm_state == 'scored'"
@@ -281,14 +281,17 @@
                                            string="Subjective"
                                            decoration-success="subjective_result == 'pass'"
                                            decoration-danger="subjective_result == 'fail'"/>
-                                    <field name="subjective_score" string="Subjective Points"
+                                    <field name="llm_raw_100"
+                                           string="Subjective Score (0-100)"
+                                           widget="float" digits="[5,1]"
                                            optional="show"/>
                                     <field name="llm_state" widget="badge"
                                            string="Subjective State" optional="hide"
                                            decoration-info="llm_state in ('pending','queued')"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-muted="llm_state == 'not_needed'"
-                                           decoration-danger="llm_state == 'failed'"/>
+                                           decoration-warning="llm_state == 'failed'"
+                                           decoration-danger="llm_state == 'error'"/>
                                     <field name="state" widget="badge"
                                            decoration-info="state == 'draft'"
                                            decoration-success="state == 'submitted'"/>
@@ -305,14 +308,21 @@
                                     <field name="objective_score" string="Objective"/>
                                     <field name="objective_max" string="Objective Max"
                                            optional="show"/>
-                                    <field name="subjective_score" string="Subjective Points"
+                                    <field name="subjective_result" widget="badge"
+                                           string="Subjective"
+                                           decoration-success="subjective_result == 'pass'"
+                                           decoration-danger="subjective_result == 'fail'"/>
+                                    <field name="llm_raw_100"
+                                           string="Subjective Score (0-100)"
+                                           widget="float" digits="[5,1]"
                                            optional="show"/>
                                     <field name="llm_state" widget="badge"
                                            string="Subjective State"
                                            decoration-info="llm_state in ('pending','queued')"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-muted="llm_state == 'not_needed'"
-                                           decoration-danger="llm_state == 'failed'"/>
+                                           decoration-warning="llm_state == 'failed'"
+                                           decoration-danger="llm_state == 'error'"/>
                                     <field name="state" widget="badge"
                                            decoration-info="state == 'draft'"
                                            decoration-success="state == 'submitted'"/>
@@ -373,7 +383,7 @@
                 <field name="answered_count"/>
                 <field name="total_questions"/>
                 <field name="total_score"/>
-                <field name="llm_total_score" string="Subjective Points" optional="show"/>
+                <field name="llm_total_score" string="Subjective Marks" optional="show"/>
                 <field name="score_percent" string="Final Score /100" optional="show"/>
                 <field name="result" widget="badge"
                        decoration-success="result == 'pass'"
@@ -458,14 +468,22 @@
                                            string="Type" optional="show"/>
                                     <field name="answer_summary"
                                            string="Candidate Answer"/>
+                                    <field name="justification"
+                                           string="Candidate Justification"
+                                           optional="show"/>
                                     <field name="correct_summary"
                                            string="Correct Answer" optional="show"/>
                                     <field name="score" string="Objective"/>
                                     <field name="max_score" string="Objective Max"/>
-                                    <field name="llm_score" string="Subjective"/>
-                                    <field name="llm_max_score" string="Subjective Max"/>
-                                    <field name="llm_passed" widget="boolean"
-                                           string="Subjective Pass"/>
+                                    <field name="needs_llm" string="Subjective?"
+                                           widget="boolean" optional="hide"/>
+                                    <field name="llm_raw_100"
+                                           string="Subjective Score (0-100)"
+                                           widget="float" digits="[5,1]"/>
+                                    <field name="subjective_result" widget="badge"
+                                           string="Subjective Result"
+                                           decoration-success="subjective_result == 'pass'"
+                                           decoration-danger="subjective_result == 'fail'"/>
                                     <field name="llm_feedback"
                                            string="Subjective Feedback" optional="hide"/>
                                     <field name="llm_state" widget="badge"
@@ -473,9 +491,51 @@
                                            decoration-info="llm_state in ('pending','queued')"
                                            decoration-success="llm_state == 'scored'"
                                            decoration-muted="llm_state == 'not_needed'"
-                                           decoration-danger="llm_state == 'failed'"/>
+                                           decoration-warning="llm_state == 'failed'"
+                                           decoration-danger="llm_state == 'error'"/>
                                     <field name="state" widget="badge"/>
                                 </list>
+                                <form>
+                                    <group>
+                                        <group string="Question">
+                                            <field name="question_id"/>
+                                            <field name="question_type"/>
+                                            <field name="state"/>
+                                        </group>
+                                        <group string="Result"
+                                               invisible="not needs_llm">
+                                            <field name="llm_raw_100"
+                                                   string="Subjective Score (0-100)"
+                                                   widget="float" digits="[5,1]"/>
+                                            <field name="subjective_result"
+                                                   widget="badge"
+                                                   decoration-success="subjective_result == 'pass'"
+                                                   decoration-danger="subjective_result == 'fail'"/>
+                                            <field name="llm_state" widget="badge"
+                                                   decoration-success="llm_state == 'scored'"
+                                                   decoration-warning="llm_state == 'failed'"
+                                                   decoration-danger="llm_state == 'error'"/>
+                                            <field name="llm_rubric_source"/>
+                                            <field name="llm_gate"/>
+                                        </group>
+                                    </group>
+                                    <field name="answer_summary"
+                                           string="Candidate Answer (objective)"
+                                           invisible="not answer_summary"/>
+                                    <separator string="Candidate Justification"
+                                               invisible="not justification"/>
+                                    <field name="justification" nolabel="1"
+                                           invisible="not justification"/>
+                                    <separator string="Scoring Audit"
+                                               invisible="not needs_llm"/>
+                                    <field name="llm_feedback" nolabel="1"
+                                           string="Feedback"
+                                           invisible="not needs_llm"/>
+                                    <field name="llm_reasoning" nolabel="1"
+                                           invisible="not llm_reasoning"/>
+                                    <field name="llm_reference_answer"
+                                           invisible="not llm_reference_answer"/>
+                                </form>
                             </field>
                         </page>
                     </notebook>
@@ -500,16 +560,19 @@
                 <field name="question_id"/>
                 <field name="objective_score" string="Objective" sum="Total Objective"/>
                 <field name="needs_llm" string="Subjective?" widget="boolean"/>
+                <field name="llm_raw_100" string="Subjective Score (0-100)"
+                       widget="float" digits="[5,1]" optional="show"/>
                 <field name="subjective_result" widget="badge" string="Subjective"
                        decoration-success="subjective_result == 'pass'"
                        decoration-danger="subjective_result == 'fail'"/>
-                <field name="subjective_score" string="Subjective Points" optional="show"
-                       sum="Total Subjective Points"/>
-                <field name="llm_state" widget="badge" string="Subjective State" optional="hide"
+                <field name="subjective_score" string="Mark (0/1)" optional="hide"
+                       sum="Total Subjective Marks"/>
+                <field name="llm_state" widget="badge" string="Subjective State" optional="show"
                        decoration-info="llm_state in ('pending','queued')"
                        decoration-success="llm_state == 'scored'"
                        decoration-muted="llm_state == 'not_needed'"
-                       decoration-danger="llm_state == 'failed'"/>
+                       decoration-warning="llm_state == 'failed'"
+                       decoration-danger="llm_state == 'error'"/>
                 <field name="state" widget="badge"
                        decoration-info="state == 'draft'"
                        decoration-success="state == 'submitted'"/>
@@ -543,9 +606,16 @@
                                    string="Subjective Result"
                                    decoration-success="subjective_result == 'pass'"
                                    decoration-danger="subjective_result == 'fail'"/>
-                            <field name="subjective_score" string="Subjective Points"/>
-                            <field name="llm_max_score" string="Subjective Max"/>
+                            <field name="llm_raw_100"
+                                   string="Subjective Score (0-100)"
+                                   widget="float" digits="[5,1]"/>
+                            <field name="llm_score" string="Mark (0/1)"/>
+                            <field name="llm_max_score" string="Mark Max"/>
                             <field name="llm_state" string="Subjective State"/>
+                            <field name="llm_rubric_source" string="Rubric Source"
+                                   invisible="not llm_rubric_source"/>
+                            <field name="llm_gate" string="Gate"
+                                   invisible="not llm_gate"/>
                         </group>
                     </group>
                     <notebook>
@@ -565,6 +635,14 @@
                         <page string="Subjective Reasoning"
                               invisible="llm_state in ('not_needed', 'pending', 'queued')">
                             <field name="llm_feedback" nolabel="1" readonly="1"/>
+                            <separator string="Reference Answer"
+                                       invisible="not llm_reference_answer"/>
+                            <field name="llm_reference_answer" nolabel="1" readonly="1"
+                                   invisible="not llm_reference_answer"/>
+                            <separator string="Full Audit"
+                                       invisible="not llm_reasoning"/>
+                            <field name="llm_reasoning" nolabel="1" readonly="1"
+                                   invisible="not llm_reasoning"/>
                         </page>
                     </notebook>
                 </sheet>
