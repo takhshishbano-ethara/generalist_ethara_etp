@@ -8,7 +8,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 RUN set -eux \
     && apt-get update \
-    && apt install msodbcsql17 \
     && apt-get install -y --no-install-recommends \
         ca-certificates curl wget gnupg \
         postgresql-client \
@@ -57,6 +56,8 @@ RUN set -eux \
     && npm install -g rtlcss \
     && npm cache clean --force \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+RUN apt install msodbcsql17
 
 RUN set -eux \
     && curl -fsSL https://github.com/steipete/gogcli/releases/download/v0.12.0/gogcli_0.12.0_linux_amd64.tar.gz \
