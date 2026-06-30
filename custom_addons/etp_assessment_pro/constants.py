@@ -81,9 +81,13 @@ AB_CHOICE_SET = frozenset(AB_CHOICES)
 VERTEX_GLOBAL_LOCATION = "global"
 VERTEX_DEFAULT_LOCATION = VERTEX_GLOBAL_LOCATION
 # ONE model for every task — extraction, generation, scoring AND image
-# rendering. gemini-3-pro-image is a reasoning model: it returns its thinking in
-# parts marked thought=True and the JSON answer in the remaining part, so
-# _call_vertex reads the non-thought parts (see services/vertex.py).
+# rendering. gemini-3-pro-image gives the best image quality and is a reasoning
+# model: it splits output across parts and marks thinking with thought=True, so
+# _call_vertex concatenates the NON-thought parts and _extract_json_array unwraps
+# a wrapped {"skills": [...]} object (see services/vertex.py). Its calls are slow
+# (heavy thinking), so the slow paths run OFF the web request — extraction and
+# generation via cron drainers, scoring via _cron_llm_auto_score — to avoid the
+# managed-Postgres idle-in-transaction connection reaper ('cursor already closed').
 VERTEX_DEFAULT_MODEL = "gemini-3-pro-image"
 VERTEX_DEFAULT_IMAGE_MODEL = VERTEX_DEFAULT_MODEL
 

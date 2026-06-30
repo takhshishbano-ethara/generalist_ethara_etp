@@ -470,7 +470,7 @@
                                            string="Candidate Answer"/>
                                     <field name="justification"
                                            string="Candidate Justification"
-                                           optional="show"/>
+                                           optional="hide"/>
                                     <field name="correct_summary"
                                            string="Correct Answer" optional="show"/>
                                     <field name="score" string="Objective"/>

@@ -69,16 +69,24 @@ class EtpAssessmentSkill(models.Model):
     gen_state = fields.Selection(
         [
             ("none", "Not generated"),
+            ("queued", "Queued"),
             ("generating", "Generating"),
             ("done", "Generated"),
             ("failed", "Failed"),
         ],
         default="none", string="Generation State", copy=False,
         help="Per-skill generation status so a failed skill can be retried "
-             "on its own without touching the others.")
+             "on its own without touching the others. Generation runs in the "
+             "background (a cron drains 'queued' skills) so the slow LLM call "
+             "never holds the web request / DB connection open.")
     gen_error = fields.Char(
         string="Generation Error", copy=False,
         help="Last generation failure reason for this skill, if any.")
+    gen_prompt_id = fields.Many2one(
+        "etp.assessment.pro.prompt", string="Generation Source Prompt",
+        copy=False, ondelete="cascade",
+        help="The prompt whose SOP questions are generated against. Set when "
+             "generation is queued; the background cron generates for it.")
     gen_draft_count = fields.Integer(
         string="Draft Count", compute="_compute_gen_draft_count",
         help="How many draft questions currently exist for this skill.")

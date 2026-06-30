@@ -504,20 +504,42 @@ def generate_image(env, image_prompt, *, aspect_hint=None, usage_ctx=None):
     )
 
 
+def _unwrap_json_list(value):
+    """Return the list of items from an LLM JSON response.
+
+    Accepts a bare top-level array, OR an object that wraps the array under a
+    common key (skills / items / questions / data / results). A prompt that
+    returns ``{"skills": [...]}`` (or the governance-style object) then parses
+    the same as a bare ``[...]`` — iterating a dict would otherwise yield its
+    KEYS and silently produce zero items.
+    """
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        for key in ("skills", "items", "questions", "data", "results", "result"):
+            if isinstance(value.get(key), list):
+                return value[key]
+    return value
+
+
 def _extract_json_array(text):
     text = (text or "").strip()
     text = re.sub(r"^```(?:json)?", "", text).strip()
     text = re.sub(r"```$", "", text).strip()
     try:
-        return json.loads(text)
+        return _unwrap_json_list(json.loads(text))
     except Exception:
         pass
-    m = re.search(r"\[.*\]", text, re.DOTALL)
-    if m:
-        try:
-            return json.loads(m.group(0))
-        except Exception:
-            pass
+    # Try a bare array first, then an object we can unwrap to its inner array.
+    for pattern in (r"\[.*\]", r"\{.*\}"):
+        m = re.search(pattern, text, re.DOTALL)
+        if m:
+            try:
+                out = _unwrap_json_list(json.loads(m.group(0)))
+                if isinstance(out, list):
+                    return out
+            except Exception:
+                pass
     raise ValueError(
         "Could not parse JSON array from LLM response: %s" % text[:200]
     )
@@ -726,10 +748,17 @@ def extract_skills(env, prompt_record):
             continue
         qtype = it.get("question_type") if it.get("question_type") in _QUESTION_TYPES else "mcq"
         medium = it.get("medium") if it.get("medium") in _MEDIA else "text"
-        # Safety net: an image type on a non-image medium makes generation refuse;
-        # downgrade to a subjective text type so a text skill still works.
+        # Keep medium and question_type COHERENT — the skill model constrains them
+        # and a violation aborts the WHOLE extraction. The model sometimes pairs
+        # them wrong both ways, so normalize both directions:
+        #  - an image question type needs the image medium; if the model gave a
+        #    non-image medium, downgrade the type to a subjective text type.
+        #  - a non-image (text) question type cannot carry the image medium; if the
+        #    model gave medium=image with a text type, set the medium to text.
         if qtype in _IMAGE_TYPES and medium != "image":
             qtype = "subjective_rubric"
+        elif qtype not in _IMAGE_TYPES and medium == "image":
+            medium = "text"
         difficulty = it.get("difficulty") if it.get("difficulty") in _DIFFICULTIES else "medium"
         try:
             qcount = max(1, int(it.get("question_count") or 5))

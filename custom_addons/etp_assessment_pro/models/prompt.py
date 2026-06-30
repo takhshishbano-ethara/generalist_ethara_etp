@@ -62,6 +62,22 @@ class EtpAssessmentPrompt(models.Model):
     question_count = fields.Integer(compute="_compute_counts")
     approved_count = fields.Integer(compute="_compute_counts")
     last_extract_summary = fields.Char(readonly=True)
+    extract_state = fields.Selection(
+        [
+            ("idle", "Idle"),
+            ("queued", "Queued"),
+            ("extracting", "Extracting"),
+            ("done", "Extracted"),
+            ("failed", "Failed"),
+        ],
+        default="idle", copy=False, string="Extraction State",
+        help="Skill extraction runs in the background: clicking Extract Skills "
+             "queues it and a cron does the (slow) LLM call OFF the web request. "
+             "This is what prevents the 'cursor already closed' crash on managed "
+             "Postgres, where a long in-request call lets the DB connection be "
+             "reaped mid-flight.")
+    extract_error = fields.Char(
+        string="Extraction Error", readonly=True, copy=False)
     quick_upload_file = fields.Binary(string="Upload SOP / Doc")
     quick_upload_filename = fields.Char()
     upload_sop_file = fields.Binary(string="Upload SOP")
@@ -175,99 +191,162 @@ class EtpAssessmentPrompt(models.Model):
         return category
 
     def action_extract_skills(self):
+        """Queue skill extraction for the background cron instead of running the
+        LLM call inside this web request. A reasoning model can take minutes, and
+        a long in-request call lets managed Postgres / pgbouncer reap the idle DB
+        connection mid-flight, which crashes with 'cursor already closed'. The
+        cron (`_cron_extract_pending_skills`) does the call off the request and
+        commits the skills in its own transaction."""
         self.ensure_one()
-        from ..services import vertex
-        self.skill_ids.unlink()
-        summary = vertex.extract_skills(self.env, self)
-        self.write({
-            "state": "skills_ready",
-            "last_extract_summary": "Created %s, Skipped %s, Total %s" % (
-                summary.get("created", 0),
-                summary.get("skipped", 0),
-                summary.get("total", 0),
-            ),
-        })
+        self.write({"extract_state": "queued", "extract_error": False})
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Skill Extraction Complete",
-                "message": "Created %s new, skipped %s existing (of %s extracted)." % (
-                    summary.get("created", 0),
-                    summary.get("skipped", 0),
-                    summary.get("total", 0),
-                ),
+                "title": "Skill Extraction Queued",
+                "message": "Extraction is running in the background. The skills "
+                           "will appear here within about a minute — refresh the "
+                           "page to see them.",
                 "type": "success",
                 "sticky": False,
             },
         }
 
-    def action_generate_questions(self):
-        self.ensure_one()
+    @api.model
+    def _cron_extract_pending_skills(self):
+        """Background drainer for queued skill extraction. The slow LLM call runs
+        HERE, off the web request, and — critically — we COMMIT before it so the
+        DB connection is NOT 'idle in a transaction' while we wait minutes for the
+        model. A connection idle-in-transaction is what managed Postgres /
+        pgbouncer reaps mid-flight, which is the 'cursor already closed' crash.
+        Claiming a prompt as 'extracting' and committing also stops a second cron
+        worker from re-picking it, so no advisory lock is needed."""
         from ..services import vertex
+        prompts = self.search([("extract_state", "=", "queued")], limit=3)
+        if not prompts:
+            return
+        _logger.info(
+            "etp_assessment extract cron: %d queued prompt(s)", len(prompts))
+        for prompt in prompts:
+            # Claim + clear old skills, then COMMIT so the long call below holds
+            # no open transaction (this is what avoids the connection reaper).
+            prompt.write({"extract_state": "extracting", "extract_error": False})
+            prompt.skill_ids.unlink()
+            self.env.cr.commit()
+            try:
+                summary = vertex.extract_skills(self.env, prompt)
+                prompt.write({
+                    "state": "skills_ready",
+                    "extract_state": "done",
+                    "extract_error": False,
+                    "last_extract_summary": "Created %s, Skipped %s, Total %s"
+                    % (summary.get("created", 0), summary.get("skipped", 0),
+                       summary.get("total", 0)),
+                })
+                self.env.cr.commit()
+                _logger.info(
+                    "etp_assessment extract cron: prompt %s -> %s",
+                    prompt.id, prompt.last_extract_summary)
+            except Exception as exc:  # noqa: BLE001 - isolate per prompt
+                self.env.cr.rollback()
+                _logger.exception(
+                    "Skill extraction failed for prompt %s", prompt.id)
+                prompt.write({
+                    "extract_state": "failed", "extract_error": str(exc)[:300]})
+                self.env.cr.commit()
+
+    def action_generate_questions(self):
+        """Queue per-skill question generation for the background cron. Each skill
+        is a slow LLM call; running them in the web request lets managed Postgres
+        reap the idle DB connection mid-flight ('cursor already closed'). The cron
+        (`_cron_generate_pending_questions`) generates each skill OFF the request,
+        committing before the call, with per-skill gen_state for isolation/retry."""
+        self.ensure_one()
         if not self.selected_skill_ids:
             raise UserError(
                 "Pick at least one skill from 'Skills to Generate For' before generating."
             )
         self.state = "generating"
+        self.selected_skill_ids.write({
+            "gen_state": "queued", "gen_error": False, "gen_prompt_id": self.id})
         _logger.info(
-            "etp_assessment generate: prompt=%s skills=%d (%s)",
+            "etp_assessment generate queued: prompt=%s skills=%d (%s)",
             self.id, len(self.selected_skill_ids),
             ", ".join(self.selected_skill_ids.mapped("name")))
-        total = 0
-        failures = []
-        done_skills = 0
-        # Per-skill isolation + RECOVERABILITY:
-        #  - Only the drafts of the skills being (re)generated are cleared, so a
-        #    rerun to recover a failed skill never destroys the good drafts of
-        #    skills that already succeeded.
-        #  - Each skill runs in its own savepoint and records its own gen_state /
-        #    gen_error, so Growth can see exactly which skills failed and retry
-        #    just those.
-        for skill in self.selected_skill_ids:
-            # Clear only THIS skill's existing drafts (non-destructive to others).
-            self.question_ids.filtered(
-                lambda q: q.state == "draft" and q.skill_id.id == skill.id
-            ).unlink()
-            skill.write({"gen_state": "generating", "gen_error": False})
-            try:
-                with self.env.cr.savepoint():
-                    draft_ids = vertex.generate_questions(self.env, self, skill)
-                count = len(draft_ids)
-                total += count
-                done_skills += 1
-                skill.write({
-                    "gen_state": "done" if count else "failed",
-                    "gen_error": False if count else "model returned no usable questions",
-                })
-            except vertex.LLMRefusalError as exc:
-                _logger.warning(
-                    "Generation declined for skill %s: %s", skill.name, exc)
-                failures.append("%s (declined: %s)" % (
-                    skill.name, str(exc)[:120]))
-                skill.write({"gen_state": "failed",
-                             "gen_error": "declined: %s" % str(exc)[:200]})
-            except Exception as exc:  # noqa: BLE001 - isolate per skill
-                _logger.exception(
-                    "Generation failed for skill %s", skill.name)
-                failures.append("%s (%s)" % (skill.name, str(exc)[:120]))
-                skill.write({"gen_state": "failed",
-                             "gen_error": str(exc)[:200]})
-        self.state = "done"
-        msg = "Generated %s draft(s) across %s skill(s)." % (total, done_skills)
-        if failures:
-            msg += " Failed %s (retry just these): %s" % (
-                len(failures), "; ".join(failures))
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Question Drafts Ready",
-                "message": msg,
-                "type": "warning" if failures else "success",
-                "sticky": bool(failures),
+                "title": "Question Generation Queued",
+                "message": "Generation is running in the background, one skill at "
+                           "a time. Drafts will appear here within a minute or two "
+                           "— refresh the page to see them.",
+                "type": "success",
+                "sticky": False,
             },
         }
+
+    @api.model
+    def _cron_generate_pending_questions(self):
+        """Background drainer for queued question generation. Per skill we claim
+        it, clear ONLY its old drafts, COMMIT (so the long LLM call holds no open
+        transaction and dodges the managed-Postgres idle-in-transaction reaper),
+        then generate. Per-skill isolation means a failing skill never blocks the
+        others, and gen_state stays retryable. A prompt flips to 'done' once none
+        of its skills are still pending."""
+        from ..services import vertex
+        Skill = self.env["etp.assessment.pro.skill"]
+        skills = Skill.search([
+            ("gen_state", "=", "queued"),
+            ("gen_prompt_id", "!=", False),
+        ], limit=3)
+        if not skills:
+            return
+        _logger.info(
+            "etp_assessment generate cron: %d queued skill(s)", len(skills))
+        touched = self.browse()
+        for skill in skills:
+            prompt = skill.gen_prompt_id
+            touched |= prompt
+            # Claim + clear this skill's old drafts, then COMMIT before the call.
+            skill.write({"gen_state": "generating", "gen_error": False})
+            prompt.question_ids.filtered(
+                lambda q: q.state == "draft" and q.skill_id.id == skill.id
+            ).unlink()
+            self.env.cr.commit()
+            try:
+                draft_ids = vertex.generate_questions(self.env, prompt, skill)
+                count = len(draft_ids)
+                skill.write({
+                    "gen_state": "done" if count else "failed",
+                    "gen_error": False if count
+                    else "model returned no usable questions"})
+                self.env.cr.commit()
+                _logger.info(
+                    "etp_assessment generate cron: skill %s -> %d draft(s)",
+                    skill.name, count)
+            except vertex.LLMRefusalError as exc:
+                self.env.cr.rollback()
+                _logger.warning(
+                    "Generation declined for skill %s: %s", skill.name, exc)
+                skill.write({"gen_state": "failed",
+                             "gen_error": "declined: %s" % str(exc)[:200]})
+                self.env.cr.commit()
+            except Exception as exc:  # noqa: BLE001 - isolate per skill
+                self.env.cr.rollback()
+                _logger.exception(
+                    "Generation failed for skill %s", skill.name)
+                skill.write({"gen_state": "failed",
+                             "gen_error": str(exc)[:200]})
+                self.env.cr.commit()
+        # Mark a prompt done once it has no more queued/generating skills.
+        for prompt in touched:
+            pending = Skill.search_count([
+                ("gen_prompt_id", "=", prompt.id),
+                ("gen_state", "in", ("queued", "generating"))])
+            if not pending and prompt.state == "generating":
+                prompt.write({"state": "done"})
+                self.env.cr.commit()
 
     def action_retry_failed_skills(self):
         """Re-run generation for ONLY the skills whose last generation failed.

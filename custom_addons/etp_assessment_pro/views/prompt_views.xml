@@ -51,12 +51,30 @@
                             <field name="category_id"/>
                             <field name="resource_count" readonly="1"/>
                             <field name="last_extract_summary" readonly="1"/>
+                            <field name="extract_state" readonly="1"
+                                   decoration-info="extract_state == 'queued'"
+                                   decoration-warning="extract_state == 'extracting'"
+                                   decoration-success="extract_state == 'done'"
+                                   decoration-danger="extract_state == 'failed'"
+                                   widget="badge"/>
                         </group>
                         <group>
                             <field name="question_count" readonly="1"/>
                             <field name="approved_count" readonly="1"/>
                         </group>
                     </group>
+                    <div class="alert alert-info" role="alert"
+                         invisible="extract_state not in ('queued','extracting')">
+                        Skill extraction runs in the background. Skills will appear
+                        within about a minute — refresh the page.
+                    </div>
+                    <div class="alert alert-danger" role="alert"
+                         invisible="extract_state != 'failed'">
+                        <strong>Extraction failed.</strong>
+                        <field name="extract_error" readonly="1" nolabel="1"
+                               class="d-inline"/>
+                        Fix the issue and click Extract Skills again.
+                    </div>
                     <field name="source_text" placeholder="Optional notes appended to resources..."/>
                     <notebook>
                         <page string="Resources">
@@ -144,6 +162,8 @@
                                     <field name="question_type"/>
                                     <field name="difficulty"/>
                                     <field name="gen_state"
+                                           decoration-info="gen_state == 'queued'"
+                                           decoration-warning="gen_state == 'generating'"
                                            decoration-success="gen_state == 'done'"
                                            decoration-danger="gen_state == 'failed'"
                                            decoration-muted="gen_state == 'none'"/>
