@@ -34,6 +34,7 @@ persisted. REST APIs are exposed under /api/v2/employee-onboarding for create
         "s3_connector",
         "hr_employee_updation",
         "project_extension",
+        "employee_extension",
     ],
     "data": [
         "security/ir.model.access.csv",

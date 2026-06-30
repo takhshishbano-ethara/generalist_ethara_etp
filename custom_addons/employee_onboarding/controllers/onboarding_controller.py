@@ -31,6 +31,9 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response,
     validate_token,
 )
+from odoo.addons.employee_extension.services.aadhaar_address import (
+    extract_aadhaar_info_from_bytes,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -51,6 +54,9 @@ ALLOWED_DOCUMENT_TYPES = {
     "permanent_address_proof",
     "current_address_proof",
 }
+
+AADHAAR_EXTRACT_ALLOWED_EXT = {"pdf", "jpg", "jpeg", "png", "webp"}
+AADHAAR_EXTRACT_MAX_SIZE = 10 * 1024 * 1024
 
 # Maps incoming gender strings to the hr.version `sex` selection values.
 GENDER_MAP = {
@@ -409,6 +415,83 @@ def _serialize_employee(employee):
 
 
 class EmployeeOnboardingController(http.Controller):
+
+    @http.route(
+        "/api/v2/employee-onboarding/extract_address",
+        type="http",
+        auth="none",
+        methods=["POST"],
+        csrf=False,
+        cors="*",
+    )
+    @validate_token
+    def extract_address_from_proof(self, **kwargs):
+        files = request.httprequest.files
+        uploaded = files.get("file") or (
+            next(iter(files.values())) if files else None
+        )
+        if not uploaded or not uploaded.filename:
+            return return_Response(
+                message="No file uploaded.",
+                status=400,
+            )
+
+        filename = secure_filename(uploaded.filename) or "upload"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in AADHAAR_EXTRACT_ALLOWED_EXT:
+            return return_Response(
+                message=(
+                    f"Unsupported file type: {ext}. Allowed: "
+                    f"{', '.join(sorted(AADHAAR_EXTRACT_ALLOWED_EXT))}."
+                ),
+                status=400,
+            )
+
+        try:
+            file_bytes = uploaded.read()
+        except Exception as e:
+            _logger.warning("extract_address: read failed: %s", e)
+            return return_Response(
+                message="Could not read uploaded file.",
+                status=400,
+            )
+        if not file_bytes:
+            return return_Response(
+                message="Uploaded file is empty.",
+                status=400,
+            )
+        if len(file_bytes) > AADHAAR_EXTRACT_MAX_SIZE:
+            return return_Response(
+                message="File too large. Max 10 MB.",
+                status=400,
+            )
+
+        try:
+            info = extract_aadhaar_info_from_bytes(file_bytes, filename) or {}
+        except Exception as e:
+            _logger.exception("extract_address: extraction failed: %s", e)
+            info = {}
+
+        address = (info.get("address") or "").strip()
+        last4 = info.get("aadhaar_last4") or ""
+        is_aadhaar = bool(last4) or bool(address)
+        is_masked = bool(info.get("is_masked"))
+
+        _logger.info(
+            "extract_address: is_aadhaar=%s last4=%s addr_found=%s",
+            is_aadhaar, last4, bool(address),
+        )
+
+        return return_Response(
+            message="Address extracted.",
+            data={
+                "ok": True,
+                "is_aadhaar": is_aadhaar,
+                "is_masked": is_masked,
+                "address": address,
+                "aadhaar_last4": last4,
+            },
+        )
 
     @http.route(
         "/api/v2/employee-onboarding/submit",

@@ -236,4 +236,5 @@ pyodbc
 xmltodict==0.13.0          
 apscheduler==3.10.4       
 easyocr==1.7.2
+zxing-cpp==3.0.0
 
