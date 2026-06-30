@@ -27,7 +27,7 @@ access_etp_batch_budget_request,etp.batch.budget.request,model_etp_batch_budget_
 access_etp_batch_budget_request_model_line,etp.batch.budget.request.model.line,model_etp_batch_budget_request_model_line,,1,1,1,1
 access_etp_batch_budget_request_infra_line,etp.batch.budget.request.infra.line,model_etp_batch_budget_request_infra_line,,1,1,1,1
 access_etp_batch_budget_request_subscription_line,etp.batch.budget.request.subscription.line,model_etp_batch_budget_request_subscription_line,,1,1,1,1
-access_etp_batch_budget_request_reject_wizard,etp.batch.budget.request.reject.wizard,model_etp_batch_budget_request_reject_wizard,,1,1,1,1
+access_etp_batch_budget_request_review_wizard,etp.batch.budget.request.review.wizard,model_etp_batch_budget_request_review_wizard,,1,1,1,1
 access_etp_batch_budget_request_wizard,etp.batch.budget.request.wizard,model_etp_batch_budget_request_wizard,,1,1,1,1
 access_etp_batch_budget_request_wizard_model_line,etp.batch.budget.request.wizard.model.line,model_etp_batch_budget_request_wizard_model_line,,1,1,1,1
 access_etp_batch_budget_request_wizard_infra_line,etp.batch.budget.request.wizard.infra.line,model_etp_batch_budget_request_wizard_infra_line,,1,1,1,1

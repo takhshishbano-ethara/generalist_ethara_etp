@@ -127,9 +127,13 @@ class ProjectProject(models.Model):
                 partners |= self._etp_employee_partner(emp)
         return partners.ids
 
-    # Cross-post on project chatter so every budget mail (welcome, batch,
-    # request, top-up, threshold) shares one email-client conversation
-    # thread; the source record receives an internal note for audit.
+    def _etp_pick_budget_thread_anchor(self, record):
+        if record._name == 'etp.project.aws.budget':
+            return record
+        if 'project_budget_id' in record._fields and record.project_budget_id:
+            return record.project_budget_id
+        return self
+
     def _etp_post_budget_message(
         self, template_xmlid, record, partner_ids, email_values=None,
     ):
@@ -189,21 +193,23 @@ class ProjectProject(models.Model):
         if attachment_ids:
             post_kwargs['attachment_ids'] = attachment_ids
 
+        thread_anchor = self._etp_pick_budget_thread_anchor(record)
         try:
-            self.message_post(**post_kwargs)
+            thread_anchor.message_post(**post_kwargs)
         except Exception:
             _logger.exception(
-                "Failed to cross-post budget notification on project %s "
-                "(template %s).", self.id, template_xmlid,
+                "Failed to post budget notification on %s(%s) "
+                "(template %s).", thread_anchor._name, thread_anchor.id,
+                template_xmlid,
             )
             return False
 
-        if record._name != self._name or record.id != self.id:
+        if record._name != thread_anchor._name or record.id != thread_anchor.id:
             try:
                 rec_label = record.display_name or f"{record._name}#{record.id}"
                 audit_body = (
-                    "<p>Budget notification cross-posted to project "
-                    f"<strong>{self.display_name}</strong>.</p>"
+                    "<p>Budget notification cross-posted to "
+                    f"<strong>{thread_anchor.display_name}</strong>.</p>"
                     f"<p>Subject: <em>{final_subject}</em></p>"
                     f"<p>Source record: {rec_label}</p>"
                 )

@@ -6,25 +6,29 @@
         <field name="model">etp.batch.budget.request</field>
         <field name="arch" type="xml">
             <list string="Phase Budget Requests"
-                  decoration-info="state == 'pending'"
+                  decoration-info="state in ('cto_review','cfo_review')"
                   decoration-success="state in ('approved','partially_approved')"
-                  decoration-danger="state == 'rejected'"
+                  decoration-warning="state == 'changes_required'"
                   decoration-muted="state in ('draft','withdrawn')">
                 <field name="name"/>
                 <field name="batch_id"/>
                 <field name="project_id"/>
+                <field name="request_type"/>
                 <field name="sequence_number"/>
+                <field name="revision_no" optional="hide"/>
                 <field name="request_date"/>
                 <field name="requester_id"/>
                 <field name="requested_total" sum="USD"/>
                 <field name="approved_total" sum="USD"/>
                 <field name="parent_request_id" optional="hide"/>
-                <field name="approver_id" optional="show"/>
-                <field name="approval_date" optional="hide"/>
+                <field name="cto_reviewer_id" optional="show"/>
+                <field name="cto_review_date" optional="hide"/>
+                <field name="cfo_approver_id" optional="show"/>
+                <field name="cfo_approval_date" optional="hide"/>
                 <field name="state" widget="badge"
-                       decoration-info="state == 'pending'"
+                       decoration-info="state in ('cto_review','cfo_review')"
                        decoration-success="state in ('approved','partially_approved')"
-                       decoration-danger="state == 'rejected'"
+                       decoration-warning="state == 'changes_required'"
                        decoration-muted="state in ('draft','withdrawn')"/>
             </list>
         </field>
@@ -37,28 +41,40 @@
             <form string="Phase Budget Request">
                 <header>
                     <button name="action_submit_for_approval" type="object"
-                            string="Submit for Approval" class="btn-primary"
+                            string="Submit for CTO Review" class="btn-primary"
                             invisible="state != 'draft'"/>
-                    <button name="action_approve" type="object"
-                            string="Approve" class="btn-primary"
-                            invisible="state != 'pending'"/>
-                    <button name="action_reject" type="object"
-                            string="Reject" class="btn-secondary"
-                            invisible="state != 'pending'"/>
+                    <button name="action_submit_for_approval" type="object"
+                            string="Resubmit for CTO Review" class="btn-primary"
+                            invisible="state != 'changes_required'"/>
+                    <button name="action_cto_approve" type="object"
+                            string="CTO Approve &#8594; CFO" class="btn-primary"
+                            invisible="state != 'cto_review' or not is_current_user_cto"/>
+                    <button name="action_cto_reject" type="object"
+                            string="CTO Send Back" class="btn-secondary"
+                            invisible="state != 'cto_review' or not is_current_user_cto"/>
+                    <button name="action_cfo_approve" type="object"
+                            string="CFO Approve" class="btn-primary"
+                            invisible="state != 'cfo_review' or not is_current_user_cfo"/>
+                    <button name="action_cfo_request_changes" type="object"
+                            string="CFO Request Changes" class="btn-secondary"
+                            invisible="state != 'cfo_review' or not is_current_user_cfo"/>
                     <button name="action_withdraw" type="object"
                             string="Withdraw" class="btn-secondary"
-                            invisible="state not in ('draft','pending')"/>
+                            invisible="state not in ('draft','cto_review','cfo_review','changes_required')"/>
                     <button name="action_create_follow_up" type="object"
                             string="Create Follow-up Request" class="btn-primary"
                             invisible="not can_follow_up"/>
                     <field name="state" widget="statusbar"
-                           statusbar_visible="draft,pending,approved"/>
+                           statusbar_visible="draft,cto_review,cfo_review,approved"/>
                 </header>
                 <sheet>
                     <field name="is_followup" invisible="1"/>
                     <field name="can_follow_up" invisible="1"/>
                     <field name="has_active_followup" invisible="1"/>
                     <field name="follow_up_count" invisible="1"/>
+                    <field name="is_current_user_pl_or_tpm" invisible="1"/>
+                    <field name="is_current_user_cto" invisible="1"/>
+                    <field name="is_current_user_cfo" invisible="1"/>
                     <div class="oe_button_box" name="button_box">
                         <button name="action_view_follow_ups" type="object"
                                 class="oe_stat_button" icon="fa-list-alt"
@@ -88,109 +104,134 @@
                             <field name="project_budget_id" readonly="1"/>
                             <field name="sequence_number" readonly="1"/>
                         </group>
-                        <group string="Decision">
+                        <group string="Request">
+                            <field name="request_type"
+                                   readonly="state not in ('draft','changes_required')"/>
+                            <field name="revision_no" readonly="1"
+                                   invisible="revision_no == 0"/>
                             <field name="requester_id" readonly="1"/>
                             <field name="request_date" readonly="1"/>
-                            <field name="approver_id" readonly="1"
-                                   invisible="not approver_id"/>
-                            <field name="approval_date" readonly="1"
-                                   invisible="not approval_date"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="CTO Review"
+                               invisible="not cto_reviewer_id and state not in ('cto_review','cfo_review','approved','partially_approved','changes_required')">
+                            <field name="cto_reviewer_id" readonly="1"/>
+                            <field name="cto_review_date" readonly="1"/>
+                        </group>
+                        <group string="CFO Decision"
+                               invisible="not cfo_approver_id and state not in ('cfo_review','approved','partially_approved')">
+                            <field name="cfo_approver_id" readonly="1"/>
+                            <field name="cfo_approval_date" readonly="1"/>
                         </group>
                     </group>
                     <group>
                         <field name="justification"
-                               readonly="state != 'draft'"
+                               readonly="state not in ('draft','changes_required')"
                                placeholder="Why is this budget needed?"/>
                     </group>
                     <group string="Totals">
                         <group>
-                            <field name="total_tasks" readonly="state != 'draft'"/>
-                            <field name="buffer_pct" readonly="state != 'draft'"/>
-                            <field name="requested_total"/>
+                            <field name="total_tasks"
+                                   readonly="state not in ('draft','changes_required')"/>
+                            <field name="buffer_pct"
+                                   readonly="state not in ('draft','changes_required')"/>
+                            <field name="requested_total"
+                                   readonly="state not in ('draft','changes_required')"/>
                         </group>
                         <group>
-                            <field name="approved_total"/>
+                            <field name="approved_total"
+                                   readonly="state != 'cto_review' or not is_current_user_cto"/>
                             <field name="remaining_amount"
                                    invisible="state != 'partially_approved'"/>
                         </group>
                     </group>
                     <notebook>
-                        <page string="Model Lines" name="model_lines">
+                        <page string="Model Lines" name="model_lines"
+                              invisible="request_type in ('topup','device')">
                             <field name="model_line_ids"
-                                   readonly="state not in ('draft','pending')">
+                                   readonly="state not in ('draft','changes_required','cto_review')">
                                 <list editable="bottom">
                                     <field name="ai_model_id"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="description"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="cost_type"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="per_trajectory_cost"
-                                           readonly="parent.state != 'draft' or cost_type == 'per_task'"/>
+                                           readonly="parent.state not in ('draft','changes_required') or cost_type == 'per_task'"/>
                                     <field name="iterations"
-                                           readonly="parent.state != 'draft' or cost_type == 'per_task'"/>
+                                           readonly="parent.state not in ('draft','changes_required') or cost_type == 'per_task'"/>
                                     <field name="per_task_cost"
-                                           readonly="parent.state != 'draft' or cost_type == 'per_trajectory'"/>
+                                           readonly="parent.state not in ('draft','changes_required') or cost_type == 'per_trajectory'"/>
                                     <field name="requested_amount" sum="USD"
                                            readonly="1"/>
                                     <field name="approved_amount" sum="USD"
-                                           readonly="parent.state not in ('draft','pending')"/>
+                                           readonly="parent.state not in ('draft','changes_required','cto_review')"/>
                                 </list>
                             </field>
                         </page>
-                        <page string="Infrastructure" name="infrastructure">
+                        <page string="Infrastructure" name="infrastructure"
+                              invisible="request_type in ('topup','new_model')">
                             <field name="infra_line_ids"
-                                   readonly="state not in ('draft','pending')">
+                                   readonly="state not in ('draft','changes_required','cto_review')">
                                 <list editable="bottom">
                                     <field name="infra_type_id"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="description"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="requested_amount" sum="USD"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="approved_amount" sum="USD"
-                                           readonly="parent.state not in ('draft','pending')"/>
+                                           readonly="parent.state not in ('draft','changes_required','cto_review')"/>
                                     <field name="start_date"
-                                           readonly="parent.state not in ('draft','pending')"/>
+                                           readonly="parent.state not in ('draft','changes_required','cto_review')"/>
                                     <field name="end_date"
-                                           readonly="parent.state not in ('draft','pending')"/>
+                                           readonly="parent.state not in ('draft','changes_required','cto_review')"/>
                                     <field name="per_day_requested" sum="USD"/>
                                     <field name="per_day_approved" sum="USD"/>
                                 </list>
                             </field>
                         </page>
-                        <page string="Subscriptions" name="subscriptions">
+                        <page string="Subscriptions" name="subscriptions"
+                              invisible="request_type != 'budget'">
                             <field name="subscription_line_ids"
-                                   readonly="state not in ('draft','pending')">
+                                   readonly="state not in ('draft','changes_required','cto_review')">
                                 <list editable="bottom">
                                     <field name="subscription_id"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="assigned_user_ids" widget="many2many_tags"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="cost_per_subscription"/>
                                     <field name="subscription_count"/>
                                     <field name="final_amount" sum="USD"/>
                                     <field name="requested_amount" sum="USD"
-                                           readonly="parent.state != 'draft'"/>
+                                           readonly="parent.state not in ('draft','changes_required')"/>
                                     <field name="approved_amount" sum="USD"
-                                           readonly="parent.state not in ('draft','pending')"/>
+                                           readonly="parent.state not in ('draft','changes_required','cto_review')"/>
                                     <field name="per_day_cost" sum="USD"/>
                                 </list>
                             </field>
                         </page>
                         <page string="Notification" name="notification">
                             <group>
-                                <field name="priority" readonly="state != 'draft'"/>
-                                <field name="subject" readonly="state != 'draft'"/>
+                                <field name="priority"
+                                       readonly="state not in ('draft','changes_required')"/>
+                                <field name="subject"
+                                       readonly="state not in ('draft','changes_required')"/>
                             </group>
-                            <field name="message" readonly="state != 'draft'"/>
+                            <field name="message"
+                                   readonly="state not in ('draft','changes_required')"/>
                             <field name="attachment_ids" widget="many2many_binary"
-                                   readonly="state != 'draft'"/>
+                                   readonly="state not in ('draft','changes_required')"/>
                         </page>
-                        <page string="Rejection" name="rejection"
-                              invisible="state != 'rejected'">
+                        <page string="Changes Required" name="changes_required"
+                              invisible="not cto_review_note and not cfo_change_request_note">
                             <group>
-                                <field name="rejection_reason" readonly="1"/>
+                                <field name="cto_review_note" readonly="1"
+                                       invisible="not cto_review_note"/>
+                                <field name="cfo_change_request_note" readonly="1"
+                                       invisible="not cfo_change_request_note"/>
                             </group>
                         </page>
                     </notebook>
@@ -209,12 +250,19 @@
                 <field name="batch_id"/>
                 <field name="project_id"/>
                 <field name="requester_id"/>
-                <field name="approver_id"/>
+                <field name="cto_reviewer_id"/>
+                <field name="cfo_approver_id"/>
                 <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
-                <filter name="filter_pending" string="Pending Approval" domain="[('state','=','pending')]"/>
+                <filter name="filter_cto_review" string="CTO Review" domain="[('state','=','cto_review')]"/>
+                <filter name="filter_cfo_review" string="CFO Approval" domain="[('state','=','cfo_review')]"/>
+                <filter name="filter_changes_required" string="Changes Required" domain="[('state','=','changes_required')]"/>
                 <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
                 <filter name="filter_partial" string="Partially Approved" domain="[('state','=','partially_approved')]"/>
-                <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
+                <separator/>
+                <filter name="filter_budget" string="Budget" domain="[('request_type','=','budget')]"/>
+                <filter name="filter_new_model" string="New Model" domain="[('request_type','=','new_model')]"/>
+                <filter name="filter_topup" string="Top-up" domain="[('request_type','=','topup')]"/>
+                <filter name="filter_device" string="Device" domain="[('request_type','=','device')]"/>
                 <separator/>
                 <filter name="filter_followups" string="Follow-ups Only"
                         domain="[('parent_request_id','!=', False)]"/>
@@ -223,12 +271,15 @@
                 <separator/>
                 <filter name="filter_my_requests" string="My Requests"
                         domain="[('requester_id','=', uid)]"/>
-                <filter name="filter_to_approve" string="To Approve"
-                        domain="[('state','=','pending'), ('project_budget_id.approver_user_ids','in', uid)]"/>
+                <filter name="filter_my_cto_reviews" string="My CTO Reviews"
+                        domain="[('state','=','cto_review')]"/>
+                <filter name="filter_my_cfo_approvals" string="My CFO Approvals"
+                        domain="[('state','=','cfo_review')]"/>
                 <group>
                     <filter name="group_batch" string="Phase" context="{'group_by':'batch_id'}"/>
                     <filter name="group_project" string="Project" context="{'group_by':'project_id'}"/>
                     <filter name="group_state" string="State" context="{'group_by':'state'}"/>
+                    <filter name="group_request_type" string="Request Type" context="{'group_by':'request_type'}"/>
                     <filter name="group_requester" string="Requester" context="{'group_by':'requester_id'}"/>
                 </group>
             </search>
@@ -246,18 +297,19 @@
         </field>
     </record>
 
-    <record id="view_etp_batch_budget_request_reject_wizard_form" model="ir.ui.view">
-        <field name="name">etp.batch.budget.request.reject.wizard.form</field>
-        <field name="model">etp.batch.budget.request.reject.wizard</field>
+    <record id="view_etp_batch_budget_request_review_wizard_form" model="ir.ui.view">
+        <field name="name">etp.batch.budget.request.review.wizard.form</field>
+        <field name="model">etp.batch.budget.request.review.wizard</field>
         <field name="arch" type="xml">
-            <form string="Reject Budget Request">
+            <form string="Review Budget Request">
                 <group>
                     <field name="request_id" readonly="1"/>
-                    <field name="reason" placeholder="Why is this request being rejected?"/>
+                    <field name="mode" readonly="1"/>
+                    <field name="note" placeholder="Explain what needs to change before this request can move forward."/>
                 </group>
                 <footer>
                     <button name="action_confirm" type="object"
-                            string="Reject" class="btn-danger"/>
+                            string="Confirm" class="btn-primary"/>
                     <button string="Cancel" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>

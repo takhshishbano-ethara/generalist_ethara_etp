@@ -445,6 +445,16 @@ def _request_state_label(value):
     return dict(selection).get(value, value)
 
 
+def _role_brief(role):
+    if not role:
+        return None
+    return {
+        "id": role.id,
+        "name": role.name or "",
+        "user_type": role.user_type or "",
+    }
+
+
 def _user_brief(user):
     if not user:
         return None
@@ -452,7 +462,70 @@ def _user_brief(user):
         "id": user.id,
         "name": user.name or "",
         "email": user.email or (user.partner_id.email if user.partner_id else "") or "",
+        "role": _role_brief(user.user_role) if "user_role" in user._fields else None,
     }
+
+
+def _author_brief(partner):
+    if not partner:
+        return None
+    user = partner.user_ids[:1]
+    role = user.user_role if user and "user_role" in user._fields else False
+    return {
+        "id": partner.id,
+        "name": partner.name or "",
+        "email": partner.email or "",
+        "role": _role_brief(role) if role else None,
+    }
+
+
+def _attachment_brief(att):
+    if not att:
+        return None
+    return {
+        "id": att.id,
+        "name": att.name or "",
+        "mimetype": att.mimetype or "",
+        "file_size": att.file_size or 0,
+        "checksum": att.checksum or "",
+        "url": f"/web/content/{att.id}?download=1",
+    }
+
+
+def _tracking_value_brief(tv):
+    def _pick(prefix):
+        for suffix in ("char", "text", "integer", "float", "monetary", "datetime"):
+            fname = f"{prefix}_{suffix}"
+            if fname in tv._fields:
+                val = tv[fname]
+                if val:
+                    return val
+        return None
+    return {
+        "field": tv.field_id.name if tv.field_id else "",
+        "field_label": tv.field_id.field_description if tv.field_id else "",
+        "old_value": _pick("old_value"),
+        "new_value": _pick("new_value"),
+    }
+
+
+def _change_log(record, limit=200):
+    msgs = record.message_ids.sorted(key=lambda m: m.date or m.create_date, reverse=True)[:limit]
+    return [
+        {
+            "id": m.id,
+            "date": fields.Datetime.to_string(m.date) if m.date else None,
+            "author": _author_brief(m.author_id),
+            "subject": m.subject or "",
+            "body": m.body or "",
+            "message_type": m.message_type or "",
+            "subtype": (m.subtype_id.name or "") if m.subtype_id else "",
+            "tracking_values": [
+                _tracking_value_brief(tv) for tv in m.tracking_value_ids
+            ],
+        }
+        for m in msgs
+    ]
 
 
 def _batch_short(batch):
@@ -544,17 +617,41 @@ def _project_budget_overview(project_budget):
     }
 
 
+def _request_type_label(value):
+    if "request_type" not in request.env[REQUEST_MODEL]._fields:
+        return value
+    selection = request.env[REQUEST_MODEL]._fields["request_type"].selection
+    return dict(selection).get(value, value)
+
+
 def _request_to_summary(req):
     req.ensure_one()
+    has_request_type = "request_type" in req._fields
     return {
         "id": req.id,
         "name": req.name,
         "state": req.state,
         "state_label": _request_state_label(req.state),
+        "request_type": req.request_type if has_request_type else None,
+        "request_type_label": (
+            _request_type_label(req.request_type) if has_request_type else None
+        ),
+        "revision_no": getattr(req, "revision_no", 0) or 0,
         "request_date": fields.Datetime.to_string(req.request_date) if req.request_date else None,
         "priority": req.priority,
         "requester": _user_brief(req.requester_id),
+        "cto_reviewer": _user_brief(getattr(req, "cto_reviewer_id", False)),
+        "cto_review_date": (
+            fields.Datetime.to_string(req.cto_review_date)
+            if getattr(req, "cto_review_date", False) else None
+        ),
+        "cfo_approver": _user_brief(getattr(req, "cfo_approver_id", False)),
+        "cfo_approval_date": (
+            fields.Datetime.to_string(req.cfo_approval_date)
+            if getattr(req, "cfo_approval_date", False) else None
+        ),
         "approver": _user_brief(req.approver_id),
+        "approval_date": fields.Datetime.to_string(req.approval_date) if req.approval_date else None,
         "batch": {
             "id": req.batch_id.id,
             "name": req.batch_id.name,
@@ -654,8 +751,11 @@ def _request_to_detail(req):
         "subject": req.subject or "",
         "message": req.message or "",
         "attachment_ids": req.attachment_ids.ids,
-        "approval_date": fields.Datetime.to_string(req.approval_date) if req.approval_date else None,
+        "attachments": [_attachment_brief(a) for a in req.attachment_ids],
         "rejection_reason": req.rejection_reason or "",
+        "cto_review_note": getattr(req, "cto_review_note", "") or "",
+        "cfo_change_request_note": getattr(req, "cfo_change_request_note", "") or "",
+        "change_log": _change_log(req),
         "buffer_pct": req.buffer_pct,
         "parent_request": parent_brief,
         "model_lines": model_lines,
@@ -1592,6 +1692,24 @@ class EtpBudgetController(http.Controller):
                     status=400, data={},
                 )
             domain.append(("state", "=", state))
+        request_type = (params.get("request_type") or "").strip()
+        if request_type and "request_type" in Request._fields:
+            valid_types = [v for v, _l in Request._fields["request_type"].selection]
+            if request_type not in valid_types:
+                return return_Response(
+                    message=f"request_type must be one of {valid_types}.",
+                    status=400, data={},
+                )
+            domain.append(("request_type", "=", request_type))
+        cto_reviewer_id = _coerce_int(params.get("cto_reviewer_id"))
+        if cto_reviewer_id and "cto_reviewer_id" in Request._fields:
+            domain.append(("cto_reviewer_id", "=", cto_reviewer_id))
+        cfo_approver_id = _coerce_int(params.get("cfo_approver_id"))
+        if cfo_approver_id and "cfo_approver_id" in Request._fields:
+            domain.append(("cfo_approver_id", "=", cfo_approver_id))
+        requester_id = _coerce_int(params.get("requester_id"))
+        if requester_id:
+            domain.append(("requester_id", "=", requester_id))
         search = (params.get("search") or "").strip()
         if search:
             domain += [

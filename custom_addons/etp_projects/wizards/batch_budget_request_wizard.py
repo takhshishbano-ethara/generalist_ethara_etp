@@ -29,6 +29,17 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         string="First Request",
         compute="_compute_is_first_request",
     )
+    request_type = fields.Selection(
+        [
+            ("budget", "Budget"),
+            ("new_model", "New Model"),
+            ("topup", "Top-up"),
+            ("device", "Device"),
+        ],
+        string="Request Type",
+        default="budget",
+        required=True,
+    )
     parent_request_id = fields.Many2one(
         "etp.batch.budget.request",
         string="Parent Request",
@@ -79,6 +90,21 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         ],
         string="Priority",
         default="normal",
+    )
+    request_type = fields.Selection(
+        [
+            ("budget", "Budget"),
+            ("new_model", "New Model"),
+            ("topup", "Top-up"),
+            ("device", "Device"),
+        ],
+        string="Request Type",
+        default="budget",
+        required=True,
+        help="Budget: task budgets (any mix of model / infra / subscription).\n"
+             "New Model: introducing an AI model not yet on the project.\n"
+             "Top-up: amount-only cash top-up, no model/infra/subscription lines.\n"
+             "Device: new infrastructure / device request.",
     )
     attachment_ids = fields.Many2many(
         "ir.attachment",
@@ -224,10 +250,28 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
 
     def action_submit(self):
         self.ensure_one()
-        if not (self.model_line_ids or self.infra_line_ids):
-            raise UserError(_(
-                "Add at least one model or infrastructure line."
-            ))
+        rtype = self.request_type or "budget"
+        if rtype == "topup":
+            if self.model_line_ids or self.infra_line_ids:
+                raise UserError(_(
+                    "Top-up requests are amount-only. Remove model and "
+                    "infrastructure lines."
+                ))
+        elif rtype == "device":
+            if not self.infra_line_ids:
+                raise UserError(_(
+                    "Device requests must include at least one infrastructure line."
+                ))
+        elif rtype == "new_model":
+            if not self.model_line_ids:
+                raise UserError(_(
+                    "New Model requests must include at least one model line."
+                ))
+        else:
+            if not (self.model_line_ids or self.infra_line_ids):
+                raise UserError(_(
+                    "Add at least one model or infrastructure line."
+                ))
         if (self.requested_total or 0.0) <= 0.0:
             raise UserError(_("Requested total must be greater than zero."))
         project_budget = self.batch_id.project_budget_id
@@ -244,7 +288,10 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
                 ))
             sibling = self.env["etp.batch.budget.request"].search([
                 ("parent_request_id", "=", parent.id),
-                ("state", "in", ("draft", "pending", "approved", "partially_approved")),
+                ("state", "in", (
+                    "draft", "cto_review", "cfo_review",
+                    "changes_required", "approved", "partially_approved",
+                )),
             ], limit=1)
             if sibling:
                 raise UserError(_(
@@ -259,6 +306,7 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         request = self.env["etp.batch.budget.request"].create({
             "batch_id": self.batch_id.id,
             "parent_request_id": self.parent_request_id.id or False,
+            "request_type": rtype,
             "justification": self.justification,
             "requester_id": self.env.user.id,
             "subject": self.subject or False,

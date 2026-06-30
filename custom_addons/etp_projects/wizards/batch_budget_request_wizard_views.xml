@@ -23,11 +23,14 @@
                             <field name="batch_id" readonly="1"/>
                             <field name="project_id" readonly="1"/>
                             <field name="project_budget_id" readonly="1"/>
+                            <field name="request_type" readonly="is_followup"/>
                         </group>
                         <group>
                             <field name="is_first_request" invisible="1"/>
-                            <field name="total_tasks"/>
-                            <field name="buffer_pct" readonly="is_followup"/>
+                            <field name="total_tasks"
+                                   invisible="request_type == 'topup'"/>
+                            <field name="buffer_pct" readonly="is_followup"
+                                   invisible="request_type == 'topup'"/>
                             <field name="requested_total"/>
                             <field name="priority"/>
                         </group>
@@ -53,7 +56,8 @@
                         <field name="attachment_ids" widget="many2many_binary"/>
                     </group>
                     <notebook>
-                        <page string="Model Lines" name="model_lines">
+                        <page string="Model Lines" name="model_lines"
+                              invisible="request_type in ('topup', 'device')">
                             <field name="model_line_ids"
                                    readonly="is_followup">
                                 <list editable="bottom">
@@ -70,7 +74,8 @@
                                 </list>
                             </field>
                         </page>
-                        <page string="Infrastructure" name="infrastructure">
+                        <page string="Infrastructure" name="infrastructure"
+                              invisible="request_type in ('topup', 'new_model')">
                             <field name="infra_line_ids"
                                    readonly="is_followup">
                                 <list editable="bottom">

@@ -1020,4 +1020,269 @@
         </record>
 
     </data>
+
+    <data noupdate="1">
+
+        <record id="mail_template_request_cto_review" model="mail.template">
+            <field name="name">Phase Budget Request: CTO Review</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[CTO Review] {{ object.project_id.name or 'Budget Request' }} - {{ object.name }}</field>
+            <field name="email_from">{{ (object.requester_id.email_formatted or user.email_formatted) }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#EEF2F7;font-family:Georgia,'Times New Roman',serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2F7;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background:#FFFFFF;border:1px solid #CBD5E1;">
+
+        <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
+            </td>
+            <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
+              Awaiting CTO Review
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="padding:28px 36px 8px;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;color:#0F172A;line-height:1.75;">
+          <p style="margin:0 0 14px;">Dear CTO,</p>
+          <p style="margin:0 0 20px;text-align:justify;">
+            A phase budget request has been submitted by <strong t-out="object.requester_id.name or ''"></strong> for the project
+            <strong t-out="object.project_id.display_name or ''"></strong> and awaits your technical review.
+            Once reviewed and approved, the request will be routed to the CFO for the final financial decision.
+          </p>
+
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+            <tr><td style="padding:7px 0;color:#475569;width:210px;">Request</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Type</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['request_type'].selection).get(object.request_type, object.request_type or '')"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Phase</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.batch_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Project</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.project_id.display_name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Requester</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.requester_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Revision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.revision_no or 1"></td></tr>
+            <tr><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;border-top:1.5px solid #0F172A;">Requested Total</td><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;font-size:16px;border-top:1.5px solid #0F172A;" t-out="'%.2f USD' % (object.requested_total or 0.0)"></td></tr>
+          </table>
+
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">Justification</h3>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.75;padding:16px 20px;background:#F8FAFC;border:1px solid #E2E8F0;white-space:pre-wrap;" t-out="object.justification or 'Justification has not been provided with this request.'"></div>
+
+          <div style="margin-top:24px;padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Action Required</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly review the request on the Ethara.AI platform and either approve to forward it to the CFO or send it back to the requester for changes.</div>
+          </div>
+
+          <p style="margin:28px 0 4px;">With kind regards,</p>
+          <p style="margin:0;font-weight:700;" t-out="object.requester_id.name or ''"></p>
+        </td></tr>
+
+        <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
+          <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">System Notice</div>
+          <div>System-generated message from the Ethara.AI Project Operations system. Please do not reply directly.</div>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_request_cfo_review" model="mail.template">
+            <field name="name">Phase Budget Request: CFO Approval</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[CFO Approval] {{ object.project_id.name or 'Budget Request' }} - {{ object.name }}</field>
+            <field name="email_from">{{ (object.requester_id.email_formatted or user.email_formatted) }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#EEF2F7;font-family:Georgia,'Times New Roman',serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2F7;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background:#FFFFFF;border:1px solid #CBD5E1;">
+
+        <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
+            </td>
+            <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#475569;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
+              Awaiting CFO Decision
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="padding:28px 36px 8px;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;color:#0F172A;line-height:1.75;">
+          <p style="margin:0 0 14px;">Dear CFO,</p>
+          <p style="margin:0 0 20px;text-align:justify;">
+            The phase budget request for project <strong t-out="object.project_id.display_name or ''"></strong> has been
+            reviewed and approved by the CTO and is now placed before you for the final financial decision.
+          </p>
+
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+            <tr><td style="padding:7px 0;color:#475569;width:210px;">Request</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Type</td><td style="padding:7px 0;color:#0F172A;font-weight:600;text-transform:capitalize;" t-out="dict(object._fields['request_type'].selection).get(object.request_type, object.request_type or '')"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Phase</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.batch_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Project</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.project_id.display_name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Requester</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.requester_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">CTO Reviewer</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cto_reviewer_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">CTO Reviewed On</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cto_review_date or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Requested Total</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="'%.2f USD' % (object.requested_total or 0.0)"></td></tr>
+            <tr><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;border-top:1.5px solid #0F172A;">CTO-Recommended Total</td><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;font-size:16px;border-top:1.5px solid #0F172A;" t-out="'%.2f USD' % (object.approved_total or 0.0)"></td></tr>
+          </table>
+
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">Justification</h3>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.75;padding:16px 20px;background:#F8FAFC;border:1px solid #E2E8F0;white-space:pre-wrap;" t-out="object.justification or 'Justification has not been provided with this request.'"></div>
+
+          <div style="margin-top:24px;padding:16px 20px;background:#ECFDF5;border:1px solid #10B981;border-left:4px solid #10B981;">
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#065F46;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Action Required</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara.AI platform to record your financial decision. You may approve the request (in full or partially) or send it back to the requester for changes.</div>
+          </div>
+
+          <p style="margin:28px 0 4px;">With kind regards,</p>
+          <p style="margin:0;font-weight:700;" t-out="object.cto_reviewer_id.name or ''"></p>
+          <p style="margin:0;color:#475569;font-size:12px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">CTO &#183; on behalf of <t t-out="object.requester_id.name or ''"></t></p>
+        </td></tr>
+
+        <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
+          <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">System Notice</div>
+          <div>System-generated message from the Ethara.AI Project Operations system. Please do not reply directly.</div>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_request_cto_rejected" model="mail.template">
+            <field name="name">Phase Budget Request: Sent Back by CTO</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[Changes Required] {{ object.project_id.name or 'Budget Request' }} - {{ object.name }}</field>
+            <field name="email_from">{{ (object.cto_reviewer_id.email_formatted or user.email_formatted) }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#EEF2F7;font-family:Georgia,'Times New Roman',serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2F7;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background:#FFFFFF;border:1px solid #CBD5E1;">
+
+        <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
+            </td>
+            <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#B91C1C;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
+              CTO: Changes Required
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="padding:28px 36px 8px;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;color:#0F172A;line-height:1.75;">
+          <p style="margin:0 0 14px;">Dear <t t-out="object.requester_id.name or ''"></t>,</p>
+          <p style="margin:0 0 20px;text-align:justify;">
+            The phase budget request <strong t-out="object.name or ''"></strong> for the project
+            <strong t-out="object.project_id.display_name or ''"></strong> has been reviewed by the CTO and sent back
+            for changes. Kindly amend the request as indicated below and resubmit for CTO review.
+          </p>
+
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+            <tr><td style="padding:7px 0;color:#475569;width:210px;">CTO Reviewer</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cto_reviewer_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Reviewed On</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cto_review_date or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Revision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.revision_no or 0"></td></tr>
+          </table>
+
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">CTO's Note</h3>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.75;padding:16px 20px;background:#FEF2F2;border:1px solid #FECACA;border-left:4px solid #B91C1C;white-space:pre-wrap;" t-out="object.cto_review_note or 'No additional note provided.'"></div>
+
+          <div style="margin-top:24px;padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Next Step</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Open the request on the Ethara.AI platform, make the requested changes, and click <strong>Resubmit for CTO Review</strong>.</div>
+          </div>
+
+          <p style="margin:28px 0 4px;">With kind regards,</p>
+          <p style="margin:0;font-weight:700;" t-out="object.cto_reviewer_id.name or ''"></p>
+        </td></tr>
+
+        <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
+          <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">System Notice</div>
+          <div>System-generated message from the Ethara.AI Project Operations system. Please do not reply directly.</div>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+        <record id="mail_template_request_cfo_changes_required" model="mail.template">
+            <field name="name">Phase Budget Request: Changes Required by CFO</field>
+            <field name="model_id" ref="model_etp_batch_budget_request"/>
+            <field name="subject">[Changes Required] {{ object.project_id.name or 'Budget Request' }} - {{ object.name }}</field>
+            <field name="email_from">{{ (object.cfo_approver_id.email_formatted or user.email_formatted) }}</field>
+            <field name="auto_delete" eval="False"/>
+            <field name="body_html" type="html">
+<div style="margin:0;padding:0;background:#EEF2F7;font-family:Georgia,'Times New Roman',serif;">
+  <table cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#EEF2F7;">
+    <tr><td align="center" style="padding:24px 12px;">
+      <table cellpadding="0" cellspacing="0" border="0" width="640" style="width:640px;max-width:100%;background:#FFFFFF;border:1px solid #CBD5E1;">
+
+        <tr><td style="padding:26px 36px 22px;border-bottom:2px solid #0F172A;background:#FFFFFF;">
+          <table width="100%" cellpadding="0" cellspacing="0"><tr>
+            <td>
+              <div style="font-family:Georgia,'Times New Roman',serif;font-size:26px;font-weight:700;letter-spacing:0.18em;color:#0F172A;line-height:1;">ETHARA.AI</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#64748B;letter-spacing:0.16em;text-transform:uppercase;margin-top:6px;">Project Operations &amp; Budget Control</div>
+            </td>
+            <td align="right" valign="top" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:10px;color:#B91C1C;letter-spacing:0.14em;text-transform:uppercase;font-weight:600;">
+              CFO: Changes Required
+            </td>
+          </tr></table>
+        </td></tr>
+
+        <tr><td style="padding:28px 36px 8px;font-family:Georgia,'Times New Roman',serif;font-size:14.5px;color:#0F172A;line-height:1.75;">
+          <p style="margin:0 0 14px;">Dear <t t-out="object.requester_id.name or ''"></t>,</p>
+          <p style="margin:0 0 20px;text-align:justify;">
+            The phase budget request <strong t-out="object.name or ''"></strong> for the project
+            <strong t-out="object.project_id.display_name or ''"></strong> has been reviewed by the CFO and sent back
+            for changes. Kindly amend the request as indicated below and resubmit; the multi-step approval flow will
+            then restart from the CTO.
+          </p>
+
+          <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
+            <tr><td style="padding:7px 0;color:#475569;width:210px;">CFO Reviewer</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cfo_approver_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Decision On</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cfo_approval_date or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">CTO Reviewer</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.cto_reviewer_id.name or ''"></td></tr>
+            <tr><td style="padding:7px 0;color:#475569;">Revision</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.revision_no or 0"></td></tr>
+          </table>
+
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">CFO's Note</h3>
+          <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.75;padding:16px 20px;background:#FEF2F2;border:1px solid #FECACA;border-left:4px solid #B91C1C;white-space:pre-wrap;" t-out="object.cfo_change_request_note or 'No additional note provided.'"></div>
+
+          <div style="margin-top:24px;padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
+            <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Next Step</div>
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Open the request on the Ethara.AI platform, make the requested changes, and click <strong>Resubmit for CTO Review</strong>. The CTO will revalidate before the request returns to the CFO.</div>
+          </div>
+
+          <p style="margin:28px 0 4px;">With kind regards,</p>
+          <p style="margin:0;font-weight:700;" t-out="object.cfo_approver_id.name or ''"></p>
+        </td></tr>
+
+        <tr><td style="background:#0F172A;padding:18px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#94A3B8;line-height:1.65;">
+          <div style="color:#E2E8F0;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;font-size:10px;margin-bottom:6px;">System Notice</div>
+          <div>System-generated message from the Ethara.AI Project Operations system. Please do not reply directly.</div>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</div>
+            </field>
+        </record>
+
+    </data>
+
 </odoo>

@@ -4,14 +4,24 @@ from odoo.exceptions import UserError
 
 REQUEST_STATE_SELECTION = [
     ("draft", "Draft"),
-    ("pending", "Pending Approval"),
+    ("cto_review", "CTO Review"),
+    ("cfo_review", "CFO Approval"),
+    ("changes_required", "Changes Required"),
     ("approved", "Approved"),
     ("partially_approved", "Partially Approved"),
-    ("rejected", "Rejected"),
     ("withdrawn", "Withdrawn"),
 ]
 
 TERMINAL_APPROVED_STATES = ("approved", "partially_approved")
+
+PL_TPM_ROLE_XMLIDS = (
+    "api_auth_gateway.role_pl_technical",
+    "api_auth_gateway.role_pl_stem",
+    "api_auth_gateway.role_pl_non_stem",
+    "api_auth_gateway.role_tpm_technical",
+)
+CTO_ROLE_XMLID = "api_auth_gateway.role_cto_technical"
+CFO_ROLE_XMLID = "api_auth_gateway.role_cfo_technical"
 
 
 class EtpBatchBudgetRequest(models.Model):
@@ -85,6 +95,61 @@ class EtpBatchBudgetRequest(models.Model):
     )
     approval_date = fields.Datetime(readonly=True, tracking=True)
     rejection_reason = fields.Text(readonly=True)
+    request_type = fields.Selection(
+        [
+            ("budget", "Budget"),
+            ("new_model", "New Model"),
+            ("topup", "Top-up"),
+            ("device", "Device"),
+        ],
+        string="Request Type",
+        default="budget",
+        required=True,
+        tracking=True,
+    )
+    revision_no = fields.Integer(
+        string="Revision",
+        default=0,
+        readonly=True,
+        tracking=True,
+        copy=False,
+    )
+    cto_reviewer_id = fields.Many2one(
+        "res.users",
+        string="CTO Reviewer",
+        readonly=True,
+        tracking=True,
+        copy=False,
+    )
+    cto_review_date = fields.Datetime(
+        string="CTO Reviewed On",
+        readonly=True,
+        tracking=True,
+        copy=False,
+    )
+    cto_review_note = fields.Text(
+        string="CTO Review Note",
+        readonly=True,
+        copy=False,
+    )
+    cfo_approver_id = fields.Many2one(
+        "res.users",
+        string="CFO Approver",
+        readonly=True,
+        tracking=True,
+        copy=False,
+    )
+    cfo_approval_date = fields.Datetime(
+        string="CFO Decision On",
+        readonly=True,
+        tracking=True,
+        copy=False,
+    )
+    cfo_change_request_note = fields.Text(
+        string="CFO Change Request Note",
+        readonly=True,
+        copy=False,
+    )
     justification = fields.Text(
         string="Justification",
         help="Explain why this additional budget is needed.",
@@ -194,6 +259,28 @@ class EtpBatchBudgetRequest(models.Model):
         string="Can Create Follow-up",
         compute="_compute_can_follow_up",
     )
+    is_current_user_pl_or_tpm = fields.Boolean(
+        string="Current User is PL/TPM",
+        compute="_compute_current_user_roles",
+    )
+    is_current_user_cto = fields.Boolean(
+        string="Current User is CTO",
+        compute="_compute_current_user_roles",
+    )
+    is_current_user_cfo = fields.Boolean(
+        string="Current User is CFO",
+        compute="_compute_current_user_roles",
+    )
+
+    @api.depends_context("uid")
+    def _compute_current_user_roles(self):
+        is_pl = self._user_has_role(PL_TPM_ROLE_XMLIDS)
+        is_cto = self._user_has_role((CTO_ROLE_XMLID,))
+        is_cfo = self._user_has_role((CFO_ROLE_XMLID,))
+        for rec in self:
+            rec.is_current_user_pl_or_tpm = is_pl
+            rec.is_current_user_cto = is_cto
+            rec.is_current_user_cfo = is_cfo
 
     @api.depends(
         "batch_id",
@@ -241,7 +328,8 @@ class EtpBatchBudgetRequest(models.Model):
         for rec in self:
             rec.has_active_followup = any(
                 child.state in (
-                    "draft", "pending", "approved", "partially_approved",
+                    "draft", "cto_review", "cfo_review",
+                    "changes_required", "approved", "partially_approved",
                 )
                 for child in rec.follow_up_request_ids
             )
@@ -321,21 +409,155 @@ class EtpBatchBudgetRequest(models.Model):
                 )
         return super().create(vals_list)
 
-    def _check_can_approve(self):
+    def write(self, vals):
+        if "request_type" in vals:
+            for rec in self:
+                if (
+                    rec.state not in ("draft", "changes_required")
+                    and vals["request_type"] != rec.request_type
+                ):
+                    raise UserError(_(
+                        "Request Type cannot be changed once the request "
+                        "has been submitted."
+                    ))
+        return super().write(vals)
+
+    @api.model
+    def _resolve_role_ids(self, xmlids):
+        env = self.env
+        ids = []
+        for xmlid in xmlids:
+            rec = env.ref(xmlid, raise_if_not_found=False)
+            if rec:
+                ids.append(rec.id)
+        return ids
+
+    @api.model
+    def _user_has_role(self, xmlids):
+        user_role = self.env.user.user_role
+        if not user_role:
+            return False
+        return user_role.id in self._resolve_role_ids(xmlids)
+
+    def _is_pl_or_tpm(self):
+        return self._user_has_role(PL_TPM_ROLE_XMLIDS)
+
+    def _is_cto(self):
+        return self._user_has_role((CTO_ROLE_XMLID,))
+
+    def _is_cfo(self):
+        return self._user_has_role((CFO_ROLE_XMLID,))
+
+    def _check_can_submit(self):
         self.ensure_one()
         if not self.batch_id:
             raise UserError(_("Request has no phase budget."))
-        project_budget = self.batch_id.project_budget_id
-        if self.env.user not in project_budget.approver_user_ids:
+        if not (
+            self._is_pl_or_tpm()
+            or self.env.user.has_group("base.group_system")
+        ):
             raise UserError(_(
-                "You are not in the approver pool for this Project Budget."
+                "Only users with the PL or TPM role can submit budget "
+                "requests for approval."
             ))
+
+    def _check_can_cto_review(self):
+        self.ensure_one()
+        if not (
+            self._is_cto()
+            or self.env.user.has_group("base.group_system")
+        ):
+            raise UserError(_(
+                "Only users with the CTO role can review at this step."
+            ))
+
+    def _check_can_cfo_approve(self):
+        self.ensure_one()
+        if not (
+            self._is_cfo()
+            or self.env.user.has_group("base.group_system")
+        ):
+            raise UserError(_(
+                "Only users with the CFO role can approve or request "
+                "changes at this step."
+            ))
+
+    def _check_request_type_contents(self):
+        self.ensure_one()
+        rtype = self.request_type or "budget"
+        if rtype == "budget":
+            if not (
+                self.model_line_ids
+                or self.infra_line_ids
+                or self.subscription_line_ids
+            ):
+                raise UserError(_(
+                    "Budget request must include at least one model, "
+                    "infrastructure or subscription line."
+                ))
+        elif rtype == "new_model":
+            if not self.model_line_ids:
+                raise UserError(_(
+                    "New Model request must include at least one model line."
+                ))
+            existing_models = set(
+                self.project_budget_id.model_line_ids.mapped("ai_model_id").ids
+            )
+            new_models = [
+                line.ai_model_id.id
+                for line in self.model_line_ids
+                if line.ai_model_id
+                and line.ai_model_id.id not in existing_models
+            ]
+            if not new_models:
+                raise UserError(_(
+                    "New Model request must add at least one AI model that "
+                    "is not already on the Project Budget."
+                ))
+        elif rtype == "topup":
+            if (
+                self.model_line_ids
+                or self.infra_line_ids
+                or self.subscription_line_ids
+            ):
+                raise UserError(_(
+                    "Top-up request must be amount-only with no model, "
+                    "infrastructure or subscription lines."
+                ))
+        elif rtype == "device":
+            if not self.infra_line_ids:
+                raise UserError(_(
+                    "Device request must include at least one infrastructure "
+                    "line."
+                ))
 
     def _approver_partner_ids(self):
         self.ensure_one()
         return self.batch_id.project_budget_id.approver_user_ids.mapped(
             "partner_id"
         ).ids
+
+    def _users_with_role(self, xmlids):
+        role_ids = self._resolve_role_ids(xmlids)
+        if not role_ids:
+            return self.env["res.users"]
+        return self.env["res.users"].search([("user_role", "in", role_ids)])
+
+    def _cto_partner_ids(self):
+        self.ensure_one()
+        role_users = self._users_with_role((CTO_ROLE_XMLID,))
+        pool = self.batch_id.project_budget_id.approver_user_ids
+        overlap = pool & role_users if pool else role_users
+        targets = overlap if overlap else role_users
+        return targets.mapped("partner_id").ids
+
+    def _cfo_partner_ids(self):
+        self.ensure_one()
+        role_users = self._users_with_role((CFO_ROLE_XMLID,))
+        pool = self.batch_id.project_budget_id.approver_user_ids
+        overlap = pool & role_users if pool else role_users
+        targets = overlap if overlap else role_users
+        return targets.mapped("partner_id").ids
 
     def _requester_partner_ids(self):
         self.ensure_one()
@@ -365,12 +587,13 @@ class EtpBatchBudgetRequest(models.Model):
 
     def action_submit_for_approval(self):
         for rec in self:
-            if rec.state != "draft":
-                raise UserError(_("Only draft requests can be submitted."))
-            if not (rec.model_line_ids or rec.infra_line_ids):
+            if rec.state not in ("draft", "changes_required"):
                 raise UserError(_(
-                    "Add at least one model or infrastructure line."
+                    "Only Draft or Changes-Required requests can be "
+                    "submitted for approval."
                 ))
+            rec._check_can_submit()
+            rec._check_request_type_contents()
             if (rec.requested_total or 0.0) <= 0.0:
                 raise UserError(_(
                     "Requested total must be greater than zero."
@@ -388,7 +611,8 @@ class EtpBatchBudgetRequest(models.Model):
                     ))
                 sibling_active = any(
                     child.state in (
-                        "pending", "approved", "partially_approved",
+                        "cto_review", "cfo_review", "changes_required",
+                        "approved", "partially_approved",
                     )
                     for child in parent.follow_up_request_ids
                     if child.id != rec.id
@@ -425,36 +649,74 @@ class EtpBatchBudgetRequest(models.Model):
                     )
             if not rec.approved_total:
                 rec.approved_total = rec.requested_total
-            rec.state = "pending"
+            rec.write({
+                "state": "cto_review",
+                "revision_no": (rec.revision_no or 0) + 1,
+            })
             email_values = {}
             if rec.subject:
                 email_values["subject"] = rec.subject
             if rec.attachment_ids:
                 email_values["attachment_ids"] = [(6, 0, rec.attachment_ids.ids)]
             rec._send_mail(
-                "etp_projects.mail_template_batch_request_submitted",
-                rec._approver_partner_ids(),
+                "etp_projects.mail_template_request_cto_review",
+                rec._cto_partner_ids(),
                 email_values=email_values,
             )
 
-    def action_approve(self):
+    def action_cto_approve(self):
         for rec in self:
-            if rec.state != "pending":
-                raise UserError(_("Only pending requests can be approved."))
-            rec._check_can_approve()
+            if rec.state != "cto_review":
+                raise UserError(_(
+                    "Only requests in CTO Review can be approved by the CTO."
+                ))
+            rec._check_can_cto_review()
             rec._distribute_approved_amount()
             if (rec.approved_total or 0.0) <= 0.0:
                 raise UserError(_(
-                    "Approved total must be greater than zero. "
-                    "Use 'Reject' if you want to deny the request entirely."
+                    "Approved total must be greater than zero. Use "
+                    "'Send Back for Changes' if the request is not acceptable."
                 ))
-            # remaining = rec.project_budget_id.allocatable_amount or 0.0
-            # if (rec.approved_total or 0.0) > remaining:
-            #     raise UserError(_(
-            #         "Approved amount (USD %(app).2f) exceeds remaining project "
-            #         "budget (USD %(rem).2f). Approve a smaller amount or have "
-            #         "the project owner top up the project budget first."
-            #     ) % {"app": rec.approved_total, "rem": remaining})
+            rec.write({
+                "state": "cfo_review",
+                "cto_reviewer_id": self.env.user.id,
+                "cto_review_date": fields.Datetime.now(),
+            })
+            rec._send_mail(
+                "etp_projects.mail_template_request_cfo_review",
+                list(set(rec._cfo_partner_ids() + rec._requester_partner_ids())),
+            )
+
+    def action_cto_reject(self):
+        self.ensure_one()
+        if self.state != "cto_review":
+            raise UserError(_(
+                "Only requests in CTO Review can be sent back by the CTO."
+            ))
+        return {
+            "type": "ir.actions.act_window",
+            "name": _("CTO: Send Back for Changes"),
+            "res_model": "etp.batch.budget.request.review.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_request_id": self.id,
+                "default_mode": "cto_reject",
+            },
+        }
+
+    def action_cfo_approve(self):
+        for rec in self:
+            if rec.state != "cfo_review":
+                raise UserError(_(
+                    "Only requests in CFO Approval can be approved by the CFO."
+                ))
+            rec._check_can_cfo_approve()
+            if (rec.approved_total or 0.0) <= 0.0:
+                raise UserError(_(
+                    "Approved total must be greater than zero. Use "
+                    "'Request Changes' if the request is not acceptable."
+                ))
             is_partial = (
                 (rec.approved_total or 0.0) < (rec.requested_total or 0.0)
                 or any(
@@ -467,26 +729,40 @@ class EtpBatchBudgetRequest(models.Model):
                 )
             )
             new_state = "partially_approved" if is_partial else "approved"
+            now = fields.Datetime.now()
             rec.write({
                 "state": new_state,
+                "cfo_approver_id": self.env.user.id,
+                "cfo_approval_date": now,
                 "approver_id": self.env.user.id,
-                "approval_date": fields.Datetime.now(),
+                "approval_date": now,
             })
             rec._propagate_to_batch_and_project()
+            cto_partner_ids = (
+                rec.cto_reviewer_id.partner_id.ids
+                if rec.cto_reviewer_id else []
+            )
             rec._send_mail(
                 "etp_projects.mail_template_batch_request_approved",
-                rec._requester_partner_ids(),
+                list(set(rec._requester_partner_ids() + cto_partner_ids)),
             )
 
-    def action_reject(self):
+    def action_cfo_request_changes(self):
         self.ensure_one()
+        if self.state != "cfo_review":
+            raise UserError(_(
+                "Only requests in CFO Approval can be sent back by the CFO."
+            ))
         return {
             "type": "ir.actions.act_window",
-            "name": _("Reject Budget Request"),
-            "res_model": "etp.batch.budget.request.reject.wizard",
+            "name": _("CFO: Request Changes"),
+            "res_model": "etp.batch.budget.request.review.wizard",
             "view_mode": "form",
             "target": "new",
-            "context": {"default_request_id": self.id},
+            "context": {
+                "default_request_id": self.id,
+                "default_mode": "cfo_request_changes",
+            },
         }
 
     def action_create_follow_up(self):
@@ -539,27 +815,59 @@ class EtpBatchBudgetRequest(models.Model):
             "target": "current",
         }
 
-    def _do_reject(self, reason):
+    def _do_cto_reject(self, note):
         self.ensure_one()
-        if self.state != "pending":
-            raise UserError(_("Only pending requests can be rejected."))
-        self._check_can_approve()
+        if self.state != "cto_review":
+            raise UserError(_(
+                "Only requests in CTO Review can be sent back by the CTO."
+            ))
+        self._check_can_cto_review()
         self.write({
-            "state": "rejected",
-            "approver_id": self.env.user.id,
-            "approval_date": fields.Datetime.now(),
-            "rejection_reason": reason,
+            "state": "changes_required",
+            "cto_reviewer_id": self.env.user.id,
+            "cto_review_date": fields.Datetime.now(),
+            "cto_review_note": note,
+            "rejection_reason": note,
         })
         self._send_mail(
-            "etp_projects.mail_template_batch_request_rejected",
+            "etp_projects.mail_template_request_cto_rejected",
             self._requester_partner_ids(),
+        )
+
+    def _do_cfo_request_changes(self, note):
+        self.ensure_one()
+        if self.state != "cfo_review":
+            raise UserError(_(
+                "Only requests in CFO Approval can be sent back by the CFO."
+            ))
+        self._check_can_cfo_approve()
+        now = fields.Datetime.now()
+        self.write({
+            "state": "changes_required",
+            "cfo_approver_id": self.env.user.id,
+            "cfo_approval_date": now,
+            "cfo_change_request_note": note,
+            "approver_id": self.env.user.id,
+            "approval_date": now,
+            "rejection_reason": note,
+        })
+        cto_partner_ids = (
+            self.cto_reviewer_id.partner_id.ids
+            if self.cto_reviewer_id else []
+        )
+        self._send_mail(
+            "etp_projects.mail_template_request_cfo_changes_required",
+            list(set(self._requester_partner_ids() + cto_partner_ids)),
         )
 
     def action_withdraw(self):
         for rec in self:
-            if rec.state not in ("draft", "pending"):
+            if rec.state not in (
+                "draft", "cto_review", "cfo_review", "changes_required",
+            ):
                 raise UserError(_(
-                    "Only Draft or Pending requests can be withdrawn."
+                    "Only Draft, CTO Review, CFO Approval or "
+                    "Changes-Required requests can be withdrawn."
                 ))
             if rec.requester_id and self.env.user != rec.requester_id:
                 raise UserError(_(
@@ -670,17 +978,31 @@ class EtpBatchBudgetRequest(models.Model):
         batch.write({"state": new_state})
 
 
-class EtpBatchBudgetRequestRejectWizard(models.TransientModel):
-    _name = "etp.batch.budget.request.reject.wizard"
-    _description = "Reject Phase Budget Request Wizard"
+class EtpBatchBudgetRequestReviewWizard(models.TransientModel):
+    _name = "etp.batch.budget.request.review.wizard"
+    _description = "Review Phase Budget Request Wizard"
 
     request_id = fields.Many2one(
         "etp.batch.budget.request",
         required=True,
     )
-    reason = fields.Text(string="Rejection Reason", required=True)
+    mode = fields.Selection(
+        [
+            ("cto_reject", "CTO Send Back for Changes"),
+            ("cfo_request_changes", "CFO Request Changes"),
+        ],
+        string="Mode",
+        required=True,
+        readonly=True,
+    )
+    note = fields.Text(string="Note", required=True)
 
     def action_confirm(self):
         self.ensure_one()
-        self.request_id._do_reject(self.reason)
+        if self.mode == "cto_reject":
+            self.request_id._do_cto_reject(self.note)
+        elif self.mode == "cfo_request_changes":
+            self.request_id._do_cfo_request_changes(self.note)
+        else:
+            raise UserError(_("Unknown review mode."))
         return {"type": "ir.actions.act_window_close"}
