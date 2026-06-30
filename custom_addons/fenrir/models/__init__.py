@@ -1,4 +1,5 @@
 from . import fenrir_category
+from . import fenrir_phase
 from . import fenrir_environment_runtime
 from . import fenrir_key_dependency
 from . import fenrir_rubric
@@ -14,3 +15,5 @@ from . import fenrir_seller_deliverable
 from . import fenrir_drive_config
 from . import fenrir_rubric_import_wizard
 from . import fenrir_rubric_score_import_wizard
+from . import fenrir_task_import_wizard
+from . import fenrir_task_set_phase_wizard

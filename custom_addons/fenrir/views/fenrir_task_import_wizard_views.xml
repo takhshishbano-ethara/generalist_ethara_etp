@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="fenrir_task_import_wizard_view_form" model="ir.ui.view">
+        <field name="name">fenrir.task.import.wizard.form</field>
+        <field name="model">fenrir.task.import.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Import Tasks from Spreadsheet">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>Import Tasks from Spreadsheet</h1>
+                        <p class="text-muted">
+                            Upload an Excel (.xlsx) or CSV file. Each data row
+                            becomes one task. Columns are matched by their
+                            header name, so the column order does not matter.
+                        </p>
+                    </div>
+
+                    <group>
+                        <field name="data_file" filename="data_filename"
+                               widget="binary"/>
+                        <field name="data_filename" invisible="1"/>
+                        <field name="has_header"/>
+                        <field name="create_missing_categories"/>
+                    </group>
+
+                    <div class="alert alert-info mt-3" role="alert">
+                        <strong>Expected columns</strong>
+                        <ul class="mb-2">
+                            <li><code>Task ID</code> (required, must be unique)</li>
+                            <li><code>Category</code>, <code>Title</code>,
+                                <code>Overview</code>, <code>Scope of Work</code>,
+                                <code>Company Details</code></li>
+                            <li>Link columns (stored as URLs for reference):
+                                <code>PRD</code>, <code>Assets</code>,
+                                <code>Instruction.md</code>, <code>Rubrics</code></li>
+                        </ul>
+                        <p class="mb-1">
+                            Rows whose Task ID already exists are skipped.
+                        </p>
+                        <p class="mb-2">
+                            Not sure about the format? Download the sample file,
+                            replace the example rows with your own tasks, and
+                            upload it above.
+                        </p>
+                        <a href="/fenrir/static/src/sample_task_import.csv"
+                           download="sample_task_import.csv"
+                           class="btn btn-sm btn-primary">
+                            <i class="fa fa-download me-1"
+                               title="Download" aria-label="Download"
+                               role="img"/>
+                            Download sample CSV template
+                        </a>
+                    </div>
+                </sheet>
+                <footer>
+                    <button string="Import" type="object" name="action_import"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="fenrir_task_import_wizard_action" model="ir.actions.act_window">
+        <field name="name">Import Tasks</field>
+        <field name="res_model">fenrir.task.import.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="fenrir_task_import_wizard_view_form"/>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

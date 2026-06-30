@@ -7,8 +7,8 @@ import { useService } from "@web/core/utils/hooks";
 
 const FOLDERS = [
     { value: "resources", label: "Resources" },
-    { value: "root", label: "Root" },
-    { value: "tests", label: "Tests" },
+    // { value: "root", label: "Root" },
+    // { value: "tests", label: "Tests" },
     // { value: "environment", label: "Environment" },
     { value: "data", label: "Data" },
 ];

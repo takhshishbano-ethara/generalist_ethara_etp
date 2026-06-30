@@ -18,6 +18,20 @@
               groups="fenrir.group_fenrir_manager"
               sequence="15"/>
 
+    <menuitem id="fenrir_tasks_import_menu"
+              name="Import Tasks"
+              parent="fenrir_root_menu"
+              action="fenrir_task_import_wizard_action"
+              groups="fenrir.group_fenrir_manager"
+              sequence="16"/>
+
+    <menuitem id="fenrir_phases_menu"
+              name="Phases"
+              parent="fenrir_root_menu"
+              action="fenrir_phase_action"
+              groups="fenrir.group_fenrir_manager"
+              sequence="17"/>
+
     <menuitem id="fenrir_config_menu"
               name="Configuration"
               parent="fenrir_root_menu"

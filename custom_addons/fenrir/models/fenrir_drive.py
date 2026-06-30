@@ -7,6 +7,7 @@ Configuration is stored in ir.config_parameter and edited through the
 Fenrir → Configuration → Google Drive screen.
 """
 
+import hashlib
 import io
 import json
 import logging
@@ -327,6 +328,93 @@ class FenrirDriveService(models.AbstractModel):
             _status, response = request.next_chunk()
         return response["id"]
 
+    @staticmethod
+    def _update_file_bytes(service, file_id, data, mime):
+        """Replace an existing Drive file's content in place.
+
+        Preserves the file's ID and webViewLink so external links
+        and bookmarks survive a re-approve.
+        """
+        from googleapiclient.http import MediaIoBaseUpload
+        media = MediaIoBaseUpload(
+            io.BytesIO(data), mimetype=mime,
+            resumable=True, chunksize=10 * 1024 * 1024)
+        request = service.files().update(
+            fileId=file_id, media_body=media,
+            supportsAllDrives=True)
+        response = None
+        while response is None:
+            _status, response = request.next_chunk()
+        return response["id"]
+
+    @staticmethod
+    def _walk_existing_files(service, folder_id):
+        """Walk the task folder tree on Drive, return {rel_path: {id, md5}}.
+
+        Used by delta-sync re-approve to decide which files actually
+        need a network write. md5Checksum is empty for Google-native
+        types (Docs/Sheets) — those will always be treated as 'changed'
+        and re-uploaded. Folders are not included in the result.
+        """
+        result = {}
+
+        def walk(parent_id, prefix):
+            page_token = None
+            while True:
+                try:
+                    resp = service.files().list(
+                        q=f"'{parent_id}' in parents and trashed = false",
+                        fields=("nextPageToken, files(id, name, "
+                                "mimeType, md5Checksum)"),
+                        pageToken=page_token,
+                        supportsAllDrives=True,
+                        includeItemsFromAllDrives=True,
+                    ).execute()
+                except Exception:  # noqa: BLE001
+                    _logger.warning(
+                        "Fenrir Drive: delta walk failed under folder %s",
+                        parent_id, exc_info=True)
+                    return
+                for f in resp.get("files", []):
+                    name = f["name"]
+                    path = f"{prefix}{name}"
+                    if f.get("mimeType") == DRIVE_FOLDER_MIME:
+                        walk(f["id"], f"{path}/")
+                    else:
+                        result[path] = {
+                            "id": f["id"],
+                            "md5": f.get("md5Checksum") or "",
+                        }
+                page_token = resp.get("nextPageToken")
+                if not page_token:
+                    break
+
+        walk(folder_id, "")
+        return result
+
+    @staticmethod
+    def _find_subfolder_by_name(service, parent_id, name):
+        """Return the first non-trashed subfolder id under parent_id
+        whose name matches `name`, or None. Used by delta-sync's
+        ensure_path so we reuse the existing subfolder instead of
+        creating a duplicate.
+        """
+        safe = name.replace("\\", "\\\\").replace("'", "\\'")
+        q = (f"name = '{safe}' and '{parent_id}' in parents "
+             f"and mimeType = '{DRIVE_FOLDER_MIME}' and trashed = false")
+        try:
+            resp = service.files().list(
+                q=q, spaces="drive",
+                fields="files(id)",
+                pageSize=1,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute()
+        except Exception:  # noqa: BLE001
+            return None
+        files = resp.get("files", [])
+        return files[0]["id"] if files else None
+
     # ── Public: upload a task package ────────────────────────────────────
     def upload_task(self, task):
         """Upload one fenrir.task's package to Drive.
@@ -400,8 +488,13 @@ class FenrirDriveService(models.AbstractModel):
                         "Fenrir: could not trash duplicate Drive folder %s: %s",
                         ghost_id, exc)
 
-        if reused:
-            self._delete_folder_children(service, task_folder_id)
+        # On re-approve (reused=True), walk the existing Drive tree once
+        # so we can md5-diff each local file against what's already there.
+        # First-time approve (reused=False) skips the walk and uploads
+        # everything fresh — that path is unchanged.
+        existing_files = (
+            self._walk_existing_files(service, task_folder_id)
+            if reused else {})
 
         # NOTE: we no longer wholesale-wipe the task's S3 prefix here —
         # attachments are pushed to S3 at attach time (see
@@ -415,7 +508,14 @@ class FenrirDriveService(models.AbstractModel):
             if dir_parts in folder_cache:
                 return folder_cache[dir_parts]
             parent = ensure_path(dir_parts[:-1])
-            folder_id = self._create_folder(service, dir_parts[-1], parent)
+            # On re-approve, reuse the existing subfolder if present so
+            # we don't end up with duplicate "resources/" "resources (1)/"
+            # folders piling up across re-approves.
+            existing_id = (
+                self._find_subfolder_by_name(service, parent, dir_parts[-1])
+                if reused else None)
+            folder_id = existing_id or self._create_folder(
+                service, dir_parts[-1], parent)
             folder_cache[dir_parts] = folder_id
             return folder_id
 
@@ -424,17 +524,50 @@ class FenrirDriveService(models.AbstractModel):
         for base in task._EXPORT_BASE_DIRS:
             ensure_path((base,))
 
-        for rel_path, content, mime, is_binary_upload, existing_s3_key in \
-                task._collect_export_files():
+        drive_last = task.drive_last_uploaded_at
+        unchanged = updated = created = 0
+        for (rel_path, content_loader, mime, is_binary_upload,
+             existing_s3_key, source_mtime) in task._collect_export_files():
             parts = rel_path.split("/")
             file_name = parts[-1]
             dir_parts = tuple(parts[:-1])
-            parent_for_file = ensure_path(dir_parts)
             content_mime = mime or DEFAULT_FILE_MIME
 
-            # Always upload the real file to Drive (resumable handles big sizes).
-            self._upload_bytes(
-                service, file_name, parent_for_file, content, content_mime)
+            existing_entry = existing_files.get(rel_path)
+
+            # Fast path — Drive already has this file AND the source record
+            # hasn't been touched since the previous successful approve.
+            # Skip without reading bytes (avoids multi-GB S3 downloads for
+            # large attachments that haven't changed).
+            if (existing_entry and reused and source_mtime and drive_last
+                    and source_mtime <= drive_last):
+                unchanged += 1
+                continue
+
+            # Otherwise we need the bytes — either to md5-check or upload.
+            content = content_loader()
+            local_md5 = hashlib.md5(content).hexdigest()
+
+            if existing_entry and existing_entry.get("md5") == local_md5:
+                # Drive's copy matches — skip both Drive AND S3.
+                unchanged += 1
+                continue
+
+            parent_for_file = ensure_path(dir_parts)
+
+            if existing_entry:
+                # Same path, different content — update in place so the
+                # file's Drive ID and webViewLink stay valid for any
+                # external bookmarks / sheet references.
+                self._update_file_bytes(
+                    service, existing_entry["id"], content, content_mime)
+                updated += 1
+            else:
+                # New file (first-time approve, or a file added since the
+                # previous approve) — upload fresh.
+                self._upload_bytes(
+                    service, file_name, parent_for_file, content, content_mime)
+                created += 1
 
             # Binary uploads also go to S3 for backup / external pipeline access.
             # If S3 fails, log but don't block Drive — Drive copy is authoritative.
@@ -453,6 +586,8 @@ class FenrirDriveService(models.AbstractModel):
             "drive_last_uploaded_at": fields.Datetime.now(),
         })
         _logger.info(
-            "Fenrir: uploaded task %s (Drive folder %s, S3 prefix %s)",
-            task.code, task_folder_id, s3_prefix)
+            "Fenrir: uploaded task %s (Drive folder %s, S3 prefix %s) "
+            "— delta: %s unchanged, %s updated, %s created",
+            task.code, task_folder_id, s3_prefix,
+            unchanged, updated, created)
         return task_folder_id

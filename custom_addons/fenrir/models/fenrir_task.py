@@ -5,8 +5,9 @@ import logging
 import re
 import zipfile
 
-from odoo import api, fields, models
-from odoo.exceptions import UserError
+from odoo import _, api, fields, models
+from odoo.exceptions import AccessError, UserError
+from odoo.tools.sql import table_exists
 
 from . import fenrir_generators as gen
 
@@ -118,6 +119,98 @@ class FenrirTask(models.Model):
     assets_file = fields.Binary(string="Project Requirements Document (PRD)", attachment=True,
                                 help="Optional file alternative to the assets URL.")
     assets_filename = fields.Char(string="Project Requirements Document (PRD) Filename")
+
+    # Resource links imported from the task-import spreadsheet. These simply
+    # store external URLs (Drive/Docs) for reference; they are not uploaded.
+    prd_link = fields.Char(
+        string="PRD Link",
+        help="External link to the PRD (e.g. Google Drive). Imported from "
+             "the task spreadsheet; stored for reference only.")
+    assets_link = fields.Char(
+        string="Assets Link",
+        help="External link to the task assets. Imported from the task "
+             "spreadsheet; stored for reference only.")
+    instruction_md_link = fields.Char(
+        string="Instruction.md Link",
+        help="External link to instruction.md. Imported from the task "
+             "spreadsheet; stored for reference only.")
+    rubrics_link = fields.Char(
+        string="Rubrics Link",
+        help="External link to the rubrics doc. Imported from the task "
+             "spreadsheet; stored for reference only.")
+
+    # --- Delivery phase & status -------------------------------------------
+    phase_id = fields.Many2one(
+        comodel_name="fenrir.phase",
+        string="Phase",
+        ondelete="restrict",
+        tracking=True,
+        default=lambda self: self._default_phase_id(),
+        help="Delivery phase this task belongs to. Defaults to the phase "
+             "flagged as default by a manager; anyone can change it.")
+
+    @api.model
+    def _default_phase_id(self):
+        # When this column is first added during a module upgrade, the
+        # fenrir_phase table may not exist yet (model-init ordering). Guard
+        # so the default never queries a missing table — that would abort the
+        # whole upgrade transaction.
+        if not table_exists(self.env.cr, "fenrir_phase"):
+            return False
+        return self.env["fenrir.phase"].search(
+            [("is_default", "=", True)], limit=1).id
+    delivery_status = fields.Selection(
+        selection=[
+            ("not_delivered", "Not Delivered"),
+            ("delivered", "Delivered"),
+        ],
+        string="Delivery Status",
+        default="not_delivered",
+        required=True,
+        tracking=True,
+        help="Whether this task has been delivered to the client. "
+             "Editable by Fenrir managers only.")
+    is_fenrir_manager = fields.Boolean(
+        string="Is Fenrir Manager",
+        compute="_compute_is_fenrir_manager",
+        help="Technical helper: True when the current user is a Fenrir "
+             "manager. Drives manager-only editability in the form.")
+
+    def _compute_is_fenrir_manager(self):
+        is_manager = self.env.user.has_group("fenrir.group_fenrir_manager")
+        for rec in self:
+            rec.is_fenrir_manager = is_manager
+
+    # --- Manager-only delivery-status enforcement --------------------------
+    @api.model_create_multi
+    def create(self, vals_list):
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            for vals in vals_list:
+                # Non-managers cannot set delivery status on creation; it
+                # falls back to the "Not Delivered" default.
+                vals.pop("delivery_status", None)
+        return super().create(vals_list)
+
+    def write(self, vals):
+        if "delivery_status" in vals and not self.env.user.has_group(
+                "fenrir.group_fenrir_manager"):
+            raise AccessError(_(
+                "Only Fenrir managers can change the Delivery Status."))
+        return super().write(vals)
+
+    def action_mark_delivered(self):
+        """Bulk-mark the selected tasks as delivered (managers only)."""
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise AccessError(_(
+                "Only Fenrir managers can change the Delivery Status."))
+        self.write({"delivery_status": "delivered"})
+
+    def action_mark_not_delivered(self):
+        """Bulk-mark the selected tasks as not delivered (managers only)."""
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            raise AccessError(_(
+                "Only Fenrir managers can change the Delivery Status."))
+        self.write({"delivery_status": "not_delivered"})
 
     # rubrics_url = fields.Char(string="Rubrics URL",
     #                           help="External link to a rubric spec / doc")
@@ -270,6 +363,11 @@ class FenrirTask(models.Model):
             _logger.info(
                 "Fenrir: user %s clicked Re-approve on task %s",
                 self.env.user.login, rec.code)
+            # Rebuild the generated package (task_metadata.json, license.json,
+            # environment files) from current state, so re-approve picks up any
+            # changes made since the last submit (e.g. a newly added asset that
+            # belongs in license.json) before the delta-sync upload runs.
+            rec._regenerate_task_package()
             drive.upload_task(rec)
             rec.message_post(
                 body="Task re-approved — files regenerated and overwritten "
@@ -446,20 +544,38 @@ class FenrirTask(models.Model):
         string="Per-Seller Rubric Scoring",
     )
     seller_offer_count = fields.Integer(
-        string="Sellers", compute="_compute_seller_offer_count")
+        string="Sellers", compute="_compute_seller_offer_count", store=True,
+        help="Total number of sellers (offers) assigned to this task.")
     accepted_offer_count = fields.Integer(
         string="Accepted", compute="_compute_seller_offer_count")
+    accepted_delivery_count = fields.Integer(
+        string="Accepted Deliveries", compute="_compute_seller_offer_count",
+        store=True,
+        help="Number of sellers whose Accepted Delivery is set to Yes.")
+    all_deliveries_accepted = fields.Boolean(
+        string="All Deliveries Accepted",
+        compute="_compute_seller_offer_count", store=True,
+        help="True when the task has at least one seller and every seller's "
+             "Accepted Delivery is Yes.")
 
     _sql_constraints = [
         ("fenrir_task_code_unique", "unique(code)", "Task Code must be unique."),
     ]
 
-    @api.depends("seller_offer_ids", "seller_offer_ids.accepted")
+    @api.depends("seller_offer_ids",
+                 "seller_offer_ids.accepted",
+                 "seller_offer_ids.accepted_delivery")
     def _compute_seller_offer_count(self):
         for rec in self:
             rec.seller_offer_count = len(rec.seller_offer_ids)
             rec.accepted_offer_count = len(
                 rec.seller_offer_ids.filtered(lambda o: o.accepted == "yes"))
+            rec.accepted_delivery_count = len(
+                rec.seller_offer_ids.filtered(
+                    lambda o: o.accepted_delivery == "yes"))
+            rec.all_deliveries_accepted = bool(
+                rec.seller_offer_count
+                and rec.accepted_delivery_count == rec.seller_offer_count)
 
     # @api.depends("code")
     # def _compute_environment_type(self):
@@ -556,7 +672,7 @@ class FenrirTask(models.Model):
             "border": 1, "align": "center", "valign": "vcenter",
             "text_wrap": True,
         })
-        cell_fmt = wb.add_format({"valign": "top", "text_wrap": True})
+        cell_fmt = wb.add_format({"valign": "top"})
         date_fmt = wb.add_format({"valign": "top", "num_format": "yyyy-mm-dd"})
 
         headers = [
@@ -685,7 +801,7 @@ class FenrirTask(models.Model):
             return "\n".join(l for l in lines if l)
 
         url_fmt = wb.add_format({
-            "valign": "top", "text_wrap": True,
+            "valign": "top",
             "color": "#0563C1", "underline": 1,
         })
 
@@ -717,7 +833,7 @@ class FenrirTask(models.Model):
             for i, offer in enumerate(offers):
                 r = row + i
                 if offer:
-                    _put(r, 10, offer.seller)
+                    _put(r, 10, offer.seller_username)
                     if offer.seller_profile_url:
                         ws.write_url(r, 11, offer.seller_profile_url,
                                      url_fmt, string=offer.seller_profile_url)
@@ -879,12 +995,26 @@ class FenrirTask(models.Model):
         for base in self._EXPORT_BASE_DIRS:
             zf.writestr(f"{root}/{base}/", b"")
         # ZIP includes the actual binary content (no S3 indirection); just
-        # ignore the is_binary_upload / existing_s3_key flags.
-        for rel_path, content, _mime, _is_binary, _s3 in self._collect_export_files():
-            zf.writestr(f"{root}/{rel_path}", content)
+        # ignore the is_binary_upload / existing_s3_key / source_mtime flags.
+        # content is a zero-arg callable returning bytes (see
+        # _collect_export_files docstring) — call it here.
+        for rel_path, content, _mime, _is_binary, _s3, _mtime in self._collect_export_files():
+            zf.writestr(f"{root}/{rel_path}", content())
 
     def _collect_export_files(self):
-        """Return [(rel_path, bytes, mime, is_binary_upload, existing_s3_key), ...].
+        """Return [(rel_path, content_loader, mime, is_binary_upload,
+        existing_s3_key, source_mtime), ...].
+
+        content_loader is a zero-arg callable that returns the file's
+        bytes. Heavy reads (S3 fetches, large b64-decodes) are deferred
+        so the Drive delta-sync can skip them entirely when the timestamp
+        check decides nothing changed.
+
+        source_mtime is the underlying record's write_date for files
+        backed by an actual DB record (attachments, deliverables);
+        None for purely-generated content. The Drive uploader uses
+        `source_mtime <= task.drive_last_uploaded_at` as a fast-path
+        "nothing changed since last sync" shortcut.
 
         is_binary_upload = True for files that came in as uploads (Binary
         fields, ir.attachment). The Drive uploader sends these to S3 and
@@ -902,15 +1032,20 @@ class FenrirTask(models.Model):
         GENERATED = False
         UPLOADED = True
 
+        def _const(b):
+            # Wraps already-computed bytes in a zero-arg callable so the
+            # consumer can treat every entry uniformly as a loader.
+            return lambda: b
+
         # instruction.md — annotator-uploaded file wins; otherwise build from text.
         if self.instruction_md_file:
             files.append(("instruction.md",
-                          base64.b64decode(self.instruction_md_file),
-                          "text/markdown", UPLOADED, None))
+                          lambda v=self.instruction_md_file: base64.b64decode(v),
+                          "text/markdown", UPLOADED, None, None))
         else:
-            files.append(("instruction.md",
-                          self._build_instruction_md(include_remarks=True).encode("utf-8"),
-                          "text/markdown", GENERATED, None))
+            md_bytes = self._build_instruction_md(include_remarks=True).encode("utf-8")
+            files.append(("instruction.md", _const(md_bytes),
+                          "text/markdown", GENERATED, None, None))
 
         # if self.rubrics_file:
         #     name = _slug(self.rubrics_filename or "rubrics_source")
@@ -921,7 +1056,8 @@ class FenrirTask(models.Model):
             name = _norm_filename(self.assets_filename or "assets")
             mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
             files.append((f"resources/{name}",
-                          base64.b64decode(self.assets_file), mime, UPLOADED, None))
+                          lambda v=self.assets_file: base64.b64decode(v),
+                          mime, UPLOADED, None, None))
 
         generated_env_names = set()
         generated_test_names = set()
@@ -931,7 +1067,6 @@ class FenrirTask(models.Model):
         for att in self.attachment_ids:
             if not att.has_content():
                 continue
-            file_bytes = att._fetch_bytes()
             raw_name = att.file_name or f"attachment_{att.id}"
             safe_name = (_slug(raw_name)
                          if (att.folder or "resources") in ("environment", "tests")
@@ -953,29 +1088,33 @@ class FenrirTask(models.Model):
             # Auto-generated attachments (env/tests/json files we created)
             # are generated content. User-uploaded attachments go to S3.
             tag = GENERATED if att.is_generated else UPLOADED
-            files.append((rel, file_bytes, mime, tag, att.s3_key or None))
+            files.append((rel,
+                          lambda a=att: a._fetch_bytes(),
+                          mime, tag, att.s3_key or None, att.write_date))
 
         if not wrote_task_metadata:
-            files.append(("task_metadata.json",
-                          json.dumps(gen.build_task_metadata(self), indent=2, ensure_ascii=False).encode("utf-8"),
-                          "application/json", GENERATED, None))
+            meta_bytes = json.dumps(gen.build_task_metadata(self), indent=2, ensure_ascii=False).encode("utf-8")
+            files.append(("task_metadata.json", _const(meta_bytes),
+                          "application/json", GENERATED, None, None))
         if not wrote_licenses:
-            files.append(("license.json",
-                          json.dumps(self._build_license_doc(), indent=2, ensure_ascii=False).encode("utf-8"),
-                          "application/json", GENERATED, None))
+            lic_bytes = json.dumps(self._build_license_doc(), indent=2, ensure_ascii=False).encode("utf-8")
+            files.append(("license.json", _const(lic_bytes),
+                          "application/json", GENERATED, None, None))
 
         # Legacy per-task binary uploads (user-uploaded Dockerfile etc.).
         for filename, content in self._environment_files():
             if filename in generated_env_names:
                 continue
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            files.append((f"environment/{filename}", content, mime, UPLOADED, None))
+            files.append((f"environment/{filename}", _const(content),
+                          mime, UPLOADED, None, None))
 
         for filename, content in self._test_files():
             if filename in generated_test_names:
                 continue
             mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-            files.append((f"tests/{filename}", content, mime, UPLOADED, None))
+            files.append((f"tests/{filename}", _const(content),
+                          mime, UPLOADED, None, None))
 
         for offer in self.seller_offer_ids.sorted("seller_no"):
             seller_dir = f"submissions/seller_{offer.seller_no or offer.id}"
@@ -998,21 +1137,21 @@ class FenrirTask(models.Model):
                     "notes": offer.notes or "",
                 }
                 meta_bytes = json.dumps(fallback, indent=2, default=str, ensure_ascii=False).encode("utf-8")
-            files.append((f"{seller_dir}/metadata.json",
-                          meta_bytes, "application/json", GENERATED, None))
-            files.append((f"{seller_dir}/ratings.json",
-                          json.dumps(self._build_ratings(offer), indent=2, default=str, ensure_ascii=False).encode("utf-8"),
-                          "application/json", GENERATED, None))
+            files.append((f"{seller_dir}/metadata.json", _const(meta_bytes),
+                          "application/json", GENERATED, None, None))
+            ratings_bytes = json.dumps(self._build_ratings(offer), indent=2, default=str, ensure_ascii=False).encode("utf-8")
+            files.append((f"{seller_dir}/ratings.json", _const(ratings_bytes),
+                          "application/json", GENERATED, None, None))
 
             for att in offer.deliverable_attachment_ids:
                 if not att.datas:
                     continue
-                content = base64.b64decode(att.datas)
                 safe_name = _norm_filename(att.name or f"deliverable_{att.id}")
                 mime = att.mimetype or mimetypes.guess_type(safe_name)[0] \
                     or "application/octet-stream"
                 files.append((f"{seller_dir}/deliverables/{safe_name}",
-                              content, mime, UPLOADED, None))
+                              lambda a=att: base64.b64decode(a.datas),
+                              mime, UPLOADED, None, att.write_date))
 
             # S3-backed deliverables (uploaded via the new controller).
             # Bytes are streamed back from S3 only for the Drive/ZIP export;
@@ -1026,7 +1165,9 @@ class FenrirTask(models.Model):
                         or mimetypes.guess_type(safe_name)[0]
                         or "application/octet-stream")
                 files.append((f"{seller_dir}/deliverables/{safe_name}",
-                              deliv.fetch_bytes(), mime, UPLOADED, deliv.s3_key))
+                              lambda d=deliv: d.fetch_bytes(),
+                              mime, UPLOADED, deliv.s3_key,
+                              deliv.s3_uploaded_at or deliv.write_date))
 
         return files
 

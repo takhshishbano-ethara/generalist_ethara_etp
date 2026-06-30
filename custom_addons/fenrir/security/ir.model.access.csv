@@ -5,6 +5,8 @@ access_fenrir_seller_offer_user,fenrir.seller.offer.user,model_fenrir_seller_off
 access_fenrir_seller_offer_manager,fenrir.seller.offer.manager,model_fenrir_seller_offer,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_category_user,fenrir.category.user,model_fenrir_category,base.group_user,1,0,0,0
 access_fenrir_category_manager,fenrir.category.manager,model_fenrir_category,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_phase_user,fenrir.phase.user,model_fenrir_phase,base.group_user,1,0,0,0
+access_fenrir_phase_manager,fenrir.phase.manager,model_fenrir_phase,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_rubric_user,fenrir.rubric.user,model_fenrir_rubric,base.group_user,1,1,1,1
 access_fenrir_rubric_manager,fenrir.rubric.manager,model_fenrir_rubric,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_rubric_score_user,fenrir.rubric.score.user,model_fenrir_rubric_score,base.group_user,1,1,1,1
@@ -16,6 +18,10 @@ access_fenrir_rubric_import_wizard_user,fenrir.rubric.import.wizard.user,model_f
 access_fenrir_rubric_import_wizard_manager,fenrir.rubric.import.wizard.manager,model_fenrir_rubric_import_wizard,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_rubric_score_import_wizard_user,fenrir.rubric.score.import.wizard.user,model_fenrir_rubric_score_import_wizard,base.group_user,1,1,1,1
 access_fenrir_rubric_score_import_wizard_manager,fenrir.rubric.score.import.wizard.manager,model_fenrir_rubric_score_import_wizard,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_task_import_wizard_user,fenrir.task.import.wizard.user,model_fenrir_task_import_wizard,base.group_user,1,1,1,1
+access_fenrir_task_import_wizard_manager,fenrir.task.import.wizard.manager,model_fenrir_task_import_wizard,fenrir.group_fenrir_manager,1,1,1,1
+access_fenrir_task_set_phase_wizard_user,fenrir.task.set.phase.wizard.user,model_fenrir_task_set_phase_wizard,base.group_user,1,1,1,1
+access_fenrir_task_set_phase_wizard_manager,fenrir.task.set.phase.wizard.manager,model_fenrir_task_set_phase_wizard,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_environment_runtime_user,fenrir.environment.runtime.user,model_fenrir_environment_runtime,base.group_user,1,0,0,0
 access_fenrir_environment_runtime_manager,fenrir.environment.runtime.manager,model_fenrir_environment_runtime,fenrir.group_fenrir_manager,1,1,1,1
 access_fenrir_key_dependency_user,fenrir.key.dependency.user,model_fenrir_key_dependency,base.group_user,1,0,0,0

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="fenrir_task_set_phase_wizard_form" model="ir.ui.view">
+        <field name="name">fenrir.task.set.phase.wizard.form</field>
+        <field name="model">fenrir.task.set.phase.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Set Phase">
+                <sheet>
+                    <div class="oe_title">
+                        <h1>Set Phase</h1>
+                        <p class="text-muted">
+                            Assign a delivery phase to the selected task(s).
+                        </p>
+                    </div>
+                    <group>
+                        <field name="task_count" readonly="1"/>
+                        <field name="phase_id"
+                               options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button string="Apply" type="object" name="action_apply"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="fenrir_task_set_phase_action" model="ir.actions.act_window">
+        <field name="name">Set Phase</field>
+        <field name="res_model">fenrir.task.set.phase.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="model_fenrir_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('fenrir.group_fenrir_manager'))]"/>
+    </record>
+
+</odoo>

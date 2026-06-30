@@ -17,6 +17,11 @@
                 <field name="delivery_time"/>
                 <field name="seller_offer_count" string="Sellers"/>
                 <field name="accepted_offer_count" string="Accepted" optional="hide"/>
+                <field name="accepted_delivery_count" string="Accepted Deliveries"/>
+                <field name="phase_id" string="Phase"/>
+                <field name="delivery_status" string="Delivery" widget="badge"
+                       decoration-success="delivery_status == 'delivered'"
+                       decoration-warning="delivery_status == 'not_delivered'"/>
                 <field name="status" widget="badge"
                        decoration-success="status == 'approved' or status == 'completed'"
                        decoration-warning="status == 'pending_review'"
@@ -79,6 +84,11 @@
 
                     <group>
                         <group string="Classification" name="group_classification">
+                            <field name="is_fenrir_manager" invisible="1"/>
+                            <field name="phase_id"
+                                   options="{'no_create': True, 'no_create_edit': True, 'no_open': True}"/>
+                            <field name="delivery_status"
+                                   readonly="not is_fenrir_manager"/>
                             <field name="category_id" options="{'no_create_edit': True}"/>
                             <field name="subcategory" placeholder="e.g. Logo Design"/>
                             <field name="lead_user_id" options="{'no_open': True}"/>
@@ -93,6 +103,14 @@
                             <field name="price_tier"/>
                             <field name="delivery_time"/>
                             <field name="order_accepted_date"/>
+                            <field name="prd_link" widget="url" readonly="1"
+                                   invisible="not prd_link"/>
+                            <field name="assets_link" widget="url" readonly="1"
+                                   invisible="not assets_link"/>
+                            <field name="instruction_md_link" widget="url" readonly="1"
+                                   invisible="not instruction_md_link"/>
+                            <field name="rubrics_link" widget="url" readonly="1"
+                                   invisible="not rubrics_link"/>
                         </group>
                     </group>
 
@@ -158,6 +176,16 @@
                         </div>
                     </group> -->
                     <group>
+                        <label for="assets_file" string="Project Requirements Document (PRD)"/>
+                        <div class="o_row">
+                            <field name="assets_file" filename="assets_filename"
+                                widget="binary" nolabel="1"/>
+                            <field name="assets_filename" invisible="1"/>
+                        </div>
+                    </group>
+                    <field name="resources_notes"
+                           placeholder="Notes about Project Requirements Document (used in license.json)..."/>
+                    <group>
                         <label for="instruction_md_file" string="Instruction.md"/>
                         <div class="o_row">
                             <field name="instruction_md_file"
@@ -168,6 +196,7 @@
                     </group>
                     <field name="instruction_notes"
                            placeholder="Notes about instruction.md (used in license.json)..."/>
+                    
 
                     <separator string="Rubrics" name="sep_rubrics"/>
                     <div class="mb-2 d-flex gap-2 align-items-center">
@@ -740,6 +769,11 @@
                 <field name="category_id"/>
                 <field name="buyer_id"/>
                 <field name="reviewer_id"/>
+                <field name="seller_offer_count" string="Number of Sellers"
+                       filter_domain="[('seller_offer_count', '=', self)]"/>
+                <field name="accepted_delivery_count" string="Accepted Deliveries"
+                       filter_domain="[('accepted_delivery_count', '=', self)]"/>
+                <field name="phase_id"/>
                 <filter string="Approved" name="filter_approved"
                         domain="[('status','=','approved')]"/>
                 <filter string="Rejected" name="filter_rejected"
@@ -748,7 +782,26 @@
                         domain="[('status','=','completed')]"/>
                 <filter string="Cancelled" name="filter_cancelled"
                         domain="[('status','=','cancelled')]"/>
+                <separator/>
+                <filter string="No Accepted Deliveries"
+                        name="filter_no_accepted_deliveries"
+                        domain="[('accepted_delivery_count','=',0)]"/>
+                <filter string="Has Accepted Deliveries"
+                        name="filter_has_accepted_deliveries"
+                        domain="[('accepted_delivery_count','>',0)]"/>
+                <filter string="All Deliveries Accepted"
+                        name="filter_all_deliveries_accepted"
+                        domain="[('all_deliveries_accepted','=',True)]"/>
+                <separator/>
+                <filter string="Delivered" name="filter_delivered"
+                        domain="[('delivery_status','=','delivered')]"/>
+                <filter string="Not Delivered" name="filter_not_delivered"
+                        domain="[('delivery_status','=','not_delivered')]"/>
                 <group>
+                    <filter string="Phase" name="group_phase"
+                            context="{'group_by': 'phase_id'}"/>
+                    <filter string="Delivery Status" name="group_delivery_status"
+                            context="{'group_by': 'delivery_status'}"/>
                     <filter string="Category" name="group_category"
                             context="{'group_by': 'category_id'}"/>
                     <filter string="Status" name="group_status"
@@ -757,6 +810,11 @@
                             context="{'group_by': 'reviewer_id'}"/>
                     <filter string="Buyer" name="group_buyer"
                             context="{'group_by': 'buyer_id'}"/>
+                    <filter string="Number of Sellers" name="group_seller_count"
+                            context="{'group_by': 'seller_offer_count'}"/>
+                    <filter string="Accepted Deliveries"
+                            name="group_accepted_deliveries"
+                            context="{'group_by': 'accepted_delivery_count'}"/>
                 </group>
             </search>
         </field>
@@ -807,6 +865,26 @@
         <field name="binding_view_types">list</field>
         <field name="state">code</field>
         <field name="code">action = records.action_export_task()</field>
+    </record>
+
+    <record id="fenrir_task_mark_delivered_action" model="ir.actions.server">
+        <field name="name">Mark as Delivered</field>
+        <field name="model_id" ref="model_fenrir_task"/>
+        <field name="binding_model_id" ref="model_fenrir_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('fenrir.group_fenrir_manager'))]"/>
+        <field name="state">code</field>
+        <field name="code">records.action_mark_delivered()</field>
+    </record>
+
+    <record id="fenrir_task_mark_not_delivered_action" model="ir.actions.server">
+        <field name="name">Mark as Not Delivered</field>
+        <field name="model_id" ref="model_fenrir_task"/>
+        <field name="binding_model_id" ref="model_fenrir_task"/>
+        <field name="binding_view_types">list</field>
+        <field name="group_ids" eval="[(4, ref('fenrir.group_fenrir_manager'))]"/>
+        <field name="state">code</field>
+        <field name="code">records.action_mark_not_delivered()</field>
     </record>
 
     <record id="fenrir_task_export_all_xlsx_action" model="ir.actions.server">
