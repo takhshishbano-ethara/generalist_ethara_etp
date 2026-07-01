@@ -113,6 +113,11 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         "attachment_id",
         string="Attachments",
     )
+    topup_reason_id = fields.Many2one(
+        "etp.batch.budget.topup.reason",
+        string="Top-up Reason",
+        ondelete="restrict",
+    )
     total_tasks = fields.Integer(
         string="Total Tasks",
         help="Total number of tasks for this request. Each model line's "
@@ -331,6 +336,7 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             "buffer_pct": self.buffer_pct or 0.0,
             "requested_total": self.requested_total or 0.0,
             "attachment_ids": [(6, 0, self.attachment_ids.ids)],
+            "topup_reason_id": self.topup_reason_id.id or False,
             "model_line_ids": [
                 (0, 0, {
                     "ai_model_id": line.ai_model_id.id,

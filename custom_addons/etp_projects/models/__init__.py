@@ -25,6 +25,7 @@ from . import batch_budget_subscription_line
 from . import batch_budget_request_model_line
 from . import batch_budget_request_infra_line
 from . import batch_budget_request_subscription_line
+from . import batch_budget_topup_reason
 from . import batch_budget_request
 from . import res_config_settings
 from . import project_budget_dashboard

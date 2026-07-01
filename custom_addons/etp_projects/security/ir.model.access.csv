@@ -23,6 +23,7 @@ access_etp_batch_budget_feedback,etp.batch.budget.feedback,model_etp_batch_budge
 access_etp_batch_budget_daily_task_wizard,etp.batch.budget.daily.task.wizard,model_etp_batch_budget_daily_task_wizard,,1,1,1,1
 access_etp_batch_budget_infra_line,etp.batch.budget.infra.line,model_etp_batch_budget_infra_line,,1,1,1,1
 access_etp_batch_budget_subscription_line,etp.batch.budget.subscription.line,model_etp_batch_budget_subscription_line,,1,1,1,1
+access_etp_batch_budget_topup_reason,etp.batch.budget.topup.reason,model_etp_batch_budget_topup_reason,,1,1,1,1
 access_etp_batch_budget_request,etp.batch.budget.request,model_etp_batch_budget_request,,1,1,1,1
 access_etp_batch_budget_request_model_line,etp.batch.budget.request.model.line,model_etp_batch_budget_request_model_line,,1,1,1,1
 access_etp_batch_budget_request_infra_line,etp.batch.budget.request.infra.line,model_etp_batch_budget_request_infra_line,,1,1,1,1
