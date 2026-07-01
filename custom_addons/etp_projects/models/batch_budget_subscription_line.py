@@ -54,6 +54,18 @@ class EtpBatchBudgetSubscriptionLine(models.Model):
         compute="_compute_per_day_cost",
         store=True,
     )
+    start_date = fields.Date(string="Start Date")
+    end_date = fields.Date(string="End Date")
+    consumed_amount = fields.Float(
+        string="Consumed (USD)",
+        compute="_compute_consumed_amount",
+        help="Per-day cost x days elapsed within the subscription date range "
+             "(capped at today).",
+    )
+    remaining_amount = fields.Float(
+        string="Remaining (USD)",
+        compute="_compute_consumed_amount",
+    )
 
     @api.depends("assigned_user_ids")
     def _compute_subscription_count(self):
@@ -72,3 +84,31 @@ class EtpBatchBudgetSubscriptionLine(models.Model):
     def _compute_per_day_cost(self):
         for rec in self:
             rec.per_day_cost = (rec.final_amount or 0.0) / 30.0
+
+    @api.depends(
+        "approved_amount",
+        "per_day_cost",
+        "start_date",
+        "end_date",
+        "batch_id.start_date",
+        "batch_id.end_date",
+    )
+    def _compute_consumed_amount(self):
+        today = fields.Date.context_today(self)
+        for rec in self:
+            batch = rec.batch_id
+            start_date = rec.start_date or (batch.start_date if batch else False)
+            end_date = rec.end_date or (batch.end_date if batch else False)
+            consumed = 0.0
+            if (
+                start_date
+                and end_date
+                and end_date >= start_date
+                and (rec.per_day_cost or 0.0) > 0.0
+            ):
+                upper = min(today, end_date)
+                if upper >= start_date:
+                    days = (upper - start_date).days + 1
+                    consumed = days * (rec.per_day_cost or 0.0)
+            rec.consumed_amount = consumed
+            rec.remaining_amount = (rec.approved_amount or 0.0) - consumed

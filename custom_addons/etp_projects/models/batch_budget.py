@@ -237,7 +237,7 @@ class EtpBatchBudget(models.Model):
         "total_tasks",
         "model_line_ids.per_task_cost",
         "infra_line_ids.per_day_cost",
-        "subscription_line_ids.per_day_cost",
+        "subscription_line_ids.final_amount",
         "start_date",
         "end_date",
     )
@@ -245,14 +245,14 @@ class EtpBatchBudget(models.Model):
         for rec in self:
             per_task = sum(rec.model_line_ids.mapped("per_task_cost"))
             infra_per_day = sum(rec.infra_line_ids.mapped("per_day_cost"))
-            sub_per_day = sum(rec.subscription_line_ids.mapped("per_day_cost"))
+            sub_total = sum(rec.subscription_line_ids.mapped("final_amount"))
             duration_days = 0
             if rec.start_date and rec.end_date and rec.end_date >= rec.start_date:
                 duration_days = (rec.end_date - rec.start_date).days + 1
             rec.estimated_cost = (
                 (rec.total_tasks or 0) * per_task
                 + duration_days * infra_per_day
-                + duration_days * sub_per_day
+                + sub_total
             )
 
     @api.depends("estimated_cost", "buffer_pct")
@@ -291,15 +291,57 @@ class EtpBatchBudget(models.Model):
         "end_date",
         "project_id",
         "approved_amount",
+        "subscription_line_ids.per_day_cost",
+        "subscription_line_ids.start_date",
+        "subscription_line_ids.end_date",
+        "infra_line_ids.infra_type_id",
     )
     def _compute_consumed_cost(self):
         Line = self.env["etp.project.aws.cost.line"]
+        today = fields.Date.context_today(self)
         for rec in self:
             domain = rec._cost_line_domain()
-            consumed = 0.0
+            llm_consumed = 0.0
+            infra_consumed = 0.0
             if domain:
-                llm_domain = domain + [("model_name", "!=", False)]
-                consumed = sum(Line.sudo().search(llm_domain).mapped("amount_source"))
+                llm_domain = domain + [
+                    "|",
+                    ("source", "!=", "aws"),
+                    "&",
+                    ("service_name", "in", ["Amazon Bedrock", "OpenRouter"]),
+                    ("is_model_breakdown", "=", True),
+                ]
+                llm_consumed = sum(
+                    Line.sudo().search(llm_domain).mapped("amount_source")
+                )
+                infra_names = [
+                    ln.infra_type_id.name
+                    for ln in rec.infra_line_ids
+                    if ln.infra_type_id and ln.infra_type_id.name
+                ]
+                if infra_names:
+                    infra_domain = domain + [
+                        ("service_name", "in", infra_names),
+                        ("source_tag_key", "=", "project"),
+                    ]
+                    infra_consumed = sum(
+                        Line.sudo().search(infra_domain).mapped("amount_source")
+                    )
+            sub_consumed = 0.0
+            for sub in rec.subscription_line_ids:
+                sub_consumed += sub.approved_amount
+                # sub_start = sub.start_date or rec.start_date
+                # sub_end = sub.end_date or rec.end_date
+                # if not (sub_start and sub_end and sub_end >= sub_start):
+                #     continue
+                # if (sub.per_day_cost or 0.0) <= 0.0:
+                #     continue
+                # upper = min(today, sub_end)
+                # if upper < sub_start:
+                #     continue
+                # days = (upper - sub_start).days + 1
+                # sub_consumed += days * sub.per_day_cost
+            consumed = llm_consumed + infra_consumed + sub_consumed
             rec.consumed_cost = consumed
             rec.remaining_cost = (rec.approved_amount or 0.0) - consumed
             rec.consumed_pct = (

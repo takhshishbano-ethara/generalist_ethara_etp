@@ -1,0 +1,257 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="etp_projects.BudgetHealthDashboard">
+    <div class="etp-bdh-wrap o_action">
+
+        <div class="etp-bdh-header">
+            <div>
+                <h2>Project Budget Health</h2>
+                <small>Budget vs Estimation vs Actual — by project &amp; month</small>
+            </div>
+            <div class="etp-bdh-actions">
+                <button class="btn btn-sm btn-secondary" t-on-click="openRowsList">Open Raw Rollups</button>
+                <button class="btn btn-sm btn-primary" t-on-click="refresh">Refresh</button>
+            </div>
+        </div>
+
+        <div class="etp-bdh-filters" t-if="state.loaded">
+            <div class="etp-bdh-filter-group">
+                <label>Budget Type</label>
+                <div class="btn-group">
+                    <button class="btn btn-sm"
+                            t-att-class="state.filters.budget_type === '' ? 'btn-primary' : 'btn-light'"
+                            t-on-click="() => this.setBudgetType('')">All</button>
+                    <button class="btn btn-sm"
+                            t-att-class="state.filters.budget_type === 'rnd' ? 'btn-primary' : 'btn-light'"
+                            t-on-click="() => this.setBudgetType('rnd')">R&amp;D</button>
+                    <button class="btn btn-sm"
+                            t-att-class="state.filters.budget_type === 'operations' ? 'btn-primary' : 'btn-light'"
+                            t-on-click="() => this.setBudgetType('operations')">Operations</button>
+                </div>
+            </div>
+
+            <div class="etp-bdh-filter-group">
+                <label>Classification</label>
+                <div class="btn-group">
+                    <button class="btn btn-sm"
+                            t-att-class="state.filters.project_classification === '' ? 'btn-primary' : 'btn-light'"
+                            t-on-click="() => this.setClassification('')">All</button>
+                    <button class="btn btn-sm"
+                            t-att-class="state.filters.project_classification === 'internal' ? 'btn-primary' : 'btn-light'"
+                            t-on-click="() => this.setClassification('internal')">Internal</button>
+                    <button class="btn btn-sm"
+                            t-att-class="state.filters.project_classification === 'external' ? 'btn-primary' : 'btn-light'"
+                            t-on-click="() => this.setClassification('external')">External</button>
+                </div>
+            </div>
+
+            <div class="etp-bdh-filter-group">
+                <label>Month Range</label>
+                <input type="date" class="form-control form-control-sm"
+                       t-att-value="state.filters.start_month" t-on-change="setStartMonth"/>
+                <span>—</span>
+                <input type="date" class="form-control form-control-sm"
+                       t-att-value="state.filters.end_month" t-on-change="setEndMonth"/>
+            </div>
+
+            <div class="etp-bdh-filter-group etp-bdh-projects-filter">
+                <label>Projects</label>
+                <button class="btn btn-sm btn-light" t-on-click="toggleProjectFilter">
+                    <t t-esc="selectedProjectsLabel"/> ▾
+                </button>
+                <div class="etp-bdh-project-dropdown" t-if="state.projectFilterOpen and state.data">
+                    <t t-foreach="state.data.filter_options.projects" t-as="p" t-key="p.id">
+                        <label class="etp-bdh-project-option">
+                            <input type="checkbox"
+                                   t-att-checked="isProjectSelected(p.id)"
+                                   t-on-change="() => this.toggleProject(p.id)"/>
+                            <span t-esc="p.name"/>
+                        </label>
+                    </t>
+                </div>
+            </div>
+
+            <button class="btn btn-sm btn-link" t-on-click="clearFilters">Clear all filters</button>
+        </div>
+
+        <div class="etp-bdh-loading" t-if="!state.loaded">Loading…</div>
+
+        <div class="etp-bdh-error" t-if="state.error">
+            <strong>Error:</strong> <t t-esc="state.error"/>
+        </div>
+
+        <t t-if="state.loaded and state.data">
+
+            <div class="etp-bdh-kpis">
+                <div class="etp-bdh-kpi etp-bdh-kpi-budget">
+                    <div class="etp-bdh-kpi-label">Budget Cost</div>
+                    <div class="etp-bdh-kpi-value" t-esc="fmtMoney(state.data.totals.budget_cost)"/>
+                </div>
+                <div class="etp-bdh-kpi etp-bdh-kpi-estimation">
+                    <div class="etp-bdh-kpi-label">Estimation Cost</div>
+                    <div class="etp-bdh-kpi-value" t-esc="fmtMoney(state.data.totals.estimation_cost)"/>
+                </div>
+                <div class="etp-bdh-kpi etp-bdh-kpi-actual">
+                    <div class="etp-bdh-kpi-label">Actual Cost (LLM)</div>
+                    <div class="etp-bdh-kpi-value" t-esc="fmtMoney(state.data.totals.actual_cost)"/>
+                </div>
+                <div class="etp-bdh-kpi etp-bdh-kpi-variance"
+                     t-att-class="state.data.totals.variance_budget_vs_actual &lt; 0 ? 'etp-bdh-kpi-bad' : 'etp-bdh-kpi-good'">
+                    <div class="etp-bdh-kpi-label">Variance (Budget − Actual)</div>
+                    <div class="etp-bdh-kpi-value" t-esc="fmtMoney(state.data.totals.variance_budget_vs_actual)"/>
+                    <div class="etp-bdh-kpi-sub">B−E: <t t-esc="fmtMoney(state.data.totals.variance_budget_vs_estimation)"/></div>
+                </div>
+                <div class="etp-bdh-kpi etp-bdh-kpi-health" t-att-class="healthClass(state.data.totals.overall_health)">
+                    <div class="etp-bdh-kpi-label">Overall Health</div>
+                    <div class="etp-bdh-kpi-value" t-esc="healthLabel(state.data.totals.overall_health)"/>
+                    <div class="etp-bdh-kpi-sub">
+                        <t t-esc="fmtPct(state.data.totals.consumed_pct)"/> consumed •
+                        <t t-esc="state.data.totals.project_count"/> projects •
+                        <t t-esc="state.data.totals.row_count"/> rollups
+                    </div>
+                </div>
+            </div>
+
+            <div class="etp-bdh-health-strip">
+                <span class="etp-bdh-pill etp-bdh-healthy">Healthy: <t t-esc="state.data.health_breakdown.healthy"/></span>
+                <span class="etp-bdh-pill etp-bdh-warning">Warning: <t t-esc="state.data.health_breakdown.warning"/></span>
+                <span class="etp-bdh-pill etp-bdh-at-risk">At Risk: <t t-esc="state.data.health_breakdown.at_risk"/></span>
+                <span class="etp-bdh-pill etp-bdh-critical">Critical: <t t-esc="state.data.health_breakdown.critical"/></span>
+                <span class="etp-bdh-pill etp-bdh-unknown">Unknown: <t t-esc="state.data.health_breakdown.unknown"/></span>
+            </div>
+
+            <div class="etp-bdh-charts">
+                <div class="etp-bdh-card">
+                    <h4>Variance by Month</h4>
+                    <table class="etp-bdh-bartable">
+                        <thead>
+                            <tr><th>Month</th><th>Budget</th><th>Estimation</th><th>Actual</th></tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.data.variance_by_month" t-as="m" t-key="m.month_label">
+                                <tr>
+                                    <td class="etp-bdh-bartable-key" t-esc="m.month_label"/>
+                                    <td>
+                                        <div class="etp-bdh-bar etp-bdh-bar-budget"
+                                             t-att-style="'width:' + barWidth(m.budget, maxOf(state.data.variance_by_month, 'budget'))"/>
+                                        <span t-esc="fmtMoney(m.budget)"/>
+                                    </td>
+                                    <td>
+                                        <div class="etp-bdh-bar etp-bdh-bar-estimation"
+                                             t-att-style="'width:' + barWidth(m.estimation, maxOf(state.data.variance_by_month, 'estimation'))"/>
+                                        <span t-esc="fmtMoney(m.estimation)"/>
+                                    </td>
+                                    <td>
+                                        <div class="etp-bdh-bar etp-bdh-bar-actual"
+                                             t-att-style="'width:' + barWidth(m.actual, maxOf(state.data.variance_by_month, 'actual'))"/>
+                                        <span t-esc="fmtMoney(m.actual)"/>
+                                    </td>
+                                </tr>
+                            </t>
+                            <tr t-if="!state.data.variance_by_month.length">
+                                <td colspan="4" class="etp-bdh-empty">No data for the selected filters.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="etp-bdh-card">
+                    <h4>Top Projects by Actual Spend</h4>
+                    <table class="etp-bdh-bartable">
+                        <thead>
+                            <tr><th>Project</th><th>Actual</th><th>Budget</th><th>Consumed %</th></tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.data.project_leaderboard.slice(0, 10)" t-as="p" t-key="p.project_id">
+                                <tr t-on-click="() => this.openProject(p.project_id)" class="etp-bdh-row-clickable">
+                                    <td t-esc="p.project_name"/>
+                                    <td>
+                                        <div class="etp-bdh-bar etp-bdh-bar-actual"
+                                             t-att-style="'width:' + barWidth(p.actual, maxOf(state.data.project_leaderboard, 'actual'))"/>
+                                        <span t-esc="fmtMoney(p.actual)"/>
+                                    </td>
+                                    <td t-esc="fmtMoney(p.budget)"/>
+                                    <td t-esc="fmtPct(p.consumed_pct)"/>
+                                </tr>
+                            </t>
+                            <tr t-if="!state.data.project_leaderboard.length">
+                                <td colspan="4" class="etp-bdh-empty">No projects to show.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="etp-bdh-card">
+                    <h4>Budget Type Split</h4>
+                    <table class="etp-bdh-bartable">
+                        <thead>
+                            <tr><th>Type</th><th>Rows</th><th>Budget</th><th>Actual</th></tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.data.budget_type_chart" t-as="b" t-key="b.budget_type">
+                                <tr>
+                                    <td class="etp-bdh-bartable-key" t-esc="b.budget_type"/>
+                                    <td t-esc="b.row_count"/>
+                                    <td t-esc="fmtMoney(b.budget)"/>
+                                    <td t-esc="fmtMoney(b.actual)"/>
+                                </tr>
+                            </t>
+                            <tr t-if="!state.data.budget_type_chart.length">
+                                <td colspan="4" class="etp-bdh-empty">No data.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="etp-bdh-card">
+                <h4>Detailed Rollups (Project × Month)</h4>
+                <table class="etp-bdh-table">
+                    <thead>
+                        <tr>
+                            <th>Project</th>
+                            <th>Month</th>
+                            <th>Type</th>
+                            <th>Classification</th>
+                            <th class="etp-bdh-num">Budget</th>
+                            <th class="etp-bdh-num">Estimation</th>
+                            <th class="etp-bdh-num">Actual</th>
+                            <th class="etp-bdh-num">Variance (B−A)</th>
+                            <th class="etp-bdh-num">Consumed %</th>
+                            <th>Health</th>
+                            <th class="etp-bdh-num">Done Tasks</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-foreach="state.data.rows" t-as="r" t-key="r.id">
+                            <tr t-on-click="() => this.openProject(r.project_id)" class="etp-bdh-row-clickable">
+                                <td t-esc="r.project_name"/>
+                                <td t-esc="r.month_label"/>
+                                <td t-esc="r.budget_type_label"/>
+                                <td t-esc="r.project_classification"/>
+                                <td class="etp-bdh-num" t-esc="fmtMoney(r.budget_cost)"/>
+                                <td class="etp-bdh-num" t-esc="fmtMoney(r.estimation_cost)"/>
+                                <td class="etp-bdh-num" t-esc="fmtMoney(r.actual_cost)"/>
+                                <td class="etp-bdh-num" t-esc="fmtMoney(r.variance_budget_vs_actual)"/>
+                                <td class="etp-bdh-num" t-esc="fmtPct(r.consumed_pct)"/>
+                                <td>
+                                    <span class="etp-bdh-pill"
+                                          t-att-class="healthClass(r.health_status)"
+                                          t-esc="healthLabel(r.health_status)"/>
+                                </td>
+                                <td class="etp-bdh-num" t-esc="r.done_tasks_in_month"/>
+                            </tr>
+                        </t>
+                        <tr t-if="!state.data.rows.length">
+                            <td colspan="11" class="etp-bdh-empty">No rollups match the current filters.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </t>
+    </div>
+</t>
+
+</templates>

@@ -55,6 +55,8 @@ class EtpBatchBudgetRequestSubscriptionLine(models.Model):
         compute="_compute_per_day_cost",
         store=True,
     )
+    start_date = fields.Date(string="Start Date")
+    end_date = fields.Date(string="End Date")
 
     @api.depends("assigned_user_ids")
     def _compute_subscription_count(self):

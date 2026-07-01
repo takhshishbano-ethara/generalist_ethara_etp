@@ -135,6 +135,10 @@
                                            readonly="cost_type == 'per_task'"/>
                                     <field name="per_task_cost" sum="USD"
                                            readonly="cost_type == 'per_trajectory'"/>
+                                    <field name="approved_amount" sum="USD" readonly="1"/>
+                                    <field name="consumed_amount" sum="USD" readonly="1"/>
+                                    <field name="remaining_amount" sum="USD" readonly="1"
+                                           decoration-danger="remaining_amount &lt; 0"/>
                                 </list>
                             </field>
                         </page>
@@ -143,8 +147,14 @@
                                 <list create="0" delete="0" edit="0">
                                     <field name="infra_type_id"/>
                                     <field name="description"/>
-                                    <field name="budget_amount" sum="USD"/>
+                                    <field name="approved_amount" sum="USD"/>
+                                    <field name="budget_amount" sum="USD" optional="hide"/>
                                     <field name="per_day_cost" sum="USD"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="consumed_amount" sum="USD"/>
+                                    <field name="remaining_amount" sum="USD"
+                                           decoration-danger="remaining_amount &lt; 0"/>
                                 </list>
                             </field>
                         </page>
@@ -156,7 +166,11 @@
                                     <field name="cost_per_subscription"/>
                                     <field name="subscription_count"/>
                                     <field name="final_amount" sum="USD"/>
+                                    <field name="approved_amount" sum="USD" readonly="1"/>
                                     <field name="per_day_cost" sum="USD"/>
+                                    <field name="consumed_amount" sum="USD" readonly="1"/>
+                                    <field name="remaining_amount" sum="USD" readonly="1"
+                                           decoration-danger="remaining_amount &lt; 0"/>
                                 </list>
                             </field>
                         </page>

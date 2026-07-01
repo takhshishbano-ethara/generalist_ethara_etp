@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
@@ -354,50 +356,135 @@ class EtpBatchBudgetRequest(models.Model):
     @api.onchange(
         "model_line_ids",
         "infra_line_ids",
+        "subscription_line_ids",
         "buffer_pct",
     )
     def _onchange_suggest_totals(self):
         for rec in self:
             factor = 1.0 + ((rec.buffer_pct or 0.0) / 100.0)
+            sub_requested = sum(
+                (line.requested_amount or line.final_amount or 0.0)
+                for line in rec.subscription_line_ids
+            )
+            sub_approved = sum(
+                (line.approved_amount or 0.0)
+                for line in rec.subscription_line_ids
+            )
             requested_base = (
                 sum(rec.model_line_ids.mapped("requested_amount"))
                 + sum(rec.infra_line_ids.mapped("requested_amount"))
+                + sub_requested
             )
             approved_base = (
                 sum(rec.model_line_ids.mapped("approved_amount"))
                 + sum(rec.infra_line_ids.mapped("approved_amount"))
+                + sub_approved
             )
             rec.requested_total = requested_base * factor
             rec.approved_total = approved_base * factor
 
     def _distribute_approved_amount(self):
+        """Distribute approved_total across lines in strict waterfall order:
+        subscriptions first, then infrastructure, then models. Each tier is
+        funded to its requested target before the next tier sees a dollar.
+        If a tier is short, that tier is filled pro-rata and downstream tiers
+        receive nothing. Applies equally to Operations and R&D budgets.
+        """
         self.ensure_one()
-        for line in self.subscription_line_ids:
-            line.approved_amount = line.final_amount or 0.0
-        for line in self.infra_line_ids:
-            if (
-                line.start_date
-                and line.end_date
-                and line.end_date >= line.start_date
-            ):
-                days = (line.end_date - line.start_date).days + 1
-                per_day = (line.requested_amount or 0.0) / 30.0
-                line.approved_amount = days * per_day
+        approved_total = self.approved_total or 0.0
+
+        sub_targets = {
+            line.id: (line.requested_amount or line.final_amount or 0.0)
+            for line in self.subscription_line_ids
+        }
+        infra_targets = {
+            line.id: (line.requested_amount or 0.0)
+            for line in self.infra_line_ids
+        }
+        model_targets = {
+            line.id: (line.requested_amount or 0.0)
+            for line in self.model_line_ids
+        }
+        sub_total = sum(sub_targets.values())
+        infra_total = sum(infra_targets.values())
+        model_total = sum(model_targets.values())
+
+        def _zero(lines):
+            for ln in lines:
+                ln.approved_amount = 0.0
+
+        if approved_total <= 0.0:
+            _zero(self.subscription_line_ids)
+            _zero(self.infra_line_ids)
+            _zero(self.model_line_ids)
+            return
+
+        remaining = approved_total
+
+        if remaining + 1e-6 >= sub_total:
+            for line in self.subscription_line_ids:
+                line.approved_amount = sub_targets.get(line.id, 0.0)
+            remaining -= sub_total
+        else:
+            ratio = (remaining / sub_total) if sub_total > 0.0 else 0.0
+            for line in self.subscription_line_ids:
+                line.approved_amount = sub_targets.get(line.id, 0.0) * ratio
+            _zero(self.infra_line_ids)
+            _zero(self.model_line_ids)
+            return
+
+        if remaining + 1e-6 >= infra_total:
+            for line in self.infra_line_ids:
+                line.approved_amount = infra_targets.get(line.id, 0.0)
+            remaining -= infra_total
+        else:
+            ratio = (remaining / infra_total) if infra_total > 0.0 else 0.0
+            for line in self.infra_line_ids:
+                line.approved_amount = infra_targets.get(line.id, 0.0) * ratio
+            _zero(self.model_line_ids)
+            return
+
+        if model_total > 0.0:
+            if remaining + 1e-6 >= model_total:
+                for line in self.model_line_ids:
+                    line.approved_amount = model_targets.get(line.id, 0.0)
             else:
-                line.approved_amount = line.requested_amount or 0.0
-        total_tasks = self.total_tasks or self.batch_id.total_tasks or 0
-        for line in self.model_line_ids:
-            line.approved_amount = total_tasks * (line.per_task_cost or 0.0)
-        factor = 1.0 + ((self.buffer_pct or 0.0) / 100.0)
-        base = (
-            sum(self.model_line_ids.mapped("approved_amount"))
-            + sum(self.infra_line_ids.mapped("approved_amount"))
-        )
-        self.approved_total = base * factor
+                ratio = remaining / model_total
+                for line in self.model_line_ids:
+                    line.approved_amount = (
+                        model_targets.get(line.id, 0.0) * ratio
+                    )
+        else:
+            _zero(self.model_line_ids)
 
     def action_auto_distribute_approved(self):
         for rec in self:
             rec._distribute_approved_amount()
+
+    def _fixed_cost_floor(self):
+        self.ensure_one()
+        infra_req = sum(
+            (line.requested_amount or 0.0) for line in self.infra_line_ids
+        )
+        sub_req = sum(
+            (line.requested_amount or line.final_amount or 0.0)
+            for line in self.subscription_line_ids
+        )
+        return infra_req + sub_req
+
+    def _check_fixed_cost_floor(self):
+        self.ensure_one()
+        floor = self._fixed_cost_floor()
+        if floor <= 0.0:
+            return
+        approved_total = self.approved_total or 0.0
+        if approved_total + 1e-6 < floor:
+            raise UserError(_(
+                "Approved amount (USD %(approved).2f) must be at least the "
+                "infrastructure + subscription cost (USD %(floor).2f). "
+                "Either raise the approved amount to cover fixed costs or "
+                "approve the full requested total."
+            ) % {"approved": approved_total, "floor": floor})
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -717,6 +804,8 @@ class EtpBatchBudgetRequest(models.Model):
                     "Approved total must be greater than zero. Use "
                     "'Request Changes' if the request is not acceptable."
                 ))
+            rec._check_fixed_cost_floor()
+            rec._distribute_approved_amount()
             is_partial = (
                 (rec.approved_total or 0.0) < (rec.requested_total or 0.0)
                 or any(
@@ -881,29 +970,42 @@ class EtpBatchBudgetRequest(models.Model):
         project_budget = batch.project_budget_id
         BatchModelLine = self.env["etp.batch.budget.model.line"]
         BatchInfraLine = self.env["etp.batch.budget.infra.line"]
+        BatchSubLine = self.env["etp.batch.budget.subscription.line"]
         ProjectModelLine = self.env["etp.project.budget.model.line"]
         ProjectInfraLine = self.env["etp.project.budget.infra.line"]
+        ProjectSubLine = self.env["etp.project.budget.subscription.line"]
 
-        batch_existing_models = {
-            line.ai_model_id.id for line in batch.model_line_ids
+        batch_model_by_key = {
+            line.ai_model_id.id: line
+            for line in batch.model_line_ids
+            if line.ai_model_id
         }
-        project_existing_models = {
-            line.ai_model_id.id for line in project_budget.model_line_ids
+        project_model_keys = {
+            line.ai_model_id.id
+            for line in project_budget.model_line_ids
+            if line.ai_model_id
         }
         for line in self.model_line_ids:
-            if (line.approved_amount or 0.0) <= 0.0:
+            if (line.approved_amount or 0.0) <= 0.0 or not line.ai_model_id:
                 continue
-            if line.ai_model_id.id not in batch_existing_models:
-                BatchModelLine.create({
+            existing = batch_model_by_key.get(line.ai_model_id.id)
+            if existing:
+                existing.approved_amount = (
+                    (existing.approved_amount or 0.0)
+                    + (line.approved_amount or 0.0)
+                )
+            else:
+                new_line = BatchModelLine.create({
                     "batch_id": batch.id,
                     "ai_model_id": line.ai_model_id.id,
                     "cost_type": line.cost_type or "per_task",
                     "per_trajectory_cost": line.per_trajectory_cost or 0.0,
                     "iterations": line.iterations or 0,
                     "per_task_cost": line.per_task_cost or 0.0,
+                    "approved_amount": line.approved_amount or 0.0,
                 })
-                batch_existing_models.add(line.ai_model_id.id)
-            if line.ai_model_id.id not in project_existing_models:
+                batch_model_by_key[line.ai_model_id.id] = new_line
+            if line.ai_model_id.id not in project_model_keys:
                 ProjectModelLine.create({
                     "budget_id": project_budget.id,
                     "ai_model_id": line.ai_model_id.id,
@@ -912,28 +1014,48 @@ class EtpBatchBudgetRequest(models.Model):
                     "iterations": line.iterations or 0,
                     "per_task_cost": line.per_task_cost or 0.0,
                 })
-                project_existing_models.add(line.ai_model_id.id)
+                project_model_keys.add(line.ai_model_id.id)
 
-        batch_existing_infra = {
-            line.infra_type_id.id for line in batch.infra_line_ids
+        batch_infra_by_key = {
+            line.infra_type_id.id: line
+            for line in batch.infra_line_ids
+            if line.infra_type_id
         }
-        project_existing_infra = {
-            line.infra_type_id.id for line in project_budget.infra_line_ids
+        project_infra_keys = {
+            line.infra_type_id.id
+            for line in project_budget.infra_line_ids
+            if line.infra_type_id
         }
         for line in self.infra_line_ids:
-            if (line.approved_amount or 0.0) <= 0.0:
+            if (line.approved_amount or 0.0) <= 0.0 or not line.infra_type_id:
                 continue
-            if line.infra_type_id.id not in batch_existing_infra:
-                BatchInfraLine.create({
+            existing = batch_infra_by_key.get(line.infra_type_id.id)
+            if existing:
+                amount = line.approved_amount or 0.0
+                existing.approved_amount = (existing.approved_amount or 0.0) + amount
+                existing.budget_amount = (existing.budget_amount or 0.0) + amount
+                if line.start_date and (
+                    not existing.start_date
+                    or line.start_date < existing.start_date
+                ):
+                    existing.start_date = line.start_date
+                if line.end_date and (
+                    not existing.end_date
+                    or line.end_date > existing.end_date
+                ):
+                    existing.end_date = line.end_date
+            else:
+                new_line = BatchInfraLine.create({
                     "batch_id": batch.id,
                     "infra_type_id": line.infra_type_id.id,
                     "description": line.description or False,
                     "budget_amount": line.approved_amount or 0.0,
+                    "approved_amount": line.approved_amount or 0.0,
                     "start_date": line.start_date or False,
                     "end_date": line.end_date or False,
                 })
-                batch_existing_infra.add(line.infra_type_id.id)
-            if line.infra_type_id.id not in project_existing_infra:
+                batch_infra_by_key[line.infra_type_id.id] = new_line
+            if line.infra_type_id.id not in project_infra_keys:
                 ProjectInfraLine.create({
                     "budget_id": project_budget.id,
                     "infra_type_id": line.infra_type_id.id,
@@ -942,35 +1064,62 @@ class EtpBatchBudgetRequest(models.Model):
                     "start_date": line.start_date or False,
                     "end_date": line.end_date or False,
                 })
-                project_existing_infra.add(line.infra_type_id.id)
+                project_infra_keys.add(line.infra_type_id.id)
 
-        BatchSubLine = self.env["etp.batch.budget.subscription.line"]
-        ProjectSubLine = self.env["etp.project.budget.subscription.line"]
-        batch_existing_subs = {
-            line.subscription_id.id for line in batch.subscription_line_ids
+        batch_sub_by_key = {
+            line.subscription_id.id: line
+            for line in batch.subscription_line_ids
+            if line.subscription_id
         }
-        project_existing_subs = {
-            line.subscription_id.id for line in project_budget.subscription_line_ids
+        project_sub_by_key = {
+            line.subscription_id.id: line
+            for line in project_budget.subscription_line_ids
+            if line.subscription_id
         }
+        sub_start = fields.Date.to_date(
+            self.approval_date or fields.Datetime.now()
+        )
+        sub_end = sub_start + timedelta(days=30)
         for line in self.subscription_line_ids:
-            if (line.approved_amount or 0.0) <= 0.0:
+            if (line.approved_amount or 0.0) <= 0.0 or not line.subscription_id:
                 continue
-            if line.subscription_id.id not in batch_existing_subs:
-                BatchSubLine.create({
+            existing = batch_sub_by_key.get(line.subscription_id.id)
+            if existing:
+                existing.approved_amount = (
+                    (existing.approved_amount or 0.0)
+                    + (line.approved_amount or 0.0)
+                )
+                merged_users = existing.assigned_user_ids | line.assigned_user_ids
+                existing.assigned_user_ids = [(6, 0, merged_users.ids)]
+                existing.start_date = min(existing.start_date or sub_start, sub_start)
+                existing.end_date = max(existing.end_date or sub_end, sub_end)
+            else:
+                batch_sub_by_key[line.subscription_id.id] = BatchSubLine.create({
                     "batch_id": batch.id,
                     "subscription_id": line.subscription_id.id,
                     "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
                     "approved_amount": line.approved_amount or 0.0,
+                    "start_date": sub_start,
+                    "end_date": sub_end,
                 })
-                batch_existing_subs.add(line.subscription_id.id)
-            if line.subscription_id.id not in project_existing_subs:
-                ProjectSubLine.create({
+
+            proj_existing = project_sub_by_key.get(line.subscription_id.id)
+            if proj_existing:
+                proj_existing.start_date = min(
+                    proj_existing.start_date or sub_start, sub_start
+                )
+                proj_existing.end_date = max(
+                    proj_existing.end_date or sub_end, sub_end
+                )
+            else:
+                project_sub_by_key[line.subscription_id.id] = ProjectSubLine.create({
                     "budget_id": project_budget.id,
                     "subscription_id": line.subscription_id.id,
                     "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
                     "approved_amount": line.approved_amount or 0.0,
+                    "start_date": sub_start,
+                    "end_date": sub_end,
                 })
-                project_existing_subs.add(line.subscription_id.id)
 
         new_state = "approved" if batch.state in (
             "draft", "rejected", "withdrawn", "pending"

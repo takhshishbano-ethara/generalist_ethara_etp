@@ -1352,6 +1352,7 @@ class EtpProjectBudgetController(http.Controller):
             if action == "approve":
                 if jdata.get("approved_total"):
                     req.approved_total = float(jdata.get("approved_total"))
+                req._check_fixed_cost_floor()
                 req.action_approve()
             else:
                 reason = (jdata.get("rejection_reason") or "").strip()

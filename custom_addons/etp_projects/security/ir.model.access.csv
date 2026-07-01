@@ -31,5 +31,7 @@ access_etp_batch_budget_request_review_wizard,etp.batch.budget.request.review.wi
 access_etp_batch_budget_request_wizard,etp.batch.budget.request.wizard,model_etp_batch_budget_request_wizard,,1,1,1,1
 access_etp_batch_budget_request_wizard_model_line,etp.batch.budget.request.wizard.model.line,model_etp_batch_budget_request_wizard_model_line,,1,1,1,1
 access_etp_batch_budget_request_wizard_infra_line,etp.batch.budget.request.wizard.infra.line,model_etp_batch_budget_request_wizard_infra_line,,1,1,1,1
+access_etp_batch_budget_request_wizard_subscription_line,etp.batch.budget.request.wizard.subscription.line,model_etp_batch_budget_request_wizard_subscription_line,,1,1,1,1
 access_etp_project_budget_topup,etp.project.budget.topup,model_etp_project_budget_topup,,1,1,1,1
 access_etp_project_budget_topup_reject_wizard,etp.project.budget.topup.reject.wizard,model_etp_project_budget_topup_reject_wizard,,1,1,1,1
+access_etp_project_budget_dashboard,etp.project.budget.dashboard,model_etp_project_budget_dashboard,,1,1,1,1

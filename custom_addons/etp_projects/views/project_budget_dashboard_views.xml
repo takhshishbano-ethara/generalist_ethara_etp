@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="action_etp_project_budget_health_dashboard" model="ir.actions.client">
+        <field name="name">Project Budget Health</field>
+        <field name="tag">etp_project_budget_health_dashboard</field>
+    </record>
+
+    <record id="view_etp_project_budget_dashboard_list" model="ir.ui.view">
+        <field name="name">etp.project.budget.dashboard.list</field>
+        <field name="model">etp.project.budget.dashboard</field>
+        <field name="arch" type="xml">
+            <list string="Project Budget Rollups" default_order="period_month desc, project_id">
+                <field name="period_month"/>
+                <field name="month_label"/>
+                <field name="project_id"/>
+                <field name="project_classification"/>
+                <field name="budget_type_label"/>
+                <field name="budget_cost" sum="Budget"/>
+                <field name="estimation_cost" sum="Estimation"/>
+                <field name="actual_cost" sum="Actual"/>
+                <field name="variance_budget_vs_actual" sum="Variance (B-A)"/>
+                <field name="consumed_pct" widget="percentage"/>
+                <field name="health_status" widget="badge"
+                       decoration-success="health_status == 'healthy'"
+                       decoration-warning="health_status == 'warning'"
+                       decoration-danger="health_status in ('at_risk','critical')"
+                       decoration-muted="health_status == 'unknown'"/>
+                <field name="done_tasks_in_month"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_etp_project_budget_dashboard_form" model="ir.ui.view">
+        <field name="name">etp.project.budget.dashboard.form</field>
+        <field name="model">etp.project.budget.dashboard</field>
+        <field name="arch" type="xml">
+            <form string="Project Budget Rollup">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="project_id"/>
+                            <field name="period_month"/>
+                            <field name="month_label"/>
+                            <field name="project_classification"/>
+                            <field name="budget_type_label"/>
+                            <field name="has_rnd_budget"/>
+                            <field name="has_operations_budget"/>
+                        </group>
+                        <group>
+                            <field name="budget_cost"/>
+                            <field name="estimation_cost"/>
+                            <field name="actual_cost"/>
+                            <field name="variance_budget_vs_actual"/>
+                            <field name="variance_budget_vs_estimation"/>
+                            <field name="variance_estimation_vs_actual"/>
+                            <field name="consumed_pct" widget="percentage"/>
+                            <field name="health_status" widget="badge"/>
+                            <field name="done_tasks_in_month"/>
+                            <field name="total_tasks_in_month"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_etp_project_budget_dashboard_search" model="ir.ui.view">
+        <field name="name">etp.project.budget.dashboard.search</field>
+        <field name="model">etp.project.budget.dashboard</field>
+        <field name="arch" type="xml">
+            <search string="Project Budget Rollups">
+                <field name="project_id"/>
+                <field name="month_label"/>
+                <filter string="R&amp;D" name="filter_rnd" domain="[('has_rnd_budget', '=', True)]"/>
+                <filter string="Operations" name="filter_operations" domain="[('has_operations_budget', '=', True)]"/>
+                <separator/>
+                <filter string="Internal" name="filter_internal" domain="[('project_classification', '=', 'internal')]"/>
+                <filter string="External" name="filter_external" domain="[('project_classification', '=', 'external')]"/>
+                <separator/>
+                <filter string="Healthy" name="filter_healthy" domain="[('health_status', '=', 'healthy')]"/>
+                <filter string="Warning" name="filter_warning" domain="[('health_status', '=', 'warning')]"/>
+                <filter string="At Risk" name="filter_at_risk" domain="[('health_status', '=', 'at_risk')]"/>
+                <filter string="Critical" name="filter_critical" domain="[('health_status', '=', 'critical')]"/>
+                <group>
+                    <filter string="Project" name="group_project" context="{'group_by': 'project_id'}"/>
+                    <filter string="Month" name="group_month" context="{'group_by': 'period_month'}"/>
+                    <filter string="Budget Type" name="group_budget_type" context="{'group_by': 'budget_type_label'}"/>
+                    <filter string="Classification" name="group_classification" context="{'group_by': 'project_classification'}"/>
+                    <filter string="Health" name="group_health" context="{'group_by': 'health_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_etp_project_budget_dashboard_rows" model="ir.actions.act_window">
+        <field name="name">Budget Rollups (Raw)</field>
+        <field name="res_model">etp.project.budget.dashboard</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_etp_project_budget_dashboard_search"/>
+    </record>
+
+    <menuitem id="menu_etp_project_budget_health_dashboard_root"
+              name="Budget Health"
+              parent="project.menu_main_pm"
+              sequence="55"/>
+
+    <menuitem id="menu_etp_project_budget_health_dashboard"
+              name="Project Budget Health"
+              parent="menu_etp_project_budget_health_dashboard_root"
+              action="action_etp_project_budget_health_dashboard"
+              sequence="10"/>
+
+    <menuitem id="menu_etp_project_budget_dashboard_rows"
+              name="Rollups (Raw Data)"
+              parent="menu_etp_project_budget_health_dashboard_root"
+              action="action_etp_project_budget_dashboard_rows"
+              sequence="20"/>
+
+</odoo>

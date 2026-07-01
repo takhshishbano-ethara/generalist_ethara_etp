@@ -818,6 +818,267 @@ def _request_to_detail(req):
     return detail
 
 
+def _batch_state_label(value):
+    return dict(request.env[BATCH_MODEL]._fields["state"].selection).get(value, value)
+
+
+def _batch_health_label(value):
+    return dict(request.env[BATCH_MODEL]._fields["health_status"].selection).get(value, value)
+
+
+def _ai_model_brief(model):
+    if not model:
+        return None
+    return {
+        "id": model.id,
+        "name": model.display_name or model.name,
+        "provider": model.provider or "",
+    }
+
+
+def _infra_type_brief(infra):
+    if not infra:
+        return None
+    return {
+        "id": infra.id,
+        "name": infra.display_name or infra.name,
+        "code": getattr(infra, "code", "") or "",
+    }
+
+
+def _subscription_catalog_brief(sub):
+    if not sub:
+        return None
+    return {
+        "id": sub.id,
+        "name": sub.display_name or sub.name,
+        "cost": sub.cost or 0.0,
+    }
+
+
+def _batch_model_line_full(ln):
+    return {
+        "id": ln.id,
+        "ai_model": _ai_model_brief(ln.ai_model_id),
+        "ai_model_id": ln.ai_model_id.id if ln.ai_model_id else None,
+        "model_name": (
+            ln.ai_model_id.display_name or ln.ai_model_id.name
+            if ln.ai_model_id else ""
+        ),
+        "provider": ln.ai_model_id.provider if ln.ai_model_id else "",
+        "cost_type": ln.cost_type,
+        "per_task_cost": ln.per_task_cost or 0.0,
+        "per_trajectory_cost": ln.per_trajectory_cost or 0.0,
+        "iterations": ln.iterations or 0,
+        "approved_amount": ln.approved_amount or 0.0,
+        "consumed_amount": ln.consumed_amount or 0.0,
+        "remaining_amount": ln.remaining_amount or 0.0,
+    }
+
+
+def _batch_infra_line_full(ln):
+    return {
+        "id": ln.id,
+        "infra_type": _infra_type_brief(ln.infra_type_id),
+        "infra_id": ln.infra_type_id.id if ln.infra_type_id else None,
+        "infra_name": (
+            ln.infra_type_id.display_name or ln.infra_type_id.name
+            if ln.infra_type_id else ""
+        ),
+        "provider": getattr(ln.infra_type_id, "code", "") or "" if ln.infra_type_id else "",
+        "description": ln.description or "",
+        "budget_amount": ln.budget_amount or 0.0,
+        "per_day_cost": ln.per_day_cost or 0.0,
+        "start_date": ln.start_date.isoformat() if ln.start_date else None,
+        "end_date": ln.end_date.isoformat() if ln.end_date else None,
+        "approved_amount": ln.approved_amount or 0.0,
+        "consumed_amount": ln.consumed_amount or 0.0,
+        "remaining_amount": ln.remaining_amount or 0.0,
+    }
+
+
+def _batch_subscription_line_full(ln):
+    return {
+        "id": ln.id,
+        "subscription": _subscription_catalog_brief(ln.subscription_id),
+        "subscription_id": ln.subscription_id.id if ln.subscription_id else None,
+        "subscription_name": (
+            ln.subscription_id.display_name or ln.subscription_id.name
+            if ln.subscription_id else ""
+        ),
+        "provider": ln.subscription_id.name if ln.subscription_id else "",
+        "cost_per_subscription": ln.cost_per_subscription or 0.0,
+        "assigned_users": [_user_brief(u) for u in ln.assigned_user_ids],
+        "assigned_to": ln.assigned_user_ids.ids,
+        "subscription_count": ln.subscription_count or 0,
+        "monthly_total": ln.final_amount or 0.0,
+        "per_day_cost": ln.per_day_cost or 0.0,
+        "start_date": ln.start_date.isoformat() if ln.start_date else None,
+        "end_date": ln.end_date.isoformat() if ln.end_date else None,
+        "approved_amount": ln.approved_amount or 0.0,
+        "consumed_amount": ln.consumed_amount or 0.0,
+        "remaining_amount": ln.remaining_amount or 0.0,
+    }
+
+
+def _batch_daily_task_brief(dt):
+    return {
+        "id": dt.id,
+        "entry_date": dt.entry_date.isoformat() if dt.entry_date else None,
+        "done_count": dt.done_count or 0,
+        "no_of_trajectory": dt.no_of_trajectory or 0,
+        "per_task_cost": dt.per_task_cost or 0.0,
+        "per_trajectory_cost": dt.per_trajectory_cost or 0.0,
+        "total_cost": dt.total_cost or 0.0,
+        "infra_cost": dt.infra_cost or 0.0,
+        "subscription_cost": dt.subscription_cost or 0.0,
+        "health_status": dt.health_status or "unknown",
+        "note": dt.note or "",
+    }
+
+
+def _batch_feedback_brief(fb):
+    return {
+        "id": fb.id,
+        "author": _user_brief(fb.author_id),
+        "date": fb.date.isoformat() if fb.date else None,
+        "rating": fb.rating or "",
+        "note": fb.note or "",
+    }
+
+
+def _batch_connected_record_brief(cr):
+    return {
+        "id": cr.id,
+        "connected_model": cr.connected_model or "",
+        "res_id": cr.res_id or 0,
+        "record_display": cr.record_display or "",
+    }
+
+
+def _batch_info_link_brief(il):
+    return {
+        "id": il.id,
+        "label": il.label or "",
+        "url": il.url or "",
+    }
+
+
+def _batch_summary(batch):
+    if not batch:
+        return None
+    pb = batch.project_budget_id
+    return {
+        "id": batch.id,
+        "name": batch.name,
+        "state": batch.state,
+        "state_label": _batch_state_label(batch.state),
+        "health_status": batch.health_status or "unknown",
+        "health_status_label": _batch_health_label(batch.health_status or "unknown"),
+        "project": {
+            "id": batch.project_id.id,
+            "name": batch.project_id.display_name,
+        } if batch.project_id else None,
+        "project_budget": {
+            "id": pb.id,
+            "name": pb.name or "",
+        } if pb else None,
+        "requester": _user_brief(batch.requester_id),
+        "approver": _user_brief(batch.approver_id),
+        "approval_date": (
+            fields.Datetime.to_string(batch.approval_date)
+            if batch.approval_date else None
+        ),
+        "start_date": batch.start_date.isoformat() if batch.start_date else None,
+        "end_date": batch.end_date.isoformat() if batch.end_date else None,
+        "total_tasks": batch.total_tasks or 0,
+        "done_tasks": batch.done_tasks or 0,
+        "remaining_tasks": batch.remaining_tasks or 0,
+        "buffer_pct": batch.buffer_pct or 0.0,
+        "estimated_cost": batch.estimated_cost or 0.0,
+        "batch_budget": batch.batch_budget or 0.0,
+        "approved_amount": batch.approved_amount or 0.0,
+        "consumed_cost": batch.consumed_cost or 0.0,
+        "remaining_cost": batch.remaining_cost or 0.0,
+        "consumed_pct": batch.consumed_pct or 0.0,
+        "carried_over_amount": batch.carried_over_amount or 0.0,
+        "request_count": batch.request_count or 0,
+        "model_line_count": len(batch.model_line_ids),
+        "infra_line_count": len(batch.infra_line_ids),
+        "subscription_line_count": len(batch.subscription_line_ids),
+    }
+
+
+def _batch_full_detail(batch):
+    if not batch:
+        return None
+    pb = batch.project_budget_id
+    detail = _batch_summary(batch)
+    detail.update({
+        "delivered_date": (
+            fields.Datetime.to_string(batch.delivered_date)
+            if batch.delivered_date else None
+        ),
+        "closed_remaining": batch.closed_remaining or 0.0,
+        "rejection_reason": batch.rejection_reason or "",
+        "s3_link": batch.s3_link or "",
+        "alert_80_sent": bool(batch.alert_80_sent),
+        "alert_100_sent": bool(batch.alert_100_sent),
+        "connected_model": batch.connected_model or "",
+        "active": bool(batch.active),
+    })
+    detail["project_budget"] = ({
+        "id": pb.id,
+        "name": pb.name or "",
+        "cto_user": _user_brief(pb.cto_user_id) if pb.cto_user_id else None,
+        "approver_users": [_user_brief(u) for u in pb.approver_user_ids],
+        "budget_amount": getattr(pb, "budget_amount", 0.0) or 0.0,
+        "allocatable_amount": getattr(pb, "allocatable_amount", 0.0) or 0.0,
+        "batch_budget_remain": getattr(pb, "batch_budget_remain", 0.0) or 0.0,
+        "total_approved_amount": getattr(pb, "total_approved_amount", 0.0) or 0.0,
+    } if pb else None)
+    detail["model_lines"] = [_batch_model_line_full(ln) for ln in batch.model_line_ids]
+    detail["infra_lines"] = [_batch_infra_line_full(ln) for ln in batch.infra_line_ids]
+    detail["subscription_lines"] = [
+        _batch_subscription_line_full(ln) for ln in batch.subscription_line_ids
+    ]
+    model_approved = sum((ln.approved_amount or 0.0) for ln in batch.model_line_ids)
+    model_consumed = sum((ln.consumed_amount or 0.0) for ln in batch.model_line_ids)
+    infra_approved = sum((ln.approved_amount or 0.0) for ln in batch.infra_line_ids)
+    infra_consumed = sum((ln.consumed_amount or 0.0) for ln in batch.infra_line_ids)
+    sub_approved = sum((ln.approved_amount or 0.0) for ln in batch.subscription_line_ids)
+    sub_consumed = sum((ln.consumed_amount or 0.0) for ln in batch.subscription_line_ids)
+    sub_monthly = sum((ln.final_amount or 0.0) for ln in batch.subscription_line_ids)
+    sub_per_day = sum((ln.per_day_cost or 0.0) for ln in batch.subscription_line_ids)
+    detail["totals_breakdown"] = {
+        "model_approved_total": model_approved,
+        "model_consumed_total": model_consumed,
+        "model_remaining_total": model_approved - model_consumed,
+        "infra_approved_total": infra_approved,
+        "infra_consumed_total": infra_consumed,
+        "infra_remaining_total": infra_approved - infra_consumed,
+        "subscription_approved_total": sub_approved,
+        "subscription_consumed_total": sub_consumed,
+        "subscription_remaining_total": sub_approved - sub_consumed,
+        "subscription_monthly_total": sub_monthly,
+        "subscription_per_day_total": sub_per_day,
+        "buffer_pct": batch.buffer_pct or 0.0,
+        "buffer_amount": max(
+            0.0, (batch.batch_budget or 0.0) - (batch.estimated_cost or 0.0),
+        ),
+    }
+    detail["requests"] = [_request_to_summary(r) for r in batch.request_ids]
+    detail["daily_task_log"] = [
+        _batch_daily_task_brief(dt) for dt in batch.daily_task_ids
+    ]
+    detail["connected_records"] = [
+        _batch_connected_record_brief(cr) for cr in batch.connected_record_ids
+    ]
+    detail["info_links"] = [_batch_info_link_brief(il) for il in batch.info_link_ids]
+    detail["feedback"] = [_batch_feedback_brief(fb) for fb in batch.feedback_ids]
+    return detail
+
+
 class EtpBudgetController(http.Controller):
 
     @http.route(
@@ -1263,12 +1524,21 @@ class EtpBudgetController(http.Controller):
             })
             for ln in budget.infra_line_ids
         ]
+        batch_sub_clone = [
+            (0, 0, {
+                "subscription_id": ln.subscription_id.id,
+                "assigned_user_ids": [(6, 0, ln.assigned_user_ids.ids)],
+            })
+            for ln in budget.subscription_line_ids
+        ]
 
         created_batches = request.env[BATCH_MODEL].sudo()
         for spec in batch_specs:
             spec["project_budget_id"] = budget.id
             if batch_infra_clone:
                 spec["infra_line_ids"] = batch_infra_clone
+            if batch_sub_clone:
+                spec["subscription_line_ids"] = batch_sub_clone
             try:
                 with request.env.cr.savepoint():
                     created_batches |= request.env[BATCH_MODEL].sudo().create(spec)
@@ -1294,8 +1564,8 @@ class EtpBudgetController(http.Controller):
                 if not is_rnd:
                     per_task = sum(batch.model_line_ids.mapped("per_task_cost"))
                     target_budget_amount += (batch.total_tasks or 0) * per_task
-            sub_per_day = sum(budget.subscription_line_ids.mapped("per_day_cost"))
-            target_budget_amount += total_phase_days * sub_per_day
+            sub_total = sum(budget.subscription_line_ids.mapped("final_amount"))
+            target_budget_amount += sub_total
             try:
                 if is_rnd:
                     budget.sudo().write({"budget_amount": initial_budget})
@@ -1308,7 +1578,12 @@ class EtpBudgetController(http.Controller):
                 )
 
         created_request = None
-        if created_batches and (is_rnd or budget.model_line_ids or budget.infra_line_ids):
+        if created_batches and (
+            is_rnd
+            or budget.model_line_ids
+            or budget.infra_line_ids
+            or budget.subscription_line_ids
+        ):
             first_batch = created_batches.sorted(
                 lambda b: (b.start_date or fields.Date.today(), b.id)
             )[:1]
@@ -1337,17 +1612,29 @@ class EtpBudgetController(http.Controller):
                 (0, 0, {
                     "infra_type_id": ln.infra_type_id.id,
                     "description": ln.description or False,
+                    "start_date": first_batch.start_date or False,
+                    "end_date": first_batch.end_date or False,
                     "requested_amount": duration_days * ((ln.budget_amount or 0.0) / 30.0),
                 })
                 for ln in budget.infra_line_ids
             ]
+            wiz_sub_cmds = [
+                (0, 0, {
+                    "subscription_id": ln.subscription_id.id,
+                    "assigned_user_ids": [(6, 0, ln.assigned_user_ids.ids)],
+                    "requested_amount": (ln.cost_per_subscription or 0.0)
+                                        * len(ln.assigned_user_ids),
+                })
+                for ln in budget.subscription_line_ids
+            ]
             buffer_factor = 1.0 + ((first_batch.buffer_pct or 0.0) / 100.0)
-            estimated_base = sum(
-                cmd[2]["requested_amount"] for cmd in wiz_model_cmds
-            ) + sum(
-                cmd[2]["requested_amount"] for cmd in wiz_infra_cmds
-            )
-            requested_total = initial_budget if is_rnd else estimated_base * buffer_factor
+            sub_total = sum(cmd[2]["requested_amount"] for cmd in wiz_sub_cmds)
+            infra_total = sum(cmd[2]["requested_amount"] for cmd in wiz_infra_cmds)
+            model_total = sum(cmd[2]["requested_amount"] for cmd in wiz_model_cmds)
+            if is_rnd:
+                requested_total = initial_budget + infra_total + sub_total
+            else:
+                requested_total = (model_total + infra_total) * buffer_factor + sub_total
             try:
                 with request.env.cr.savepoint():
                     wiz_vals = {
@@ -1362,6 +1649,8 @@ class EtpBudgetController(http.Controller):
                         wiz_vals["model_line_ids"] = wiz_model_cmds
                     if wiz_infra_cmds:
                         wiz_vals["infra_line_ids"] = wiz_infra_cmds
+                    if wiz_sub_cmds:
+                        wiz_vals["subscription_line_ids"] = wiz_sub_cmds
                     wizard = request.env["etp.batch.budget.request.wizard"].sudo().create(wiz_vals)
                     result = wizard.action_submit()
                     new_req_id = result.get("res_id") if isinstance(result, dict) else None
@@ -1764,3 +2053,817 @@ class EtpBudgetController(http.Controller):
             message="Budget request detail fetched.", status=200,
             data={"data": _request_to_detail(rec)},
         )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/requests/create",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def create_budget_request(self, **params):
+        jdata, uploaded_files = _read_multipart_or_json()
+        Request = request.env[REQUEST_MODEL]
+        Batch = request.env["etp.batch.budget"]
+
+        batch_id = _coerce_int(jdata.get("batch_id"))
+        if not batch_id:
+            return return_Response(message="batch_id is required.", status=400, data={})
+        batch = Batch.sudo().browse(batch_id).exists()
+        if not batch:
+            return return_Response(
+                message=f"Phase {batch_id} not found.", status=404, data={},
+            )
+
+        request_type = (jdata.get("request_type") or "budget").strip()
+        valid_types = [v for v, _l in Request._fields["request_type"].selection]
+        if request_type not in valid_types:
+            return return_Response(
+                message=f"request_type must be one of {valid_types}.",
+                status=400, data={},
+            )
+
+        justification = (jdata.get("justification") or "").strip()
+        if not justification:
+            return return_Response(
+                message="justification is required.", status=400, data={},
+            )
+
+        priority = (jdata.get("priority") or "normal").strip()
+        if priority not in ("low", "normal", "high", "urgent"):
+            return return_Response(
+                message="priority must be one of low, normal, high, urgent.",
+                status=400, data={},
+            )
+
+        total_tasks = _coerce_int(jdata.get("total_tasks"), 0) or 0
+        buffer_pct = _coerce_float(jdata.get("buffer_pct"), 0.0)
+
+        model_cmds, model_sub, err = _build_request_model_cmds(
+            jdata.get("model_lines") or [], total_tasks,
+        )
+        if err:
+            return return_Response(message=err, status=400, data={})
+        infra_cmds, infra_sub, err = _build_request_infra_cmds(
+            jdata.get("infra_lines") or [],
+        )
+        if err:
+            return return_Response(message=err, status=400, data={})
+        sub_cmds, sub_sub, err = _build_request_subscription_cmds(
+            jdata.get("subscription_lines") or [],
+        )
+        if err:
+            return return_Response(message=err, status=400, data={})
+
+        if "requested_total" in jdata:
+            requested_total = _coerce_float(jdata.get("requested_total"), 0.0)
+        else:
+            subtotal = model_sub + infra_sub + sub_sub
+            requested_total = subtotal * (1.0 + (buffer_pct / 100.0))
+
+        vals = {
+            "batch_id": batch.id,
+            "request_type": request_type,
+            "justification": justification,
+            "subject": jdata.get("subject") or False,
+            "message": jdata.get("message") or False,
+            "priority": priority,
+            "total_tasks": total_tasks,
+            "buffer_pct": buffer_pct,
+            "requested_total": requested_total,
+            "model_line_ids": model_cmds,
+            "infra_line_ids": infra_cmds,
+            "subscription_line_ids": sub_cmds,
+        }
+        parent_request_id = _coerce_int(jdata.get("parent_request_id"))
+        if parent_request_id:
+            parent = Request.sudo().browse(parent_request_id).exists()
+            if not parent:
+                return return_Response(
+                    message=f"Parent request {parent_request_id} not found.",
+                    status=404, data={},
+                )
+            vals["parent_request_id"] = parent.id
+
+        raw_attachments = jdata.get("attachment_ids") or []
+        if raw_attachments:
+            if not isinstance(raw_attachments, (list, tuple)):
+                return return_Response(
+                    message="attachment_ids must be a list of integers.",
+                    status=400, data={},
+                )
+            attachment_ids = [
+                _coerce_int(x) for x in raw_attachments if _coerce_int(x)
+            ]
+            missing = _missing_ids("ir.attachment", attachment_ids)
+            if missing:
+                return return_Response(
+                    message=f"Attachment(s) not found: {missing}",
+                    status=400, data={},
+                )
+            vals["attachment_ids"] = [(6, 0, attachment_ids)]
+
+        try:
+            req = Request.create(vals)
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception("create_budget_request failed")
+            return return_Response(
+                message="Something went wrong.", status=400,
+                data={"errors": [str(e)]},
+            )
+
+        submit_flag = jdata.get("submit")
+        if submit_flag is None:
+            submit_flag = True
+        if submit_flag:
+            try:
+                req.action_submit_for_approval()
+            except (UserError, ValidationError) as e:
+                return return_Response(
+                    message=str(e), status=400, data={"request_id": req.id},
+                )
+            except Exception as e:
+                _logger.exception("submit on create failed")
+                return return_Response(
+                    message="Created but submit failed.", status=400,
+                    data={"request_id": req.id, "errors": [str(e)]},
+                )
+
+        return return_Response(
+            message="Budget request created.", status=200,
+            data={"data": _request_to_detail(req.sudo())},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/requests/update",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def update_budget_request(self, **params):
+        jdata, uploaded_files = _read_multipart_or_json()
+        req_id = _coerce_int(jdata.get("id"))
+        if not req_id:
+            return return_Response(message="id is required.", status=400, data={})
+        req = request.env[REQUEST_MODEL].browse(req_id).exists()
+        if not req:
+            return return_Response(
+                message=f"Budget request {req_id} not found.",
+                status=404, data={},
+            )
+        if req.state not in ("draft", "changes_required"):
+            return return_Response(
+                message=(
+                    f"Cannot edit request in state '{req.state}'. Only draft "
+                    "and changes_required are editable."
+                ),
+                status=400, data={},
+            )
+
+        vals = {}
+
+        if "request_type" in jdata:
+            rt = (jdata.get("request_type") or "").strip()
+            valid_types = [v for v, _l in req._fields["request_type"].selection]
+            if rt not in valid_types:
+                return return_Response(
+                    message=f"request_type must be one of {valid_types}.",
+                    status=400, data={},
+                )
+            vals["request_type"] = rt
+
+        if "justification" in jdata:
+            justification = (jdata.get("justification") or "").strip()
+            if not justification:
+                return return_Response(
+                    message="justification cannot be empty.",
+                    status=400, data={},
+                )
+            vals["justification"] = justification
+
+        if "subject" in jdata:
+            vals["subject"] = jdata.get("subject") or False
+        if "message" in jdata:
+            vals["message"] = jdata.get("message") or False
+
+        if "priority" in jdata:
+            priority = (jdata.get("priority") or "normal").strip()
+            if priority not in ("low", "normal", "high", "urgent"):
+                return return_Response(
+                    message="priority must be one of low, normal, high, urgent.",
+                    status=400, data={},
+                )
+            vals["priority"] = priority
+
+        if "total_tasks" in jdata:
+            vals["total_tasks"] = _coerce_int(jdata.get("total_tasks"), 0) or 0
+        if "buffer_pct" in jdata:
+            vals["buffer_pct"] = _coerce_float(jdata.get("buffer_pct"), 0.0)
+
+        total_tasks_eff = vals.get("total_tasks", req.total_tasks)
+
+        if "model_lines" in jdata:
+            cmds, _sub, err = _build_request_model_cmds(
+                jdata.get("model_lines") or [], total_tasks_eff, replace=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            vals["model_line_ids"] = cmds
+        if "infra_lines" in jdata:
+            cmds, _sub, err = _build_request_infra_cmds(
+                jdata.get("infra_lines") or [], replace=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            vals["infra_line_ids"] = cmds
+        if "subscription_lines" in jdata:
+            cmds, _sub, err = _build_request_subscription_cmds(
+                jdata.get("subscription_lines") or [], replace=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            vals["subscription_line_ids"] = cmds
+
+        if "requested_total" in jdata:
+            vals["requested_total"] = _coerce_float(
+                jdata.get("requested_total"), 0.0,
+            )
+
+        if "attachment_ids" in jdata:
+            raw = jdata.get("attachment_ids") or []
+            if not isinstance(raw, (list, tuple)):
+                return return_Response(
+                    message="attachment_ids must be a list of integers.",
+                    status=400, data={},
+                )
+            ids = [_coerce_int(x) for x in raw if _coerce_int(x)]
+            missing = _missing_ids("ir.attachment", ids)
+            if missing:
+                return return_Response(
+                    message=f"Attachment(s) not found: {missing}",
+                    status=400, data={},
+                )
+            vals["attachment_ids"] = [(6, 0, ids)]
+
+        try:
+            if vals:
+                req.write(vals)
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception("update_budget_request failed")
+            return return_Response(
+                message="Something went wrong.", status=400,
+                data={"errors": [str(e)]},
+            )
+
+        if jdata.get("submit"):
+            try:
+                req.action_submit_for_approval()
+            except (UserError, ValidationError) as e:
+                return return_Response(
+                    message=str(e), status=400, data={"request_id": req.id},
+                )
+            except Exception as e:
+                _logger.exception("submit on update failed")
+                return return_Response(
+                    message="Updated but submit failed.", status=400,
+                    data={"request_id": req.id, "errors": [str(e)]},
+                )
+
+        return return_Response(
+            message="Budget request updated.", status=200,
+            data={"data": _request_to_detail(req.sudo())},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/requests/approve",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def approve_budget_request(self, **params):
+        jdata, _files = _read_multipart_or_json()
+        req_id = _coerce_int(jdata.get("id"))
+        step = (jdata.get("step") or "").strip().lower()
+        if not req_id:
+            return return_Response(message="id is required.", status=400, data={})
+        if step not in ("cto", "cfo"):
+            return return_Response(
+                message="step must be 'cto' or 'cfo'.", status=400, data={},
+            )
+
+        req = request.env[REQUEST_MODEL].browse(req_id).exists()
+        if not req:
+            return return_Response(
+                message=f"Budget request {req_id} not found.",
+                status=404, data={},
+            )
+
+        if step == "cto" and req.state != "cto_review":
+            return return_Response(
+                message=f"Cannot CTO-approve request in state '{req.state}'.",
+                status=400, data={},
+            )
+        if step == "cfo" and req.state != "cfo_review":
+            return return_Response(
+                message=f"Cannot CFO-approve request in state '{req.state}'.",
+                status=400, data={},
+            )
+
+        if "request_type" in jdata:
+            rt = (jdata.get("request_type") or "").strip()
+            if rt and rt != req.request_type:
+                return return_Response(
+                    message=(
+                        f"request_type cannot be changed during approval "
+                        f"(current='{req.request_type}'). Send back for changes "
+                        "if a type change is needed."
+                    ),
+                    status=400, data={},
+                )
+
+        vals = {}
+        if "justification" in jdata:
+            justification = (jdata.get("justification") or "").strip()
+            if not justification:
+                return return_Response(
+                    message="justification cannot be empty.",
+                    status=400, data={},
+                )
+            vals["justification"] = justification
+        if "subject" in jdata:
+            vals["subject"] = jdata.get("subject") or False
+        if "message" in jdata:
+            vals["message"] = jdata.get("message") or False
+        if "priority" in jdata:
+            priority = (jdata.get("priority") or "normal").strip()
+            if priority not in ("low", "normal", "high", "urgent"):
+                return return_Response(
+                    message="priority must be one of low, normal, high, urgent.",
+                    status=400, data={},
+                )
+            vals["priority"] = priority
+        if "total_tasks" in jdata:
+            vals["total_tasks"] = _coerce_int(jdata.get("total_tasks"), 0) or 0
+        if "buffer_pct" in jdata:
+            vals["buffer_pct"] = _coerce_float(jdata.get("buffer_pct"), 0.0)
+
+        total_tasks_eff = vals.get("total_tasks", req.total_tasks)
+
+        if "model_lines" in jdata:
+            cmds, _sub, err = _build_request_model_cmds(
+                jdata.get("model_lines") or [], total_tasks_eff, replace=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            vals["model_line_ids"] = cmds
+        if "infra_lines" in jdata:
+            cmds, _sub, err = _build_request_infra_cmds(
+                jdata.get("infra_lines") or [], replace=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            vals["infra_line_ids"] = cmds
+        if "subscription_lines" in jdata:
+            cmds, _sub, err = _build_request_subscription_cmds(
+                jdata.get("subscription_lines") or [], replace=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            vals["subscription_line_ids"] = cmds
+
+        if "requested_total" in jdata:
+            vals["requested_total"] = _coerce_float(
+                jdata.get("requested_total"), 0.0,
+            )
+
+        if "attachment_ids" in jdata:
+            raw = jdata.get("attachment_ids") or []
+            if not isinstance(raw, (list, tuple)):
+                return return_Response(
+                    message="attachment_ids must be a list of integers.",
+                    status=400, data={},
+                )
+            ids = [_coerce_int(x) for x in raw if _coerce_int(x)]
+            missing = _missing_ids("ir.attachment", ids)
+            if missing:
+                return return_Response(
+                    message=f"Attachment(s) not found: {missing}",
+                    status=400, data={},
+                )
+            vals["attachment_ids"] = [(6, 0, ids)]
+
+        try:
+            if vals:
+                req.write(vals)
+            if step == "cto":
+                req.action_cto_approve()
+                _apply_line_overrides(req, jdata)
+                if "approved_total" in jdata:
+                    req.write({
+                        "approved_total": _coerce_float(
+                            jdata.get("approved_total"), 0.0,
+                        ),
+                    })
+            else:
+                _apply_line_overrides(req, jdata)
+                if "approved_total" in jdata:
+                    req.write({
+                        "approved_total": _coerce_float(
+                            jdata.get("approved_total"), 0.0,
+                        ),
+                    })
+                req.action_cfo_approve()
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception("approve_budget_request failed")
+            return return_Response(
+                message="Something went wrong.", status=400,
+                data={"errors": [str(e)]},
+            )
+
+        return return_Response(
+            message=f"Budget request {step.upper()}-approved.", status=200,
+            data={"data": _request_to_detail(req.sudo())},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/requests/reject",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def reject_budget_request(self, **params):
+        jdata, _files = _read_multipart_or_json()
+        req_id = _coerce_int(jdata.get("id"))
+        step = (jdata.get("step") or "").strip().lower()
+        note = (jdata.get("note") or "").strip()
+        if not req_id:
+            return return_Response(message="id is required.", status=400, data={})
+        if step not in ("cto", "cfo"):
+            return return_Response(
+                message="step must be 'cto' or 'cfo'.", status=400, data={},
+            )
+        if not note:
+            return return_Response(message="note is required.", status=400, data={})
+
+        req = request.env[REQUEST_MODEL].browse(req_id).exists()
+        if not req:
+            return return_Response(
+                message=f"Budget request {req_id} not found.",
+                status=404, data={},
+            )
+
+        try:
+            if step == "cto":
+                if req.state != "cto_review":
+                    return return_Response(
+                        message=f"Cannot CTO-reject in state '{req.state}'.",
+                        status=400, data={},
+                    )
+                req._do_cto_reject(note)
+            else:
+                if req.state != "cfo_review":
+                    return return_Response(
+                        message=(
+                            f"Cannot CFO-request-changes in state '{req.state}'."
+                        ),
+                        status=400, data={},
+                    )
+                req._do_cfo_request_changes(note)
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception("reject_budget_request failed")
+            return return_Response(
+                message="Something went wrong.", status=400,
+                data={"errors": [str(e)]},
+            )
+
+        verb = "CTO send-back" if step == "cto" else "CFO change request"
+        return return_Response(
+            message=f"Budget request returned with {verb}.", status=200,
+            data={"data": _request_to_detail(req.sudo())},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/batches/list",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def list_budget_batches(self, **params):
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
+        Batch = request.env[BATCH_MODEL].sudo()
+        domain = []
+        project_id = _coerce_int(params.get("project_id"))
+        if project_id:
+            domain.append(("project_id", "=", project_id))
+        project_budget_id = _coerce_int(params.get("project_budget_id"))
+        if project_budget_id:
+            domain.append(("project_budget_id", "=", project_budget_id))
+        state = (params.get("state") or "").strip()
+        if state:
+            valid_states = [v for v, _l in Batch._fields["state"].selection]
+            if state not in valid_states:
+                return return_Response(
+                    message=f"state must be one of {valid_states}.",
+                    status=400, data={},
+                )
+            domain.append(("state", "=", state))
+        requester_id = _coerce_int(params.get("requester_id"))
+        if requester_id:
+            domain.append(("requester_id", "=", requester_id))
+        start_from = _coerce_date(params.get("start_date_from"))
+        if start_from:
+            domain.append(("start_date", ">=", start_from))
+        start_to = _coerce_date(params.get("start_date_to"))
+        if start_to:
+            domain.append(("start_date", "<=", start_to))
+        search = (params.get("search") or "").strip()
+        if search:
+            domain.append(("name", "ilike", search))
+        total = Batch.search_count(domain)
+        records = Batch.search(
+            domain, limit=limit, offset=offset,
+            order="create_date desc, id desc",
+        )
+        health_status = (params.get("health_status") or "").strip()
+        if health_status:
+            valid_health = [
+                v for v, _l in Batch._fields["health_status"].selection
+            ]
+            if health_status not in valid_health:
+                return return_Response(
+                    message=f"health_status must be one of {valid_health}.",
+                    status=400, data={},
+                )
+            records = records.filtered(
+                lambda r: (r.health_status or "unknown") == health_status
+            )
+        items = [_batch_summary(b) for b in records]
+        return return_Response(
+            message="Phase budgets fetched.", status=200,
+            data={
+                "total": total, "limit": limit, "offset": offset,
+                "batches": items,
+            },
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/batches/detail",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def budget_batch_detail(self, **params):
+        batch_id = _coerce_int(params.get("id"))
+        if not batch_id:
+            return return_Response(
+                message="id is required.", status=400, data={},
+            )
+        batch = request.env[BATCH_MODEL].sudo().browse(batch_id).exists()
+        if not batch:
+            return return_Response(
+                message="Phase budget not found.", status=404, data={},
+            )
+        return return_Response(
+            message="Phase budget detail fetched.", status=200,
+            data={"data": _batch_full_detail(batch)},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/requests/mark_review",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def mark_review_budget_request(self, **params):
+        jdata, _files = _read_multipart_or_json()
+        req_id = _coerce_int(jdata.get("id"))
+        step = (jdata.get("step") or "").strip().lower()
+        note = (jdata.get("note") or "").strip()
+        if not req_id:
+            return return_Response(
+                message="id is required.", status=400, data={},
+            )
+        if step not in ("cto", "cfo"):
+            return return_Response(
+                message="step must be 'cto' or 'cfo'.", status=400, data={},
+            )
+        req = request.env["etp.batch.budget.request"].sudo().browse(req_id).exists()
+        if not req:
+            return return_Response(
+                message="Budget request not found.", status=404, data={},
+            )
+        if step == "cto" and req.state != "cto_review":
+            return return_Response(
+                message=(
+                    f"Cannot mark CTO review in state '{req.state}'. "
+                    "Request must be in cto_review."
+                ),
+                status=400, data={},
+            )
+        if step == "cfo" and req.state != "cfo_review":
+            return return_Response(
+                message=(
+                    f"Cannot mark CFO review in state '{req.state}'. "
+                    "Request must be in cfo_review."
+                ),
+                status=400, data={},
+            )
+        now = fields.Datetime.now()
+        vals = {}
+        if step == "cto":
+            vals["cto_reviewer_id"] = request.env.user.id
+            vals["cto_review_date"] = now
+            if note:
+                vals["cto_review_note"] = note
+        else:
+            vals["cfo_approver_id"] = request.env.user.id
+            vals["cfo_approval_date"] = now
+            if note:
+                vals["cfo_change_request_note"] = note
+        try:
+            req.write(vals)
+            body_lines = [
+                f"<strong>{step.upper()} review acknowledged</strong>",
+                f"Reviewer: {request.env.user.display_name}",
+            ]
+            if note:
+                body_lines.append(f"Note: {note}")
+            req.message_post(
+                body="<br/>".join(body_lines),
+                subject=f"{step.upper()} review acknowledged",
+            )
+        except (UserError, ValidationError) as e:
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            _logger.exception("mark_review_budget_request failed")
+            return return_Response(
+                message="Something went wrong.", status=400,
+                data={"errors": [str(e)]},
+            )
+        return return_Response(
+            message=f"{step.upper()} review noted.", status=200,
+            data={"data": _request_to_detail(req)},
+        )
+
+
+def _build_request_model_cmds(entries, total_tasks, replace=False):
+    cmds = []
+    subtotal = 0.0
+    for idx, line in enumerate(entries):
+        if not isinstance(line, dict):
+            return [], 0.0, f"model_lines[{idx}] must be an object."
+        ai_model_id = _coerce_int(line.get("ai_model_id") or line.get("model_id"))
+        if not ai_model_id:
+            return [], 0.0, f"model_lines[{idx}].ai_model_id is required."
+        cost_type = line.get("cost_type") or "per_task"
+        if cost_type not in ("per_task", "per_trajectory"):
+            return [], 0.0, (
+                f"model_lines[{idx}].cost_type must be 'per_task' or "
+                "'per_trajectory'."
+            )
+        per_task_cost = _coerce_float(line.get("per_task_cost"), 0.0)
+        per_traj = _coerce_float(line.get("per_trajectory_cost"), 0.0)
+        iterations = _coerce_int(
+            line.get("iterations") or line.get("no_of_trajectory"), 0,
+        ) or 0
+        if cost_type == "per_trajectory":
+            per_task_cost = per_traj * iterations
+        if "requested_amount" in line:
+            requested_amount = _coerce_float(line.get("requested_amount"), 0.0)
+        else:
+            requested_amount = (total_tasks or 0) * per_task_cost
+        subtotal += requested_amount
+        line_vals = {
+            "ai_model_id": ai_model_id,
+            "description": line.get("description") or False,
+            "cost_type": cost_type,
+            "per_task_cost": per_task_cost,
+            "per_trajectory_cost": per_traj,
+            "iterations": iterations,
+            "requested_amount": requested_amount,
+        }
+        if "approved_amount" in line:
+            line_vals["approved_amount"] = _coerce_float(
+                line.get("approved_amount"), 0.0,
+            )
+        cmds.append((0, 0, line_vals))
+    if cmds:
+        missing = _missing_ids(
+            "etp.ai.model", [c[2]["ai_model_id"] for c in cmds],
+        )
+        if missing:
+            return [], 0.0, f"Model(s) not found: {missing}"
+    if replace:
+        return [(5, 0, 0)] + cmds, subtotal, None
+    return cmds, subtotal, None
+
+
+def _build_request_infra_cmds(entries, replace=False):
+    cmds = []
+    subtotal = 0.0
+    for idx, line in enumerate(entries):
+        if not isinstance(line, dict):
+            return [], 0.0, f"infra_lines[{idx}] must be an object."
+        infra_type_id = _coerce_int(
+            line.get("infra_type_id") or line.get("infra_id"),
+        )
+        if not infra_type_id:
+            return [], 0.0, f"infra_lines[{idx}].infra_type_id is required."
+        requested_amount = _coerce_float(line.get("requested_amount"), 0.0)
+        subtotal += requested_amount
+        vals = {
+            "infra_type_id": infra_type_id,
+            "description": line.get("description") or False,
+            "requested_amount": requested_amount,
+        }
+        sd = _coerce_date(line.get("start_date"))
+        ed = _coerce_date(line.get("end_date"))
+        if sd:
+            vals["start_date"] = sd
+        if ed:
+            vals["end_date"] = ed
+        if "approved_amount" in line:
+            vals["approved_amount"] = _coerce_float(
+                line.get("approved_amount"), 0.0,
+            )
+        cmds.append((0, 0, vals))
+    if cmds:
+        missing = _missing_ids(
+            "etp.infra.type", [c[2]["infra_type_id"] for c in cmds],
+        )
+        if missing:
+            return [], 0.0, f"Infrastructure type(s) not found: {missing}"
+    if replace:
+        return [(5, 0, 0)] + cmds, subtotal, None
+    return cmds, subtotal, None
+
+
+def _build_request_subscription_cmds(entries, replace=False):
+    cmds = []
+    subtotal = 0.0
+    for idx, line in enumerate(entries):
+        if not isinstance(line, dict):
+            return [], 0.0, f"subscription_lines[{idx}] must be an object."
+        subscription_id = _coerce_int(line.get("subscription_id"))
+        if not subscription_id:
+            return [], 0.0, (
+                f"subscription_lines[{idx}].subscription_id is required."
+            )
+        assigned = (
+            line.get("assigned_user_ids") or line.get("assigned_to") or []
+        )
+        if not isinstance(assigned, (list, tuple)):
+            return [], 0.0, (
+                f"subscription_lines[{idx}].assigned_user_ids must be a list."
+            )
+        assigned_ids = [_coerce_int(u) for u in assigned if _coerce_int(u)]
+        requested_amount = _coerce_float(line.get("requested_amount"), 0.0)
+        subtotal += requested_amount
+        line_vals = {
+            "subscription_id": subscription_id,
+            "assigned_user_ids": [(6, 0, assigned_ids)],
+            "requested_amount": requested_amount,
+        }
+        sd = _coerce_date(line.get("start_date"))
+        ed = _coerce_date(line.get("end_date"))
+        if sd:
+            line_vals["start_date"] = sd
+        if ed:
+            line_vals["end_date"] = ed
+        if "approved_amount" in line:
+            line_vals["approved_amount"] = _coerce_float(
+                line.get("approved_amount"), 0.0,
+            )
+        cmds.append((0, 0, line_vals))
+    if cmds:
+        missing = _missing_ids(
+            "etp.subscription", [c[2]["subscription_id"] for c in cmds],
+        )
+        if missing:
+            return [], 0.0, f"Subscription(s) not found: {missing}"
+    if replace:
+        return [(5, 0, 0)] + cmds, subtotal, None
+    return cmds, subtotal, None
+
+
+def _apply_line_overrides(req, jdata):
+    for key, attr in (
+        ("model_lines", "model_line_ids"),
+        ("infra_lines", "infra_line_ids"),
+        ("subscription_lines", "subscription_line_ids"),
+    ):
+        for line in jdata.get(key) or []:
+            if not isinstance(line, dict):
+                continue
+            line_id = _coerce_int(line.get("id"))
+            if not line_id or "approved_amount" not in line:
+                continue
+            target = getattr(req, attr).filtered(lambda l: l.id == line_id)
+            if target:
+                target.write({
+                    "approved_amount": _coerce_float(
+                        line.get("approved_amount"), 0.0,
+                    ),
+                })

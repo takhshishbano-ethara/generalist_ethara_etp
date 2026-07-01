@@ -31,7 +31,15 @@ Adds an Internal/External classification to projects.
         'views/batch_budget_request_views.xml',
         'views/project_budget_topup_views.xml',
         'views/res_config_settings_views.xml',
+        'views/project_budget_dashboard_views.xml',
     ],
+    'assets': {
+        'web.assets_backend': [
+            'etp_projects/static/src/components/budget_health_dashboard/budget_health_dashboard.scss',
+            'etp_projects/static/src/components/budget_health_dashboard/budget_health_dashboard.js',
+            'etp_projects/static/src/components/budget_health_dashboard/budget_health_dashboard.xml',
+        ],
+    },
     'external_dependencies': {'python': ['boto3', 'google-cloud-bigquery', 'openpyxl']},
     'installable': True,
     'application': False,

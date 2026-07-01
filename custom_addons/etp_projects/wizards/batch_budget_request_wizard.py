@@ -134,6 +134,11 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         "wizard_id",
         string="Infrastructure Lines",
     )
+    subscription_line_ids = fields.One2many(
+        "etp.batch.budget.request.wizard.subscription.line",
+        "wizard_id",
+        string="Subscription Lines",
+    )
     requested_total = fields.Float(
         string="Requested Total (USD)",
         readonly=False,
@@ -168,16 +173,18 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         "buffer_pct",
         "model_line_ids",
         "infra_line_ids",
+        "subscription_line_ids",
     )
     def _onchange_suggest_requested_total(self):
         for wiz in self:
-            subtotal = (
+            buffered_subtotal = (
                 sum(wiz.model_line_ids.mapped("requested_amount"))
                 + sum(wiz.infra_line_ids.mapped("requested_amount"))
             )
-            wiz.requested_total = subtotal * (
+            sub_total = sum(wiz.subscription_line_ids.mapped("requested_amount"))
+            wiz.requested_total = buffered_subtotal * (
                 1.0 + ((wiz.buffer_pct or 0.0) / 100.0)
-            )
+            ) + sub_total
 
     @api.model
     def default_get(self, fields_list):
@@ -246,16 +253,39 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             }))
         if model_lines:
             vals["model_line_ids"] = model_lines
+        infra_lines = []
+        for line in batch.infra_line_ids:
+            infra_lines.append((0, 0, {
+                "infra_type_id": line.infra_type_id.id,
+                "description": line.description or False,
+                "start_date": batch.start_date or False,
+                "end_date": batch.end_date or False,
+                "requested_amount": 0.0,
+            }))
+        if infra_lines:
+            vals["infra_line_ids"] = infra_lines
+        sub_lines = []
+        for line in batch.subscription_line_ids:
+            sub_lines.append((0, 0, {
+                "subscription_id": line.subscription_id.id,
+                "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
+            }))
+        if sub_lines:
+            vals["subscription_line_ids"] = sub_lines
         return vals
 
     def action_submit(self):
         self.ensure_one()
         rtype = self.request_type or "budget"
         if rtype == "topup":
-            if self.model_line_ids or self.infra_line_ids:
+            if (
+                self.model_line_ids
+                or self.infra_line_ids
+                or self.subscription_line_ids
+            ):
                 raise UserError(_(
-                    "Top-up requests are amount-only. Remove model and "
-                    "infrastructure lines."
+                    "Top-up requests are amount-only. Remove model, "
+                    "infrastructure, and subscription lines."
                 ))
         elif rtype == "device":
             if not self.infra_line_ids:
@@ -268,9 +298,13 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
                     "New Model requests must include at least one model line."
                 ))
         else:
-            if not (self.model_line_ids or self.infra_line_ids):
+            if not (
+                self.model_line_ids
+                or self.infra_line_ids
+                or self.subscription_line_ids
+            ):
                 raise UserError(_(
-                    "Add at least one model or infrastructure line."
+                    "Add at least one model, infrastructure, or subscription line."
                 ))
         if (self.requested_total or 0.0) <= 0.0:
             raise UserError(_("Requested total must be greater than zero."))
@@ -332,10 +366,20 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
                 (0, 0, {
                     "infra_type_id": line.infra_type_id.id,
                     "description": line.description or False,
+                    "start_date": line.start_date or False,
+                    "end_date": line.end_date or False,
                     "requested_amount": line.requested_amount or 0.0,
                     "approved_amount": line.requested_amount or 0.0,
                 })
                 for line in self.infra_line_ids
+            ],
+            "subscription_line_ids": [
+                (0, 0, {
+                    "subscription_id": line.subscription_id.id,
+                    "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
+                    "requested_amount": line.requested_amount or 0.0,
+                })
+                for line in self.subscription_line_ids
             ],
         })
         if self.attachment_ids:
@@ -425,4 +469,60 @@ class EtpBatchBudgetRequestWizardInfraLine(models.TransientModel):
         required=True,
     )
     description = fields.Char(string="Description")
+    start_date = fields.Date(string="Start Date")
+    end_date = fields.Date(string="End Date")
     requested_amount = fields.Float(string="Requested (USD)")
+
+
+class EtpBatchBudgetRequestWizardSubscriptionLine(models.TransientModel):
+    _name = "etp.batch.budget.request.wizard.subscription.line"
+    _description = "Phase Budget Request Wizard Subscription Line"
+    _order = "id"
+
+    wizard_id = fields.Many2one(
+        "etp.batch.budget.request.wizard",
+        required=True,
+        ondelete="cascade",
+    )
+    subscription_id = fields.Many2one(
+        "etp.subscription",
+        string="Subscription",
+        required=True,
+    )
+    cost_per_subscription = fields.Float(
+        string="Cost per Subscription (USD)",
+        related="subscription_id.cost",
+        readonly=True,
+    )
+    assigned_user_ids = fields.Many2many(
+        "res.users",
+        "etp_bbr_wizard_subscription_line_user_rel",
+        "wizard_line_id",
+        "user_id",
+        string="Assigned To",
+    )
+    subscription_count = fields.Integer(
+        string="No. of Subscriptions",
+        compute="_compute_subscription_count",
+    )
+    requested_amount = fields.Float(
+        string="Requested (USD)",
+        compute="_compute_requested_amount",
+        store=True,
+        readonly=False,
+        help="Auto-suggested as Cost per Subscription x No. of Assigned Users "
+             "(monthly). Fully editable.",
+    )
+
+    @api.depends("assigned_user_ids")
+    def _compute_subscription_count(self):
+        for line in self:
+            line.subscription_count = len(line.assigned_user_ids)
+
+    @api.depends("cost_per_subscription", "assigned_user_ids")
+    def _compute_requested_amount(self):
+        for line in self:
+            line.requested_amount = (
+                (line.cost_per_subscription or 0.0)
+                * len(line.assigned_user_ids)
+            )

@@ -54,6 +54,15 @@ class EtpProjectBudgetSubscriptionLine(models.Model):
         compute="_compute_per_day_cost",
         store=True,
     )
+    start_date = fields.Date(
+        string="Start Date",
+        help="Earliest start date across all approved subscription windows.",
+    )
+    end_date = fields.Date(
+        string="End Date",
+        help="Latest expiry date across all approved subscription windows "
+             "(extends by 30 days on each re-approval).",
+    )
 
     @api.depends("assigned_user_ids")
     def _compute_subscription_count(self):
