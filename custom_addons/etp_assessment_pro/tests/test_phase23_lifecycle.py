@@ -596,6 +596,14 @@ class TestEnqueueScoring(_Base):
         r.write({"state": "submitted", "llm_state": "pending"})
         ev.write({"state": "submitted"})
         fake = json.dumps([{"id": r.id, "score": 0.95, "feedback": "ok"}])
+        # The grader only touches candidates an admin has REQUESTED. Without the
+        # flag the cron must leave them pending (no scoring during/after the exam).
+        with patch.object(vertex_svc, "_call_vertex", return_value=fake):
+            self.Assessment._cron_llm_auto_score()
+        r.invalidate_recordset()
+        self.assertEqual(r.llm_state, "pending")
+        # Admin clicks 'Run Subjective Evaluation' -> cron drains it next batch.
+        ev.write({"scoring_requested": True})
         with patch.object(vertex_svc, "_call_vertex", return_value=fake):
             self.Assessment._cron_llm_auto_score()
         r.invalidate_recordset()

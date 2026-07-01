@@ -16,6 +16,7 @@ from ..constants import (
     VERTEX_DEFAULT_LOCATION,
     VERTEX_DEFAULT_MODEL,
     VERTEX_GLOBAL_LOCATION,
+    text_has_source_reference,
 )
 
 _logger = logging.getLogger(__name__)
@@ -44,8 +45,57 @@ INLINE_QUESTION_PROMPT = (
     "rubric (object with checklist/constraints/pass_condition); "
     "subjective_justification -> no rubric (graded on the prompt). For the "
     "image types the per-request directive gives the exact image_specs shape; "
-    "do NOT emit options/correct_answer for image types."
+    "do NOT emit options/correct_answer for image types. Every question MUST be "
+    "self-contained: never reference the SOP, source, or guidelines — bake the "
+    "deciding facts into the scenario itself."
 )
+
+# Appended to EVERY question-generation user message — code-controlled, so the
+# self-contained rule holds even if an admin overrides the system prompt or the
+# bundled prompts/question.md fails to load. The candidate never sees the source.
+_SELF_CONTAINED_RULE = (
+    "\n\nHARD RULE — SELF-CONTAINED: Every question MUST be answerable from the "
+    "scenario you write plus the candidate's skill ALONE. NEVER reference, cite, "
+    "quote, or allude to the SOP, the source material, the guidelines, a "
+    "Section/Step/Clause, or any document the candidate cannot see. Bake every "
+    "deciding fact into the scenario. This binds the prompt, options, rubric and "
+    "official_reasoning."
+)
+
+# The prompt rule alone is not reliable for spec-reading skills (the model keeps
+# writing "According to the SOP..."), so generation REGENERATES the batch when any
+# item still cites the source, then drops any residual offender (logged) — a clean
+# bank is guaranteed regardless of model compliance or a stale prompt override.
+_GEN_SELF_CONTAINED_MAX_ATTEMPTS = 3
+_SOURCE_LEAK_CORRECTION = (
+    "\n\nCORRECTION — your previous attempt is REJECTED: one or more questions "
+    "referenced the source the candidate cannot see (e.g. \"According to the "
+    "SOP\", \"the SOP states\", \"the project workflow\", \"Section/Step N\"). "
+    "Regenerate ALL questions fully self-contained: make the rule itself the task "
+    "and state every deciding fact inside the scenario. Do NOT mention the SOP, "
+    "the source, the guidelines, the project workflow, or any Section/Step/Clause "
+    "anywhere in any field."
+)
+
+
+def _item_cites_source(item):
+    """True when a generated question item references the source the candidate
+    never sees — checked across name, prompt, options, correct_answer, rubric,
+    official_reasoning and image_specs. Drives the regenerate-on-leak guard."""
+    if not isinstance(item, dict):
+        return False
+    parts = [item.get("name"), item.get("prompt"), item.get("official_reasoning")]
+    opts = item.get("options")
+    if isinstance(opts, list):
+        parts.extend(str(o) for o in opts)
+    ca = item.get("correct_answer")
+    parts.extend(str(c) for c in ca) if isinstance(ca, list) else parts.append(
+        str(ca) if ca else None)
+    for key in ("rubric", "image_specs"):
+        val = item.get(key)
+        if isinstance(val, dict):
+            parts.append(json.dumps(val, ensure_ascii=False))
+    return text_has_source_reference(*[p for p in parts if p])
 
 
 def _param(env, key, default=""):
@@ -923,31 +973,59 @@ def generate_questions(env, prompt_record, skill):
     # Resolve A/B axes once and thread the SAME set through the prompt,
     # validation, and answer-key build so they can never disagree.
     ab_dims = _resolve_ab_dimensions(skill)
-    if skill.question_type in _IMAGE_TYPES:
-        directive = _image_question_directive(
-            skill.question_type, skill.question_count, ab_dims=ab_dims)
-    else:
-        directive = (
-            f"Generate exactly {skill.question_count} question(s) of type "
-            f"'{skill.question_type}' for this skill as one JSON array."
+
+    def _directive(count):
+        if skill.question_type in _IMAGE_TYPES:
+            return _image_question_directive(
+                skill.question_type, count, ab_dims=ab_dims)
+        return (
+            f"Generate exactly {count} question(s) of type "
+            f"'{skill.question_type}' for this skill as one JSON array.")
+
+    def _user(count, extra=""):
+        return (
+            f"SOURCE MATERIAL:\n{source_text}\n\n"
+            f"SKILL TO TEST:\n{skill_artifacts}\n\n"
+            + _directive(count) + _SELF_CONTAINED_RULE + extra)
+
+    # Keep the clean questions and re-request ONLY the shortfall left by dropped
+    # source-citing items (not the whole batch). The prompt rule alone is not
+    # reliable for spec-reading skills, so we top up until the target is met or
+    # the retry budget is spent — persistent offenders are simply never stored.
+    items = []
+    extra = ""
+    for attempt in range(_GEN_SELF_CONTAINED_MAX_ATTEMPTS):
+        need = skill.question_count - len(items)
+        raw = _call_vertex(
+            env, system_prompt, _user(max(need, 1), extra),
+            max_tokens=_GEN_MAX_OUTPUT_TOKENS, temperature=0.5,
+            response_json=True,
+            usage_ctx={"operation": "generate_questions",
+                       "prompt_id": prompt_record.id, "skill_id": skill.id,
+                       "note": skill.name},
         )
-    user = (
-        f"SOURCE MATERIAL:\n{source_text}\n\n"
-        f"SKILL TO TEST:\n{skill_artifacts}\n\n"
-        + directive
-    )
-    raw = _call_vertex(
-        env, system_prompt, user, max_tokens=_GEN_MAX_OUTPUT_TOKENS,
-        temperature=0.5,
-        response_json=True,
-        usage_ctx={"operation": "generate_questions",
-                   "prompt_id": prompt_record.id, "skill_id": skill.id,
-                   "note": skill.name},
-    )
-    items = _extract_json_array(raw)
+        batch = [it for it in _extract_json_array(raw) if isinstance(it, dict)]
+        fresh = [it for it in batch if not _item_cites_source(it)]
+        dropped = len(batch) - len(fresh)
+        items.extend(fresh)
+        if len(items) >= skill.question_count or dropped == 0:
+            break  # target met, or the model returned a fully self-contained set
+        extra = _SOURCE_LEAK_CORRECTION
+        _logger.info(
+            "etp_assessment: re-requesting %d clean question(s) for skill %s "
+            "(dropped %d that cited the source, pass %d)",
+            skill.question_count - len(items), skill.name, dropped, attempt + 1)
+    else:
+        _logger.warning(
+            "etp_assessment: skill %s still short after %d attempts (kept %d "
+            "clean); source-citing items were dropped",
+            skill.name, _GEN_SELF_CONTAINED_MAX_ATTEMPTS, len(items))
     PromptQuestion = env["etp.assessment.pro.prompt.question"].sudo()
     draft_ids = []
     skipped_bad = []
+    # The top-up loop accumulates per pass; a pass may over-deliver, so cap to
+    # the requested count (the model is never obliged to return exactly `need`).
+    items = items[:skill.question_count]
     for it in items:
         if not isinstance(it, dict):
             continue
@@ -957,6 +1035,15 @@ def generate_questions(env, prompt_record, skill):
             continue
         qtype = it.get("question_type") if it.get("question_type") in _QUESTION_TYPES \
             else skill.question_type
+        # Self-containment gate: never write a draft that cites the source the
+        # candidate cannot see (survives the regenerate loop above as a backstop).
+        if _item_cites_source(it):
+            skipped_bad.append("%s: cites the source material" % (
+                name or prompt_text[:40]))
+            _logger.warning(
+                "etp_assessment dropped source-citing %s item for skill %s",
+                qtype, skill.name)
+            continue
         # Cohesion gate: skip (with a logged reason) any item missing the fields
         # its type requires, rather than writing a draft that later crashes scoring.
         violations = _validate_question_item(it, qtype, ab_dims=ab_dims)

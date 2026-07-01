@@ -83,8 +83,11 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
             if not rec.data_file:
                 continue
             try:
-                rows = rec._parse_rows()
-                rec.question_count = len(rows)
+                native = rec._try_native_payload()
+                if native is not None:
+                    rec.question_count = len(native.get("questions") or [])
+                else:
+                    rec.question_count = len(rec._parse_rows())
                 if not rec.generator_name and rec.data_filename:
                     rec.generator_name = "Import: %s" % rec.data_filename
             except Exception as exc:  # noqa: BLE001 - onchange must not crash
@@ -309,10 +312,39 @@ class EtpAssessmentBankImportWizard(models.TransientModel):
 
     # Import action: build a generator prompt + its draft questions, then
     # open it on the Question Drafts tab for review/approve.
+    def _try_native_payload(self):
+        """Return the parsed native round-trip export dict if the upload is one,
+        else None (so the CSV path runs)."""
+        try:
+            data = json.loads(self._decode().decode("utf-8-sig"))
+        except Exception:
+            return None
+        if isinstance(data, dict) and data.get("etp_assessment_pro_bank") \
+                and isinstance(data.get("questions"), list):
+            return data
+        return None
+
     def action_import(self):
         self.ensure_one()
         if not self.data_file:
             raise UserError("Please attach a file first.")
+        # Native round-trip JSON (question.action_export_native_json) rebuilds the
+        # bank questions IDENTICALLY — bypass the CSV/draft path entirely.
+        native = self._try_native_payload()
+        if native is not None:
+            res = self.env["etp.assessment.pro.bank.import"].import_bank_native(
+                native)
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Question Bank Imported",
+                    "message": "Rebuilt %s question(s) from the round-trip "
+                               "export." % res.get("questions_created", 0),
+                    "type": "success",
+                    "sticky": False,
+                },
+            }
         rows = self._parse_rows()
 
         Category = self.env["etp.assessment.pro.category"]

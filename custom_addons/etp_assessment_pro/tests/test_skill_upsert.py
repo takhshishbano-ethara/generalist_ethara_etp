@@ -130,6 +130,31 @@ class TestQuestionGeneration(_Base):
             ids = vertex.generate_questions(self.env, self.prompt, skill)
         self.assertEqual(ids, [])
 
+    _SOP_MCQ = json.dumps([{
+        "name": "Q", "question_type": "mcq",
+        "prompt": "According to the SOP, which constraint applies to 'a blue mug'?",
+        "options": ["A blue mug", "Any mug"], "correct_answer": "A blue mug"}])
+    _CLEAN_MCQ = json.dumps([{
+        "name": "Q", "question_type": "mcq",
+        "prompt": "Which option lists exactly the stated constraints for 'a blue mug'?",
+        "options": ["A blue mug", "Any mug"], "correct_answer": "A blue mug"}])
+
+    def test_generate_regenerates_when_question_cites_source(self):
+        skill = self._skill(count=1)
+        with patch.object(vertex, "_call_vertex",
+                          side_effect=[self._SOP_MCQ, self._CLEAN_MCQ]) as m:
+            ids = vertex.generate_questions(self.env, self.prompt, skill)
+        self.assertEqual(m.call_count, 2)  # cited the SOP, regenerated once
+        self.assertEqual(len(ids), 1)
+        self.assertNotIn("SOP", self.PromptQuestion.browse(ids[0]).question_prompt)
+
+    def test_generate_drops_question_that_keeps_citing_source(self):
+        skill = self._skill(count=1)
+        with patch.object(vertex, "_call_vertex", return_value=self._SOP_MCQ) as m:
+            ids = vertex.generate_questions(self.env, self.prompt, skill)
+        self.assertEqual(m.call_count, 3)  # exhausts the retry budget
+        self.assertEqual(ids, [])  # persistent offender is never stored
+
 
 class TestDraftApproval(_Base):
 
@@ -195,3 +220,62 @@ class TestVertexAuthValidation(TransactionCase):
             vertex._gemini_request(
                 self.env, "gemini-2.5-flash-lite", "generateContent",
             )
+
+
+class TestBankRoundTrip(_Base):
+
+    def _make_bank_question(self):
+        skill = self.Skill.create({
+            "name": "RT Skill", "question_type": "mcq",
+            "question_count": 1, "difficulty": "easy"})
+        draft = self.PromptQuestion.create({
+            "prompt_id": self.prompt.id, "skill_id": skill.id,
+            "name": "RT Q", "question_prompt": "Which mug is described?",
+            "question_type": "mcq", "difficulty": "easy",
+            "options_json": json.dumps(["A blue mug", "A red mug", "A green mug"]),
+            "correct_answer_json": json.dumps("A blue mug"),
+            "official_reasoning": "Blue is the only stated colour.",
+        })
+        draft.action_approve()
+        return draft.approved_question_id
+
+    def test_native_export_import_round_trip(self):
+        q = self._make_bank_question()
+        payload = {"etp_assessment_pro_bank": "1",
+                   "questions": q._export_native()}
+        before = self.Question.search([]).ids
+        self.env["etp.assessment.pro.bank.import"].import_bank_native(payload)
+        new = self.Question.search([("id", "not in", before)])
+        self.assertEqual(len(new), 1)
+        # scalar fidelity
+        for f in ("name", "prompt", "question_type", "official_reasoning"):
+            self.assertEqual(new[f], q[f])
+        self.assertEqual(new.category_id.name, q.category_id.name)
+        self.assertEqual(set(new.skill_ids.mapped("name")),
+                         set(q.skill_ids.mapped("name")))
+        # answer-key fidelity (dimension name + option text + is_correct)
+        key = lambda rec: {(qd.dimension_id.name, ol.name, ol.is_correct)
+                           for qd in rec.question_dimension_ids
+                           for ol in qd.option_line_ids}
+        self.assertEqual(key(new), key(q))
+        self.assertTrue(new.has_valid_key)
+
+
+class TestS3ImageProxy(TransactionCase):
+    """object_key_from_url decides whether a stored image_url can be proxied
+    from our bucket (server-side, no presigned URL) or is an external redirect."""
+
+    def test_object_key_from_url(self):
+        from odoo.addons.etp_assessment_pro.services import s3_service
+        ICP = self.env["ir.config_parameter"].sudo()
+        ICP.set_param("etp_assessment_pro.s3_bucket", "my-bucket")
+        f = lambda u: s3_service.object_key_from_url(self.env, u)
+        self.assertEqual(
+            f("https://my-bucket.s3.ap-south-1.amazonaws.com/etp_assessment/a.png"),
+            "etp_assessment/a.png")                       # virtual-hosted + region
+        self.assertEqual(f("https://my-bucket.s3.amazonaws.com/x/y.png"), "x/y.png")
+        self.assertIsNone(f("https://example.com/a.png"))            # external
+        self.assertIsNone(f("https://other-bucket.s3.amazonaws.com/a.png"))  # not ours
+        ICP.set_param("etp_assessment_pro.s3_cdn_url", "https://cdn.ethara.ai")
+        self.assertEqual(f("https://cdn.ethara.ai/etp_assessment/z.png"),
+                         "etp_assessment/z.png")          # CDN in front of our bucket

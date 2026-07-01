@@ -5,6 +5,7 @@ import csv
 import io
 import json
 import logging
+import math
 import random
 import uuid
 
@@ -168,14 +169,34 @@ class EtpAssessment(models.Model):
     )
     require_justification_image_comparison = fields.Boolean(
         string="Require Justification for Image Comparison", default=False,
-        help="Legacy switch from the older schema; no-op when no questions "
-             "of type image_comparison exist in the new question bank.",
+        help="When on, Image A/B questions show a justification box graded by "
+             "the LLM and the final score blends verdict% (75%) + "
+             "justification% (25%), rounded up. When off, Image A/B is scored "
+             "on the verdicts alone (objective, no LLM).",
     )
     llm_auto_score = fields.Boolean(
-        string="Auto LLM-Score on Submit", default=False)
+        string="Auto-queue subjective grading on submit", default=False,
+        help="When on, a candidate's submit auto-queues them for the background "
+             "grader (still batched in 20s by the cron — never scored inline "
+             "during the exam). Off (default): an admin must click 'Run "
+             "Subjective Evaluation'.")
 
     candidate_csv_file = fields.Binary(string="Upload Candidates CSV")
     candidate_csv_filename = fields.Char(string="CSV Filename")
+
+    def write(self, vals):
+        res = super().write(vals)
+        # Flipping the image_ab justification toggle changes how already-submitted
+        # answers must score, so re-decide their state: verdict-only -> 'scored',
+        # required+justified -> 'pending' (an admin re-run then grades it).
+        if "require_justification_image_comparison" in vals:
+            stale = self.mapped(
+                "assessment_evaluator_ids.response_ids").filtered(
+                lambda r: r.question_id.question_type == "image_ab"
+                and r.state == "submitted")
+            if stale:
+                stale._enqueue_subjective_scoring()
+        return res
 
     @api.depends("response_ids")
     def _compute_response_count(self):
@@ -455,22 +476,30 @@ class EtpAssessment(models.Model):
     # LLM scoring — one inline Vertex call per candidate (no broker, per D3);
     # implementation in services/scoring.py.
     def action_llm_score_all(self):
+        """Admin trigger: queue every submitted, unscored candidate for
+        subjective grading. The background cron drains them in batches of 20 —
+        no LLM call runs in this request, so the admin UI never blocks."""
         self.ensure_one()
+        # Filter on the ACTUAL responses (robust to a stale evaluator llm_state):
+        # any submitted candidate with a needs_llm answer not yet scored.
         todo = self.assessment_evaluator_ids.filtered(
-            lambda ev: ev.state == "submitted" and ev.llm_state in
-            ("pending", "scoring", "partial", "failed"))
+            lambda ev: ev.state == "submitted" and any(
+                r.needs_llm and r.llm_state != "scored" for r in ev.response_ids))
         if not todo:
             raise UserError("No submitted candidates awaiting subjective scoring.")
-        scored_count = 0
-        for ev in todo:
-            scored_count += ev.action_llm_score()
+        # Force pending so the cron drains them — covers evaluators stuck at a
+        # stale state (e.g. image_ab answered with verdicts only, submitted
+        # before verdict-only grading existed). score_evaluator picks up the
+        # not_needed/pending responses.
+        todo.write({"scoring_requested": True, "llm_state": "pending"})
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Subjective Scoring Done",
-                "message": f"{len(todo)} candidate(s) processed, "
-                           f"{scored_count} response(s) scored.",
+                "title": "Subjective Grading Queued",
+                "message": f"Queued {len(todo)} candidate(s). The background "
+                           f"grader processes about 20 at a time — refresh to "
+                           f"watch the LLM status advance.",
                 "type": "success",
                 "sticky": False,
             },
@@ -496,7 +525,10 @@ class EtpAssessment(models.Model):
 
     @api.model
     def _cron_llm_auto_score(self):
-        """Background drainer: inline subjective scoring for llm_auto_score assessments."""
+        """Background grader: drains admin-requested subjective scoring in
+        batches of 20 per tick. Only candidates explicitly flagged via 'Run
+        Subjective Evaluation' (scoring_requested) are graded — nothing runs on
+        the candidate's exam path."""
         # Advisory lock so two cron workers don't double-score (auto-releases at commit).
         self.env.cr.execute(
             "SELECT pg_try_advisory_xact_lock(%s)", (827193,))
@@ -504,8 +536,8 @@ class EtpAssessment(models.Model):
             return
         evaluators = self.env["etp.assessment.pro.evaluator"].search([
             ("state", "=", "submitted"),
+            ("scoring_requested", "=", True),
             ("llm_state", "in", ("pending", "scoring", "partial", "failed")),
-            ("assessment_id.llm_auto_score", "=", True),
         ], limit=20)
         for ev in evaluators:
             try:
@@ -636,6 +668,12 @@ class EtpAssessmentEvaluator(models.Model):
         string="Results Released", default=False,
         help="Gates candidate-facing results based on assessment.results_release. "
              "Manual = admin flips; immediate = on submit.",
+    )
+    scoring_requested = fields.Boolean(
+        string="Subjective Grading Requested", default=False, copy=False,
+        help="Set by 'Run Subjective Evaluation'. The background grader drains "
+             "requested candidates in batches of 20; subjective scoring never "
+             "runs during the exam.",
     )
 
     # Admin-facing post-scoring summary card, derived from the same stored
@@ -1122,6 +1160,16 @@ class EtpAssessmentResponse(models.Model):
         compute="_compute_answer_summary", string="Candidate Answer")
     correct_summary = fields.Char(
         compute="_compute_answer_summary", string="Correct Answer")
+    # image_ab is graded objective verdicts + (optionally) an LLM justification.
+    ab_mcq_pct = fields.Float(
+        compute="_compute_ab_scores", string="Verdict %",
+        help="image_ab: % of scoring axes whose chosen verdict matches the key "
+             "(objective, no LLM).")
+    ab_final_pct = fields.Float(
+        compute="_compute_ab_scores", string="Final %",
+        help="image_ab final 0-100: verdict-only when the justification is off, "
+             "else ceil(0.75*verdict% + 0.25*justification%). Pass/fail vs the "
+             "threshold gives the 1 mark.")
 
     @api.depends("line_ids.selected_option_id",
                  "question_id.question_dimension_ids.option_line_ids.is_correct")
@@ -1159,7 +1207,56 @@ class EtpAssessmentResponse(models.Model):
             val = val * 100.0
         return val if 0.0 <= val <= 100.0 else 70.0
 
-    @api.depends("llm_raw_100", "llm_state", "needs_llm")
+    def _image_ab_mcq_pct(self):
+        """image_ab verdicts, objective: the % of scoring axes whose chosen
+        verdict exactly matches the keyed verdict (no LLM)."""
+        self.ensure_one()
+        total = correct = 0
+        for qd in self.question_id.question_dimension_ids:
+            key = set(qd.option_line_ids.filtered("is_correct")
+                      .mapped("master_option_id").ids)
+            if not key:
+                continue
+            total += 1
+            chosen = {line.selected_option_id.id for line in self.line_ids
+                      if line.dimension_id.id == qd.dimension_id.id
+                      and line.selected_option_id}
+            if chosen == key:
+                correct += 1
+        return (correct / total * 100.0) if total else 0.0
+
+    def _image_ab_uses_llm(self):
+        """image_ab needs a Vertex call ONLY when the assessment requires a
+        justification AND the candidate wrote one. Verdict-only answers (toggle
+        off, or a blank justification) are fully scored from the verdicts."""
+        self.ensure_one()
+        return bool(
+            self.question_id.question_type == "image_ab"
+            and self.assessment_id.require_justification_image_comparison
+            and (self.justification or "").strip())
+
+    @api.depends("question_id.question_type", "line_ids.selected_option_id",
+                 "question_id.question_dimension_ids.option_line_ids.is_correct",
+                 "llm_raw_100",
+                 "assessment_id.require_justification_image_comparison")
+    def _compute_ab_scores(self):
+        """image_ab verdict% (objective) and final% (verdict-only, or the
+        ceil'd 0.75/0.25 blend when the justification is required)."""
+        for rec in self:
+            if rec.question_id.question_type != "image_ab":
+                rec.ab_mcq_pct = 0.0
+                rec.ab_final_pct = 0.0
+                continue
+            mcq = rec._image_ab_mcq_pct()
+            rec.ab_mcq_pct = round(mcq, 2)
+            if rec.assessment_id.require_justification_image_comparison:
+                rec.ab_final_pct = float(
+                    math.ceil(0.75 * mcq + 0.25 * (rec.llm_raw_100 or 0.0)))
+            else:
+                rec.ab_final_pct = float(math.ceil(mcq))
+
+    @api.depends("llm_raw_100", "llm_state", "needs_llm", "ab_final_pct",
+                 "question_id.question_type")
     def _compute_subjective_marks(self):
         """Derive the earned mark, pass flag and 0-1 display score from the
         IMMUTABLE llm_raw_100 against the LIVE per-answer threshold. Because
@@ -1169,6 +1266,17 @@ class EtpAssessmentResponse(models.Model):
         score clears the threshold else 0 (a gated/zero answer fails)."""
         threshold = self._subjective_threshold_100()
         for rec in self:
+            if rec.question_id.question_type == "image_ab":
+                # image_ab's mark is its blended (verdict + justification) score
+                # vs the threshold. The verdict part is objective and known at
+                # submit; the justification part (when required) is the LLM raw.
+                final = rec.ab_final_pct or 0.0
+                rec.llm_raw_score = round(final / 100.0, 4)
+                rec.llm_max_score = 1
+                passed = rec.llm_state == "scored" and final >= threshold
+                rec.llm_passed = passed
+                rec.llm_score = 1 if passed else 0
+                continue
             if not rec.needs_llm:
                 rec.llm_raw_score = 0.0
                 rec.llm_passed = False
@@ -1192,7 +1300,8 @@ class EtpAssessmentResponse(models.Model):
             else:
                 rec.subjective_result = False
 
-    @api.depends("question_id", "question_id.question_type", "justification")
+    @api.depends("question_id", "question_id.question_type", "justification",
+                 "line_ids.selected_option_id")
     def _compute_scoring_kind(self):
         # EQUAL MARKS: has_objective = mcq/msq (code-marked); needs_llm =
         # subjective_* and image_ab/image_text (LLM-marked, not code-objective).
@@ -1201,12 +1310,20 @@ class EtpAssessmentResponse(models.Model):
             rec.has_objective = qtype in ("mcq", "msq")
             just = (rec.justification or "").strip()
             is_placeholder = just.startswith("[Auto-submitted")
-            rec.needs_llm = (
-                qtype in ("subjective_justification", "subjective_rubric",
-                          "image_ab", "image_text")
-                and bool(just)
-                and not is_placeholder
-            )
+            if qtype == "image_ab":
+                # The image_ab answer IS the per-axis verdicts (line_ids); the
+                # justification is supplementary. Grade it whenever verdicts
+                # exist and never gate on the justification — a verdicts-only
+                # answer MUST still be scored (LLM grades verdict match + any
+                # justification). Auto-submitted placeholders stay ungraded.
+                rec.needs_llm = bool(rec.line_ids) and not is_placeholder
+            else:
+                rec.needs_llm = (
+                    qtype in ("subjective_justification", "subjective_rubric",
+                              "image_text")
+                    and bool(just)
+                    and not is_placeholder
+                )
 
     @api.depends("line_ids.selected_option_id",
                  "question_id.question_type",
@@ -1271,47 +1388,58 @@ class EtpAssessmentResponse(models.Model):
                     "submitting.")
             rec.write({"state": "submitted"})
 
-            # Auto-enqueue subjective scoring when a justification is present
-            # (guarded by llm_auto_score via the autoscore context).
-            if (rec.justification or "").strip():
-                rec.with_context(autoscore=True)._enqueue_subjective_scoring()
+            # Queue subjective scoring on submit — NEVER scored inline on the
+            # candidate's path. image_ab ALWAYS enqueues (its verdicts are the
+            # answer, even with a blank justification); the others only when a
+            # justification was written.
+            if qtype == "image_ab" or (rec.justification or "").strip():
+                rec._enqueue_subjective_scoring()
 
             if rec.assessment_evaluator_id:
                 rec._check_all_submitted()
 
     def _enqueue_subjective_scoring(self):
-        """Inline subjective scoring (no broker, per D3); else mark pending for the cron."""
-        # Group by evaluator so one inline call scores all that candidate's waiting work.
-        by_eval = {}
+        """Queue needs_llm responses for subjective scoring. Scoring NEVER runs
+        inline on the candidate's submit — it is admin-triggered (Run Subjective
+        Evaluation) and drained by the cron in batches of 20. If the assessment
+        opts into auto-queue (llm_auto_score), flag the evaluator so the cron
+        picks it up next tick — still batched, never on the candidate's path."""
+        auto_eval_ids = set()
+        repend_eval_ids = set()
         for rec in self:
-            if not (rec.justification or "").strip():
-                rec.llm_state = "not_needed"
+            qtype = rec.question_id.question_type
+            if qtype == "image_ab":
+                # Verdicts are objective (scored now). Only an answer that needs
+                # the LLM (required + non-blank justification) is deferred;
+                # verdict-only answers are fully determined at submit -> scored.
+                if not rec.line_ids:
+                    rec.llm_state = "not_needed"
+                elif rec._image_ab_uses_llm():
+                    rec.llm_state = "pending"
+                    if rec.assessment_evaluator_id:
+                        repend_eval_ids.add(rec.assessment_evaluator_id.id)
+                        if rec.assessment_id.llm_auto_score:
+                            auto_eval_ids.add(rec.assessment_evaluator_id.id)
+                else:
+                    rec.llm_state = "scored"
                 continue
-            if not rec.needs_llm:
+            if not (rec.justification or "").strip() or not rec.needs_llm:
                 rec.llm_state = "not_needed"
-                continue
-            eval_rec = rec.assessment_evaluator_id
-            if not eval_rec:
-                rec.llm_state = "pending"
                 continue
             rec.llm_state = "pending"
-            # autoscore path: only fire when llm_auto_score is on.
-            if self.env.context.get("autoscore") \
-                    and not rec.assessment_id.llm_auto_score:
-                continue
-            by_eval.setdefault(eval_rec.id, eval_rec)
-        from ..services import scoring as scoring_svc
-        for ev in by_eval.values():
-            try:
-                # Savepoint-isolate: the inline call's minted-token write can race
-                # the cron (SerializationFailure) and would poison this submit (HTTP
-                # 500); on failure roll back and leave responses for the cron drainer.
-                with self.env.cr.savepoint():
-                    scoring_svc.score_evaluator(self.env, ev)
-            except Exception:
-                _logger.exception(
-                    "Inline subjective scoring failed for evaluator %s; "
-                    "responses left pending for cron drainer", ev.id)
+            if rec.assessment_evaluator_id:
+                repend_eval_ids.add(rec.assessment_evaluator_id.id)
+                if rec.assessment_id.llm_auto_score:
+                    auto_eval_ids.add(rec.assessment_evaluator_id.id)
+        if auto_eval_ids:
+            self.env["etp.assessment.pro.evaluator"].browse(
+                auto_eval_ids).write({"scoring_requested": True})
+        # A response moved (back) to 'pending' must re-derive its evaluator's
+        # rollup: the cron/auto path gates on the evaluator's stored llm_state,
+        # so an already-'scored' candidate would otherwise never be re-graded.
+        if repend_eval_ids:
+            self.env["etp.assessment.pro.evaluator"].browse(
+                repend_eval_ids)._compute_subjective_rollup()
 
     def _check_all_submitted(self):
         evaluator = self.assessment_evaluator_id

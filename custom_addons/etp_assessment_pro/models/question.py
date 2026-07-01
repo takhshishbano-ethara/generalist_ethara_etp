@@ -241,6 +241,56 @@ class EtpAssessmentQuestion(models.Model):
             })
         return out
 
+    def _export_native(self):
+        """Lossless, round-trippable export: every field needed to rebuild the
+        EXACT question (answer key with is_correct, official_reasoning, rubric,
+        images) so ``import_bank_native`` reproduces it identically. Distinct from
+        _export_payload, which is the lossy human/CSV view."""
+        out = []
+        for q in self:
+            dims = [{
+                "name": qd.dimension_id.name or "",
+                "options": [
+                    {"name": ol.name or "", "is_correct": bool(ol.is_correct)}
+                    for ol in qd.option_line_ids.sorted("sequence")],
+            } for qd in q.question_dimension_ids.sorted("sequence")]
+            images = [{
+                "slot": im.slot or "single",
+                "label": im.label or "",
+                "image_url": im.image_url or "",
+                "image_b64": im.image.decode() if im.image else "",
+            } for im in q.image_ids.sorted("sequence")]
+            out.append({
+                "name": q.name or "",
+                "prompt": q.prompt or "",
+                "description": q.description or "",
+                "question_type": q.question_type or "mcq",
+                "difficulty": q.difficulty or "",
+                "time_minutes": q.time_minutes or 0,
+                "sequence": q.sequence or 10,
+                "source_ref": q.source_ref or "",
+                "official_reasoning": q.official_reasoning or "",
+                "subjective_rubric_json": q.subjective_rubric_json or "",
+                "grading_json": q.grading_json or "",
+                "meta_json": q.meta_json or "",
+                "category": q.category_id.name or "",
+                "skills": q.skill_ids.mapped("name"),
+                "dimensions": dims,
+                "images": images,
+            })
+        return out
+
+    def action_export_native_json(self):
+        """One-click LOSSLESS export for round-trip import (rebuilds identically)."""
+        import json
+        recs = self or self.search([])
+        payload = json.dumps(
+            {"etp_assessment_pro_bank": "1", "questions": recs._export_native()},
+            indent=2, ensure_ascii=False)
+        return recs._export_download_action(
+            "question_bank_native.json", "application/json",
+            payload.encode("utf-8"))
+
     def _export_download_action(self, filename, mimetype, content_bytes):
         att = self.env["ir.attachment"].create({
             "name": filename,

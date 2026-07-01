@@ -135,3 +135,45 @@ def delete_key(env, key, client=None):
         _logger.info("etp_assessment cleaned up s3://%s/%s", bucket, key)
     except Exception as exc:
         _logger.warning("Failed to clean up S3 key %s: %s", key, exc)
+
+
+def object_key_from_url(env, url):
+    """Return the S3 object key when ``url`` points at OUR configured bucket
+    (virtual-hosted S3 URL or the configured CDN), else None. Used to decide
+    whether a stored image_url can be proxied from S3 or is an external URL."""
+    if not url:
+        return None
+    from urllib.parse import urlparse
+    bucket = _param(env, "etp_assessment_pro.s3_bucket")
+    cdn = (_param(env, "etp_assessment_pro.s3_cdn_url") or "").rstrip("/")
+    parsed = urlparse(url)
+    key = parsed.path.lstrip("/")
+    if not key:
+        return None
+    host = parsed.netloc
+    # https://{bucket}.s3.{region}.amazonaws.com/{key}
+    if bucket and host.startswith(bucket + ".s3") and host.endswith("amazonaws.com"):
+        return key
+    # https://{bucket}.s3.amazonaws.com/{key} (legacy, no region in host)
+    if bucket and host == bucket + ".s3.amazonaws.com":
+        return key
+    # A CDN configured in front of the same bucket -> the path IS the key.
+    if cdn and url.startswith(cdn + "/"):
+        return key
+    return None
+
+
+def download(env, key, client=None):
+    """Fetch an object's bytes from the configured bucket, server-side and
+    authenticated (no presigned URL, so nothing can 'expire'). Returns
+    ``(bytes, content_type)`` or ``(None, None)`` on any failure."""
+    if not key or not is_configured(env):
+        return None, None
+    try:
+        cli = client or _client(env)
+        bucket = _param(env, "etp_assessment_pro.s3_bucket")
+        resp = cli.get_object(Bucket=bucket, Key=key)
+        return resp["Body"].read(), resp.get("ContentType")
+    except Exception as exc:
+        _logger.warning("S3 download failed for %s: %s", key, exc)
+        return None, None

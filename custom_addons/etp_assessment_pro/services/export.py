@@ -19,11 +19,11 @@ RESULTS_COLUMNS = [
 RESPONSES_COLUMNS = [
     "candidate", "email", "assessment", "day", "skill",
     "question", "question_type", "category", "difficulty", "prompt",
-    "candidate_answer", "correct_answer", "dimension_detail",
+    "candidate_answer", "correct_answer", "model_answer", "dimension_detail",
     "objective_score", "objective_max",
     "needs_subjective", "subjective_result", "subjective_score_0_100",
     "subjective_mark", "subjective_max", "subjective_raw_0_1", "subjective_state",
-    "subjective_reasoning", "justification",
+    "subjective_reasoning", "justification", "rubric",
     "total_score", "total_max", "response_state",
 ]
 
@@ -103,6 +103,7 @@ def _response_row(resp):
         "prompt": q.prompt or "",
         "candidate_answer": cand,
         "correct_answer": correct,
+        "model_answer": q.official_reasoning or "",
         "dimension_detail": detail,
         "objective_score": obj,
         "objective_max": obj_max,
@@ -115,6 +116,7 @@ def _response_row(resp):
         "subjective_state": rec.llm_state or "",
         "subjective_reasoning": rec.llm_feedback or "",
         "justification": rec.justification or "",
+        "rubric": q.subjective_rubric_json or "",
         "total_score": obj + subj,
         "total_max": obj_max + subj_max,
         "response_state": rec.state or "",

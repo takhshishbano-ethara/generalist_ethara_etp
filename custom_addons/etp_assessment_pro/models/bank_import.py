@@ -21,6 +21,94 @@ class EtpAssessmentBankImport(models.AbstractModel):
     _description = "Question Bank JSON Importer"
 
     @api.model
+    def import_bank_native(self, payload):
+        """Import the LOSSLESS native export (``question.action_export_native_json``)
+        and rebuild each question IDENTICALLY — answer key (is_correct),
+        official_reasoning, rubric and images. The round-trip partner of
+        ``question._export_native``."""
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload)
+            except Exception as exc:
+                raise UserError(f"Invalid JSON: {exc}")
+        questions = (payload or {}).get("questions") or []
+        Question = self.env["etp.assessment.pro.question"]
+        Skill = self.env["etp.assessment.pro.skill"]
+        Category = self.env["etp.assessment.pro.category"]
+        Dimension = self.env["etp.assessment.pro.dimension"]
+        QDim = self.env["etp.assessment.pro.question.dimension"]
+        Image = self.env["etp.assessment.pro.question.image"]
+        created = 0
+        for item in questions:
+            if not isinstance(item, dict):
+                continue
+            cat = False
+            cname = (item.get("category") or "").strip()
+            if cname:
+                cat = Category.search([("name", "=", cname)], limit=1) \
+                    or Category.create({"name": cname})
+            skill_ids = []
+            for sname in item.get("skills") or []:
+                sname = (sname or "").strip()
+                if not sname:
+                    continue
+                sk = Skill.search([("name", "=", sname)], limit=1) \
+                    or Skill.create({"name": sname})
+                skill_ids.append(sk.id)
+            diff = item.get("difficulty")
+            q = Question.create({
+                "name": (item.get("name") or "Imported Question")[:200],
+                "prompt": item.get("prompt") or "",
+                "description": item.get("description") or False,
+                "question_type": item.get("question_type") or "mcq",
+                "difficulty": diff if diff in ("easy", "medium", "hard") else False,
+                "time_minutes": item.get("time_minutes") or 0,
+                "sequence": item.get("sequence") or 10,
+                "source_ref": item.get("source_ref") or False,
+                "official_reasoning": item.get("official_reasoning") or False,
+                "subjective_rubric_json": item.get("subjective_rubric_json") or False,
+                "grading_json": item.get("grading_json") or False,
+                "meta_json": item.get("meta_json") or False,
+                "category_id": cat.id if cat else False,
+                "skill_ids": [(6, 0, skill_ids)] if skill_ids else False,
+            })
+            # Private dimension per question (mirrors approve/materialize), so the
+            # answer set is self-contained and is_correct round-trips exactly.
+            for dim in item.get("dimensions") or []:
+                opts = dim.get("options") or []
+                if not opts:
+                    continue
+                d = Dimension.with_context(
+                    allow_shared_dimension_edit=True).create({
+                        "name": (dim.get("name") or "Answer")[:200],
+                        "option_ids": [
+                            (0, 0, {"name": o.get("name") or "",
+                                    "sequence": (i + 1) * 10})
+                            for i, o in enumerate(opts)],
+                    })
+                qd = QDim.create({"question_id": q.id, "dimension_id": d.id})
+                # Match by POSITION, not name: option lines are created in the
+                # payload's order, so a dimension with duplicate labels (e.g. two
+                # "N/A") keeps the exact correct option instead of flagging both.
+                for line, opt in zip(qd.option_line_ids.sorted("sequence"), opts):
+                    if opt.get("is_correct"):
+                        line.write({"is_correct": True})
+            for im in item.get("images") or []:
+                vals = {
+                    "question_id": q.id,
+                    "slot": im.get("slot") or "single",
+                    "label": im.get("label") or "",
+                    "sequence": im.get("sequence") or 10,
+                }
+                if im.get("image_url"):
+                    vals["image_url"] = im["image_url"]
+                if im.get("image_b64"):
+                    vals["image"] = im["image_b64"]
+                Image.create(vals)
+            created += 1
+        return {"questions_created": created}
+
+    @api.model
     def import_bank(self, bank, category_id=False, category_name=None,
                     source_tag="json"):
         if isinstance(bank, str):

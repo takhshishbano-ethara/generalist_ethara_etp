@@ -131,7 +131,8 @@ _SOURCE_REF_RE = re.compile(
     r"as required by|in line with)\s+the\s+(?:\w+\s+){0,2}"
     r"(?:guidelines?|documentation|document|material|polic(?:y|ies)|"
     r"procedures?|manual|handbook|sop|protocol|spec(?:ification)?s?|"
-    r"rubric|criteria|scheme|brief|playbook|runbook|standards?)\b",
+    r"rubric|criteria|scheme|brief|playbook|runbook|standards?|"
+    r"workflows?|process(?:es)?|framework)\b",
     re.IGNORECASE)
 
 

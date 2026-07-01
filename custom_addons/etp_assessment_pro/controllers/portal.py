@@ -412,11 +412,24 @@ class EtpAssessmentPortal(http.Controller):
             image_id)
         if not image.exists() or image.question_id.id not in order:
             return request.not_found()
-        # Prefer the stored binary; fall back to the external/S3 URL.
+        # Prefer a stored binary; else PROXY an S3 object (private bucket,
+        # fetched server-side and streamed, so nothing 'expires' and the image
+        # is never saved back into Odoo); else redirect a genuinely external URL.
         if image.image:
             return request.env["ir.binary"]._get_image_stream_from(
                 image, field_name="image").get_response()
         if image.image_url:
+            from ..services import s3_service
+            key = s3_service.object_key_from_url(request.env, image.image_url)
+            if key:
+                data, ctype = s3_service.download(request.env, key)
+                if data is not None:
+                    return request.make_response(data, headers=[
+                        ("Content-Type", ctype or "image/png"),
+                        # Exam content: let the candidate's browser cache it so
+                        # S3 is hit once, not on every render; never a shared cache.
+                        ("Cache-Control", "private, max-age=3600"),
+                    ])
             return request.redirect(image.image_url, code=302, local=False)
         return request.not_found()
 
@@ -604,11 +617,11 @@ class EtpAssessmentPortal(http.Controller):
             })
             if existing.state != "submitted":
                 existing.action_submit()
-            elif (existing.justification or "").strip():
-                # Already-submitted row was rewritten: re-enqueue subjective
-                # scoring so needs_llm/llm_state recompute from the new text.
-                existing.with_context(
-                    autoscore=True)._enqueue_subjective_scoring()
+            elif (existing.justification or "").strip() \
+                    or existing.question_id.question_type == "image_ab":
+                # Already-submitted row was rewritten: re-queue/re-score it (the
+                # new verdicts or text get graded later; never scored inline).
+                existing._enqueue_subjective_scoring()
             return existing
 
         response = Response.create({

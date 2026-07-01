@@ -211,12 +211,10 @@ def _build_item(resp):
         item["rubric"] = _rubric_block(q)
         item["candidate_justification"] = resp.justification or ""
     elif qtype == "image_ab":
-        axes, precheck = _image_ab_axes(resp)
-        item["axes"] = axes
+        # The verdicts are scored objectively by CODE. The LLM grades ONLY the
+        # written justification against the official reasoning (the model answer).
         item["official_reasoning"] = q.official_reasoning or ""
         item["candidate_justification"] = resp.justification or ""
-        item["consistency_flags"] = precheck.get("flags", [])
-        item["consistency_severity"] = precheck.get("severity", "none")
     elif qtype == "image_text":
         item.update(_image_text_key(q))
         item["candidate_text"] = resp.justification or ""
@@ -332,10 +330,20 @@ def score_evaluator(env, evaluator):
             "not_needed", "pending", "queued", "failed"))
     if not todo:
         return 0
+    # image_ab without an LLM-graded justification is scored from its verdicts
+    # alone — settle it here (no Vertex call) and drop it from the LLM batch.
+    verdict_only = todo.filtered(
+        lambda r: r.question_id.question_type == "image_ab"
+        and not r._image_ab_uses_llm())
+    if verdict_only:
+        verdict_only.write({"llm_state": "scored"})
+        todo -= verdict_only
+    scored = len(verdict_only)
+    if not todo:
+        return scored
     _logger.info(
         "etp_assessment scoring evaluator id=%s todo=%d batch=%d",
         evaluator.id, len(todo), _scoring_batch_size(env))
-    scored = 0
     for chunk in _chunks(todo, _scoring_batch_size(env)):
         scored += _score_submission(env, chunk)
     _logger.info(

@@ -206,4 +206,13 @@
         <field name="state">code</field>
         <field name="code">action = records.action_export_csv()</field>
     </record>
+
+    <record id="action_export_question_bank_native" model="ir.actions.server">
+        <field name="name">Export to JSON (round-trip)</field>
+        <field name="model_id" ref="model_etp_assessment_pro_question"/>
+        <field name="binding_model_id" ref="model_etp_assessment_pro_question"/>
+        <field name="binding_view_types">list,form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_export_native_json()</field>
+    </record>
 </odoo>

@@ -566,7 +566,8 @@
                                         </t>
                                     </fieldset>
                                 </t>
-                                <div class="etp-field">
+                                <div class="etp-field"
+                                     t-if="assessment.require_justification_image_comparison">
                                     <label class="form-label">Justification</label>
                                     <textarea name="justification" rows="5"
                                               class="form-control etp-textarea"
@@ -920,7 +921,7 @@
                             <span t-out="day_session.skill_id.name"/>
                         </div>
                     </div>
-                    <div class="text-end">
+                    <div class="text-end" t-if="show_results">
                         <div class="etp-score-pill">
                             <span class="etp-score-label">Day Score</span>
                             <span class="etp-score-value">
@@ -994,11 +995,14 @@
                                             <span t-attf-class="etp-tag {{ 'is-correct' if response.llm_passed else 'is-wrong' }}"
                                                   t-out="'Pass' if response.llm_passed else 'Fail'"/>
                                             <span class="etp-tag is-score">
-                                                <t t-out="int(round(response.llm_raw_100))"/> / 100
+                                                <t t-out="int(response.ab_final_pct) if response.question_type == 'image_ab' else int(round(response.llm_raw_100))"/> / 100
                                             </span>
                                         </span>
                                         <span t-elif="response.llm_state == 'error'" class="etp-tag is-wrong">
                                             Not scored
+                                        </span>
+                                        <span t-elif="response.llm_state == 'not_needed'" class="etp-tag">
+                                            Not answered
                                         </span>
                                         <span t-else="" class="etp-tag is-pending">
                                             Scoring in progress
@@ -1047,23 +1051,45 @@
                                 </t>
 
                                 <t t-else="">
-                                    <p class="etp-answer-row mb-1">
-                                        <span class="etp-answer-label">Your answer:</span>
-                                    </p>
-                                    <p class="etp-justification"
-                                       t-out="response.justification"/>
-                                    <div t-if="response.llm_feedback" class="etp-feedback">
-                                        <strong>Feedback:</strong>
-                                        <span t-out="response.llm_feedback"/>
-                                    </div>
-                                </t>
-
-                                <t t-if="response.question_type == 'image_ab' and response.justification">
-                                    <p class="etp-answer-row mb-1 mt-2">
-                                        <span class="etp-answer-label">Your justification:</span>
-                                    </p>
-                                    <p class="etp-justification"
-                                       t-out="response.justification"/>
+                                    <!-- image_ab: the answer is the per-axis verdicts; show them
+                                         (+ expected, once released) and the justification if any. -->
+                                    <t t-if="response.question_type == 'image_ab'">
+                                        <p class="etp-answer-row mb-1">
+                                            <span class="etp-answer-label">Your answer:</span>
+                                            <span t-if="response.answer_summary"
+                                                  t-out="response.answer_summary"/>
+                                            <em t-else="" class="text-muted">No selection</em>
+                                        </p>
+                                        <p class="etp-answer-row mb-1"
+                                           t-if="show_results and response.correct_summary">
+                                            <span class="etp-answer-label">Expected:</span>
+                                            <span t-out="response.correct_summary"/>
+                                        </p>
+                                        <t t-if="response.justification">
+                                            <p class="etp-answer-row mb-1 mt-2">
+                                                <span class="etp-answer-label">Your justification:</span>
+                                            </p>
+                                            <p class="etp-justification"
+                                               t-out="response.justification"/>
+                                        </t>
+                                        <p class="etp-answer-row mb-1 mt-2"
+                                           t-if="show_results and response.llm_state == 'scored'">
+                                            <span class="etp-answer-label">Score:</span>
+                                            Verdicts <span t-out="int(round(response.ab_mcq_pct))"/>%
+                                            <t t-if="assessment.require_justification_image_comparison">
+                                                · Justification <span t-out="int(round(response.llm_raw_100))"/>/100
+                                            </t>
+                                            · Final <span t-out="int(response.ab_final_pct)"/>/100
+                                        </p>
+                                    </t>
+                                    <!-- subjective / image_text: the justification IS the answer. -->
+                                    <t t-else="">
+                                        <p class="etp-answer-row mb-1">
+                                            <span class="etp-answer-label">Your answer:</span>
+                                        </p>
+                                        <p class="etp-justification"
+                                           t-out="response.justification"/>
+                                    </t>
                                     <div t-if="response.llm_feedback" class="etp-feedback">
                                         <strong>Feedback:</strong>
                                         <span t-out="response.llm_feedback"/>

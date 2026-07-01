@@ -167,13 +167,14 @@ constraints, and a pass_condition), and `candidate_justification`. Load the
 supplied rubric unchanged and grade against it. Weight toward the pass_condition.
 
 ### image_ab
-Item fields: `question_prompt`, `axes` (each with `axis` label, `official_choice`,
-`candidate_choice`), `official_reasoning`, `candidate_justification`, and
-`consistency_flags` / `consistency_severity`. Treat per-axis agreement with
-`official_choice` as the checklist (each matched axis is a held point) and
-alignment of `candidate_justification` with `official_reasoning` as the reasoning
-quality. Use `consistency_flags` only as a supporting signal; do not punish a
-substantively strong justification merely because a flag fired.
+The candidate's per-axis verdict picks are scored OBJECTIVELY BY CODE — do NOT
+score them and do NOT expect them in the item. Grade ONLY the written
+`candidate_justification`. Item fields: `question_prompt`, `official_reasoning`
+(the model answer), `candidate_justification`. Judge how well the justification
+reasons about the comparison and aligns with `official_reasoning`: the official
+reasoning anchors the expected points, it never adds a criterion. An empty or
+off-topic justification scores 0. Your 0-100 is the justification score only; the
+runtime blends it with the objective verdict score.
 
 ### image_text
 Item fields: `question_prompt`, `ideal_answer`, `mandatory_elements` (list),

@@ -38,7 +38,7 @@
                             invisible="assessment_mode != 'multi_day' or state == 'done'"/>
                     <button name="action_done" string="Mark Done" type="object"
                             invisible="state != 'in_progress'"/>
-                    <button name="action_llm_score_all" string="Score Subjective (All)"
+                    <button name="action_llm_score_all" string="Run Subjective Evaluation"
                             type="object" icon="fa-magic"
                             invisible="state == 'draft'"/>
                     <button name="action_export_results" string="Export Results"
