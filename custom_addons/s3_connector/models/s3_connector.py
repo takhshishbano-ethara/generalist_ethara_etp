@@ -22,13 +22,19 @@ class S3Connector(models.Model):
     cdn_url = fields.Char(string="CND Url")
 
     def test_connection(self):
+        try:
+            import certifi
+            verify = certifi.where()
+        except Exception:
+            verify = True
         for record in self:
             try:
                 s3 = boto3.client(
                     's3',
                     aws_access_key_id=record.aws_access_key_id,
                     aws_secret_access_key=record.aws_secret_access_key,
-                    region_name=record.region_name
+                    region_name=record.region_name,
+                    verify=verify,
                 )
                 s3.list_buckets()
                 message = _('Connection successful!')
@@ -49,11 +55,17 @@ class S3Connector(models.Model):
 
     def _get_s3_client(self):
         """Initialize a boto3 S3 client"""
+        try:
+            import certifi
+            verify = certifi.where()
+        except Exception:
+            verify = True
         return boto3.client(
             's3',
             aws_access_key_id=self.aws_access_key_id,
             aws_secret_access_key=self.aws_secret_access_key,
             region_name=self.region_name,
+            verify=verify,
         )
 
     def upload_file(self, file_name, object_name=None):
