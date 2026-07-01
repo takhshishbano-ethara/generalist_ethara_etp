@@ -35,7 +35,7 @@ class EsslDailySummary(models.Model):
                 SELECT
                     l.id AS log_id,
                     l.punch_timestamp,
-                    l.punch_timestamp::date AS punch_date,
+                    (l.punch_timestamp AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date AS punch_date,
                     l.device_user_id,
                     l.device_id,
                     d.name AS device_name,
@@ -47,7 +47,7 @@ class EsslDailySummary(models.Model):
                     e.id AS employee_id,
                     e.name AS employee_name,
                     e.employee_code,
-                    COALESCE(e.id::text, 'unmatched:' || l.device_user_id) AS user_key
+                    l.device_user_id AS user_key
                 FROM essl_attendance_log l
                 LEFT JOIN essl_device d
                     ON d.id = l.device_id
@@ -59,17 +59,15 @@ class EsslDailySummary(models.Model):
                     punch_date,
                     user_key,
                     MIN(device_user_id) AS device_user_id,
-                    employee_id,
-                    employee_name,
-                    employee_code,
+                    MAX(employee_id) AS employee_id,
+                    MAX(employee_name) AS employee_name,
+                    MAX(employee_code) AS employee_code,
                     MIN(punch_timestamp) AS first_time,
                     MAX(punch_timestamp) AS last_time,
                     COUNT(*) AS total_punches,
                     MIN(log_id) AS min_log_id
                 FROM base
-                GROUP BY
-                    punch_date, user_key,
-                    employee_id, employee_name, employee_code
+                GROUP BY punch_date, user_key
             ),
             entry_punch AS (
                 SELECT DISTINCT ON (punch_date, user_key)
@@ -101,9 +99,9 @@ class EsslDailySummary(models.Model):
                 a.employee_id,
                 a.employee_name,
                 a.employee_code,
-                TO_CHAR(a.first_time, 'YYYY-MM-DD HH24:MI:SS') AS punch_in_time,
+                TO_CHAR((a.first_time AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD HH24:MI:SS') AS punch_in_time,
                 'Check In' AS punch_in_type,
-                TO_CHAR(a.last_time, 'YYYY-MM-DD HH24:MI:SS') AS punch_out_time,
+                TO_CHAR((a.last_time  AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'), 'YYYY-MM-DD HH24:MI:SS') AS punch_out_time,
                 'Check Out' AS punch_out_type,
                 a.total_punches::int AS total_punches,
                 lp.last_device_id   AS device_id,

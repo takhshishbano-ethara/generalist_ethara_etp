@@ -1,11 +1,23 @@
 # -*- coding: utf-8 -*-
 import logging
 
-from datetime import timedelta
+from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
+
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def _ist_day_bounds_utc(utc_dt):
+    ist = utc_dt.replace(tzinfo=timezone.utc).astimezone(_IST).replace(tzinfo=None)
+    start_ist = ist.replace(hour=0, minute=0, second=0, microsecond=0)
+    end_ist = start_ist + timedelta(days=1)
+    start_utc = start_ist.replace(tzinfo=_IST).astimezone(timezone.utc).replace(tzinfo=None)
+    end_utc = end_ist.replace(tzinfo=_IST).astimezone(timezone.utc).replace(tzinfo=None)
+    return start_utc, end_utc
 
 PUNCH_STATUS = [
     ("0", "Check In"),
@@ -94,8 +106,7 @@ class EsslAttendanceLog(models.Model):
         log.sudo().write({"employee_id": employee.id})
 
         if log.status in ("0", "4"):
-            day_start = log.punch_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-            day_end = day_start + timedelta(days=1)
+            day_start, day_end = _ist_day_bounds_utc(log.punch_timestamp)
             today_att = self.env["hr.attendance"].search(
                 [
                     ("employee_id", "=", employee.id),
@@ -138,8 +149,7 @@ class EsslAttendanceLog(models.Model):
             log.sudo().write({"attendance_id": open_att.id, "error_note": False})
             return open_att.id
 
-        day_start = log.punch_timestamp.replace(hour=0, minute=0, second=0, microsecond=0)
-        day_end = day_start + timedelta(days=1)
+        day_start, day_end = _ist_day_bounds_utc(log.punch_timestamp)
         same_day_att = self.env["hr.attendance"].search(
             [
                 ("employee_id", "=", employee.id),

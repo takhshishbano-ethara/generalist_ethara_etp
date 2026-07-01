@@ -4,7 +4,7 @@
 
         <record id="essl_pull_api_token_param" model="ir.config_parameter">
             <field name="key">essl_pull_api.token</field>
-            <field name="value">esttoken-abc123</field>
+            <field name="value">testtoken-abc123</field>
         </record>
 
     </data>

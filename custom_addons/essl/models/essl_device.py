@@ -1,11 +1,30 @@
 # -*- coding: utf-8 -*-
 import logging
-from datetime import timedelta
+from datetime import timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
+
+_IST = ZoneInfo("Asia/Kolkata")
+
+
+def _ist_to_utc(dt):
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt.replace(tzinfo=_IST).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _utc_to_ist(dt):
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is not None:
+        return dt.astimezone(_IST).replace(tzinfo=None)
+    return dt.replace(tzinfo=timezone.utc).astimezone(_IST).replace(tzinfo=None)
 
 
 class EsslDevice(models.Model):
@@ -112,7 +131,7 @@ class EsslDevice(models.Model):
             return "5"
         return None
 
-    def _build_pull_query(self):
+    def _build_pull_query(self, since_override=None):
         self.ensure_one()
         srv = self.server_id
         srv._validate_identifier(srv.logs_table, "Logs Table")
@@ -132,14 +151,17 @@ class EsslDevice(models.Model):
             srv.logs_timestamp_column,
             srv.logs_device_column,
         )
-        params = [
-            self.last_sync_time or (fields.Datetime.now() - timedelta(days=1)),
-            self.external_device_id,
-        ]
+        if since_override is not None:
+            since = since_override
+        elif self.last_sync_time:
+            since = _utc_to_ist(self.last_sync_time)
+        else:
+            since = _utc_to_ist(fields.Datetime.now()) - timedelta(days=1)
+        params = [since, self.external_device_id]
         sql += " ORDER BY [%s] ASC" % srv.logs_timestamp_column
         return sql, tuple(params)
 
-    def _pull_attendance(self, conn=None, employee_map=None):
+    def _pull_attendance(self, conn=None, employee_map=None, since_override=None, process_logs=True):
         self.ensure_one()
         if not self.server_id:
             raise UserError(_("Device '%s' has no ESSL Server assigned.") % self.display_name)
@@ -151,7 +173,7 @@ class EsslDevice(models.Model):
             conn = self.server_id._connect()
         try:
             cursor = conn.cursor()
-            sql, params = self._build_pull_query()
+            sql, params = self._build_pull_query(since_override=since_override)
             cursor.execute(sql, params)
             raw_rows = cursor.fetchall()
             cols = [col[0] for col in cursor.description]
@@ -173,14 +195,16 @@ class EsslDevice(models.Model):
         Log = self.env["essl.attendance.log"]
         if employee_map is None:
             employee_map = Log.build_employee_map()
+        employee_map = employee_map or {}
 
         existing_keys = set()
         if rows:
+            min_source_ist = min(r["punch_time"] for r in rows if r.get("punch_time"))
             self.env.cr.execute(
                 "SELECT device_user_id, punch_timestamp "
                 "FROM essl_attendance_log "
                 "WHERE device_id = %s AND punch_timestamp >= %s",
-                (self.id, min(r["punch_time"] for r in rows if r.get("punch_time"))),
+                (self.id, _ist_to_utc(min_source_ist)),
             )
             existing_keys = {(uid, ts) for uid, ts in self.env.cr.fetchall()}
 
@@ -188,10 +212,11 @@ class EsslDevice(models.Model):
         max_ts = self.last_sync_time
         for row in rows:
             user_id_val = row.get("user_id")
-            punch_time = row.get("punch_time")
-            if user_id_val is None or punch_time is None:
+            punch_time_source = row.get("punch_time")
+            if user_id_val is None or punch_time_source is None:
                 continue
             user_id = str(user_id_val)
+            punch_time = _ist_to_utc(punch_time_source)
             if (user_id, punch_time) in existing_keys:
                 continue
             if self.server_id.logs_direction_column:
@@ -207,25 +232,29 @@ class EsslDevice(models.Model):
                 "device_user_id": user_id,
                 "punch_timestamp": punch_time,
                 "status": direction,
+                "employee_id": employee_map.get(user_id) or False,
             })
 
         if new_vals:
             new_logs = Log.create(new_vals)
             created = len(new_logs)
-            for log in new_logs:
-                try:
-                    Log.process_log(log.id, employee_map=employee_map)
-                    processed += 1
-                except Exception as exc:
-                    failed += 1
-                    _logger.warning("ESSL: process_log failed for log %d: %s", log.id, exc)
+            if process_logs:
+                for log in new_logs:
+                    try:
+                        Log.process_log(log.id, employee_map=employee_map)
+                        processed += 1
+                    except Exception as exc:
+                        failed += 1
+                        _logger.warning("ESSL: process_log failed for log %d: %s", log.id, exc)
 
-        self.sudo().write({
-            "last_sync_time": max_ts or self.last_sync_time,
+        write_vals = {
             "last_sync_count": created,
             "sync_status": "idle",
             "last_error": False,
-        })
+        }
+        if since_override is None:
+            write_vals["last_sync_time"] = max_ts or self.last_sync_time
+        self.sudo().write(write_vals)
         _logger.info(
             "ESSL %s: created=%d processed=%d failed=%d",
             self.name, created, processed, failed,

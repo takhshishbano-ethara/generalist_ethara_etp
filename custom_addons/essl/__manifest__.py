@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 {
     "name": "ESSL Biometric Attendance",
-    "version": "19.0.3.2.0",
+    "version": "19.0.3.7.2",
     "category": "Human Resources",
     "author": "Ethara",
     "license": "LGPL-3",
-    "depends": ["hr_attendance", "hr", "mail"],
+    "depends": ["hr_attendance", "hr", "mail", "employee_role_import"],
     "external_dependencies": {"python": ["pyodbc"]},
     "data": [
         "security/essl_security.xml",

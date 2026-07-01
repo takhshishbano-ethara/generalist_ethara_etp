@@ -324,8 +324,9 @@ class TaskForgeAttendanceController(http.Controller):
             ('state', '=', 'completed')
         ])
         IST_OFFSET = timedelta(hours=5, minutes=30)
-        check_in_ist = (rec.check_in + IST_OFFSET) if rec.check_in and rec.attendance_status == 'present' else ""
-        check_out_ist = (rec.check_out + IST_OFFSET) if rec.check_out and rec.attendance_status == 'present' else ""
+        is_placeholder_absent = rec.attendance_status == 'absent' and not rec.check_out
+        check_in_ist = (rec.check_in + IST_OFFSET) if rec.check_in and not is_placeholder_absent else ""
+        check_out_ist = (rec.check_out + IST_OFFSET) if rec.check_out else ""
 
         biometric_in = ""
         biometric_out = ""
@@ -366,11 +367,11 @@ class TaskForgeAttendanceController(http.Controller):
             'employee_id': rec.employee_id.id if rec.employee_id.id else 0,
             'employee_name': rec.employee_id.name if rec.employee_id.name else "",
             'role': rec.employee_id.user_id.user_role.name if rec.employee_id.user_id.user_role.name else "",
-            'date': str(check_in_ist.date()) if check_in_ist else (str(target_date) if target_date else ''),
+            'date': str(rec.date) if rec.date else (str(check_in_ist.date()) if check_in_ist else (str(target_date) if target_date else '')),
             'status': attendance_status.get(rec.attendance_status) if rec.attendance_status else "Absent",
             'punch_in_time': biometric_in or str(check_in_ist),
             'punch_out_time': biometric_out or str(check_out_ist),
-            'hours_worked': biometric_hours if biometric_hours is not None else (round(rec.worked_hours, 2) if rec.worked_hours and rec.attendance_status == 'present' else 0),
+            'hours_worked': biometric_hours if biometric_hours is not None else (round(rec.worked_hours, 2) if rec.worked_hours else 0),
             'location': location,
             'geo_coordinates': rec.geo_coordinates or '',
             'tasks_done': task_logs or 0,
