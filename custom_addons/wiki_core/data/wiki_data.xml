@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Seed the Leave Policy and Holidays wiki pages. These hold only the
+         editable description and an optional document; the live data (leave
+         balances, public holidays) comes from the Time Off module. -->
+    <data noupdate="1">
+        <record id="doc_page_leave_policy" model="wiki.document.page">
+            <field name="page_key">leave_policy</field>
+            <field name="name">Attendance &amp; Leave Policy</field>
+            <field name="description">How leave accrues
+Paid, casual, and sick leave are credited at the start of the calendar year. Earned leave accrues monthly based on days worked. Balances are pro-rated for mid-year joiners from your date of joining.
+
+Applying for leave
+Apply at least 3 working days in advance via Apply for leave above. Requests route to your manager for approval. Sick leave of 3+ consecutive days requires a medical certificate uploaded to Documents.
+
+Carry-forward &amp; encashment
+Up to 10 unused paid-leave days carry forward to the next year. Earned leave is encashable at exit per your full-and-final settlement. Casual and sick leave lapse at year end and are not encashable.</field>
+        </record>
+
+        <record id="doc_page_holidays" model="wiki.document.page">
+            <field name="page_key">holidays</field>
+            <field name="name">Holidays</field>
+            <field name="description">The official holiday calendar is maintained in Time Off → Configuration → Public Holidays. Gazetted holidays are mandatory; restricted holidays are optional.</field>
+        </record>
+
+        <!-- Leave Policy prose, section by section — fully editable in the
+             backend (Wiki → Content → Articles). The Leave Policy page's live
+             numbers come from Time Off; only this narrative lives here. -->
+        <record id="article_leave_policy" model="wiki.article">
+            <field name="name">Leave &amp; Attendance Policy</field>
+            <field name="slug">leave_policy</field>
+            <field name="icon">umbrella</field>
+            <field name="meta">HR/PSL · v2 · Effective 01 Jun 2026</field>
+            <field name="description">Everything you need to know about working hours, leaves, and time off at Ethara.</field>
+        </record>
+        <record id="article_leave_policy_s1" model="wiki.article.section">
+            <field name="article_id" ref="article_leave_policy"/><field name="sequence">10</field>
+            <field name="heading">Overview</field>
+            <field name="body">Standard working hours are 9:30–18:30, Monday to Friday. Ethara provides four leave types — paid, casual, sick, and earned — accrued and applied through the rules below. Read the policy precisely, then apply through GreytHR.</field>
+        </record>
+        <record id="article_leave_policy_s2" model="wiki.article.section">
+            <field name="article_id" ref="article_leave_policy"/><field name="sequence">20</field>
+            <field name="heading">Attendance</field>
+            <field name="body">A full working day is 9.0 hours. Days under the half-day threshold (clock-out before 13:00) are recorded as half-day. Mark Absent days as worked via regularization.</field>
+        </record>
+        <record id="article_leave_policy_s3" model="wiki.article.section">
+            <field name="article_id" ref="article_leave_policy"/><field name="sequence">30</field>
+            <field name="heading">Leave types</field>
+            <field name="body">Paid leave — Credited at the start of the calendar year.
+Casual leave — For short, planned personal time. Lapses at year end.
+Sick leave — 3+ consecutive days need a medical certificate.
+Earned leave — Accrues monthly, encashable at exit.</field>
+        </record>
+        <record id="article_leave_policy_s4" model="wiki.article.section">
+            <field name="article_id" ref="article_leave_policy"/><field name="sequence">40</field>
+            <field name="heading">Special leaves</field>
+            <field name="body">Maternity (182 days), paternity (15 days), bereavement (5 days), and comp-off for approved weekend work are granted over and above your annual entitlement, subject to eligibility and statutory limits.</field>
+        </record>
+        <record id="article_leave_policy_s5" model="wiki.article.section">
+            <field name="article_id" ref="article_leave_policy"/><field name="sequence">50</field>
+            <field name="heading">Combinations &amp; FAQs</field>
+            <field name="body">Does a holiday between two leave days count as leave? Yes — the sandwich rule applies; an intervening holiday or week-off between leave days is counted as leave.</field>
+        </record>
+        <record id="article_leave_policy_s6" model="wiki.article.section">
+            <field name="article_id" ref="article_leave_policy"/><field name="sequence">60</field>
+            <field name="heading">Balance calculation</field>
+            <field name="body">How leave accrues: Paid, casual, and sick leave are credited at the start of the calendar year. Earned leave accrues monthly based on days worked. Balances are pro-rated for mid-year joiners from your date of joining.
+
+Applying for leave: Apply at least 3 working days in advance. Requests route to your manager for approval. Sick leave of 3+ consecutive days requires a medical certificate uploaded to Documents.
+
+Carry-forward &amp; encashment: Up to 10 unused paid-leave days carry forward to the next year. Earned leave is encashable at exit per your full-and-final settlement. Casual and sick leave lapse at year end.</field>
+        </record>
+    </data>
+</odoo>

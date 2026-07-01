@@ -1,0 +1,659 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ============================================================ -->
+    <!--  Wiki Core - backend management views                       -->
+    <!--                                                              -->
+    <!--  Single source of truth for the Employee Portal wiki. Every -->
+    <!--  field the Flutter app reads via the wiki APIs is editable   -->
+    <!--  here, exposed individually and grouped per wiki page. View  -->
+    <!--  changes never touch the models or API contracts, so the     -->
+    <!--  Flutter app keeps consuming the same endpoints unchanged.   -->
+    <!--  IDs are preserved from the previous version.                -->
+    <!-- ============================================================ -->
+
+    <!-- ============================================================ -->
+    <!--  Dashboard Cards  (wiki.category) - SCR-160                  -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_category_list" model="ir.ui.view">
+        <field name="name">wiki.category.list</field>
+        <field name="model">wiki.category</field>
+        <field name="arch" type="xml">
+            <list string="Dashboard Cards">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="description"/>
+                <field name="icon"/>
+                <field name="route_key"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_category_form" model="ir.ui.view">
+        <field name="name">wiki.category.form</field>
+        <field name="model">wiki.category</field>
+        <field name="arch" type="xml">
+            <form string="Dashboard Card">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. Leave &amp; Attendance"/></h1>
+                    </div>
+                    <group>
+                        <group string="Card">
+                            <field name="description" placeholder="Short subtitle under the title"/>
+                            <field name="icon" placeholder="UI icon identifier"/>
+                        </group>
+                        <group string="Behaviour">
+                            <field name="route_key" placeholder="Frontend route the card opens"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_category" model="ir.actions.act_window">
+        <field name="name">Dashboard Cards</field>
+        <field name="res_model">wiki.category</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'active_test': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create the first dashboard card</p>
+            <p>Cards shown on the Company Wiki landing screen.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Recent Updates  (wiki.update) - SCR-160                     -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_update_list" model="ir.ui.view">
+        <field name="name">wiki.update.list</field>
+        <field name="model">wiki.update</field>
+        <field name="arch" type="xml">
+            <list string="Recent Updates">
+                <field name="date"/>
+                <field name="name"/>
+                <field name="owner"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_update_form" model="ir.ui.view">
+        <field name="name">wiki.update.form</field>
+        <field name="model">wiki.update</field>
+        <field name="arch" type="xml">
+            <form string="Recent Update">
+                <header>
+                    <button name="action_send_notification" type="object"
+                            string="Send Notification" class="btn-primary"
+                            icon="fa-bell"
+                            help="Email all users and employees and create an
+                                  in-app notification for this policy."/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name"/>
+                        <h1><field name="name" placeholder="e.g. New leave policy published"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="owner" placeholder="Team or person, e.g. HR"/>
+                            <field name="date"/>
+                        </group>
+                        <group>
+                            <field name="active"/>
+                            <field name="notification_sent"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_update" model="ir.actions.act_window">
+        <field name="name">Recent Updates</field>
+        <field name="res_model">wiki.update</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  FAQs  (wiki.faq) - SCR-163                                  -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_faq_search" model="ir.ui.view">
+        <field name="name">wiki.faq.search</field>
+        <field name="model">wiki.faq</field>
+        <field name="arch" type="xml">
+            <search string="FAQs">
+                <field name="name" string="Question"/>
+                <field name="answer"/>
+                <field name="group"/>
+                <group>
+                    <filter name="group_by_group" string="Group"
+                            context="{'group_by': 'group'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_wiki_faq_list" model="ir.ui.view">
+        <field name="name">wiki.faq.list</field>
+        <field name="model">wiki.faq</field>
+        <field name="arch" type="xml">
+            <list string="FAQs">
+                <field name="group_sequence" widget="handle"/>
+                <field name="group"/>
+                <field name="name"/>
+                <field name="sequence"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_faq_form" model="ir.ui.view">
+        <field name="name">wiki.faq.form</field>
+        <field name="model">wiki.faq</field>
+        <field name="arch" type="xml">
+            <form string="FAQ">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" string="Question"/>
+                        <h1><field name="name" placeholder="How do I apply for leave?"/></h1>
+                    </div>
+                    <group>
+                        <group string="Grouping">
+                            <field name="group" placeholder="e.g. Leave"/>
+                            <field name="group_sequence"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <separator string="Answer"/>
+                    <field name="answer" placeholder="Full answer shown when the FAQ is expanded."
+                           nolabel="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_faq" model="ir.actions.act_window">
+        <field name="name">FAQs</field>
+        <field name="res_model">wiki.faq</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_wiki_faq_search"/>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Leave Policy & Holidays pages  (wiki.document.page)         -->
+    <!--                                                              -->
+    <!--  These backend pages hold only a Description and a Document  -->
+    <!--  Upload. The live data shown in the app (leave balances and  -->
+    <!--  public holidays) comes straight from the Time Off module —  -->
+    <!--  the Wiki keeps no duplicate balance or holiday records.     -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_document_page_list" model="ir.ui.view">
+        <field name="name">wiki.document.page.list</field>
+        <field name="model">wiki.document.page</field>
+        <field name="arch" type="xml">
+            <list string="Wiki Pages">
+                <field name="page_key"/>
+                <field name="name"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_document_page_form" model="ir.ui.view">
+        <field name="name">wiki.document.page.form</field>
+        <field name="model">wiki.document.page</field>
+        <field name="arch" type="xml">
+            <form string="Wiki Page">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" string="Title"/>
+                        <h1><field name="name" placeholder="e.g. Leave Policy"/></h1>
+                    </div>
+                    <group>
+                        <field name="page_key"/>
+                        <field name="document" filename="document_filename"
+                               string="Document Upload"/>
+                        <field name="document_filename" invisible="1"/>
+                    </group>
+                    <separator string="Description"/>
+                    <field name="description" nolabel="1"
+                           placeholder="Description shown on the wiki page. Leave balances and holidays come from the Time Off module."/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_leave_policy_page" model="ir.actions.act_window">
+        <field name="name">Leave Policy</field>
+        <field name="res_model">wiki.document.page</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('page_key', '=', 'leave_policy')]</field>
+        <field name="context">{'default_page_key': 'leave_policy'}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Set up the Leave Policy page</p>
+            <p>Holds the policy description and document. Leave balances come
+               from Time Off → Leave Management → Leave Balance Cards.</p>
+        </field>
+    </record>
+
+    <record id="action_wiki_holiday_page" model="ir.actions.act_window">
+        <field name="name">Holidays</field>
+        <field name="res_model">wiki.document.page</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('page_key', '=', 'holidays')]</field>
+        <field name="context">{'default_page_key': 'holidays'}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Set up the Holidays page</p>
+            <p>Holds the description and document. The holiday list comes from
+               Time Off → Configuration → Public Holidays.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Articles + Sections  (wiki.article) - SCR-161 / SCR-162    -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_article_list" model="ir.ui.view">
+        <field name="name">wiki.article.list</field>
+        <field name="model">wiki.article</field>
+        <field name="arch" type="xml">
+            <list string="Articles">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="slug"/>
+                <field name="route_key"/>
+                <field name="meta"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_article_form" model="ir.ui.view">
+        <field name="name">wiki.article.form</field>
+        <field name="model">wiki.article</field>
+        <field name="arch" type="xml">
+            <form string="Article">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name" string="Title"/>
+                        <h1><field name="name" placeholder="e.g. Code of Conduct"/></h1>
+                    </div>
+                    <group>
+                        <group string="Identity">
+                            <field name="slug" placeholder="stable key e.g. core_values"/>
+                            <field name="route_key"
+                                   placeholder="If set, the card opens this route instead of the body"/>
+                        </group>
+                        <group string="Card">
+                            <field name="description" placeholder="Card subtitle"/>
+                            <field name="icon" placeholder="UI icon identifier"/>
+                            <field name="meta" placeholder="e.g. Updated 11 Jun 2026 · HR · v3"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Sections" name="sections">
+                            <field name="section_ids">
+                                <list string="Sections" editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="heading"/>
+                                    <field name="body"/>
+                                </list>
+                                <form string="Section">
+                                    <group>
+                                        <field name="heading"/>
+                                        <field name="sequence"/>
+                                    </group>
+                                    <separator string="Body"/>
+                                    <field name="body" nolabel="1"
+                                           placeholder="Section content shown in the article reader."/>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_article" model="ir.actions.act_window">
+        <field name="name">Articles</field>
+        <field name="res_model">wiki.article</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'active_test': False}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">Create the first article</p>
+            <p>Foundation hub cards and the sectioned article reader.</p>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Process Flows + Stages  (wiki.process.flow) - SCR-167      -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_process_flow_list" model="ir.ui.view">
+        <field name="name">wiki.process.flow.list</field>
+        <field name="model">wiki.process.flow</field>
+        <field name="arch" type="xml">
+            <list string="Process Flows">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="meta"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_process_flow_form" model="ir.ui.view">
+        <field name="name">wiki.process.flow.form</field>
+        <field name="model">wiki.process.flow</field>
+        <field name="arch" type="xml">
+            <form string="Process Flow">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name" string="Title"/>
+                        <h1><field name="name" placeholder="e.g. Reimbursement approval"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="meta" placeholder="e.g. Owner: Operations · v1.2"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Stages" name="stages">
+                            <field name="stage_ids">
+                                <list string="Stages" editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="kind"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_process_flow" model="ir.actions.act_window">
+        <field name="name">Process Flows</field>
+        <field name="res_model">wiki.process.flow</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Training Groups + Docs  (wiki.training.*) - SCR-168        -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_training_group_list" model="ir.ui.view">
+        <field name="name">wiki.training.group.list</field>
+        <field name="model">wiki.training.group</field>
+        <field name="arch" type="xml">
+            <list string="Training Groups">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_training_group_form" model="ir.ui.view">
+        <field name="name">wiki.training.group.form</field>
+        <field name="model">wiki.training.group</field>
+        <field name="arch" type="xml">
+            <form string="Training Group">
+                <sheet>
+                    <widget name="web_ribbon" title="Archived" bg_color="text-bg-danger"
+                            invisible="active"/>
+                    <div class="oe_title">
+                        <label for="name" string="Group"/>
+                        <h1><field name="name" placeholder="e.g. Onboarding"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Documents" name="docs">
+                            <field name="doc_ids">
+                                <list string="Documents" editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name"/>
+                                    <field name="meta"/>
+                                    <field name="active" widget="boolean_toggle"/>
+                                </list>
+                                <form string="Document">
+                                    <group>
+                                        <group>
+                                            <field name="name"/>
+                                            <field name="meta" placeholder="e.g. Engineering · 12 pages"/>
+                                            <field name="required"/>
+                                            <field name="pages"/>
+                                        </group>
+                                        <group>
+                                            <field name="document" filename="document_filename"/>
+                                            <field name="document_filename" invisible="1"/>
+                                            <field name="sequence"/>
+                                            <field name="active"/>
+                                        </group>
+                                    </group>
+                                    <separator string="Description"/>
+                                    <field name="description" nolabel="1"
+                                           placeholder="Short summary shown in the training detail pane."/>
+                                    <separator string="Body"/>
+                                    <field name="body" nolabel="1"
+                                           placeholder="Document content."/>
+                                </form>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_training_group" model="ir.actions.act_window">
+        <field name="name">Training Groups</field>
+        <field name="res_model">wiki.training.group</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <record id="view_wiki_training_doc_list" model="ir.ui.view">
+        <field name="name">wiki.training.doc.list</field>
+        <field name="model">wiki.training.doc</field>
+        <field name="arch" type="xml">
+            <list string="Training Documents">
+                <field name="sequence" widget="handle"/>
+                <field name="name"/>
+                <field name="group_id"/>
+                <field name="meta"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_training_doc_form" model="ir.ui.view">
+        <field name="name">wiki.training.doc.form</field>
+        <field name="model">wiki.training.doc</field>
+        <field name="arch" type="xml">
+            <form string="Training Document">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="name" string="Title"/>
+                        <h1><field name="name" placeholder="e.g. Day 1 checklist"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="group_id"/>
+                            <field name="meta" placeholder="e.g. Engineering · 12 pages"/>
+                            <field name="required"/>
+                            <field name="pages"/>
+                        </group>
+                        <group>
+                            <field name="document" filename="document_filename"/>
+                            <field name="document_filename" invisible="1"/>
+                            <field name="sequence"/>
+                            <field name="active"/>
+                        </group>
+                    </group>
+                    <separator string="Description"/>
+                    <field name="description" nolabel="1"
+                           placeholder="Short summary shown in the training detail pane."/>
+                    <separator string="Body"/>
+                    <field name="body" nolabel="1" placeholder="Document content."/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_training_doc" model="ir.actions.act_window">
+        <field name="name">Training Documents</field>
+        <field name="res_model">wiki.training.doc</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'active_test': False}</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Grievances  (wiki.grievance) - SCR-169                     -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_grievance_search" model="ir.ui.view">
+        <field name="name">wiki.grievance.search</field>
+        <field name="model">wiki.grievance</field>
+        <field name="arch" type="xml">
+            <search string="Grievances">
+                <field name="reference"/>
+                <field name="employee_id"/>
+                <filter name="draft" string="Draft" domain="[('state', '=', 'draft')]"/>
+                <filter name="submitted" string="Submitted" domain="[('state', '=', 'submitted')]"/>
+                <filter name="in_review" string="In Review" domain="[('state', '=', 'in_review')]"/>
+                <filter name="resolved" string="Resolved" domain="[('state', '=', 'resolved')]"/>
+                <separator/>
+                <filter name="anonymous" string="Anonymous" domain="[('is_anonymous', '=', True)]"/>
+                <group>
+                    <filter name="group_by_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_by_category" string="Category"
+                            context="{'group_by': 'category'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_wiki_grievance_list" model="ir.ui.view">
+        <field name="name">wiki.grievance.list</field>
+        <field name="model">wiki.grievance</field>
+        <field name="arch" type="xml">
+            <list string="Grievances">
+                <field name="reference"/>
+                <field name="create_date" string="Submitted"/>
+                <field name="category"/>
+                <field name="employee_id"/>
+                <field name="is_anonymous"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'submitted'"
+                       decoration-warning="state == 'in_review'"
+                       decoration-success="state == 'resolved'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_grievance_form" model="ir.ui.view">
+        <field name="name">wiki.grievance.form</field>
+        <field name="model">wiki.grievance</field>
+        <field name="arch" type="xml">
+            <form string="Grievance">
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,submitted,in_review,resolved"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="reference" string="Reference"/>
+                        <h1><field name="reference" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Details">
+                            <field name="category"/>
+                            <field name="is_anonymous"/>
+                            <field name="employee_id" invisible="is_anonymous"/>
+                        </group>
+                    </group>
+                    <separator string="Description"/>
+                    <field name="description" nolabel="1"/>
+                    <separator string="Evidence"/>
+                    <field name="attachment_ids" nolabel="1" readonly="1">
+                        <list string="Evidence">
+                            <field name="name"/>
+                            <field name="mimetype"/>
+                            <field name="create_date"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_grievance" model="ir.actions.act_window">
+        <field name="name">Grievances</field>
+        <field name="res_model">wiki.grievance</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_wiki_grievance_search"/>
+    </record>
+
+    <!-- ============================================================ -->
+    <!--  Menus  (visible to Settings/admin group with write access)  -->
+    <!-- ============================================================ -->
+    <menuitem id="menu_wiki_root" name="Wiki" sequence="90"
+              groups="base.group_system"/>
+
+    <!-- Foundation: policies (Recent Updates) and articles. Publishing a
+         policy here notifies all users; the form carries the manual
+         "Send Notification" fallback button. -->
+    <menuitem id="menu_wiki_foundation" name="Foundation"
+              parent="menu_wiki_root" sequence="5"/>
+    <menuitem id="menu_wiki_update" name="Policies"
+              parent="menu_wiki_foundation" action="action_wiki_update" sequence="10"/>
+    <menuitem id="menu_wiki_article" name="Articles"
+              parent="menu_wiki_foundation" action="action_wiki_article" sequence="20"/>
+
+    <menuitem id="menu_wiki_content" name="Content"
+              parent="menu_wiki_root" sequence="10"/>
+    <menuitem id="menu_wiki_category" name="Dashboard Cards"
+              parent="menu_wiki_content" action="action_wiki_category" sequence="10"/>
+    <menuitem id="menu_wiki_faq" name="FAQs"
+              parent="menu_wiki_content" action="action_wiki_faq" sequence="30"/>
+    <menuitem id="menu_wiki_leave_policy" name="Leave Policy"
+              parent="menu_wiki_content" action="action_wiki_leave_policy_page" sequence="35"/>
+    <menuitem id="menu_wiki_holiday" name="Holidays"
+              parent="menu_wiki_content" action="action_wiki_holiday_page" sequence="40"/>
+    <menuitem id="menu_wiki_process_flow" name="Process Flows"
+              parent="menu_wiki_content" action="action_wiki_process_flow" sequence="60"/>
+
+    <menuitem id="menu_wiki_training" name="Training"
+              parent="menu_wiki_root" sequence="20"/>
+    <menuitem id="menu_wiki_training_group" name="Training Groups"
+              parent="menu_wiki_training" action="action_wiki_training_group" sequence="10"/>
+    <menuitem id="menu_wiki_training_doc" name="Training Documents"
+              parent="menu_wiki_training" action="action_wiki_training_doc" sequence="20"/>
+
+    <menuitem id="menu_wiki_grievance" name="Grievances"
+              parent="menu_wiki_root" action="action_wiki_grievance" sequence="30"/>
+</odoo>

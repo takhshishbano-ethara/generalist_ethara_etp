@@ -1,0 +1,339 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+
+    <!-- ── FAQs ───────────────────────────────────────── -->
+    <record id="faq_detail_form" model="wiki.faq">
+        <field name="group">Getting started</field>
+        <field name="group_sequence">10</field>
+        <field name="sequence">10</field>
+        <field name="name">How do I complete my employee detail form?</field>
+        <field name="answer">Go to My Records → Detail Form. Complete all 6 steps and upload each supporting document. Your progress is saved as a draft so you can finish across sessions.</field>
+    </record>
+    <record id="faq_employee_code" model="wiki.faq">
+        <field name="group">Getting started</field>
+        <field name="group_sequence">10</field>
+        <field name="sequence">20</field>
+        <field name="name">Where do I find my employee code?</field>
+        <field name="answer">Your employee code (e.g. EMP-1042) is on your offer letter and your dashboard profile.</field>
+    </record>
+    <record id="faq_reporting_manager" model="wiki.faq">
+        <field name="group">Getting started</field>
+        <field name="group_sequence">10</field>
+        <field name="sequence">30</field>
+        <field name="name">Who is my reporting manager?</field>
+        <field name="answer">Your manager is shown on your profile and approves leave, regularization, and reimbursements.</field>
+    </record>
+    <record id="faq_contact_details" model="wiki.faq">
+        <field name="group">Getting started</field>
+        <field name="group_sequence">10</field>
+        <field name="sequence">40</field>
+        <field name="name">How do I update my contact details?</field>
+        <field name="answer">Open your profile from the avatar (top-right), then Edit profile. You can change email and phone yourself; name and statutory IDs are updated by HR.</field>
+    </record>
+    <record id="faq_leave_count" model="wiki.faq">
+        <field name="group">Leave &amp; attendance</field>
+        <field name="group_sequence">20</field>
+        <field name="sequence">10</field>
+        <field name="name">How many leaves do I get?</field>
+        <field name="answer">Paid 18 · Casual 7 · Sick 7 · Earned 2 per year. See the Leave Policy page for accrual and carry-forward rules.</field>
+    </record>
+    <record id="faq_apply_leave" model="wiki.faq">
+        <field name="group">Leave &amp; attendance</field>
+        <field name="group_sequence">20</field>
+        <field name="sequence">15</field>
+        <field name="name">How do I apply for leave?</field>
+        <field name="answer">Use Apply for leave on the dashboard or the Leave Policy page. Pick a type and dates; we check your balance and route the request to your manager.</field>
+    </record>
+    <record id="faq_fix_absent" model="wiki.faq">
+        <field name="group">Leave &amp; attendance</field>
+        <field name="group_sequence">20</field>
+        <field name="sequence">20</field>
+        <field name="name">How do I fix an Absent day?</field>
+        <field name="answer">Open My Records → Attendance, find the Absent or Half-Day row, and click Request regularization. It routes to your manager.</field>
+    </record>
+    <record id="faq_working_hours" model="wiki.faq">
+        <field name="group">Leave &amp; attendance</field>
+        <field name="group_sequence">20</field>
+        <field name="sequence">30</field>
+        <field name="name">What are the working hours?</field>
+        <field name="answer">Standard hours are 9:30–18:30, Monday to Friday. Shift workers follow their roster.</field>
+    </record>
+    <record id="faq_reimbursement_time" model="wiki.faq">
+        <field name="group">Reimbursements &amp; pay</field>
+        <field name="group_sequence">30</field>
+        <field name="sequence">10</field>
+        <field name="name">How long does a reimbursement take?</field>
+        <field name="answer">Once your manager approves a claim, it is paid with the next payroll cycle — usually within 7–10 working days.</field>
+    </record>
+    <record id="faq_claim_rejected" model="wiki.faq">
+        <field name="group">Reimbursements &amp; pay</field>
+        <field name="group_sequence">30</field>
+        <field name="sequence">20</field>
+        <field name="name">Why was my claim rejected?</field>
+        <field name="answer">The most common reasons are a missing or unclear receipt, an amount above the policy limit, or a duplicate claim. The rejection note explains the specific reason — fix it and resubmit.</field>
+    </record>
+    <record id="faq_payslips" model="wiki.faq">
+        <field name="group">Reimbursements &amp; pay</field>
+        <field name="group_sequence">30</field>
+        <field name="sequence">30</field>
+        <field name="name">Where are my payslips?</field>
+        <field name="answer">Payslips are issued on the 1st of each month. The latest is summarised on your dashboard. Full payslip access is rolling out soon.</field>
+    </record>
+    <record id="faq_documents_upload" model="wiki.faq">
+        <field name="group">Documents &amp; compliance</field>
+        <field name="group_sequence">40</field>
+        <field name="sequence">10</field>
+        <field name="name">Which documents do I need to upload?</field>
+        <field name="answer">Your Documents page shows a checklist by category (Identity, Statutory, Education, Employment). Anything marked Not uploaded is outstanding.</field>
+    </record>
+    <record id="faq_compliance_forms" model="wiki.faq">
+        <field name="group">Documents &amp; compliance</field>
+        <field name="group_sequence">40</field>
+        <field name="sequence">20</field>
+        <field name="name">What are the compliance forms?</field>
+        <field name="answer">Statutory forms such as PF Form 2, Form 12BB, and policy acknowledgements. Open each from the Compliance page and e-sign.</field>
+    </record>
+
+    <!-- ── Public Holidays 2026 (Time Off — single source of truth) ── -->
+    <record id="pubhol_republic_day" model="resource.calendar.leaves">
+        <field name="name">Republic Day</field><field name="date_from">2026-01-26 00:00:00</field><field name="date_to">2026-01-26 23:59:59</field><field name="holiday_classification">gazetted</field>
+    </record>
+    <record id="pubhol_holi" model="resource.calendar.leaves">
+        <field name="name">Holi</field><field name="date_from">2026-03-14 00:00:00</field><field name="date_to">2026-03-14 23:59:59</field><field name="holiday_classification">gazetted</field>
+    </record>
+    <record id="pubhol_good_friday" model="resource.calendar.leaves">
+        <field name="name">Good Friday</field><field name="date_from">2026-04-03 00:00:00</field><field name="date_to">2026-04-03 23:59:59</field><field name="holiday_classification">restricted</field>
+    </record>
+    <record id="pubhol_may_day" model="resource.calendar.leaves">
+        <field name="name">May Day</field><field name="date_from">2026-05-01 00:00:00</field><field name="date_to">2026-05-01 23:59:59</field><field name="holiday_classification">gazetted</field>
+    </record>
+    <record id="pubhol_independence_day" model="resource.calendar.leaves">
+        <field name="name">Independence Day</field><field name="date_from">2026-08-15 00:00:00</field><field name="date_to">2026-08-15 23:59:59</field><field name="holiday_classification">gazetted</field>
+    </record>
+    <record id="pubhol_gandhi_jayanti" model="resource.calendar.leaves">
+        <field name="name">Gandhi Jayanti</field><field name="date_from">2026-10-02 00:00:00</field><field name="date_to">2026-10-02 23:59:59</field><field name="holiday_classification">gazetted</field>
+    </record>
+    <record id="pubhol_diwali" model="resource.calendar.leaves">
+        <field name="name">Diwali</field><field name="date_from">2026-10-20 00:00:00</field><field name="date_to">2026-10-20 23:59:59</field><field name="holiday_classification">gazetted</field>
+    </record>
+    <record id="pubhol_christmas" model="resource.calendar.leaves">
+        <field name="name">Christmas</field><field name="date_from">2026-12-25 00:00:00</field><field name="date_to">2026-12-25 23:59:59</field><field name="holiday_classification">restricted</field>
+    </record>
+
+    <!-- ── Company Wiki categories ────────────────────── -->
+    <record id="cat_foundation" model="wiki.category">
+        <field name="sequence">10</field><field name="name">Foundation</field>
+        <field name="description">Core values, mission, org chart</field>
+        <field name="icon">book-open</field><field name="route_key">foundation_hub</field>
+    </record>
+    <record id="cat_hr_policies" model="wiki.category">
+        <field name="sequence">20</field><field name="name">HR Policies</field>
+        <field name="description">Leave, attendance, code of conduct</field>
+        <field name="icon">umbrella</field><field name="route_key">leave_policy</field>
+    </record>
+    <record id="cat_operations" model="wiki.category">
+        <field name="sequence">30</field><field name="name">Operations</field>
+        <field name="description">Process flows &amp; runbooks</field>
+        <field name="icon">git-branch</field><field name="route_key">process_flow</field>
+    </record>
+    <record id="cat_training" model="wiki.category">
+        <field name="sequence">40</field><field name="name">Training</field>
+        <field name="description">Onboarding &amp; learning resources</field>
+        <field name="icon">graduation-cap</field><field name="route_key">training</field>
+    </record>
+    <record id="cat_grievances" model="wiki.category">
+        <field name="sequence">50</field><field name="name">Grievances</field>
+        <field name="description">Raise &amp; track a concern</field>
+        <field name="icon">flag</field><field name="route_key">grievances</field>
+    </record>
+    <record id="cat_holidays" model="wiki.category">
+        <field name="sequence">60</field><field name="name">Holidays</field>
+        <field name="description">2026 holiday calendar</field>
+        <field name="icon">calendar</field><field name="route_key">holidays</field>
+    </record>
+
+    <!-- ── Recent updates ─────────────────────────────── -->
+    <record id="upd_leave_policy" model="wiki.update">
+        <field name="name">Leave Policy v2.1 published</field><field name="owner">HR</field><field name="date">2026-06-16</field>
+    </record>
+    <record id="upd_code_of_conduct" model="wiki.update">
+        <field name="name">Code of Conduct updated</field><field name="owner">HR</field><field name="date">2026-06-11</field>
+    </record>
+    <record id="upd_onboarding_runbook" model="wiki.update">
+        <field name="name">New onboarding runbook</field><field name="owner">Operations</field><field name="date">2026-06-09</field>
+    </record>
+    <record id="upd_q3_holidays" model="wiki.update">
+        <field name="name">Q3 holiday list confirmed</field><field name="owner">HR</field><field name="date">2026-06-02</field>
+    </record>
+
+    <!-- ── Training library ───────────────────────────── -->
+    <record id="tg_onboarding" model="wiki.training.group">
+        <field name="sequence">10</field><field name="name">ONBOARDING</field>
+    </record>
+    <record id="tg_engineering" model="wiki.training.group">
+        <field name="sequence">20</field><field name="name">ENGINEERING</field>
+    </record>
+    <record id="tg_compliance" model="wiki.training.group">
+        <field name="sequence">30</field><field name="name">COMPLIANCE</field>
+    </record>
+
+    <record id="td_welcome" model="wiki.training.doc">
+        <field name="group_id" ref="tg_onboarding"/><field name="sequence">10</field>
+        <field name="name">Welcome to Ethara</field>
+        <field name="meta">Onboarding · 6 pages · Updated 01 Jun 2026</field>
+        <field name="body">Everything you need for your first day: accounts, tools, and who to talk to.</field>
+    </record>
+    <record id="td_first_week" model="wiki.training.doc">
+        <field name="group_id" ref="tg_onboarding"/><field name="sequence">20</field>
+        <field name="name">Your first week</field>
+        <field name="meta">Onboarding · 4 pages · Updated 01 Jun 2026</field>
+        <field name="body">A day-by-day plan for your first week, including setup and intro meetings.</field>
+    </record>
+    <record id="td_coding_standards" model="wiki.training.doc">
+        <field name="group_id" ref="tg_engineering"/><field name="sequence">10</field>
+        <field name="name">Coding standards</field>
+        <field name="meta">Engineering · 8 pages · Updated 28 May 2026</field>
+        <field name="body">Our conventions for style, reviews, and commits across the codebase.</field>
+    </record>
+    <record id="td_testing_llm" model="wiki.training.doc">
+        <field name="group_id" ref="tg_engineering"/><field name="sequence">20</field>
+        <field name="name">Testing Large Language Models</field>
+        <field name="meta">Engineering · 12 pages · Updated 02 Jun 2026</field>
+        <field name="body">A practical guide to evaluating LLM-backed features: building eval sets, measuring quality with rubrics, regression-testing prompts, and catching hallucinations before they reach production. Select a section from the contents to begin, or open the full document in the viewer.</field>
+    </record>
+    <record id="td_code_review" model="wiki.training.doc">
+        <field name="group_id" ref="tg_engineering"/><field name="sequence">30</field>
+        <field name="name">Code review guide</field>
+        <field name="meta">Engineering · 5 pages · Updated 20 May 2026</field>
+        <field name="body">How to give and receive effective code reviews on the team.</field>
+    </record>
+    <record id="td_posh" model="wiki.training.doc">
+        <field name="group_id" ref="tg_compliance"/><field name="sequence">10</field>
+        <field name="name">POSH awareness</field>
+        <field name="meta">Compliance · 3 pages · Updated 15 May 2026</field>
+        <field name="body">Mandatory POSH awareness training and how to report concerns safely.</field>
+    </record>
+    <record id="td_data_privacy" model="wiki.training.doc">
+        <field name="group_id" ref="tg_compliance"/><field name="sequence">20</field>
+        <field name="name">Data privacy basics</field>
+        <field name="meta">Compliance · 4 pages · Updated 12 May 2026</field>
+        <field name="body">Handling customer and employee data responsibly and within policy.</field>
+    </record>
+
+    <!-- ── Foundation articles ────────────────────────── -->
+    <record id="article_core_values" model="wiki.article">
+        <field name="sequence">10</field>
+        <field name="name">Core Values</field>
+        <field name="slug">core_values</field>
+        <field name="icon">flag</field>
+        <field name="meta">Updated 11 Jun 2026 · HR · v3</field>
+        <field name="description">The six principles that guide how we work and make decisions at Ethara.</field>
+    </record>
+    <record id="article_core_values_s1" model="wiki.article.section">
+        <field name="article_id" ref="article_core_values"/><field name="sequence">10</field>
+        <field name="heading">Purpose</field>
+        <field name="body">This Code sets the standard for how everyone at Ethara treats colleagues, customers, and partners. It applies to all employees, contractors, and interns, on and off company premises during work.</field>
+    </record>
+    <record id="article_core_values_s2" model="wiki.article.section">
+        <field name="article_id" ref="article_core_values"/><field name="sequence">20</field>
+        <field name="heading">Expected conduct</field>
+        <field name="body">Act with integrity and respect. Protect confidential information. Avoid conflicts of interest and disclose them promptly. Use company resources responsibly and comply with all applicable laws.</field>
+    </record>
+    <record id="article_core_values_s3" model="wiki.article.section">
+        <field name="article_id" ref="article_core_values"/><field name="sequence">30</field>
+        <field name="heading">Anti-harassment</field>
+        <field name="body">Ethara has zero tolerance for harassment or discrimination of any kind. Concerns are handled confidentially by the Internal Committee under the POSH Act, with no retaliation against anyone who reports in good faith.</field>
+    </record>
+
+    <record id="article_what_we_do" model="wiki.article">
+        <field name="sequence">20</field>
+        <field name="name">What We Do</field>
+        <field name="slug">what_we_do</field>
+        <field name="icon">book</field>
+        <field name="meta">Updated 09 Jun 2026 · Ops · v2</field>
+        <field name="description">Our mission, the products we build, and the customers we serve.</field>
+    </record>
+    <record id="article_what_we_do_s1" model="wiki.article.section">
+        <field name="article_id" ref="article_what_we_do"/><field name="sequence">10</field>
+        <field name="heading">Mission</field>
+        <field name="body">Ethara builds tools that help teams plan, execute, and reflect — turning everyday work into measurable progress.</field>
+    </record>
+    <record id="article_what_we_do_s2" model="wiki.article.section">
+        <field name="article_id" ref="article_what_we_do"/><field name="sequence">20</field>
+        <field name="heading">Products</field>
+        <field name="body">Our platform spans project planning, attendance and leave, performance, and an employee knowledge hub.</field>
+    </record>
+    <record id="article_what_we_do_s3" model="wiki.article.section">
+        <field name="article_id" ref="article_what_we_do"/><field name="sequence">30</field>
+        <field name="heading">Customers</field>
+        <field name="body">We serve growing companies that want one connected system instead of a dozen disconnected tools.</field>
+    </record>
+
+    <record id="article_organization" model="wiki.article">
+        <field name="sequence">30</field>
+        <field name="name">Organization</field>
+        <field name="slug">organization</field>
+        <field name="icon">hub</field>
+        <field name="route_key">org_chart</field>
+        <field name="description">Leadership, teams, and how the company is structured.</field>
+    </record>
+    <record id="article_code_of_conduct" model="wiki.article">
+        <field name="sequence">40</field>
+        <field name="name">Code of Conduct</field>
+        <field name="slug">code_of_conduct</field>
+        <field name="icon">shield</field>
+        <field name="meta">Updated 11 Jun 2026 · People Team · v3</field>
+        <field name="description">How we work, treat each other, and represent Ethara.</field>
+    </record>
+    <record id="article_code_of_conduct_s1" model="wiki.article.section">
+        <field name="article_id" ref="article_code_of_conduct"/><field name="sequence">10</field>
+        <field name="heading">Purpose</field>
+        <field name="body">Our Code of Conduct sets the standard for how we work, treat each other, and represent Ethara — for every employee, contractor, and partner, on day one and every day after.
+
+It sits alongside the POSH policy and the grievance channel. Where this Code is silent, use good judgement and ask the People Team.</field>
+    </record>
+    <record id="article_code_of_conduct_s2" model="wiki.article.section">
+        <field name="article_id" ref="article_code_of_conduct"/><field name="sequence">20</field>
+        <field name="heading">Expected conduct</field>
+        <field name="body">We hold each other to a high bar. The behaviours below are non-negotiable, regardless of role, seniority, or location.
+
+• Act with integrity — be honest, keep commitments, and never misrepresent your work or the company.
+• Treat everyone with respect — no discrimination, bullying, or demeaning language.
+• Protect what's confidential — handle employee and customer data on a need-to-know basis.
+• Disclose conflicts of interest — outside work, gifts, and relationships that could bias a decision.
+• Keep the workplace safe — follow safety guidance and report hazards promptly.</field>
+    </record>
+    <record id="article_code_of_conduct_s3" model="wiki.article.section">
+        <field name="article_id" ref="article_code_of_conduct"/><field name="sequence">30</field>
+        <field name="heading">Anti-harassment</field>
+        <field name="body">Ethara has zero tolerance for harassment of any kind — including sexual harassment as defined under the POSH Act. This applies to every interaction: in the office, on calls, over chat, and at company events.
+
+Harassment includes unwelcome conduct, comments, or advances that create an intimidating, hostile, or offensive environment. If you experience or witness it, you are encouraged — never required to be certain first — to raise a concern.
+
+Reports are handled confidentially by the Internal Committee. Anonymous reports are supported, and retaliation against anyone who raises a good-faith concern is itself a breach of this Code.</field>
+    </record>
+
+    <!-- ── Process flows ──────────────────────────────── -->
+    <record id="flow_reimbursement" model="wiki.process.flow">
+        <field name="sequence">10</field>
+        <field name="name">Reimbursement approval flow</field>
+        <field name="meta">Owner: Operations · Updated 09 Jun 2026 · v1.2</field>
+    </record>
+    <record id="flow_reimbursement_s1" model="wiki.process.stage">
+        <field name="flow_id" ref="flow_reimbursement"/><field name="sequence">10</field>
+        <field name="name">Submit claim</field><field name="kind">step</field>
+    </record>
+    <record id="flow_reimbursement_s2" model="wiki.process.stage">
+        <field name="flow_id" ref="flow_reimbursement"/><field name="sequence">20</field>
+        <field name="name">Manager review</field><field name="kind">decision</field>
+    </record>
+    <record id="flow_reimbursement_s3" model="wiki.process.stage">
+        <field name="flow_id" ref="flow_reimbursement"/><field name="sequence">30</field>
+        <field name="name">HR / Finance approval</field><field name="kind">step</field>
+    </record>
+    <record id="flow_reimbursement_s4" model="wiki.process.stage">
+        <field name="flow_id" ref="flow_reimbursement"/><field name="sequence">40</field>
+        <field name="name">Reimbursed</field><field name="kind">outcome</field>
+    </record>
+
+</odoo>

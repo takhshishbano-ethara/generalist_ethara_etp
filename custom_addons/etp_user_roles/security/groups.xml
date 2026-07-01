@@ -57,6 +57,13 @@
         <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_tpm'))]"/>
     </record>
 
+    <!-- CFO (top of the hierarchy: CFO implies CTO) -->
+    <record id="group_cfo" model="res.groups">
+        <field name="name">CFO</field>
+        <!-- <field name="category_id" ref="etp_user_roles.module_category_etp_user_roles"/> -->
+        <field name="implied_ids" eval="[(4, ref('etp_user_roles.group_cto'))]"/>
+    </record>
+
     <!-- HR Admin -->
     <record id="group_hr_admin" model="res.groups">
         <field name="name">HR Admin</field>

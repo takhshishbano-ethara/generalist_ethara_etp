@@ -7,6 +7,9 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
     return_Response, validate_token, validate_request,
     generate_s3_link, safe_get_value,
 )
+from odoo.addons.etp_reimbursement.models.reimbursement import (
+    REIMBURSEMENT_FLOW, STATE_TO_STAGE,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -21,11 +24,16 @@ CATEGORY_LABELS = {
 
 STATE_LABELS = {
     'draft': 'Draft',
-    'submitted': 'Pending',
-    'approved': 'Approved',
+    'submitted': 'Manager Review',
+    'hr_review': 'HR Review',
+    'approved': 'Finance Payout',
     'rejected': 'Rejected',
     'reimbursed': 'Reimbursed',
 }
+
+# States still "in review" (awaiting manager or HR) — used by the pending
+# filter/summary now that approval is a two-step gate.
+PENDING_STATES = ('submitted', 'hr_review')
 
 
 def _ist(dt, fmt='%Y-%m-%d %H:%M:%S'):
@@ -86,6 +94,10 @@ def _serialize_claim(rec, include_lines=True):
         'rejected_by': rec.rejected_by.name if rec.rejected_by else '',
         'rejection_reason': rec.rejection_reason or '',
         'hr_comment': rec.hr_comment or '',
+        # 5-stage approval flow position for this claim.
+        'current_stage': STATE_TO_STAGE.get(rec.state, 0),
+        'total_stages': len(REIMBURSEMENT_FLOW),
+        'stages': rec.flow_stages(),
     }
     if include_lines:
         data['lines'] = [_serialize_line(l) for l in rec.line_ids]
@@ -97,7 +109,8 @@ def _apply_filters(domain, kwargs):
     state = kwargs.get('status') or kwargs.get('state')
     if state and state.lower() != 'all':
         if state.lower() == 'pending':
-            domain.append(('state', '=', 'submitted'))
+            # "Pending" now spans both review stages (manager + HR).
+            domain.append(('state', 'in', list(PENDING_STATES)))
         else:
             domain.append(('state', '=', state.lower()))
 
@@ -270,7 +283,8 @@ class ReimbursementController(http.Controller):
             # Summary tiles (HR sees all, employee sees own)
             tile_domain = [] if _is_hr(user) else [('employee_id', '=', user.employee_id.id)]
             total_claims = Reimbursement.search_count(tile_domain)
-            pending_recs = Reimbursement.search(tile_domain + [('state', '=', 'submitted')])
+            pending_recs = Reimbursement.search(
+                tile_domain + [('state', 'in', list(PENDING_STATES))])
             pending_amount = sum(pending_recs.mapped('total_amount'))
 
             today = fields.Date.context_today(request.env.user)
@@ -299,6 +313,9 @@ class ReimbursementController(http.Controller):
                         'pending_count': len(pending_recs),
                     },
                     'is_hr': _is_hr(user),
+                    # The 5-stage approval-flow template (single source of
+                    # truth, also rendered by the Wiki → Process Flow page).
+                    'flow': Reimbursement.get_flow_meta(),
                 },
             )
         except Exception as e:

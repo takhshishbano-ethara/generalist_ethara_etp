@@ -1,12 +1,9 @@
 import logging
-from datetime import datetime, timedelta
 
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError, UserError
 
 _logger = logging.getLogger(__name__)
-
-IST_OFFSET = timedelta(hours=5, minutes=30)
 
 CATEGORY_SELECTION = [
     ('cab_taxi', 'Cab/Taxi'),
@@ -17,11 +14,45 @@ CATEGORY_SELECTION = [
 
 STATE_SELECTION = [
     ('draft', 'Draft'),
-    ('submitted', 'Pending'),
-    ('approved', 'Approved'),
+    ('submitted', 'Manager Review'),
+    ('hr_review', 'HR Review'),
+    ('approved', 'Finance Payout'),
     ('rejected', 'Rejected'),
     ('reimbursed', 'Reimbursed'),
 ]
+
+# The fixed 5-stage approval flow shown in the Reimbursement module and the
+# Wiki → Process Flow page (single source of truth). `state_at` is the claim
+# state at which this stage is the CURRENT one.
+REIMBURSEMENT_FLOW = [
+    {'sequence': 1, 'key': 'submit', 'state_at': 'draft',
+     'title': 'Submit claim', 'kind': 'stage', 'role': 'YOU',
+     'owner': 'You', 'duration': 'Anytime — within 30 days of the expense',
+     'description': 'You file the expense with itemised receipts.'},
+    {'sequence': 2, 'key': 'manager', 'state_at': 'submitted',
+     'title': 'Manager review', 'kind': 'review', 'role': 'MANAGER',
+     'owner': 'Manager', 'duration': 'Typically 1–2 working days',
+     'description': 'Your reporting manager checks the claim against policy.'},
+    {'sequence': 3, 'key': 'hr', 'state_at': 'hr_review',
+     'title': 'HR review', 'kind': 'review', 'role': 'PEOPLE OPS',
+     'owner': 'People Ops',
+     'duration': 'Typically 2–3 working days',
+     'description': 'People Ops verifies receipts and category eligibility.'},
+    {'sequence': 4, 'key': 'finance', 'state_at': 'approved',
+     'title': 'Finance payout', 'kind': 'stage', 'role': 'FINANCE',
+     'owner': 'Finance', 'duration': 'Batched into the next payout run',
+     'description': 'Finance authorises the approved amount for payment.'},
+    {'sequence': 5, 'key': 'reimbursed', 'state_at': 'reimbursed',
+     'title': 'Reimbursed', 'kind': 'outcome', 'role': 'FINANCE',
+     'owner': 'Finance', 'duration': 'Credited with the next salary cycle',
+     'description': 'The amount is credited to your salary account.'},
+]
+
+# Claim state -> sequence number of the stage that is currently active.
+STATE_TO_STAGE = {
+    'draft': 1, 'submitted': 2, 'hr_review': 3,
+    'approved': 4, 'reimbursed': 5, 'rejected': 0,
+}
 
 
 class EtpReimbursement(models.Model):
@@ -74,6 +105,10 @@ class EtpReimbursement(models.Model):
         required=True, tracking=True, index=True, copy=False,
     )
     submitted_date = fields.Datetime(string='Submitted On', readonly=True, copy=False)
+    manager_approved_date = fields.Datetime(
+        string='Manager Reviewed On', readonly=True, copy=False)
+    manager_approved_by = fields.Many2one(
+        'res.users', string='Manager Reviewed By', readonly=True, copy=False)
     approved_date = fields.Datetime(string='Approved On', readonly=True, copy=False)
     rejected_date = fields.Datetime(string='Rejected On', readonly=True, copy=False)
     reimbursed_date = fields.Datetime(string='Reimbursed On', readonly=True, copy=False)
@@ -147,17 +182,30 @@ class EtpReimbursement(models.Model):
         return True
 
     def action_approve(self, comment=None):
+        """Advance one review stage. A claim must clear BOTH the manager
+        review and the HR review before it reaches Finance Payout — so this
+        moves submitted → hr_review on the first approval and
+        hr_review → approved on the second (the decision gate)."""
         self._ensure_hr_user()
+        now = fields.Datetime.now()
         for rec in self:
-            if rec.state != 'submitted':
-                raise UserError(_('Only pending claims can be approved.'))
-            rec.write({
-                'state': 'approved',
-                'approved_date': fields.Datetime.now(),
-                'approved_by': self.env.uid,
-                'hr_comment': comment or rec.hr_comment,
-            })
-            rec._notify_requester_decision('approved')
+            if rec.state == 'submitted':
+                rec.write({
+                    'state': 'hr_review',
+                    'manager_approved_date': now,
+                    'manager_approved_by': self.env.uid,
+                    'hr_comment': comment or rec.hr_comment,
+                })
+            elif rec.state == 'hr_review':
+                rec.write({
+                    'state': 'approved',
+                    'approved_date': now,
+                    'approved_by': self.env.uid,
+                    'hr_comment': comment or rec.hr_comment,
+                })
+                rec._notify_requester_decision('approved')
+            else:
+                raise UserError(_('This claim is not awaiting a review.'))
         return True
 
     def action_reject(self, reason=None):
@@ -165,8 +213,8 @@ class EtpReimbursement(models.Model):
         if not reason or not reason.strip():
             raise UserError(_('A rejection reason is required.'))
         for rec in self:
-            if rec.state != 'submitted':
-                raise UserError(_('Only pending claims can be rejected.'))
+            if rec.state not in ('submitted', 'hr_review'):
+                raise UserError(_('Only claims under review can be rejected.'))
             rec.write({
                 'state': 'rejected',
                 'rejected_date': fields.Datetime.now(),
@@ -187,6 +235,74 @@ class EtpReimbursement(models.Model):
                 'reimbursed_by': self.env.uid,
             })
         return True
+
+    # ── 5-stage approval flow (single source of truth) ───────────────────────
+
+    @api.model
+    def get_flow_meta(self):
+        """Static documentation for the reimbursement approval flow. The
+        Wiki → Process Flow page renders this so there is one source of truth
+        for the process."""
+        return {
+            'title': 'Reimbursement approval flow',
+            'subtitle': 'Operations process documentation — how an expense '
+                        'claim moves from submission to payout.',
+            'owner': 'People Ops',
+            'version': 'v3',
+            'total_stages': len(REIMBURSEMENT_FLOW),
+            'decision_gate': {
+                'title': 'Decision gate · steps 2–3',
+                'text': 'A claim advances to payout only after both the '
+                        'manager and People Ops approve it. If either rejects '
+                        'it, you will see the reason on the claim and can edit '
+                        'and resubmit.',
+            },
+            'legend': [
+                {'key': 'stage', 'label': 'Stage',
+                 'description': 'A step you or another team completes.'},
+                {'key': 'outcome', 'label': 'Outcome',
+                 'description': 'The claim is approved and paid out.'},
+            ],
+            'stages': [dict(stage) for stage in REIMBURSEMENT_FLOW],
+        }
+
+    def _stage_timestamp(self, key):
+        self.ensure_one()
+        return {
+            'submit': self.submitted_date,
+            'manager': self.manager_approved_date,
+            'hr': self.approved_date,
+            'finance': self.approved_date,
+            'reimbursed': self.reimbursed_date,
+        }.get(key)
+
+    def flow_stages(self):
+        """This claim's five stages, each tagged completed / current /
+        pending, with the timestamp captured at that stage."""
+        self.ensure_one()
+        current = STATE_TO_STAGE.get(self.state, 0)
+        rejected = self.state == 'rejected'
+        result = []
+        for stage in REIMBURSEMENT_FLOW:
+            seq = stage['sequence']
+            if rejected:
+                done = (stage['key'] == 'submit' and self.submitted_date) or \
+                       (stage['key'] == 'manager' and self.manager_approved_date)
+                status = 'completed' if done else 'pending'
+            elif seq < current:
+                status = 'completed'
+            elif seq == current:
+                status = 'current'
+            else:
+                status = 'pending'
+            ts = self._stage_timestamp(stage['key'])
+            result.append(dict(
+                stage,
+                status=status,
+                is_current=(not rejected and seq == current),
+                timestamp=ts.isoformat() if ts else False,
+            ))
+        return result
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 

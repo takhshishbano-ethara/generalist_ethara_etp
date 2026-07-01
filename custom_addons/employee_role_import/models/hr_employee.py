@@ -1,5 +1,9 @@
+import logging
+
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError, ValidationError
+
+_logger = logging.getLogger(__name__)
 
 ROLE_GROUP_MAP = {
     "tasker": ("etp_user_roles.group_tasker", "Tasker"),
@@ -9,6 +13,7 @@ ROLE_GROUP_MAP = {
     "dm": ("etp_user_roles.group_delivery_manager", "Delivery Manager"),
     "tpm": ("etp_user_roles.group_tpm", "TPM"),
     "cto": ("etp_user_roles.group_cto", "CTO"),
+    "cfo": ("etp_user_roles.group_cfo", "CFO"),
     "hr_admin": ("etp_user_roles.group_hr_admin", "HR Admin"),
     "it_admin": ("etp_user_roles.group_it_admin", "IT Admin"),
 }
@@ -16,12 +21,13 @@ ROLE_GROUP_MAP = {
 ROLE_SELECTION = [(k, v[1]) for k, v in ROLE_GROUP_MAP.items()]
 
 # Senior-first lookup order so a user holding both TPM and PL reports as TPM.
-ROLE_PRIORITY = ["cto", "tpm", "dm", "pl", "ql", "qr", "tasker", "hr_admin", "it_admin"]
+ROLE_PRIORITY = ["cfo", "cto", "tpm", "dm", "pl", "ql", "qr", "tasker", "hr_admin", "it_admin"]
 
 # QL and QR are the SAME level in the hierarchy and must be treated
 # identically: neither can be assigned for the other (same level), and both
 # require the same set of higher reporting roles.
 ROLE_LEVEL = {
+    "cfo": 7,
     "tasker": 1,
     "qr": 2,
     "ql": 2,
@@ -40,9 +46,10 @@ ROLE_DEFAULT_PARENT_ROLE = {
     "pl": "tpm",
     "dm": "tpm",
     "tpm": "cto",
+    "cto": "cfo",
 }
 
-# TPM/CTO sit at the top - no hierarchy fields. dm/hr_admin/it_admin are
+# CFO/CTO/TPM sit at the top - no hierarchy fields. dm/hr_admin/it_admin are
 # off-hierarchy and intentionally empty (not a bug).
 ROLE_HIERARCHY_FIELDS = {
     "tasker": ("ql", "pl", "tpm"),
@@ -53,6 +60,7 @@ ROLE_HIERARCHY_FIELDS = {
     "pl": ("tpm",),
     "tpm": (),
     "cto": (),
+    "cfo": (),
     "dm": (),
     "hr_admin": (),
     "it_admin": (),
@@ -282,6 +290,41 @@ class HrEmployee(models.Model):
             if msg:
                 raise ValidationError(msg)
 
+    def init(self):
+        """Enforce a single CFO at the database level. Odoo constraints can't
+        express a partial (per-value) uniqueness rule, so a partial unique
+        index covers only active employees whose role is CFO. This guards
+        every path — import, inverse, group-driven recompute, or raw SQL.
+
+        Any pre-existing duplicate CFOs are first reduced to one (keeping the
+        earliest) so the index can be created and the rule holds."""
+        extra = self.sudo().search([("role", "=", "cfo")], order="id")[1:]
+        if extra:
+            _logger.warning(
+                "employee_role_import: single-CFO rule — demoting %s extra "
+                "CFO(s) (kept the earliest): %s",
+                len(extra), extra.mapped("name"))
+            extra.write({"role": False})
+        self.env.cr.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS hr_employee_single_cfo_uniq
+            ON hr_employee (role)
+            WHERE role = 'cfo' AND active = TRUE
+        """)
+
+    def _assert_cfo_available(self, adding_cfo_count):
+        """Block assigning the CFO role when one already exists, with a clear
+        message. Checked BEFORE the write is flushed (otherwise the partial
+        unique index from init() raises a raw DB error first). The index
+        remains the ultimate guarantee for paths that bypass this (e.g. a
+        group-driven role recompute)."""
+        if not adding_cfo_count:
+            return
+        existing = self.search_count(
+            [("role", "=", "cfo"), ("id", "not in", self.ids or [0])])
+        if existing + adding_cfo_count > 1:
+            raise ValidationError(_(
+                "Only one employee can be assigned the CFO role."))
+
     @api.onchange("role", "parent_id",
                   "task_forge_ql_id", "task_forge_pl_id", "task_forge_tpm_id")
     def _onchange_hierarchy_warn(self):
@@ -451,6 +494,8 @@ class HrEmployee(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        self._assert_cfo_available(
+            sum(1 for vals in vals_list if vals.get("role") == "cfo"))
         for vals in vals_list:
             self._normalize_employee_code(vals)
         records = super().create(vals_list)
@@ -465,6 +510,8 @@ class HrEmployee(models.Model):
 
     def write(self, vals):
         self._normalize_employee_code(vals)
+        if vals.get("role") == "cfo":
+            self._assert_cfo_available(len(self))
         res = super().write(vals)
         if not self.env.context.get("etp_skip_eu_sync") and (
             "work_email" in vals or "user_id" in vals

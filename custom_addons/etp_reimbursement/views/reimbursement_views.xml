@@ -6,7 +6,7 @@
             <field name="name">etp.reimbursement.tree</field>
             <field name="model">etp.reimbursement</field>
             <field name="arch" type="xml">
-                <list string="Reimbursements" decoration-warning="state == 'submitted'" decoration-success="state in ('approved','reimbursed')" decoration-danger="state == 'rejected'">
+                <list string="Reimbursements" decoration-warning="state in ('submitted','hr_review')" decoration-success="state in ('approved','reimbursed')" decoration-danger="state == 'rejected'">
                     <field name="name"/>
                     <field name="employee_id"/>
                     <field name="department_id"/>
@@ -28,15 +28,15 @@
                         <button name="action_submit" type="object" string="Submit"
                                 class="oe_highlight" invisible="state != 'draft'"/>
                         <button name="action_approve" type="object" string="Approve"
-                                class="oe_highlight" invisible="state != 'submitted'"
+                                class="oe_highlight" invisible="state not in ('submitted','hr_review')"
                                 groups="etp_user_roles.group_hr_admin,etp_reimbursement.group_reimbursement_manager"/>
                         <button name="action_reject" type="object" string="Reject"
-                                invisible="state != 'submitted'"
+                                invisible="state not in ('submitted','hr_review')"
                                 groups="etp_user_roles.group_hr_admin,etp_reimbursement.group_reimbursement_manager"/>
                         <button name="action_mark_reimbursed" type="object" string="Mark Reimbursed"
                                 invisible="state != 'approved'"
                                 groups="etp_user_roles.group_hr_admin,etp_reimbursement.group_reimbursement_manager"/>
-                        <field name="state" widget="statusbar" statusbar_visible="draft,submitted,approved,reimbursed"/>
+                        <field name="state" widget="statusbar" statusbar_visible="draft,submitted,hr_review,approved,reimbursed"/>
                     </header>
                     <sheet>
                         <div class="oe_title">
@@ -90,8 +90,8 @@
                     <field name="name"/>
                     <field name="employee_id"/>
                     <field name="department_id"/>
-                    <filter name="filter_pending" string="Pending" domain="[('state','=','submitted')]"/>
-                    <filter name="filter_approved" string="Approved" domain="[('state','=','approved')]"/>
+                    <filter name="filter_pending" string="In Review" domain="[('state','in',('submitted','hr_review'))]"/>
+                    <filter name="filter_approved" string="Finance Payout" domain="[('state','=','approved')]"/>
                     <filter name="filter_rejected" string="Rejected" domain="[('state','=','rejected')]"/>
                     <filter name="filter_reimbursed" string="Reimbursed" domain="[('state','=','reimbursed')]"/>
                     <separator/>

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ============================================================ -->
+    <!--  Wiki Page Feedback  (wiki.feedback)                         -->
+    <!-- ============================================================ -->
+    <record id="view_wiki_feedback_search" model="ir.ui.view">
+        <field name="name">wiki.feedback.search</field>
+        <field name="model">wiki.feedback</field>
+        <field name="arch" type="xml">
+            <search string="Feedback">
+                <field name="reference"/>
+                <field name="page"/>
+                <field name="message"/>
+                <field name="employee_id"/>
+                <filter name="new" string="New" domain="[('state', '=', 'new')]"/>
+                <filter name="reviewed" string="Reviewed" domain="[('state', '=', 'reviewed')]"/>
+                <filter name="closed" string="Closed" domain="[('state', '=', 'closed')]"/>
+                <group>
+                    <filter name="group_by_page" string="Page"
+                            context="{'group_by': 'page'}"/>
+                    <filter name="group_by_state" string="Status"
+                            context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_wiki_feedback_list" model="ir.ui.view">
+        <field name="name">wiki.feedback.list</field>
+        <field name="model">wiki.feedback</field>
+        <field name="arch" type="xml">
+            <list string="Feedback">
+                <field name="reference"/>
+                <field name="create_date" string="Submitted"/>
+                <field name="page"/>
+                <field name="employee_id"/>
+                <field name="helpful"/>
+                <field name="message"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'new'"
+                       decoration-success="state == 'closed'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_wiki_feedback_form" model="ir.ui.view">
+        <field name="name">wiki.feedback.form</field>
+        <field name="model">wiki.feedback</field>
+        <field name="arch" type="xml">
+            <form string="Feedback">
+                <header>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="new,reviewed,closed"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <label for="reference" string="Reference"/>
+                        <h1><field name="reference" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="page"/>
+                            <field name="page_label"/>
+                        </group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="user_id"/>
+                            <field name="helpful"/>
+                        </group>
+                    </group>
+                    <separator string="Feedback"/>
+                    <field name="message" nolabel="1" readonly="1"/>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_wiki_feedback" model="ir.actions.act_window">
+        <field name="name">Feedback</field>
+        <field name="res_model">wiki.feedback</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_wiki_feedback_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">No feedback yet</p>
+            <p>Page feedback submitted by employees from the wiki appears here.</p>
+        </field>
+    </record>
+
+    <menuitem id="menu_wiki_feedback" name="Feedback"
+              parent="wiki_core.menu_wiki_root"
+              action="action_wiki_feedback" sequence="40"/>
+</odoo>

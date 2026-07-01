@@ -36,6 +36,7 @@
         'views/hr_leave_views.xml',
         'views/hr_attendance_views.xml',
         'views/leave_management_views.xml',
+        'views/resource_calendar_leaves_views.xml',
     ],
     'installable': True,
     'application': False,
