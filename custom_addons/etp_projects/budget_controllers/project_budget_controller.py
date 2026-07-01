@@ -144,6 +144,45 @@ def _upload_attachments_to_s3(files):
     return urls
 
 
+def _upload_files_as_url_attachments(files, res_model, res_id):
+    attachment_ids = []
+    IrAttachment = request.env["ir.attachment"].sudo()
+    for f in files or []:
+        try:
+            data = f.read()
+        except Exception:
+            _logger.exception(
+                "Could not read uploaded file %s", getattr(f, "filename", "?"),
+            )
+            continue
+        if not data:
+            continue
+        filename = getattr(f, "filename", "") or "attachment.bin"
+        b64 = base64.b64encode(data).decode("utf-8")
+        try:
+            url = generate_s3_link(b64, ATTACHMENT_PREFIX, filename)
+        except Exception:
+            _logger.exception("S3 upload failed for %s", filename)
+            continue
+        if not url:
+            continue
+        try:
+            att = IrAttachment.create({
+                "name": filename,
+                "type": "url",
+                "url": url,
+                "res_model": res_model,
+                "res_id": res_id,
+                "public": True,
+            })
+            attachment_ids.append(att.id)
+        except Exception:
+            _logger.exception(
+                "ir.attachment create failed for %s (url=%s)", filename, url,
+            )
+    return attachment_ids
+
+
 def _parse_attachment_links(raw):
     if not raw:
         return []
@@ -1755,7 +1794,8 @@ class EtpBudgetController(http.Controller):
             infra_total = sum(cmd[2]["requested_amount"] for cmd in wiz_infra_cmds)
             model_total = sum(cmd[2]["requested_amount"] for cmd in wiz_model_cmds)
             if is_rnd:
-                requested_total = initial_budget + infra_total + sub_total
+                # requested_total = initial_budget + infra_total + sub_total
+                requested_total = initial_budget
             else:
                 requested_total = (model_total + infra_total) * buffer_factor + sub_total
             try:
@@ -2315,6 +2355,15 @@ class EtpBudgetController(http.Controller):
                 data={"errors": [str(e)]},
             )
 
+        if uploaded_files:
+            new_att_ids = _upload_files_as_url_attachments(
+                uploaded_files, REQUEST_MODEL, req.id,
+            )
+            if new_att_ids:
+                req.sudo().write({
+                    "attachment_ids": [(4, i, 0) for i in new_att_ids],
+                })
+
         submit_flag = jdata.get("submit")
         if submit_flag is None:
             submit_flag = True
@@ -2472,6 +2521,15 @@ class EtpBudgetController(http.Controller):
                 data={"errors": [str(e)]},
             )
 
+        if uploaded_files:
+            new_att_ids = _upload_files_as_url_attachments(
+                uploaded_files, REQUEST_MODEL, req.id,
+            )
+            if new_att_ids:
+                req.sudo().write({
+                    "attachment_ids": [(4, i, 0) for i in new_att_ids],
+                })
+
         if jdata.get("submit"):
             try:
                 req.action_submit_for_approval()
@@ -2497,7 +2555,7 @@ class EtpBudgetController(http.Controller):
     )
     @validate_token
     def approve_budget_request(self, **params):
-        jdata, _files = _read_multipart_or_json()
+        jdata, uploaded_files = _read_multipart_or_json()
         req_id = _coerce_int(jdata.get("id"))
         step = (jdata.get("step") or "").strip().lower()
         if not req_id:
@@ -2637,6 +2695,15 @@ class EtpBudgetController(http.Controller):
                 message="Something went wrong.", status=400,
                 data={"errors": [str(e)]},
             )
+
+        if uploaded_files:
+            new_att_ids = _upload_files_as_url_attachments(
+                uploaded_files, REQUEST_MODEL, req.id,
+            )
+            if new_att_ids:
+                req.sudo().write({
+                    "attachment_ids": [(4, i, 0) for i in new_att_ids],
+                })
 
         return return_Response(
             message=f"Budget request {step.upper()}-approved.", status=200,
@@ -2801,6 +2868,65 @@ class EtpBudgetController(http.Controller):
         return return_Response(
             message="Phase budget detail fetched.", status=200,
             data={"data": payload},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/batches/attachments/upload",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def upload_batch_budget_attachments(self, **params):
+        jdata, uploaded_files = _read_multipart_or_json()
+        batch_id = _coerce_int(jdata.get("id") or jdata.get("batch_id"))
+        if not batch_id:
+            return return_Response(
+                message="id (batch_id) is required.", status=400, data={},
+            )
+        batch = request.env[BATCH_MODEL].sudo().browse(batch_id).exists()
+        if not batch:
+            return return_Response(
+                message=f"Phase budget {batch_id} not found.",
+                status=404, data={},
+            )
+
+        raw_ids = jdata.get("attachment_ids") or []
+        if raw_ids and not isinstance(raw_ids, (list, tuple)):
+            return return_Response(
+                message="attachment_ids must be a list of integers.",
+                status=400, data={},
+            )
+        existing_ids = [_coerce_int(x) for x in raw_ids if _coerce_int(x)]
+        if existing_ids:
+            missing = _missing_ids("ir.attachment", existing_ids)
+            if missing:
+                return return_Response(
+                    message=f"Attachment(s) not found: {missing}",
+                    status=400, data={},
+                )
+
+        new_att_ids = _upload_files_as_url_attachments(
+            uploaded_files, BATCH_MODEL, batch.id,
+        ) if uploaded_files else []
+
+        replace = bool(_coerce_int(jdata.get("replace"), 0))
+        if replace:
+            batch.write({
+                "attachment_ids": [(6, 0, existing_ids + new_att_ids)],
+            })
+        else:
+            cmds = [(4, i, 0) for i in (existing_ids + new_att_ids)]
+            if cmds:
+                batch.write({"attachment_ids": cmds})
+
+        return return_Response(
+            message="Phase budget attachments updated.", status=200,
+            data={"data": {
+                "id": batch.id,
+                "attachment_ids": batch.attachment_ids.ids,
+                "attachments": [
+                    _attachment_brief(a) for a in batch.attachment_ids
+                ],
+            }},
         )
 
     @http.route(

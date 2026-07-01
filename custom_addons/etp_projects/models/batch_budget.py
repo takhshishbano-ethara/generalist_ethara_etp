@@ -85,6 +85,13 @@ class EtpBatchBudget(models.Model):
         string="Subscription Lines",
         copy=True,
     )
+    attachment_ids = fields.Many2many(
+        "ir.attachment",
+        "etp_batch_budget_attachment_rel",
+        "batch_id",
+        "attachment_id",
+        string="Attachments",
+    )
     request_ids = fields.One2many(
         "etp.batch.budget.request",
         "batch_id",

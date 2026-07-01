@@ -244,6 +244,15 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Attachments" name="attachments">
+                            <group string="Attachment URLs">
+                                <field name="attachment_ids" nolabel="1" widget="text"
+                                       placeholder="Comma-separated S3 URLs (populated automatically by the REST endpoint)."/>
+                            </group>
+                            <group string="Links" invisible="not attachment_links_html">
+                                <field name="attachment_links_html" nolabel="1" readonly="1"/>
+                            </group>
+                        </page>
                         <page string="Fetch History" name="fetch_history">
                             <field name="fetch_log_ids" readonly="1">
                                 <list create="0" edit="0" delete="0"

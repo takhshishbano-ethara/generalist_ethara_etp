@@ -89,6 +89,11 @@ class EtpProjectAwsBudget(models.Model):
              "Populated by the project_budget create/update REST endpoints when "
              "the caller posts files as multipart/form-data under the 'attachments' key.",
     )
+    attachment_links_html = fields.Html(
+        string="Attachments",
+        compute="_compute_attachment_links_html",
+        sanitize=False,
+    )
     state = fields.Selection(
         [
             ("draft", "Draft"),
@@ -470,6 +475,26 @@ class EtpProjectAwsBudget(models.Model):
     def _compute_totals(self):
         for rec in self:
             rec.cost_line_count = len(rec.cost_line_ids)
+
+    @api.depends("attachment_ids")
+    def _compute_attachment_links_html(self):
+        from markupsafe import Markup, escape
+        for rec in self:
+            raw = rec.attachment_ids or ""
+            urls = [u.strip() for u in raw.split(",") if u.strip()]
+            if not urls:
+                rec.attachment_links_html = False
+                continue
+            items = []
+            for u in urls:
+                name = u.rsplit("/", 1)[-1] or u
+                items.append(
+                    '<li><a href="%s" target="_blank" rel="noopener noreferrer">%s</a></li>'
+                    % (escape(u), escape(name))
+                )
+            rec.attachment_links_html = Markup(
+                '<ul class="mb-0 ps-3">%s</ul>' % "".join(items)
+            )
 
     @api.depends(
         "budget_amount",

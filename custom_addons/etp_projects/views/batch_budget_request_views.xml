@@ -225,6 +225,11 @@
                             <field name="attachment_ids" widget="many2many_binary"
                                    readonly="state not in ('draft','changes_required')"/>
                         </page>
+                        <page string="Attachments" name="attachments">
+                            <field name="attachment_ids" widget="many2many_binary"
+                                   nolabel="1"
+                                   readonly="state not in ('draft','changes_required')"/>
+                        </page>
                         <page string="Changes Required" name="changes_required"
                               invisible="not cto_review_note and not cfo_change_request_note">
                             <group>

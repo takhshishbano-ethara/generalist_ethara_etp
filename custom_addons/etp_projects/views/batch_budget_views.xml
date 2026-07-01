@@ -257,6 +257,10 @@
                                 </list>
                             </field>
                         </page>
+                        <page string="Attachments" name="attachments">
+                            <field name="attachment_ids" widget="many2many_binary"
+                                   nolabel="1"/>
+                        </page>
                         <page string="Client Feedback" name="feedback">
                             <field name="feedback_ids">
                                 <list editable="bottom">
