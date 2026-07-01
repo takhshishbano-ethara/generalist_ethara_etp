@@ -87,6 +87,7 @@ PROJECT_MODEL = "project.project"
 AI_MODEL = "etp.ai.model"
 INFRA_MODEL = "etp.infra.type"
 SUBSCRIPTION_MODEL = "etp.subscription"
+TOPUP_REASON_MODEL = "etp.batch.budget.topup.reason"
 VALID_PRIORITIES = ("low", "normal", "high", "urgent")
 
 ATTACHMENT_PREFIX = "etp_projects/project_budget"
@@ -517,6 +518,19 @@ def _author_brief(partner):
     }
 
 
+def _topup_reason_brief(r):
+    if not r:
+        return None
+    return {
+        "id": r.id,
+        "name": r.name or "",
+        "code": r.code or "",
+        "description": r.description or "",
+        "sequence": r.sequence or 0,
+        "active": bool(r.active),
+    }
+
+
 def _attachment_brief(att):
     if not att:
         return None
@@ -830,6 +844,8 @@ def _request_to_detail(req):
         "message": req.message or "",
         "attachment_ids": req.attachment_ids.ids,
         "attachments": [_attachment_brief(a) for a in req.attachment_ids],
+        "topup_reason_id": req.topup_reason_id.id if req.topup_reason_id else None,
+        "topup_reason": _topup_reason_brief(req.topup_reason_id) if req.topup_reason_id else None,
         "rejection_reason": req.rejection_reason or "",
         "cto_review_note": getattr(req, "cto_review_note", "") or "",
         "cfo_change_request_note": getattr(req, "cfo_change_request_note", "") or "",
@@ -1230,13 +1246,56 @@ class EtpBudgetController(http.Controller):
         )
 
     @http.route(
+        "/api/v1/etp_projects/budget/topup_reasons",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def list_topup_reasons(self, **params):
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
+        domain = []
+        if not _coerce_int(params.get("include_inactive"), 0):
+            domain.append(("active", "=", True))
+        search = (params.get("search") or "").strip()
+        if search:
+            domain += [
+                "|", ("name", "ilike", search), ("code", "ilike", search),
+            ]
+        Reason = request.env[TOPUP_REASON_MODEL].sudo()
+        total = Reason.search_count(domain)
+        records = Reason.search(
+            domain, limit=limit, offset=offset, order="sequence, name",
+        )
+        items = [_topup_reason_brief(r) for r in records]
+        return return_Response(
+            message="Top-up reasons fetched.", status=200,
+            data={
+                "total": total, "limit": limit, "offset": offset,
+                "topup_reasons": items,
+            },
+        )
+
+    @http.route(
         "/api/v1/etp_projects/budget/default_approvers",
         type="http", auth="none", methods=["GET"], csrf=False, cors="*",
     )
     @validate_token
     def list_default_approvers(self, **params):
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
         user_ids = request.env[BUDGET_MODEL].sudo()._get_default_approver_user_ids()
         users = request.env["res.users"].sudo().browse(user_ids).exists()
+        search = (params.get("search") or "").strip().lower()
+        if search:
+            users = users.filtered(
+                lambda u: search in (u.name or "").lower()
+                or search in (u.login or "").lower()
+                or search in (u.email or "").lower()
+            )
+        total = len(users)
+        page = users[offset:offset + limit]
         items = [
             {
                 "id": u.id,
@@ -1244,11 +1303,14 @@ class EtpBudgetController(http.Controller):
                 "login": u.login or "",
                 "email": u.email or (u.partner_id.email if u.partner_id else "") or "",
             }
-            for u in users
+            for u in page
         ]
         return return_Response(
             message="Default project budget approvers fetched.", status=200,
-            data={"total": len(items), "approvers": items},
+            data={
+                "total": total, "limit": limit, "offset": offset,
+                "approvers": items,
+            },
         )
 
     @http.route(
@@ -2233,6 +2295,15 @@ class EtpBudgetController(http.Controller):
                 )
             vals["attachment_ids"] = [(6, 0, attachment_ids)]
 
+        reason_id = _coerce_int(jdata.get("topup_reason_id"))
+        if reason_id:
+            if _missing_ids(TOPUP_REASON_MODEL, [reason_id]):
+                return return_Response(
+                    message=f"Top-up reason {reason_id} not found.",
+                    status=400, data={},
+                )
+            vals["topup_reason_id"] = reason_id
+
         try:
             req = Request.create(vals)
         except (UserError, ValidationError) as e:
@@ -2375,6 +2446,19 @@ class EtpBudgetController(http.Controller):
                     status=400, data={},
                 )
             vals["attachment_ids"] = [(6, 0, ids)]
+
+        if "topup_reason_id" in jdata:
+            raw = jdata.get("topup_reason_id")
+            if raw in (None, "", 0, False):
+                vals["topup_reason_id"] = False
+            else:
+                reason_id = _coerce_int(raw)
+                if not reason_id or _missing_ids(TOPUP_REASON_MODEL, [reason_id]):
+                    return return_Response(
+                        message=f"Top-up reason {raw} not found.",
+                        status=400, data={},
+                    )
+                vals["topup_reason_id"] = reason_id
 
         try:
             if vals:
@@ -2655,11 +2739,6 @@ class EtpBudgetController(http.Controller):
         search = (params.get("search") or "").strip()
         if search:
             domain.append(("name", "ilike", search))
-        total = Batch.search_count(domain)
-        records = Batch.search(
-            domain, limit=limit, offset=offset,
-            order="create_date desc, id desc",
-        )
         health_status = (params.get("health_status") or "").strip()
         if health_status:
             valid_health = [
@@ -2670,8 +2749,18 @@ class EtpBudgetController(http.Controller):
                     message=f"health_status must be one of {valid_health}.",
                     status=400, data={},
                 )
-            records = records.filtered(
+            all_records = Batch.search(
+                domain, order="create_date desc, id desc",
+            ).filtered(
                 lambda r: (r.health_status or "unknown") == health_status
+            )
+            total = len(all_records)
+            records = all_records[offset:offset + limit]
+        else:
+            total = Batch.search_count(domain)
+            records = Batch.search(
+                domain, limit=limit, offset=offset,
+                order="create_date desc, id desc",
             )
         items = [_batch_summary(b) for b in records]
         return return_Response(

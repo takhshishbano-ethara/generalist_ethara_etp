@@ -182,6 +182,12 @@ class EtpBatchBudgetRequest(models.Model):
         "attachment_id",
         string="Attachments",
     )
+    topup_reason_id = fields.Many2one(
+        "etp.batch.budget.topup.reason",
+        string="Top-up Reason",
+        ondelete="restrict",
+        help="Applicable when request_type='topup' but usable for any request.",
+    )
     total_tasks = fields.Integer(
         string="Total Tasks",
         help="Total number of tasks for this request. Each model line's "

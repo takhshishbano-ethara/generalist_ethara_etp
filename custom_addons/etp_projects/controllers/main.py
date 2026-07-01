@@ -15,6 +15,11 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 )
 
 BUDGET_MODEL = 'etp.project.aws.budget'
+BATCH_BUDGET_MODEL = 'etp.batch.budget'
+
+BATCH_DASHBOARD_CHILD_LIMIT = 200
+BATCH_DASHBOARD_DEFAULT_LIMIT = 25
+BATCH_DASHBOARD_MAX_LIMIT = 200
 
 _logger = logging.getLogger(__name__)
 
@@ -1744,6 +1749,200 @@ class EtpProjectsAwsCostController(http.Controller):
             )
         except Exception as e:
             _logger.exception("aws_cost_fetch_history failed")
+            return return_Response(
+                message="Something went wrong.",
+                status=400,
+                errors=[str(e)],
+            )
+
+    @staticmethod
+    def _bd_iso_date(dt):
+        return dt.date().isoformat() if dt else ""
+
+    @staticmethod
+    def _bd_money(value):
+        return round(float(value or 0.0), 2)
+
+    @staticmethod
+    def _bd_coerce_int(value, default):
+        try:
+            result = int(value)
+            return result if result >= 0 else default
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _bd_build_domain(params):
+        domain = []
+        search = (params.get("search") or "").strip()
+        if search:
+            domain += [
+                "|",
+                "|",
+                "|",
+                ("name", "ilike", search),
+                ("project_id.name", "ilike", search),
+                ("model_line_ids.ai_model_id.name", "ilike", search),
+                ("project_budget_id.name", "ilike", search),
+            ]
+        added_by = (params.get("added_by") or "").strip()
+        if added_by and added_by != "all":
+            if added_by.isdigit():
+                domain.append(("requester_id", "=", int(added_by)))
+            else:
+                domain.append(("requester_id.name", "ilike", added_by))
+        state = (params.get("state") or "").strip()
+        if state:
+            states = [s.strip() for s in state.split(",") if s.strip()]
+            if states:
+                domain.append(("state", "in", states))
+        project_id = (params.get("project_id") or "").strip()
+        if project_id and project_id.isdigit():
+            domain.append(("project_id", "=", int(project_id)))
+        project_budget_id = (params.get("project_budget_id") or "").strip()
+        if project_budget_id and project_budget_id.isdigit():
+            domain.append(("project_budget_id", "=", int(project_budget_id)))
+        return domain
+
+    @classmethod
+    def _bd_serialize_model_line(cls, line, state_label):
+        model_name = line.ai_model_id.name if line.ai_model_id else ""
+        cost_type_label = dict(
+            line._fields["cost_type"].selection
+        ).get(line.cost_type, line.cost_type or "")
+        repo_model = " × ".join(
+            [part for part in (cost_type_label, model_name) if part]
+        )
+        cost = line.approved_amount or line.per_task_cost or 0.0
+        return {
+            "id": f"ML-{line.id}",
+            "repo_model": repo_model,
+            "cost": cls._bd_money(cost),
+            "status": state_label,
+        }
+
+    @classmethod
+    def _bd_serialize_batch(cls, batch, state_labels):
+        state_label = state_labels.get(batch.state, "") if batch.state else ""
+        lines = batch.model_line_ids[:BATCH_DASHBOARD_CHILD_LIMIT]
+        trajectories = [
+            cls._bd_serialize_model_line(line, state_label) for line in lines
+        ]
+        return {
+            "id": batch.name or "",
+            "trajectory_count": len(batch.model_line_ids),
+            "added_by": batch.requester_id.name or "",
+            "submitted_on": cls._bd_iso_date(batch.create_date),
+            "state": batch.state or "",
+            "trajectories": trajectories,
+        }
+
+    @staticmethod
+    def _bd_added_by_options(env):
+        Batch = env[BATCH_BUDGET_MODEL].sudo()
+        batches = Batch.search([])
+        users = batches.mapped("requester_id").sorted(
+            key=lambda u: (u.name or "").lower()
+        )
+        options = [{"id": "all", "label": "All members"}]
+        for user in users:
+            options.append({"id": str(user.id), "label": user.name or ""})
+        return options
+
+    @staticmethod
+    def _bd_columns():
+        return [
+            {"key": "id", "label": "Batch ID", "type": "string",
+             "flex": 8, "is_row_key": True},
+            {"key": "trajectory_count", "label": "# Model Lines",
+             "type": "number", "flex": 3, "suffix": " lines"},
+            {"key": "added_by", "label": "Requester", "type": "string",
+             "flex": 3},
+            {"key": "submitted_on", "label": "Submitted on", "type": "date",
+             "flex": 3},
+        ]
+
+    @staticmethod
+    def _bd_expanded():
+        return {
+            "row_key": "trajectories",
+            "columns": [
+                {"key": "_index", "label": "#", "type": "number",
+                 "width": 40},
+                {"key": "id", "label": "Line ID", "type": "code",
+                 "width": 150},
+                {"key": "repo_model", "label": "Cost Type × Model",
+                 "type": "string", "flex": 1},
+                {"key": "cost", "label": "Cost", "type": "currency",
+                 "width": 90, "align": "right"},
+            ],
+        }
+
+    @classmethod
+    def _bd_payload(cls, env, params):
+        Batch = env[BATCH_BUDGET_MODEL].sudo()
+        state_labels = dict(Batch._fields["state"].selection)
+        domain = cls._bd_build_domain(params)
+        page = max(1, cls._bd_coerce_int(params.get("page"), 1))
+        per_page = max(
+            1,
+            min(
+                cls._bd_coerce_int(
+                    params.get("limit"), BATCH_DASHBOARD_DEFAULT_LIMIT,
+                ),
+                BATCH_DASHBOARD_MAX_LIMIT,
+            ),
+        )
+        offset = (page - 1) * per_page
+        total = Batch.search_count(domain)
+        total_pages = (total + per_page - 1) // per_page if per_page else 0
+        batches = Batch.search(
+            domain,
+            limit=per_page,
+            offset=offset,
+            order="create_date desc, id desc",
+        )
+        return {
+            "columns": cls._bd_columns(),
+            "expanded": cls._bd_expanded(),
+            "filters": [
+                {"key": "search", "type": "search",
+                 "placeholder": "Search by batch, project or model..."},
+                {"key": "added_by", "label": "Requester", "type": "select",
+                 "options": cls._bd_added_by_options(env)},
+            ],
+            "pagination": {
+                "current_page": page,
+                "per_page": per_page,
+                "total": total,
+                "total_pages": total_pages,
+            },
+            "rows": [
+                cls._bd_serialize_batch(b, state_labels) for b in batches
+            ],
+        }
+
+    @http.route(
+        "/api/v1/etp_projects/batch_budget/batch_dashboard",
+        type="http",
+        auth="none",
+        methods=["GET"],
+        csrf=False,
+        cors="*",
+        save_session=False,
+    )
+    @validate_token
+    def etp_projects_batch_budget_dashboard(self, **kwargs):
+        try:
+            env = request.env
+            params = request.params or {}
+            return return_Response(
+                message="Phase budgets fetched successfully",
+                status=200,
+                data=self._bd_payload(env, params),
+            )
+        except Exception as e:
+            _logger.exception("etp_projects_batch_budget_dashboard failed")
             return return_Response(
                 message="Something went wrong.",
                 status=400,
