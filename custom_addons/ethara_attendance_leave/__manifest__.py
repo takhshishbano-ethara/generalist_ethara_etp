@@ -1,6 +1,6 @@
 {
     'name': 'Ethara AI Attendance & Leave Management',
-    'version': '19.0.1.0.0',
+    'version': '19.0.1.1.0',
     'category': 'Human Resources',
     'summary': 'Custom attendance rules, leave types (SL/CL/EL/LOP), accruals, sandwich rule',
     'description': """
