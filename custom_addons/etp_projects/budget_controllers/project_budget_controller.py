@@ -30,18 +30,56 @@ email-client thread as every other budget event for that project.
 import base64
 import json
 import logging
+from datetime import date, datetime
 
-from odoo import _, fields, http
+from odoo import _, fields, http, models
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
     generate_s3_link,
-    return_Response,
+    return_Response as _upstream_return_Response,
     validate_token,
 )
 
 _logger = logging.getLogger(__name__)
+
+
+def _json_safe(obj):
+    if obj is None or isinstance(obj, (bool, int, float, str)):
+        return obj
+    if isinstance(obj, datetime):
+        try:
+            return fields.Datetime.to_string(obj)
+        except Exception:
+            return obj.isoformat()
+    if isinstance(obj, date):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [_json_safe(v) for v in obj]
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except Exception:
+            return base64.b64encode(obj).decode("ascii")
+    if isinstance(obj, models.BaseModel):
+        return obj.ids
+    try:
+        return str(obj)
+    except Exception:
+        return None
+
+
+def return_Response(message, status=200, errors=None, data=None):
+    safe_data = _json_safe(data) if data is not None else data
+    return _upstream_return_Response(
+        message=message,
+        status=status,
+        errors=errors if errors is not None else [],
+        data=safe_data,
+    )
 
 BUDGET_MODEL = "etp.project.aws.budget"
 BATCH_MODEL = "etp.batch.budget"
@@ -493,39 +531,62 @@ def _attachment_brief(att):
 
 
 def _tracking_value_brief(tv):
-    def _pick(prefix):
-        for suffix in ("char", "text", "integer", "float", "monetary", "datetime"):
-            fname = f"{prefix}_{suffix}"
-            if fname in tv._fields:
-                val = tv[fname]
-                if val:
-                    return val
+    try:
+        def _pick(prefix):
+            for suffix in ("char", "text", "integer", "float", "monetary", "datetime"):
+                fname = f"{prefix}_{suffix}"
+                if fname in tv._fields:
+                    val = tv[fname]
+                    if val:
+                        return val
+            return None
+        field_name = ""
+        field_label = ""
+        if tv.field_id:
+            field_name = tv.field_id.name or ""
+            field_label = tv.field_id.field_description or ""
+        elif "field_info" in tv._fields and tv.field_info:
+            field_name = tv.field_info.get("name", "") or ""
+            field_label = tv.field_info.get("desc", "") or ""
+        return {
+            "field": field_name,
+            "field_label": field_label,
+            "old_value": _pick("old_value"),
+            "new_value": _pick("new_value"),
+        }
+    except Exception:
+        _logger.exception("Failed to serialize tracking value id=%s", getattr(tv, "id", None))
         return None
-    return {
-        "field": tv.field_id.name if tv.field_id else "",
-        "field_label": tv.field_id.field_description if tv.field_id else "",
-        "old_value": _pick("old_value"),
-        "new_value": _pick("new_value"),
-    }
 
 
 def _change_log(record, limit=200):
-    msgs = record.message_ids.sorted(key=lambda m: m.date or m.create_date, reverse=True)[:limit]
-    return [
-        {
-            "id": m.id,
-            "date": fields.Datetime.to_string(m.date) if m.date else None,
-            "author": _author_brief(m.author_id),
-            "subject": m.subject or "",
-            "body": m.body or "",
-            "message_type": m.message_type or "",
-            "subtype": (m.subtype_id.name or "") if m.subtype_id else "",
-            "tracking_values": [
-                _tracking_value_brief(tv) for tv in m.tracking_value_ids
-            ],
-        }
-        for m in msgs
-    ]
+    try:
+        msgs = record.message_ids.sorted(
+            key=lambda m: m.date or m.create_date, reverse=True,
+        )[:limit]
+    except Exception:
+        _logger.exception("Failed to read message_ids for %s(%s)", record._name, record.id)
+        return []
+    log = []
+    for m in msgs:
+        try:
+            log.append({
+                "id": m.id,
+                "date": fields.Datetime.to_string(m.date) if m.date else None,
+                "author": _author_brief(m.author_id),
+                "subject": str(m.subject) if m.subject else "",
+                "body": str(m.body) if m.body else "",
+                "message_type": m.message_type or "",
+                "subtype": (str(m.subtype_id.name) if m.subtype_id and m.subtype_id.name else ""),
+                "tracking_values": [
+                    tvb for tvb in (
+                        _tracking_value_brief(tv) for tv in m.tracking_value_ids
+                    ) if tvb is not None
+                ],
+            })
+        except Exception:
+            _logger.exception("Failed to serialize message id=%s", getattr(m, "id", None))
+    return log
 
 
 def _batch_short(batch):
@@ -2049,9 +2110,20 @@ class EtpBudgetController(http.Controller):
             return return_Response(
                 message="Budget request not found.", status=404, data={},
             )
+        try:
+            payload = _request_to_detail(rec)
+        except Exception as e:
+            _logger.exception(
+                "budget_request_detail serialization failed for id=%s state=%s",
+                rec.id, rec.state,
+            )
+            return return_Response(
+                message=f"Failed to serialize budget request: {e}",
+                status=400, data={"errors": [str(e)]},
+            )
         return return_Response(
             message="Budget request detail fetched.", status=200,
-            data={"data": _request_to_detail(rec)},
+            data={"data": payload},
         )
 
     @http.route(
@@ -2626,9 +2698,20 @@ class EtpBudgetController(http.Controller):
             return return_Response(
                 message="Phase budget not found.", status=404, data={},
             )
+        try:
+            payload = _batch_full_detail(batch)
+        except Exception as e:
+            _logger.exception(
+                "budget_batch_detail serialization failed for id=%s state=%s",
+                batch.id, batch.state,
+            )
+            return return_Response(
+                message=f"Failed to serialize phase budget: {e}",
+                status=400, data={"errors": [str(e)]},
+            )
         return return_Response(
             message="Phase budget detail fetched.", status=200,
-            data={"data": _batch_full_detail(batch)},
+            data={"data": payload},
         )
 
     @http.route(
@@ -2702,9 +2785,23 @@ class EtpBudgetController(http.Controller):
                 message="Something went wrong.", status=400,
                 data={"errors": [str(e)]},
             )
+        try:
+            payload = _request_to_detail(req)
+        except Exception as e:
+            _logger.exception(
+                "mark_review serialization failed for id=%s state=%s",
+                req.id, req.state,
+            )
+            return return_Response(
+                message=(
+                    f"{step.upper()} review saved but response payload could "
+                    f"not be built: {e}"
+                ),
+                status=400, data={"errors": [str(e)]},
+            )
         return return_Response(
             message=f"{step.upper()} review noted.", status=200,
-            data={"data": _request_to_detail(req)},
+            data={"data": payload},
         )
 
 

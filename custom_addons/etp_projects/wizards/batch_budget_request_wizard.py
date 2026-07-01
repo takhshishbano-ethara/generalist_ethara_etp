@@ -253,25 +253,6 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             }))
         if model_lines:
             vals["model_line_ids"] = model_lines
-        infra_lines = []
-        for line in batch.infra_line_ids:
-            infra_lines.append((0, 0, {
-                "infra_type_id": line.infra_type_id.id,
-                "description": line.description or False,
-                "start_date": batch.start_date or False,
-                "end_date": batch.end_date or False,
-                "requested_amount": 0.0,
-            }))
-        if infra_lines:
-            vals["infra_line_ids"] = infra_lines
-        sub_lines = []
-        for line in batch.subscription_line_ids:
-            sub_lines.append((0, 0, {
-                "subscription_id": line.subscription_id.id,
-                "assigned_user_ids": [(6, 0, line.assigned_user_ids.ids)],
-            }))
-        if sub_lines:
-            vals["subscription_line_ids"] = sub_lines
         return vals
 
     def action_submit(self):
