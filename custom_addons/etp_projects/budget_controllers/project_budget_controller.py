@@ -945,13 +945,14 @@ def _request_to_detail(req):
             "state": req.parent_request_id.state,
         }
     detail = _request_to_summary(req)
+    attachments = _parse_attachment_links(req.attachment_urls)
     detail.update({
         "justification": req.justification or "",
         "subject": req.subject or "",
         "message": req.message or "",
         "attachment_ids": req.attachment_ids.ids,
-        "attachments": [_attachment_brief(a) for a in req.attachment_ids],
-        "attachment_urls": _parse_attachment_links(req.attachment_urls),
+        "attachments": [_attachment_brief(a) for a in req.attachment_ids] if not attachments else attachments,
+        "attachment_urls": attachments,
         "topup_reason_id": req.topup_reason_id.id if req.topup_reason_id else None,
         "topup_reason": _topup_reason_brief(req.topup_reason_id) if req.topup_reason_id else None,
         "rejection_reason": req.rejection_reason or "",
@@ -1155,7 +1156,7 @@ def _batch_summary(batch):
     pb = batch.project_budget_id
     return {
         "id": batch.id,
-        "name": batch.name,
+        "name": f"{pb.project_type}-{batch.name}",
         "state": batch.state,
         "state_label": _batch_state_label(batch.state),
         "health_status": batch.health_status or "unknown",
