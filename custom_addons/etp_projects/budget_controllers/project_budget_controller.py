@@ -2973,6 +2973,10 @@ class EtpBudgetController(http.Controller):
                     status=400, data={},
                 )
             domain.append(("state", "=", state))
+
+        if params.get('active_batch') in [1,'1']:
+            domain.append(("state", "in", ["approved", "in_progress"]))
+            
         requester_id = _coerce_int(params.get("requester_id"))
         if requester_id:
             domain.append(("requester_id", "=", requester_id))
