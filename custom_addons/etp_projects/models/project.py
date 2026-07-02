@@ -29,6 +29,18 @@ DEFAULT_API_MAPPINGS = (
         'field_name': 'budget',
         'api_prefix': '/v1/etp_projects/budget/info?project_id=',
     },
+    {
+        'sequence': 40,
+        'table_name': 'Tasks',
+        'field_name': 'tasks',
+        'api_prefix': '/v1/etp_projects/budget/estimation/list?project_id=',
+    },
+    {
+        'sequence': 40,
+        'table_name': 'Batch',
+        'field_name': 'batch',
+        'api_prefix': '/v1/etp_projects/budget/estimation/batch_view?project_id=',
+    },
 )
 
 
