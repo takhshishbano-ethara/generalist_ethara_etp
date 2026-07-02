@@ -2694,7 +2694,7 @@ class EtpBudgetController(http.Controller):
                     })
                 if "approved_amount" in jdata:
                     req.write({
-                        "ex": _coerce_float(
+                        "approved_total": _coerce_float(
                             jdata.get("approved_amount"), 0.0,
                         ),
                     })
