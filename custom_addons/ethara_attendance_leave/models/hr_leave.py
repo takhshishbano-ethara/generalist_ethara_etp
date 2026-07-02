@@ -86,6 +86,17 @@ class HrLeave(models.Model):
             lambda l: l.employee_id.resource_calendar_id
         )
 
+    @api.constrains('date_from', 'date_to', 'employee_id')
+    def _check_date_state(self):
+        # Skip during module install/upgrade. This module adds stored computes
+        # (medical_cert_required, medical_cert_deadline) on hr.leave whose
+        # initialization on existing validated leaves flushes recomputes that
+        # would otherwise trip core's "modification not allowed in current
+        # state" check and abort the upgrade.
+        if self.env.context.get('install_mode'):
+            return
+        return super()._check_date_state()
+
     @api.depends('holiday_status_id', 'number_of_days', 'request_date_from', 'request_date_to')
     def _compute_medical_cert_required(self):
         """Check if medical certificate is required for SL > threshold days."""
