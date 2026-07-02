@@ -488,42 +488,35 @@ class EtpBudgetEstimationController(http.Controller):
     )
     @validate_token
     def batch_view(self, **params):
-        partition = (params.get("partition") or "").strip().lower()
-        if partition not in BATCH_VIEW_PARTITIONS:
-            return return_Response(
-                message=(
-                    f"partition must be one of "
-                    f"{list(BATCH_VIEW_PARTITIONS)}."
-                ),
-                status=400, data={},
-            )
         limit, offset, err = _pagination(params)
         if err:
             return err
-        domain = [("state", "in", list(BATCH_VIEW_PARTITIONS[partition]))]
+        base_domain = []
         project_id = _coerce_int(params.get("project_id"))
         if project_id:
-            domain.append(("project_id", "=", project_id))
+            base_domain.append(("project_id", "=", project_id))
         project_budget_id = _coerce_int(params.get("project_budget_id"))
         if project_budget_id:
-            domain.append(("project_budget_id", "=", project_budget_id))
+            base_domain.append(("project_budget_id", "=", project_budget_id))
         Model = request.env[BATCH_MODEL].sudo()
-        total = Model.search_count(domain)
-        order = (
-            "start_date asc, id asc" if partition == "upcoming"
-            else "start_date desc, id desc"
-        )
-        records = Model.search(
-            domain, limit=limit, offset=offset, order=order,
-        )
-        items = [_batch_view_brief(r) for r in records]
-        return return_Response(
-            message="Phase budgets fetched.", status=200,
-            data={
-                "partition": partition,
+        result = {}
+        for partition, states in BATCH_VIEW_PARTITIONS.items():
+            domain = base_domain + [("state", "in", list(states))]
+            total = Model.search_count(domain)
+            order = (
+                "start_date asc, id asc" if partition == "upcoming"
+                else "start_date desc, id desc"
+            )
+            records = Model.search(
+                domain, limit=limit, offset=offset, order=order,
+            )
+            result[partition] = {
                 "total": total,
                 "limit": limit,
                 "offset": offset,
-                "batches": items,
-            },
+                "batches": [_batch_view_brief(r) for r in records],
+            }
+        return return_Response(
+            message="Phase budgets fetched.", status=200,
+            data=result,
         )
