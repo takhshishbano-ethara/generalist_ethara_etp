@@ -450,6 +450,9 @@ class EsslServer(models.Model):
                 )
                 stats["source"] = "device_logs"
                 stats["source_table"] = table_name
+                stats["absent_days"] = self._pull_absent_days_from_attendance_logs(
+                    conn, date_from, date_to,
+                )
                 return stats
         finally:
             try:
@@ -701,6 +704,106 @@ class EsslServer(models.Model):
                     "attendance_date": str(day),
                     "error": str(exc)[:300],
                 })
+        return stats
+
+    def _pull_absent_days_from_attendance_logs(self, conn, date_from, date_to):
+        # Absent/leave/holiday/weekly-off days from AttendanceLogs -> hr.attendance,
+        # only when the primary DeviceLogs pass produced no row for that (employee, day).
+        self.ensure_one()
+        from .essl_device import _ist_to_utc  # noqa: PLC0415
+
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT a.[AttendanceDate], e.[EmployeeCode] "
+                "FROM [AttendanceLogs] a "
+                "INNER JOIN [Employees] e ON e.[EmployeeId] = a.[EmployeeId] "
+                "WHERE a.[AttendanceDate] >= ? AND a.[AttendanceDate] < ? "
+                "  AND (a.[Absent] = 1 OR a.[IsOnLeave] = 1 "
+                "       OR a.[Holiday] = 1 OR a.[WeeklyOff] = 1) "
+                "ORDER BY a.[AttendanceDate], e.[EmployeeCode]",
+                (
+                    date_from.date() if hasattr(date_from, "date") else date_from,
+                    date_to.date() if hasattr(date_to, "date") else date_to,
+                ),
+            )
+            cols = [c[0] for c in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            cur.close()
+        except Exception as exc:
+            raise UserError(_("Absent-days query failed: %s") % exc)
+
+        Employee = self.env["hr.employee"].sudo()
+        emp_map = {}
+        for r in Employee.search_read(
+            [("employee_code", "!=", False)], ["id", "employee_code"],
+        ):
+            code = (r["employee_code"] or "").strip()
+            if code:
+                emp_map[code] = r["id"]
+
+        Attendance = self.env["hr.attendance"].sudo()
+        stats = {"created": 0, "skipped": 0, "unmapped": 0, "errors": []}
+
+        for row in rows:
+            emp_code = (row.get("EmployeeCode") or "").strip()
+            emp_id = emp_map.get(emp_code)
+            if not emp_id:
+                stats["unmapped"] += 1
+                continue
+
+            att_date = row.get("AttendanceDate")
+            if hasattr(att_date, "date"):
+                att_date = att_date.date()
+            if att_date is None:
+                stats["skipped"] += 1
+                continue
+
+            day_start_ist = datetime.combine(att_date, datetime.min.time())
+            day_end_ist = day_start_ist + timedelta(days=1)
+            day_start = _ist_to_utc(day_start_ist)
+            day_end = _ist_to_utc(day_end_ist)
+            marker_utc = _ist_to_utc(day_start_ist.replace(hour=9))
+
+            try:
+                with self.env.cr.savepoint():
+                    existing = Attendance.search(
+                        [
+                            ("employee_id", "=", emp_id),
+                            ("check_in", ">=", day_start),
+                            ("check_in", "<", day_end),
+                        ],
+                        limit=1,
+                    )
+                    if existing:
+                        stats["skipped"] += 1
+                        continue
+                    try:
+                        with self.env.cr.savepoint():
+                            Attendance.create({
+                                "employee_id": emp_id,
+                                "check_in": marker_utc,
+                                "attendance_status": "absent",
+                            })
+                            self.env.flush_all()
+                    except Exception:
+                        self.env.cr.execute(
+                            "INSERT INTO hr_attendance "
+                            "(employee_id, check_in, attendance_status, date, "
+                            " create_uid, create_date, write_uid, write_date) "
+                            "VALUES (%s, %s, %s, "
+                            "(%s AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date, "
+                            "1, NOW() AT TIME ZONE 'UTC', 1, NOW() AT TIME ZONE 'UTC')",
+                            (emp_id, marker_utc, "absent", marker_utc),
+                        )
+                    stats["created"] += 1
+            except Exception as exc:
+                stats["errors"].append({
+                    "employee_code": emp_code,
+                    "attendance_date": str(att_date),
+                    "error": str(exc)[:300],
+                })
+
         return stats
 
     def _pull_hr_attendance_from_attendance_logs(self, date_from=None, date_to=None):

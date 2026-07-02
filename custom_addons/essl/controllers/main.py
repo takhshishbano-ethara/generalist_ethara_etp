@@ -597,8 +597,10 @@ class EsslPullApiController(http.Controller):
         per_server = {srv.id: {
             "server_id": srv.id, "server_name": srv.name, "status": "ok",
             "created": 0, "updated": 0, "skipped": 0, "errors": [],
+            "absent_created": 0, "absent_skipped": 0, "absent_unmapped": 0,
         } for srv in servers}
         totals = {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
+        absent_totals = {"created": 0, "skipped": 0, "unmapped": 0, "errors": 0}
 
         truncated = False
         batches_processed = 0
@@ -629,6 +631,14 @@ class EsslPullApiController(http.Controller):
                     totals["updated"] += stats["updated"]
                     totals["skipped"] += stats["skipped"]
                     totals["errors"] += len(stats["errors"])
+                    absent = stats.get("absent_days") or {}
+                    slot["absent_created"] += absent.get("created", 0)
+                    slot["absent_skipped"] += absent.get("skipped", 0)
+                    slot["absent_unmapped"] += absent.get("unmapped", 0)
+                    absent_totals["created"] += absent.get("created", 0)
+                    absent_totals["skipped"] += absent.get("skipped", 0)
+                    absent_totals["unmapped"] += absent.get("unmapped", 0)
+                    absent_totals["errors"] += len(absent.get("errors") or [])
                 except Exception as exc:
                     request.env.cr.rollback()
                     _logger.exception(
@@ -650,6 +660,7 @@ class EsslPullApiController(http.Controller):
             "truncated": truncated,
             "next_from": cursor.strftime("%Y-%m-%d") if truncated else None,
             "totals": totals,
+            "absent_totals": absent_totals,
             "servers": list(per_server.values()),
             "duration_ms": int((time.monotonic() - started_at) * 1000),
         })

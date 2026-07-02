@@ -309,7 +309,7 @@ class TaskForgeAttendanceController(http.Controller):
         except Exception as e:
             return return_Response(message=str(e), status=400)
 
-    def _format_attendance(self, rec, target_date=None):
+    def _format_attendance(self, rec, target_date=None, task_log_counts=None, biometric_map=None):
         attendance_status = {
             'present': 'Present',
             'absent': 'Absent',
@@ -318,12 +318,14 @@ class TaskForgeAttendanceController(http.Controller):
         IST_OFFSET = timedelta(hours=5, minutes=30)
         ist_check_in_date = (rec.check_in + IST_OFFSET).date() if rec.check_in else None
         task_log_date = target_date or ist_check_in_date or date.today()
-        task_logs = self.env['task.forge.log'].sudo().search_count([
-            ('employee_id', '=', rec.employee_id.id),
-            ('date', '=', task_log_date),
-            ('state', '=', 'completed')
-        ])
-        IST_OFFSET = timedelta(hours=5, minutes=30)
+        if task_log_counts is not None:
+            task_logs = task_log_counts.get((rec.employee_id.id, task_log_date), 0)
+        else:
+            task_logs = self.env['task.forge.log'].sudo().search_count([
+                ('employee_id', '=', rec.employee_id.id),
+                ('date', '=', task_log_date),
+                ('state', '=', 'completed')
+            ])
         is_placeholder_absent = rec.attendance_status == 'absent' and not rec.check_out
         check_in_ist = (rec.check_in + IST_OFFSET) if rec.check_in and not is_placeholder_absent else ""
         check_out_ist = (rec.check_out + IST_OFFSET) if rec.check_out else ""
@@ -332,35 +334,32 @@ class TaskForgeAttendanceController(http.Controller):
         biometric_out = ""
         biometric_location = ""
         biometric_hours = None
-        if 'essl_pull_api.daily.summary' in self.env and rec.employee_id:
-            biometric_date = target_date or ist_check_in_date or date.today()
+        biometric_date = target_date or ist_check_in_date or date.today()
+        if biometric_map is not None:
+            biometric = biometric_map.get((rec.employee_id.id, biometric_date))
+        elif 'essl_pull_api.daily.summary' in self.env and rec.employee_id:
             biometric = self.env['essl_pull_api.daily.summary'].sudo().search([
                 ('employee_id', '=', rec.employee_id.id),
                 ('punch_date', '=', biometric_date),
             ], limit=1)
-            if biometric:
-                biometric_in = biometric.punch_in_time or ""
-                biometric_out = biometric.punch_out_time or ""
-                biometric_location = getattr(biometric, 'location', '') or ''
-                if biometric_in and biometric_out:
-                    try:
-                        bin_dt = datetime.strptime(biometric_in, '%Y-%m-%d %H:%M:%S')
-                        bout_dt = datetime.strptime(biometric_out, '%Y-%m-%d %H:%M:%S')
-                        if bout_dt > bin_dt:
-                            biometric_hours = round((bout_dt - bin_dt).total_seconds() / 3600.0, 2)
-                        else:
-                            biometric_hours = 0
-                    except Exception:
-                        biometric_hours = None
+        else:
+            biometric = None
+        if biometric:
+            biometric_in = biometric.punch_in_time or ""
+            biometric_out = biometric.punch_out_time or ""
+            biometric_location = getattr(biometric, 'location', '') or ''
+            if biometric_in and biometric_out:
+                try:
+                    bin_dt = datetime.strptime(biometric_in, '%Y-%m-%d %H:%M:%S')
+                    bout_dt = datetime.strptime(biometric_out, '%Y-%m-%d %H:%M:%S')
+                    if bout_dt > bin_dt:
+                        biometric_hours = round((bout_dt - bin_dt).total_seconds() / 3600.0, 2)
+                    else:
+                        biometric_hours = 0
+                except Exception:
+                    biometric_hours = None
 
         location = biometric_location or rec.geo_location or ''
-        if not location and rec.geo_coordinates:
-            location = _reverse_geocode(rec.geo_coordinates)
-            if location:
-                try:
-                    rec.sudo().write({'geo_location': location})
-                except Exception:
-                    pass
 
         return {
             'id': rec.id if rec.id else 0,
@@ -425,7 +424,7 @@ class TaskForgeAttendanceController(http.Controller):
             offset = (page - 1) * limit
             total_count = request.env['hr.attendance'].sudo().search_count(domain)
             if not kwargs.get('page'):
-                limit = total_count
+                limit = min(total_count, 500)
                 offset = 0
 
             attendance = Attendance.search(domain, limit=limit, offset=offset)
@@ -435,8 +434,52 @@ class TaskForgeAttendanceController(http.Controller):
                 fmt_target = None
             else:
                 fmt_target = today
+
+            IST_OFFSET = timedelta(hours=5, minutes=30)
+            lookup_emp_ids = set()
+            lookup_dates = set()
             for atte in attendance:
-                temp.append(self._format_attendance(atte, target_date=fmt_target))
+                emp_id = atte.employee_id.id if atte.employee_id else None
+                if not emp_id:
+                    continue
+                lookup_emp_ids.add(emp_id)
+                ist_check_in_date = (atte.check_in + IST_OFFSET).date() if atte.check_in else None
+                d = fmt_target or ist_check_in_date or today
+                if d:
+                    lookup_dates.add(d)
+
+            task_log_counts = {}
+            if lookup_emp_ids and lookup_dates:
+                log_rows = request.env['task.forge.log'].sudo().search_read(
+                    [('employee_id', 'in', list(lookup_emp_ids)),
+                     ('date', 'in', list(lookup_dates)),
+                     ('state', '=', 'completed')],
+                    ['employee_id', 'date'],
+                )
+                for r in log_rows:
+                    emp = r.get('employee_id')
+                    d = r.get('date')
+                    if emp and d:
+                        emp_id = emp[0] if isinstance(emp, (list, tuple)) else emp
+                        key = (emp_id, d)
+                        task_log_counts[key] = task_log_counts.get(key, 0) + 1
+
+            biometric_map = {}
+            if lookup_emp_ids and lookup_dates and 'essl_pull_api.daily.summary' in request.env:
+                biometric_recs = request.env['essl_pull_api.daily.summary'].sudo().search([
+                    ('employee_id', 'in', list(lookup_emp_ids)),
+                    ('punch_date', 'in', list(lookup_dates)),
+                ])
+                for b in biometric_recs:
+                    if b.employee_id and b.punch_date:
+                        biometric_map[(b.employee_id.id, b.punch_date)] = b
+
+            for atte in attendance:
+                temp.append(self._format_attendance(
+                    atte, target_date=fmt_target,
+                    task_log_counts=task_log_counts,
+                    biometric_map=biometric_map,
+                ))
 
             return return_Response(
                 message="Today's attendance",
