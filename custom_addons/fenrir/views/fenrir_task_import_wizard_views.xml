@@ -27,13 +27,26 @@
                     <div class="alert alert-info mt-3" role="alert">
                         <strong>Expected columns</strong>
                         <ul class="mb-2">
-                            <li><code>Task ID</code> (required, must be unique)</li>
-                            <li><code>Category</code>, <code>Title</code>,
-                                <code>Overview</code>, <code>Scope of Work</code>,
+                            <li><code>Task ID</code> — optional and unique; when
+                                left blank it is auto-generated as
+                                <code>&lt;CATEGORY_CODE&gt;-&lt;PHASE_NO&gt;&lt;SERIAL&gt;</code></li>
+                            <li><code>Category</code>, <code>Phase</code>,
+                                <code>Title</code>, <code>Overview</code>,
+                                <code>Scope of Work</code>,
                                 <code>Company Details</code></li>
                             <li>Link columns (stored as URLs for reference):
                                 <code>PRD</code>, <code>Assets</code>,
                                 <code>Instruction.md</code>, <code>Rubrics</code></li>
+                            <li><code>Price Tier</code> — one of
+                                <code>$0-$50</code>, <code>$50-$100</code>,
+                                <code>$100-$150</code>, <code>$150-$200</code>
+                                (blank or unrecognised keeps the default)</li>
+                            <li><code>Buyer</code> — an existing user, matched by
+                                login, email, then name (unknown values are left
+                                unset)</li>
+                            <li><code>Name</code> — the tasker (an existing user,
+                                matched like Buyer); blank keeps the importing
+                                user</li>
                         </ul>
                         <p class="mb-1">
                             Rows whose Task ID already exists are skipped.

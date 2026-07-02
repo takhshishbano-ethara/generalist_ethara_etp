@@ -6,7 +6,7 @@ import re
 import zipfile
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tools.sql import table_exists
 
 from . import fenrir_generators as gen
@@ -30,8 +30,10 @@ class FenrirTask(models.Model):
     _order = "code"
     _rec_name = "code"
 
-    code = fields.Char(string="Task Code", required=True, copy=False, tracking=True,
-                       help="Unique project reference, e.g. GDV-002.")
+    code = fields.Char(string="Task Code", copy=False, tracking=True,
+                       help="Unique project reference. Left blank, it is "
+                            "auto-generated as <CATEGORY_CODE>-<PHASE_NO>"
+                            "<SERIAL>, e.g. AI-0201.")
     category_id = fields.Many2one(
         comodel_name="fenrir.category",
         string="Category",
@@ -184,12 +186,53 @@ class FenrirTask(models.Model):
     # --- Manager-only delivery-status enforcement --------------------------
     @api.model_create_multi
     def create(self, vals_list):
-        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
-            for vals in vals_list:
+        is_manager = self.env.user.has_group("fenrir.group_fenrir_manager")
+        Category = self.env["fenrir.category"]
+        Phase = self.env["fenrir.phase"]
+        default_phase = Phase.browse()
+        if table_exists(self.env.cr, "fenrir_phase"):
+            default_phase = Phase.search([("is_default", "=", True)], limit=1)
+        # The importer computes final codes itself (respecting explicit Task
+        # IDs); it flags them so we don't second-guess them here.
+        codes_final = self.env.context.get("fenrir_codes_final")
+        taken = set()
+        for vals in vals_list:
+            if not is_manager:
                 # Non-managers cannot set delivery status on creation; it
                 # falls back to the "Not Delivered" default.
                 vals.pop("delivery_status", None)
+            category = (Category.browse(vals["category_id"])
+                        if vals.get("category_id") else Category)
+            phase = (Phase.browse(vals["phase_id"])
+                     if vals.get("phase_id") else default_phase)
+            code = (vals.get("code") or "").strip()
+            prefix = self._task_code_prefix(category, phase)
+            # An on-form auto value looks like "<prefix><digits>" and may be
+            # stale or speculative (two near-simultaneous New-task forms can
+            # both preview the same code). Regenerate it — and any blank — from
+            # the committed DB state so the code is authoritative and unique.
+            is_auto = code.startswith(prefix) and code[len(prefix):].isdigit()
+            if not code or (not codes_final and is_auto):
+                vals["code"] = self._build_task_code(
+                    category, phase, taken=taken)
+            elif category:
+                category._ensure_code()  # keep category codes populated
+            taken.add(vals["code"])
         return super().create(vals_list)
+
+    @api.constrains("code")
+    def _check_code_unique(self):
+        """Application-level uniqueness guard. Backs up the SQL unique index,
+        which silently fails to install if duplicate codes already exist —
+        this one blocks new duplicates regardless."""
+        for rec in self:
+            if not rec.code:
+                continue
+            dup = self.with_context(active_test=False).search(
+                [("code", "=", rec.code), ("id", "!=", rec.id)], limit=1)
+            if dup:
+                raise ValidationError(_(
+                    "Task Code %s is already used by another task.") % rec.code)
 
     def write(self, vals):
         if "delivery_status" in vals and not self.env.user.has_group(
@@ -197,6 +240,72 @@ class FenrirTask(models.Model):
             raise AccessError(_(
                 "Only Fenrir managers can change the Delivery Status."))
         return super().write(vals)
+
+    # ── Task-code generation ─────────────────────────────────────────────
+    @api.model
+    def _phase_code(self, phase):
+        """PHASE_NO component parsed from a phase name.
+
+        Whole numbers are zero-padded to 2 digits ('Phase 2' -> '02',
+        'Phase 10' -> '10'); fractional phases are kept verbatim
+        ('Phase 1.5' -> '1.5'). Falls back to '00' when no number is found."""
+        name = (phase.name if phase else "") or ""
+        match = re.search(r"\d+(?:\.\d+)?", name)
+        if not match:
+            return "00"
+        num = match.group(0)
+        return num if "." in num else f"{int(num):02d}"
+
+    @api.model
+    def _task_code_prefix(self, category, phase, persist=True):
+        """The '<CAT>-<PHASE_NO>' portion of a task code (serial appended
+        directly, no separator: e.g. 'AI-02' -> 'AI-0201').
+
+        persist=False computes the category code without writing a generated
+        one back onto the category (used for on-form previews)."""
+        if category:
+            cat_code = (category._ensure_code() if persist
+                        else (category.code
+                              or category._generate_unique_code(category.name)))
+        else:
+            cat_code = "XX"
+        return f"{cat_code}-{self._phase_code(phase)}"
+
+    @api.model
+    def _build_task_code(self, category, phase, taken=None, persist=True):
+        """Next unique <CAT>-<PHASE_NO><SERIAL> code for a category+phase.
+
+        `taken` is an optional set of codes already claimed in the current
+        batch (not yet in the DB)."""
+        taken = taken or set()
+        prefix = self._task_code_prefix(category, phase, persist=persist)
+        plen = len(prefix)
+        best = 0
+        existing = set(self.with_context(active_test=False).search(
+            [("code", "=like", prefix + "%")]).mapped("code"))
+        for code in existing | taken:
+            if code and code.startswith(prefix) and code[plen:].isdigit():
+                best = max(best, int(code[plen:]))
+        serial = best + 1
+        code = f"{prefix}{serial:02d}"
+        # Guard against exact clashes with existing or in-batch codes (e.g. a
+        # legacy code that isn't a clean digit-suffix).
+        while code in taken or code in existing:
+            serial += 1
+            code = f"{prefix}{serial:02d}"
+        return code
+
+    @api.onchange("category_id", "phase_id")
+    def _onchange_autofill_code(self):
+        """On a NEW task, (re)generate the Task Code whenever the category or
+        phase changes, so the code always reflects the current selection.
+
+        Saved tasks are left untouched — their code is used in Drive/S3 folder
+        paths and external references, so it must stay stable."""
+        if self._origin.id or not self.category_id:
+            return
+        self.code = self._build_task_code(
+            self.category_id, self.phase_id, persist=False)
 
     def action_mark_delivered(self):
         """Bulk-mark the selected tasks as delivered (managers only)."""
@@ -1276,9 +1385,11 @@ class FenrirTask(models.Model):
                 }
                 for s in offer.rubric_score_ids.sorted("rubric_sequence")
             ],
+            # The rater is the task's Buyer (not create_uid, which for imported
+            # tasks is whoever ran the import).
             "rater_id": (
-                f"rater_{offer.task_id.create_uid.id:03d}"
-                if offer.task_id.create_uid else ""
+                f"rater_{offer.task_id.buyer_id.id:03d}"
+                if offer.task_id.buyer_id else ""
             ),
             # rating_date: user-set on the seller offer. Falls back to the
             # latest rubric-score write_date (then offer create_date) for

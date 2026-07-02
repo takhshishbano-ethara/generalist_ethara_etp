@@ -75,7 +75,8 @@
                     <div class="oe_title">
                         <label for="code" string="Task Code"/>
                         <h1 class="mb-0">
-                            <field name="code" placeholder="e.g. GDV-002"/>
+                            <field name="code"
+                                   placeholder="Auto-generated if left blank, e.g. AI-0201"/>
                         </h1>
                         <h2 class="text-muted mt-1">
                             <field name="title" placeholder="Project title..."/>

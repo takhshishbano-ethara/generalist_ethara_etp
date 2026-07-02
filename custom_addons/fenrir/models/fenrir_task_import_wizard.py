@@ -4,8 +4,13 @@ Each data row becomes one task. Columns are matched by header name
 (case/space/punctuation-insensitive), so the column order is irrelevant.
 
 Recognised columns
-    Task ID          -> code            (required, must be unique)
-    Category         -> category_id     (matched by name; optionally created)
+    Task ID          -> code            (optional; when blank it is generated
+                                         as <CATEGORY_CODE>-<PHASE_NO><SERIAL>;
+                                         must be unique)
+    Category         -> category_id     (matched by name; optionally created,
+                                         with an auto-generated short code)
+    Phase            -> phase_id        (matched by name; blank/unknown falls
+                                         back to the default phase)
     Title            -> title
     Overview         -> overview
     Scope of Work    -> scope_of_work
@@ -14,6 +19,12 @@ Recognised columns
     Assets           -> assets_link      (link, stored for reference)
     Instruction.md   -> instruction_md_link
     Rubrics          -> rubrics_link
+    Price Tier       -> price_tier        (one of $0-$50, $50-$100,
+                                            $100-$150, $150-$200)
+    Buyer            -> buyer_id          (existing user; matched by login,
+                                            email, then name)
+    Name             -> lead_user_id      (the tasker; existing user, matched
+                                            like Buyer; blank keeps default)
 """
 
 import base64
@@ -32,6 +43,13 @@ _logger = logging.getLogger(__name__)
 def _norm_header(value):
     """Normalise a header cell to a comparison key: lowercase, alnum only."""
     return re.sub(r"[^a-z0-9]", "", (value or "").strip().lower())
+
+
+def _norm_tier(value):
+    """Normalise a price-tier cell to digits+hyphen for matching against the
+    ``price_tier`` selection, e.g. '$50 - $100' / '50 to 100' -> '50-100'."""
+    s = re.sub(r"[^0-9-]", "", (value or "").strip())
+    return re.sub(r"-{2,}", "-", s).strip("-")
 
 
 # Normalised-header -> task field. Several spellings map to the same field so
@@ -56,6 +74,24 @@ HEADER_MAP = {
     "rubrics": "rubrics_link",
     "rubric": "rubrics_link",
     "rubricslink": "rubrics_link",
+    "pricetier": "price_tier",
+    "tier": "price_tier",
+    "price": "price_tier",
+    "buyer": "buyer_id",
+    "buyerid": "buyer_id",
+    "buyername": "buyer_id",
+    "buyeremail": "buyer_id",
+    "buyerlogin": "buyer_id",
+    "name": "lead_user_id",
+    "tasker": "lead_user_id",
+    "taskername": "lead_user_id",
+    "leaduser": "lead_user_id",
+    "lead": "lead_user_id",
+    "assignee": "lead_user_id",
+    "phase": "phase_id",
+    "phaseno": "phase_id",
+    "phasenumber": "phase_id",
+    "deliveryphase": "phase_id",
 }
 
 # Plain text fields copied straight from their column to the task.
@@ -164,9 +200,9 @@ class FenrirTaskImportWizard(models.TransientModel):
             if field:
                 col_to_field[idx] = field
 
-        if "code" not in col_to_field.values():
+        if not col_to_field:
             raise UserError(_(
-                "No 'Task ID' column found. Detected headers: %s"
+                "No recognised columns found. Detected headers: %s"
             ) % ", ".join(h for h in header if h))
 
         Task = self.env["fenrir.task"]
@@ -174,6 +210,32 @@ class FenrirTaskImportWizard(models.TransientModel):
         existing_codes = set(
             Task.with_context(active_test=False).search([]).mapped("code"))
         category_cache = {}  # normalised name -> category id
+
+        # Normalised value -> canonical price_tier key, derived from the model
+        # so it stays in sync with the field's selection.
+        tier_selection = Task._fields["price_tier"].selection
+        if callable(tier_selection):
+            tier_selection = tier_selection(Task)
+        tier_lookup = {_norm_tier(key): key for key, _label in tier_selection}
+
+        Users = self.env["res.users"]
+        user_cache = {}  # normalised token -> user id (or False if unmatched)
+
+        def resolve_user(token):
+            """Resolve a user cell (Buyer / Name) to a res.users id by login,
+            then email, then name. Never creates users; returns False when
+            unmatched."""
+            token = (token or "").strip()
+            if not token:
+                return False
+            key = token.lower()
+            if key in user_cache:
+                return user_cache[key]
+            user = (Users.search([("login", "=ilike", token)], limit=1)
+                    or Users.search([("email", "=ilike", token)], limit=1)
+                    or Users.search([("name", "=ilike", token)], limit=1))
+            user_cache[key] = user.id if user else False
+            return user_cache[key]
 
         def resolve_category(name):
             key = name.strip().lower()
@@ -187,34 +249,156 @@ class FenrirTaskImportWizard(models.TransientModel):
             category_cache[key] = cat.id if cat else False
             return category_cache[key]
 
+        Phase = self.env["fenrir.phase"]
+        default_phase = (Phase.search([("is_default", "=", True)], limit=1)
+                         or Phase.search([], limit=1))
+        phase_cache = {}  # normalised name -> (phase record, found?)
+
+        def resolve_phase(token):
+            """Resolve a Phase cell to a fenrir.phase record. Blank or unknown
+            falls back to the default phase; never creates phases. Returns
+            (phase, found) so the caller can flag unrecognised names."""
+            token = (token or "").strip()
+            if not token:
+                return default_phase, True
+            key = token.lower()
+            if key not in phase_cache:
+                ph = Phase.search([("name", "=ilike", token)], limit=1)
+                phase_cache[key] = (ph or default_phase, bool(ph))
+            return phase_cache[key]
+
+        serial_counters = {}  # "<CAT>-<PHASE>" prefix -> last serial used
+
+        def make_task_code(category_rec, phase_rec):
+            """Next unique <CAT>-<PHASE_NO><SERIAL> code, tracking serials per
+            category+phase across this batch and existing tasks. Delegates the
+            prefix (and category-code generation) to the task model."""
+            prefix = Task._task_code_prefix(category_rec, phase_rec)
+            if prefix not in serial_counters:
+                best = 0
+                for existing in existing_codes:
+                    if existing.startswith(prefix):
+                        tail = existing[len(prefix):]
+                        if tail.isdigit():
+                            best = max(best, int(tail))
+                serial_counters[prefix] = best
+            serial = serial_counters[prefix] + 1
+            code = f"{prefix}{serial:02d}"
+            while code in existing_codes or code in seen_codes:
+                serial += 1
+                code = f"{prefix}{serial:02d}"
+            serial_counters[prefix] = serial
+            return code
+
         to_create = []
         seen_codes = set()
         skipped_dup = []
-        skipped_nocode = 0
+        skipped_blank = 0
+        generated = 0
+        unknown_phase = 0
+        invalid_tier = 0
+        unknown_buyer = 0
+        unknown_tasker = 0
 
         for row in data_rows:
             row_vals = {}
             category_name = ""
+            raw_tier = ""
+            raw_buyer = ""
+            raw_tasker = ""
+            raw_phase = ""
             for idx, field in col_to_field.items():
                 value = row[idx] if idx < len(row) else ""
                 if field == "category":
                     category_name = value
+                elif field == "phase_id":
+                    raw_phase = value
+                elif field == "price_tier":
+                    raw_tier = value
+                elif field == "buyer_id":
+                    raw_buyer = value
+                elif field == "lead_user_id":
+                    raw_tasker = value
                 elif field in _TEXT_FIELDS:
                     row_vals[field] = value
 
             code = (row_vals.get("code") or "").strip()
+
+            # Resolve category (may create it with an auto-generated code) and
+            # phase up front — both feed auto-generated task codes.
+            cat_id = resolve_category(category_name)
+            category_rec = Category.browse(cat_id) if cat_id else Category
+            phase_rec, phase_found = resolve_phase(raw_phase)
+            if raw_phase.strip() and not phase_found:
+                unknown_phase += 1
+                _logger.warning(
+                    "Fenrir import: phase %r not found; using default phase "
+                    "%r.", raw_phase, default_phase.name or "(none)")
+
+            # Task ID is optional — generate <CAT>-<PHASE><SERIAL> when blank.
             if not code:
-                skipped_nocode += 1
-                continue
+                if not any(v for v in row_vals.values()) and not category_name \
+                        and not (raw_tier or raw_buyer or raw_tasker
+                                 or raw_phase):
+                    skipped_blank += 1  # genuinely empty row
+                    continue
+                code = make_task_code(category_rec, phase_rec)
+                generated += 1
+
             if code in existing_codes or code in seen_codes:
                 skipped_dup.append(code)
                 continue
             seen_codes.add(code)
 
             row_vals["code"] = code
-            cat_id = resolve_category(category_name)
             if cat_id:
                 row_vals["category_id"] = cat_id
+            if phase_rec:
+                row_vals["phase_id"] = phase_rec.id
+
+            # Price Tier is a selection — normalise and only set on a match;
+            # a blank cell keeps the model default, an unrecognised one is
+            # reported and left at the default too.
+            raw_tier = (raw_tier or "").strip()
+            if raw_tier:
+                canonical = tier_lookup.get(_norm_tier(raw_tier))
+                if canonical:
+                    row_vals["price_tier"] = canonical
+                else:
+                    invalid_tier += 1
+                    _logger.warning(
+                        "Fenrir import: task %s has unrecognised Price Tier "
+                        "%r; leaving default. Valid values: %s",
+                        code, raw_tier, ", ".join(tier_lookup.values()))
+
+            # Buyer is an existing res.users — resolve and assign; a blank cell
+            # leaves it unset, an unknown one is reported and left unset too.
+            raw_buyer = (raw_buyer or "").strip()
+            if raw_buyer:
+                buyer_id = resolve_user(raw_buyer)
+                if buyer_id:
+                    row_vals["buyer_id"] = buyer_id
+                else:
+                    unknown_buyer += 1
+                    _logger.warning(
+                        "Fenrir import: task %s references unknown Buyer %r "
+                        "(no user by login/email/name); leaving unset.",
+                        code, raw_buyer)
+
+            # Name (the tasker) is an existing res.users — resolve and assign;
+            # a blank cell keeps the default (the importing user), an unknown
+            # one is reported and left at the default too.
+            raw_tasker = (raw_tasker or "").strip()
+            if raw_tasker:
+                tasker_id = resolve_user(raw_tasker)
+                if tasker_id:
+                    row_vals["lead_user_id"] = tasker_id
+                else:
+                    unknown_tasker += 1
+                    _logger.warning(
+                        "Fenrir import: task %s references unknown Name/tasker "
+                        "%r (no user by login/email/name); leaving default.",
+                        code, raw_tasker)
             # Drop empty strings so we don't overwrite defaults with "".
             row_vals = {k: v for k, v in row_vals.items()
                         if k == "code" or v not in ("", None, False)}
@@ -222,21 +406,37 @@ class FenrirTaskImportWizard(models.TransientModel):
 
         if not to_create:
             raise UserError(_(
-                "No tasks were created. %(dup)d row(s) had a Task ID that "
-                "already exists, and %(blank)d row(s) had no Task ID."
-            ) % {"dup": len(skipped_dup), "blank": skipped_nocode})
+                "No tasks were created. %(dup)d row(s) duplicated an existing "
+                "Task ID and %(blank)d row(s) were empty."
+            ) % {"dup": len(skipped_dup), "blank": skipped_blank})
 
-        created = Task.create(to_create)
+        created = Task.with_context(fenrir_codes_final=True).create(to_create)
         _logger.info(
-            "Fenrir: imported %d tasks from %s (skipped %d duplicates, "
-            "%d blank) ", len(created), self.data_filename or "(no name)",
-            len(skipped_dup), skipped_nocode)
+            "Fenrir: imported %d tasks from %s (%d auto-coded, %d duplicates "
+            "skipped, %d empty, %d unknown phase, %d invalid price tier, "
+            "%d unknown buyer, %d unknown tasker)", len(created),
+            self.data_filename or "(no name)", generated, len(skipped_dup),
+            skipped_blank, unknown_phase, invalid_tier, unknown_buyer,
+            unknown_tasker)
 
         summary = _("%d created") % len(created)
+        if generated:
+            summary += _(", %d auto-coded") % generated
         if skipped_dup:
             summary += _(", %d skipped (duplicate Task ID)") % len(skipped_dup)
-        if skipped_nocode:
-            summary += _(", %d skipped (no Task ID)") % skipped_nocode
+        if skipped_blank:
+            summary += _(", %d skipped (empty row)") % skipped_blank
+        if unknown_phase:
+            summary += _(", %d with unknown Phase (used default)") % (
+                unknown_phase)
+        if invalid_tier:
+            summary += _(", %d with invalid Price Tier (left default)") % (
+                invalid_tier)
+        if unknown_buyer:
+            summary += _(", %d with unknown Buyer (left unset)") % unknown_buyer
+        if unknown_tasker:
+            summary += _(", %d with unknown Name/tasker (left default)") % (
+                unknown_tasker)
 
         return {
             "type": "ir.actions.act_window",
