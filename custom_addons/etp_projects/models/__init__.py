@@ -29,3 +29,4 @@ from . import batch_budget_topup_reason
 from . import batch_budget_request
 from . import res_config_settings
 from . import project_budget_dashboard
+from . import mail_render_mixin

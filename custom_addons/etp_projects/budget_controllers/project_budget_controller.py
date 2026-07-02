@@ -1731,8 +1731,8 @@ class EtpBudgetController(http.Controller):
             try:
                 if is_rnd:
                     budget.sudo().write({"budget_amount": initial_budget})
-                else:
-                    budget.sudo().write({"budget_amount": target_budget_amount})
+                # else:
+                #     budget.sudo().write({"budget_amount": target_budget_amount})
             except Exception:
                 _logger.warning(
                     "Failed to set budget_amount=%s on budget %s",
@@ -2678,12 +2678,24 @@ class EtpBudgetController(http.Controller):
                             jdata.get("approved_total"), 0.0,
                         ),
                     })
+                if "approved_amount" in jdata:
+                    req.write({
+                        "approved_total": _coerce_float(
+                            jdata.get("approved_amount"), 0.0,
+                        ),
+                    })
             else:
                 _apply_line_overrides(req, jdata)
                 if "approved_total" in jdata:
                     req.write({
                         "approved_total": _coerce_float(
                             jdata.get("approved_total"), 0.0,
+                        ),
+                    })
+                if "approved_amount" in jdata:
+                    req.write({
+                        "ex": _coerce_float(
+                            jdata.get("approved_amount"), 0.0,
                         ),
                     })
                 req.action_cfo_approve()

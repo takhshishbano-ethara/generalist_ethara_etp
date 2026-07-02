@@ -1,7 +1,10 @@
+import logging
 from datetime import timedelta
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
+
+_logger = logging.getLogger(__name__)
 
 
 REQUEST_STATE_SELECTION = [
@@ -641,7 +644,7 @@ class EtpBatchBudgetRequest(models.Model):
         role_users = self._users_with_role((CTO_ROLE_XMLID,))
         pool = self.batch_id.project_budget_id.approver_user_ids
         overlap = pool & role_users if pool else role_users
-        targets = overlap if overlap else role_users
+        targets = overlap or role_users or pool
         return targets.mapped("partner_id").ids
 
     def _cfo_partner_ids(self):
@@ -649,7 +652,7 @@ class EtpBatchBudgetRequest(models.Model):
         role_users = self._users_with_role((CFO_ROLE_XMLID,))
         pool = self.batch_id.project_budget_id.approver_user_ids
         overlap = pool & role_users if pool else role_users
-        targets = overlap if overlap else role_users
+        targets = overlap or role_users or pool
         return targets.mapped("partner_id").ids
 
     def _requester_partner_ids(self):
@@ -659,6 +662,10 @@ class EtpBatchBudgetRequest(models.Model):
     def _send_mail(self, template_xmlid, partner_ids, email_values=None):
         self.ensure_one()
         if not partner_ids:
+            _logger.warning(
+                "Budget request %s (%s): skipping %s — no recipients resolved.",
+                self.name or self.id, self._name, template_xmlid,
+            )
             return
         project = self.project_id
         if project:
@@ -668,6 +675,10 @@ class EtpBatchBudgetRequest(models.Model):
             return
         template = self.env.ref(template_xmlid, raise_if_not_found=False)
         if not template:
+            _logger.warning(
+                "Budget request %s (%s): skipping %s — template not found.",
+                self.name or self.id, self._name, template_xmlid,
+            )
             return
         values = {"partner_ids": [(6, 0, partner_ids)]}
         if email_values:
@@ -751,6 +762,15 @@ class EtpBatchBudgetRequest(models.Model):
                 email_values["subject"] = rec.subject
             if rec.attachment_ids:
                 email_values["attachment_ids"] = [(6, 0, rec.attachment_ids.ids)]
+            submitted_partner_ids = list(set(
+                rec._approver_partner_ids()
+                + rec._requester_partner_ids()
+            ))
+            rec._send_mail(
+                "etp_projects.mail_template_batch_request_submitted",
+                submitted_partner_ids,
+                email_values=email_values,
+            )
             rec._send_mail(
                 "etp_projects.mail_template_request_cto_review",
                 rec._cto_partner_ids(),

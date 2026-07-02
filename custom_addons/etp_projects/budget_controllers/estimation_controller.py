@@ -18,11 +18,21 @@ from .project_budget_controller import (
 _logger = logging.getLogger(__name__)
 
 DAILY_TASK_MODEL = "etp.batch.budget.daily.task"
+BATCH_REQUEST_MODEL = "etp.batch.budget.request"
 
 VALID_HEALTH = ("healthy", "warning", "critical", "unknown")
 
 WARNING_RATIO = 1.0
 CRITICAL_RATIO = 1.1
+
+LLM_COST_SOURCES = ("openai", "moonshot", "openrouter")
+LLM_AWS_SERVICE_NAME = "Amazon Bedrock"
+
+BATCH_VIEW_PARTITIONS = {
+    "current": ("in_progress",),
+    "upcoming": ("draft",),
+    "previous": ("delivered", "closed"),
+}
 
 
 def _derive_health(per_task_cost, ideal):
@@ -150,6 +160,81 @@ def _daily_task_detail(dt):
         ],
     })
     return data
+
+
+def _is_llm_line(line):
+    if line.source in LLM_COST_SOURCES:
+        return True
+    if line.source == "aws" and (line.service_name or "").strip() == LLM_AWS_SERVICE_NAME:
+        return True
+    return False
+
+
+def _batch_health_label(value):
+    selection = request.env[BATCH_MODEL]._fields["health_status"].selection
+    return dict(selection).get(value, value or "")
+
+
+def _batch_state_label(value):
+    selection = request.env[BATCH_MODEL]._fields["state"].selection
+    return dict(selection).get(value, value or "")
+
+
+def _request_status_label(value):
+    selection = request.env[BATCH_REQUEST_MODEL]._fields["state"].selection
+    return dict(selection).get(value, value or "")
+
+
+def _batch_view_request_brief(req):
+    requester = req.requester_id
+    return {
+        "id": req.id,
+        "name": req.name or "",
+        "raised_date": _dt_to_string(req.request_date or req.create_date),
+        "sent_by_id": requester.id if requester else 0,
+        "sent_by": (requester.name or "") if requester else "",
+        "status": req.state or "",
+        "status_label": _request_status_label(req.state),
+        "amount": req.requested_total or 0.0,
+    }
+
+
+def _batch_view_brief(batch):
+    daily_tasks = batch.daily_task_ids
+    estimated = sum(dt.total_cost or 0.0 for dt in daily_tasks)
+    llm_lines = batch.matched_cost_line_ids.filtered(_is_llm_line)
+    actual = sum(llm_lines.mapped("amount_source"))
+    variance = estimated - actual
+    project = batch.project_id
+    project_budget = batch.project_budget_id
+    requests = batch.request_ids.sorted(
+        lambda r: (r.request_date or r.create_date or fields.Datetime.now(), r.id),
+        reverse=True,
+    )
+    return {
+        "id": batch.id,
+        "name": batch.name or "",
+        "state": batch.state or "",
+        "state_label": _batch_state_label(batch.state),
+        "project_id": project.id if project else 0,
+        "project_name": project.display_name if project else "",
+        "project_budget_id": project_budget.id if project_budget else 0,
+        "project_budget_name": project_budget.name if project_budget else "",
+        "start_date": _date_to_string(batch.start_date),
+        "end_date": _date_to_string(batch.end_date),
+        "budget_amount": batch.approved_amount or 0.0,
+        "actual": actual,
+        "estimated": estimated,
+        "variance": variance,
+        "health": batch.health_status or "unknown",
+        "health_label": _batch_health_label(batch.health_status),
+        "total_task_count": batch.total_tasks or 0,
+        "done_task_count": batch.done_tasks or 0,
+        "remaining_task_count": batch.remaining_tasks or 0,
+        "avg_qc": None,
+        "created_date": _dt_to_string(batch.create_date),
+        "requests": [_batch_view_request_brief(r) for r in requests],
+    }
 
 
 class EtpBudgetEstimationController(http.Controller):
@@ -394,5 +479,51 @@ class EtpBudgetEstimationController(http.Controller):
                 "today_estimated_cost": today_estimated_cost,
                 "today_actual_cost": today_actual_cost,
                 "today_variance": today_variance,
+            },
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/estimation/batch_view",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def batch_view(self, **params):
+        partition = (params.get("partition") or "").strip().lower()
+        if partition not in BATCH_VIEW_PARTITIONS:
+            return return_Response(
+                message=(
+                    f"partition must be one of "
+                    f"{list(BATCH_VIEW_PARTITIONS)}."
+                ),
+                status=400, data={},
+            )
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
+        domain = [("state", "in", list(BATCH_VIEW_PARTITIONS[partition]))]
+        project_id = _coerce_int(params.get("project_id"))
+        if project_id:
+            domain.append(("project_id", "=", project_id))
+        project_budget_id = _coerce_int(params.get("project_budget_id"))
+        if project_budget_id:
+            domain.append(("project_budget_id", "=", project_budget_id))
+        Model = request.env[BATCH_MODEL].sudo()
+        total = Model.search_count(domain)
+        order = (
+            "start_date asc, id asc" if partition == "upcoming"
+            else "start_date desc, id desc"
+        )
+        records = Model.search(
+            domain, limit=limit, offset=offset, order=order,
+        )
+        items = [_batch_view_brief(r) for r in records]
+        return return_Response(
+            message="Phase budgets fetched.", status=200,
+            data={
+                "partition": partition,
+                "total": total,
+                "limit": limit,
+                "offset": offset,
+                "batches": items,
             },
         )
