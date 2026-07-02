@@ -1,6 +1,6 @@
 {
     'name': 'ETP Projects',
-    'version': '19.0.1.0.13',
+    'version': '19.0.1.0.14',
     'category': 'Project',
     'summary': 'Classify projects as internal or external',
     'description': """
@@ -24,11 +24,11 @@ Adds an Internal/External classification to projects.
         'views/etp_ai_model_views.xml',
         'views/etp_infra_type_views.xml',
         'views/etp_subscription_views.xml',
-        'views/batch_budget_topup_reason_views.xml',
         'wizards/batch_budget_daily_task_wizard_views.xml',
         'wizards/batch_budget_request_wizard_views.xml',
         'views/batch_budget_views.xml',
         'views/aws_budget_views.xml',
+        'views/batch_budget_topup_reason_views.xml',
         'views/batch_budget_request_views.xml',
         'views/project_budget_topup_views.xml',
         'views/res_config_settings_views.xml',

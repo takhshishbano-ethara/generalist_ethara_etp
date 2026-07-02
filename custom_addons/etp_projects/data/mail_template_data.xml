@@ -420,10 +420,10 @@
           <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.75;padding:16px 20px;background:#F8FAFC;border:1px solid #E2E8F0;white-space:pre-wrap;" t-out="object.justification or 'Justification has not been provided with this request.'"></div>
 
           <t t-if="object.model_line_ids or object.subscription_line_ids or object.infra_line_ids">
-            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">3. Budget Composition</h3>
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;color:#0F172A;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;margin:26px 0 14px;padding-bottom:8px;border-bottom:2px solid #0F172A;">BUDGET BIFURCATION</h3>
 
             <t t-if="object.model_line_ids">
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#475569;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 6px;">a. AI Model Allocation</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#475569;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 6px;">1. AI Model Allocation</div>
               <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;margin:0 0 18px;">
                 <thead><tr>
                   <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Model</th>
@@ -441,7 +441,7 @@
             </t>
 
             <t t-if="object.subscription_line_ids">
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#475569;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 6px;">b. Subscription Allocation</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#475569;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 6px;">2. Subscription Allocation</div>
               <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;margin:0 0 18px;">
                 <thead><tr>
                   <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Subscription</th>
@@ -461,7 +461,7 @@
             </t>
 
             <t t-if="object.infra_line_ids">
-              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#475569;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 6px;">c. Infrastructure Allocation</div>
+              <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#475569;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;margin:0 0 6px;">3. Infrastructure Allocation</div>
               <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
                 <thead><tr>
                   <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Infrastructure</th>
@@ -481,7 +481,7 @@
             </t>
           </t>
 
-          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">4. Action Required</h3>
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">3. Action Required</h3>
           <div style="padding:16px 20px;background:#FFFBEB;border:1px solid #F59E0B;border-left:4px solid #F59E0B;">
             <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:11px;color:#92400E;font-weight:700;letter-spacing:0.10em;text-transform:uppercase;margin-bottom:6px;">Pending Your Decision</div>
             <div style="font-family:Georgia,'Times New Roman',serif;font-size:14px;color:#0F172A;line-height:1.7;">Kindly log in to the Ethara.AI platform to record your decision (approve or reject) on this request at your earliest convenience. Timely action will ensure that the project schedule remains uninterrupted.</div>
@@ -904,7 +904,7 @@
             </div>
           </t>
 
-          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">1. Budget Particulars</h3>
+          <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:18px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">Budget Particulars</h3>
           <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
             <tr><td style="padding:7px 0;color:#475569;width:210px;">Budget Reference</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.name or ''"></td></tr>
             <tr><td style="padding:7px 0;color:#475569;">Project</td><td style="padding:7px 0;color:#0F172A;font-weight:600;" t-out="object.project_id.display_name or ''"></td></tr>
@@ -917,8 +917,12 @@
             <tr><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;border-top:1.5px solid #0F172A;">Total Budget Envelope</td><td style="padding:12px 0 7px;color:#0F172A;font-weight:700;font-size:16px;border-top:1.5px solid #0F172A;" t-out="'%.2f USD' % (object.budget_amount or 0.0)"></td></tr>
           </table>
 
+          <t t-if="object.model_line_ids or object.infra_line_ids or object.subscription_line_ids">
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:14px;color:#0F172A;font-weight:800;letter-spacing:0.16em;text-transform:uppercase;margin:26px 0 14px;padding-bottom:8px;border-bottom:2px solid #0F172A;">BUDGET BIFURCATION</h3>
+          </t>
+
           <t t-if="object.model_line_ids">
-            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">2. AI Model Allocation</h3>
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">1. AI Model Allocation</h3>
             <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
               <thead><tr>
                 <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Model</th>
@@ -938,7 +942,7 @@
           </t>
 
           <t t-if="object.infra_line_ids">
-            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">3. Infrastructure Allocation</h3>
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">2. Infrastructure Allocation</h3>
             <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
               <thead><tr>
                 <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Infrastructure</th>
@@ -956,7 +960,7 @@
           </t>
 
           <t t-if="object.subscription_line_ids">
-            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">4. Subscription Allocation</h3>
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">3. Subscription Allocation</h3>
             <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
               <thead><tr>
                 <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Subscription</th>
@@ -976,7 +980,7 @@
           </t>
 
           <t t-if="object.batch_budget_ids">
-            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">5. Delivery Phases</h3>
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">2. Delivery Phases</h3>
             <table cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;border:1px solid #CBD5E1;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:13px;">
               <thead><tr>
                 <th style="padding:10px 14px;background:#0F172A;color:#FFFFFF;font-size:11px;font-weight:700;text-align:left;letter-spacing:0.08em;text-transform:uppercase;">Phase</th>
@@ -999,7 +1003,7 @@
           <t t-set="first_request" t-value="first_phase and first_phase.request_ids.sorted(lambda r: r.id)[:1] or False"/>
           <t t-if="first_request">
             <t t-set="req" t-value="first_request[0]"/>
-            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">6. First Phase Budget Request</h3>
+            <h3 style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:12px;color:#0F172A;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;margin:26px 0 12px;padding-bottom:6px;border-bottom:1px solid #E2E8F0;">3. First Phase Budget Request</h3>
             <p style="margin:0 0 14px;text-align:justify;">
               Alongside this project budget, the initial phase budget request has also been raised for your kind consideration. The particulars of the first phase request are set out hereunder.
             </p>

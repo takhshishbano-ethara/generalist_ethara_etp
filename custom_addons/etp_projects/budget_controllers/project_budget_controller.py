@@ -30,11 +30,19 @@ email-client thread as every other budget event for that project.
 import base64
 import json
 import logging
+import mimetypes
+import os
+import threading
+import time
+import uuid
 from datetime import date, datetime
 
-from odoo import _, fields, http, models
+from werkzeug.utils import secure_filename
+
+from odoo import _, api, fields, http, models, SUPERUSER_ID
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
+from odoo.modules.registry import Registry
 
 from odoo.addons.api_auth_gateway.controllers.utility import (
     generate_s3_link,
@@ -515,6 +523,65 @@ def _send_creation_mail(budget):
         return False
 
 
+def _defer_background(env, func):
+    """Run ``func(new_env)`` in a daemon thread after the current tx commits.
+
+    If the outer transaction rolls back the deferred job never runs.
+    Exceptions inside the job are logged, never propagated.
+    """
+    dbname = env.cr.dbname
+    uid = env.uid
+    ctx = dict(env.context)
+
+    def _launch():
+        def _run():
+            try:
+                registry = Registry(dbname)
+                with registry.cursor() as new_cr:
+                    new_env = api.Environment(new_cr, uid, ctx)
+                    try:
+                        func(new_env)
+                        new_cr.commit()
+                    except Exception:
+                        new_cr.rollback()
+                        _logger.exception("Deferred background job failed")
+            except Exception:
+                _logger.exception("Deferred background job setup failed")
+
+        threading.Thread(target=_run, daemon=True).start()
+
+    env.cr.postcommit.add(_launch)
+
+
+def _generate_s3_url_env(env, img_data_b64, prefix, filename):
+    """S3 upload safe from a background thread. Mirrors ``generate_s3_link``."""
+    connector = env["s3.connector"].sudo().search([], limit=1)
+    if not connector:
+        return ""
+    ts = time.time_ns()
+    unique_id = uuid.uuid4().hex[:12]
+    if filename:
+        _, ext = os.path.splitext(filename)
+        if ext:
+            extension = ext
+        else:
+            mime_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            extension = mimetypes.guess_extension(mime_type) or ".bin"
+    else:
+        extension = ".jpeg"
+    safe_name = secure_filename(f"{ts}_{unique_id}_{prefix}")
+    images_name = f"{safe_name}{extension}"
+    wizard = env["s3.upload.wizard"].sudo().create({
+        "s3_connector_id": connector.id,
+        "upload_file": img_data_b64,
+        "prefix": prefix,
+        "file_name": images_name,
+    })
+    if wizard:
+        return wizard.upload_images_in_s3_get_url() or ""
+    return ""
+
+
 REQUEST_MODEL = "etp.batch.budget.request"
 
 
@@ -708,6 +775,7 @@ def _batch_detail(batch):
         "consumed_cost": batch.consumed_cost,
         "consumed_pct": batch.consumed_pct,
         "remaining_cost": batch.remaining_cost,
+        "attachment_urls": _parse_attachment_links(batch.attachment_urls),
         "model_lines": model_lines,
         "infra_lines": infra_lines,
         "subscription_lines": sub_lines,
@@ -883,6 +951,7 @@ def _request_to_detail(req):
         "message": req.message or "",
         "attachment_ids": req.attachment_ids.ids,
         "attachments": [_attachment_brief(a) for a in req.attachment_ids],
+        "attachment_urls": _parse_attachment_links(req.attachment_urls),
         "topup_reason_id": req.topup_reason_id.id if req.topup_reason_id else None,
         "topup_reason": _topup_reason_brief(req.topup_reason_id) if req.topup_reason_id else None,
         "rejection_reason": req.rejection_reason or "",
@@ -1122,6 +1191,7 @@ def _batch_summary(batch):
         "model_line_count": len(batch.model_line_ids),
         "infra_line_count": len(batch.infra_line_ids),
         "subscription_line_count": len(batch.subscription_line_ids),
+        "attachment_urls": _parse_attachment_links(batch.attachment_urls),
     }
 
 
@@ -1628,12 +1698,28 @@ class EtpBudgetController(http.Controller):
             )
 
         provided_links = _parse_attachment_links(jdata.get("attachment_ids"))
-        uploaded_links = _upload_attachments_to_s3(uploaded_files) if uploaded_files else []
-        attachment_links = _serialize_attachment_links(provided_links + uploaded_links)
+        pending_uploads = []
+        for f in uploaded_files or []:
+            try:
+                data = f.read()
+            except Exception:
+                _logger.exception(
+                    "Could not read uploaded file %s", getattr(f, "filename", "?"),
+                )
+                continue
+            if not data:
+                continue
+            pending_uploads.append((
+                getattr(f, "filename", "") or "attachment.bin",
+                base64.b64encode(data).decode("utf-8"),
+            ))
+        attachment_links = _serialize_attachment_links(provided_links)
 
         budget_amount = _compute_budget_amount(
             total_tasks, per_task_costs, infra_costs, sub_monthly_totals,
         )
+        if is_rnd:
+            budget_amount = initial_budget
 
         try:
             for sub_id, new_cost in sub_catalog_updates:
@@ -1648,6 +1734,14 @@ class EtpBudgetController(http.Controller):
                 message="Failed to update subscription catalog.",
                 status=500, data={},
             )
+
+        create_env = request.env(context=dict(
+            request.env.context,
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_create_nosubscribe=True,
+            mail_notrack=True,
+        ))
 
         name = (f"{project.display_name} - {_budget_type_label(budget_type)}").strip()
         vals = {
@@ -1666,7 +1760,7 @@ class EtpBudgetController(http.Controller):
             "attachment_ids": attachment_links or False,
         }
         try:
-            budget = request.env[BUDGET_MODEL].sudo().create(vals)
+            budget = create_env[BUDGET_MODEL].sudo().create(vals)
         except (UserError, ValidationError) as e:
             request.env.cr.rollback()
             return return_Response(message=str(e), status=400, data={})
@@ -1694,49 +1788,21 @@ class EtpBudgetController(http.Controller):
             for ln in budget.subscription_line_ids
         ]
 
-        created_batches = request.env[BATCH_MODEL].sudo()
+        created_batches = create_env[BATCH_MODEL].sudo()
         for spec in batch_specs:
             spec["project_budget_id"] = budget.id
             if batch_infra_clone:
                 spec["infra_line_ids"] = batch_infra_clone
             if batch_sub_clone:
                 spec["subscription_line_ids"] = batch_sub_clone
+            if attachment_links:
+                spec["attachment_urls"] = attachment_links
             try:
                 with request.env.cr.savepoint():
-                    created_batches |= request.env[BATCH_MODEL].sudo().create(spec)
+                    created_batches |= create_env[BATCH_MODEL].sudo().create(spec)
             except Exception:
                 _logger.exception(
                     "Batch creation failed for spec %s on budget %s", spec, budget.id,
-                )
-
-        if created_batches:
-            total_phase_days = 0
-            target_budget_amount = initial_budget if is_rnd else 0.0
-            for batch in created_batches:
-                duration_days = 0
-                if (
-                    batch.start_date
-                    and batch.end_date
-                    and batch.end_date >= batch.start_date
-                ):
-                    duration_days = (batch.end_date - batch.start_date).days + 1
-                total_phase_days += duration_days
-                infra_per_day = sum(batch.infra_line_ids.mapped("per_day_cost"))
-                target_budget_amount += duration_days * infra_per_day
-                if not is_rnd:
-                    per_task = sum(batch.model_line_ids.mapped("per_task_cost"))
-                    target_budget_amount += (batch.total_tasks or 0) * per_task
-            sub_total = sum(budget.subscription_line_ids.mapped("final_amount"))
-            target_budget_amount += sub_total
-            try:
-                if is_rnd:
-                    budget.sudo().write({"budget_amount": initial_budget})
-                # else:
-                #     budget.sudo().write({"budget_amount": target_budget_amount})
-            except Exception:
-                _logger.warning(
-                    "Failed to set budget_amount=%s on budget %s",
-                    target_budget_amount, budget.id,
                 )
 
         created_request = None
@@ -1758,7 +1824,7 @@ class EtpBudgetController(http.Controller):
             ):
                 duration_days = (
                     first_batch.end_date - first_batch.start_date
-                ).days + 1
+                ).days
             wiz_model_cmds = [
                 (0, 0, {
                     "ai_model_id": ln.ai_model_id.id,
@@ -1814,23 +1880,123 @@ class EtpBudgetController(http.Controller):
                         wiz_vals["infra_line_ids"] = wiz_infra_cmds
                     if wiz_sub_cmds:
                         wiz_vals["subscription_line_ids"] = wiz_sub_cmds
-                    wizard = request.env["etp.batch.budget.request.wizard"].sudo().create(wiz_vals)
+                    submit_env = create_env(context=dict(
+                        create_env.context, etp_skip_notify=True,
+                    ))
+                    wizard = submit_env["etp.batch.budget.request.wizard"].sudo().create(wiz_vals)
                     result = wizard.action_submit()
                     new_req_id = result.get("res_id") if isinstance(result, dict) else None
                     if new_req_id:
-                        candidate = request.env[REQUEST_MODEL].sudo().browse(new_req_id)
+                        candidate = submit_env[REQUEST_MODEL].sudo().browse(new_req_id)
                         if candidate.exists():
                             created_request = candidate
+                            if attachment_links:
+                                try:
+                                    candidate.sudo().with_context(
+                                        tracking_disable=True, mail_notrack=True,
+                                    ).write({"attachment_urls": attachment_links})
+                                except Exception:
+                                    _logger.exception(
+                                        "Failed to stamp attachment_urls on request %s",
+                                        candidate.id,
+                                    )
             except Exception as wexc:
                 _logger.warning(
                     "Initial batch budget request skipped for budget %s batch %s: %s",
                     budget.id, first_batch.id, wexc,
                 )
 
-        try:
-            _send_creation_mail(budget)
-        except Exception:
-            _logger.exception("Creation mail post failed for budget %s", budget.id)
+        budget_id_for_bg = budget.id
+
+        def _bg_creation_mail(env_bg):
+            b = env_bg[BUDGET_MODEL].browse(budget_id_for_bg).exists()
+            if not b:
+                return
+            try:
+                _send_creation_mail(b)
+            except Exception:
+                _logger.exception(
+                    "Deferred creation mail failed for budget %s", budget_id_for_bg,
+                )
+
+        _defer_background(request.env, _bg_creation_mail)
+
+        if pending_uploads:
+            budget_id_for_uploads = budget.id
+            batch_ids_for_uploads = created_batches.ids if created_batches else []
+            request_id_for_uploads = created_request.id if created_request else None
+            uploads_payload = list(pending_uploads)
+
+            def _bg_uploads(env_bg):
+                urls = []
+                for filename, b64 in uploads_payload:
+                    try:
+                        url = _generate_s3_url_env(
+                            env_bg, b64, ATTACHMENT_PREFIX, filename,
+                        )
+                    except Exception:
+                        _logger.exception("S3 upload failed for %s", filename)
+                        continue
+                    if url:
+                        urls.append(url)
+                if not urls:
+                    return
+                b = env_bg[BUDGET_MODEL].browse(budget_id_for_uploads).exists()
+                if not b:
+                    return
+                existing = _parse_attachment_links(b.attachment_ids)
+                merged = _serialize_attachment_links(existing + urls)
+                try:
+                    b.sudo().with_context(
+                        tracking_disable=True, mail_notrack=True,
+                    ).write({"attachment_ids": merged or False})
+                except Exception:
+                    _logger.exception(
+                        "Deferred attachment write failed for budget %s",
+                        budget_id_for_uploads,
+                    )
+                if batch_ids_for_uploads:
+                    batches_bg = env_bg[BATCH_MODEL].browse(
+                        batch_ids_for_uploads,
+                    ).exists()
+                    for batch_bg in batches_bg:
+                        batch_existing = _parse_attachment_links(
+                            batch_bg.attachment_urls,
+                        )
+                        batch_merged = _serialize_attachment_links(
+                            batch_existing + urls,
+                        )
+                        try:
+                            batch_bg.sudo().with_context(
+                                tracking_disable=True, mail_notrack=True,
+                            ).write({"attachment_urls": batch_merged or False})
+                        except Exception:
+                            _logger.exception(
+                                "Deferred attachment_urls write failed for batch %s",
+                                batch_bg.id,
+                            )
+                if request_id_for_uploads:
+                    req_bg = env_bg[REQUEST_MODEL].browse(
+                        request_id_for_uploads,
+                    ).exists()
+                    if req_bg:
+                        req_existing = _parse_attachment_links(
+                            req_bg.attachment_urls,
+                        )
+                        req_merged = _serialize_attachment_links(
+                            req_existing + urls,
+                        )
+                        try:
+                            req_bg.sudo().with_context(
+                                tracking_disable=True, mail_notrack=True,
+                            ).write({"attachment_urls": req_merged or False})
+                        except Exception:
+                            _logger.exception(
+                                "Deferred attachment_urls write failed for request %s",
+                                req_bg.id,
+                            )
+
+            _defer_background(request.env, _bg_uploads)
 
         data = _budget_to_dict(budget)
         if created_request:
@@ -2694,7 +2860,7 @@ class EtpBudgetController(http.Controller):
                     })
                 if "approved_amount" in jdata:
                     req.write({
-                        "ex": _coerce_float(
+                        "approved_total": _coerce_float(
                             jdata.get("approved_amount"), 0.0,
                         ),
                     })

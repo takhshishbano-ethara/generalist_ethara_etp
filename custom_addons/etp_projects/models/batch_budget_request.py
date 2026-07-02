@@ -185,6 +185,10 @@ class EtpBatchBudgetRequest(models.Model):
         "attachment_id",
         string="Attachments",
     )
+    attachment_urls = fields.Text(
+        string="Attachment URLs",
+        help="CSV of S3 URLs propagated from the parent project budget on create.",
+    )
     topup_reason_id = fields.Many2one(
         "etp.batch.budget.topup.reason",
         string="Top-up Reason",
@@ -661,6 +665,8 @@ class EtpBatchBudgetRequest(models.Model):
 
     def _send_mail(self, template_xmlid, partner_ids, email_values=None):
         self.ensure_one()
+        if self.env.context.get("etp_skip_notify"):
+            return
         if not partner_ids:
             _logger.warning(
                 "Budget request %s (%s): skipping %s — no recipients resolved.",

@@ -92,6 +92,10 @@ class EtpBatchBudget(models.Model):
         "attachment_id",
         string="Attachments",
     )
+    attachment_urls = fields.Text(
+        string="Attachment URLs",
+        help="CSV of S3 URLs propagated from the parent project budget on create.",
+    )
     request_ids = fields.One2many(
         "etp.batch.budget.request",
         "batch_id",
