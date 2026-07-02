@@ -7,5 +7,3 @@ access_essl_attendance_log_user,essl.attendance.log.user,model_essl_attendance_l
 access_essl_attendance_log_manager,essl.attendance.log.manager,model_essl_attendance_log,group_essl_manager,1,1,1,1
 access_essl_pull_api_daily_summary_user,essl_pull_api.daily.summary user,model_essl_pull_api_daily_summary,group_essl_user,1,0,0,0
 access_essl_pull_api_daily_summary_manager,essl_pull_api.daily.summary manager,model_essl_pull_api_daily_summary,group_essl_manager,1,0,0,0
-access_essl_attendance_daily_user,essl.attendance.daily.user,model_essl_attendance_daily,group_essl_user,1,0,0,0
-access_essl_attendance_daily_manager,essl.attendance.daily.manager,model_essl_attendance_daily,group_essl_manager,1,1,1,1

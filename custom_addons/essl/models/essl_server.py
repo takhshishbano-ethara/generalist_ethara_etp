@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
 import re
-import time
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -9,7 +8,6 @@ from odoo import _, api, fields, models
 from odoo.exceptions import AccessError, UserError
 
 _IST = ZoneInfo("Asia/Kolkata")
-_ATTENDANCE_TIME_BUDGET_MS = 110_000
 
 
 def _ist_to_utc(dt):
@@ -96,12 +94,6 @@ class EsslServer(models.Model):
     logs_device_column = fields.Char(
         string="Logs: Device FK Column", default="DeviceId", required=True,
         help="Foreign-key column in the logs table that joins back to Devices.",
-    )
-    attendance_logs_table = fields.Char(
-        string="Attendance Logs Table", default="AttendanceLogs", required=True,
-    )
-    employees_table = fields.Char(
-        string="Employees Table", default="Employees", required=True,
     )
 
     last_device_sync_at = fields.Datetime(string="Last Device Sync At", readonly=True)
@@ -234,7 +226,6 @@ class EsslServer(models.Model):
 
     def action_pull_all_attendance(self):
         self.ensure_one()
-        started = time.monotonic()
         now_ist = datetime.now(_IST).replace(tzinfo=None)
         today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
         date_from = today_start_ist.replace(day=1) - timedelta(days=365)
@@ -243,12 +234,8 @@ class EsslServer(models.Model):
 
         totals = {"created": 0, "updated": 0, "skipped": 0, "errors": 0}
         batches = 0
-        truncated = False
         cursor = date_from
         while cursor < date_to:
-            if int((time.monotonic() - started) * 1000) > _ATTENDANCE_TIME_BUDGET_MS:
-                truncated = True
-                break
             if cursor.month == 12:
                 batch_end = cursor.replace(year=cursor.year + 1, month=1, day=1)
             else:
@@ -264,30 +251,23 @@ class EsslServer(models.Model):
             batches += 1
             cursor = batch_end
 
-        parts = [
-            _("Attendance sync %(from)s → %(to)s.") % {
-                "from": date_from.strftime("%Y-%m-%d"),
-                "to": (date_to - timedelta(days=1)).strftime("%Y-%m-%d"),
-            },
-            _("Created: %(c)d, Updated: %(u)d, Skipped: %(s)d, Errors: %(e)d, Batches: %(b)d.") % {
-                "c": totals["created"], "u": totals["updated"],
-                "s": totals["skipped"], "e": totals["errors"], "b": batches,
-            },
-        ]
-        if truncated:
-            parts.append(
-                _("Time budget hit at %(nf)s — click again to continue.") % {
-                    "nf": cursor.strftime("%Y-%m-%d"),
-                }
-            )
+        message = _(
+            "Attendance sync %(from)s → %(to)s. "
+            "Created: %(c)d, Updated: %(u)d, Skipped: %(s)d, Errors: %(e)d, Batches: %(b)d."
+        ) % {
+            "from": date_from.strftime("%Y-%m-%d"),
+            "to": (date_to - timedelta(days=1)).strftime("%Y-%m-%d"),
+            "c": totals["created"], "u": totals["updated"],
+            "s": totals["skipped"], "e": totals["errors"], "b": batches,
+        }
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
                 "title": _("ESSL Attendance Sync"),
-                "message": " ".join(parts),
-                "sticky": bool(truncated or totals["errors"]),
-                "type": "warning" if truncated or totals["errors"] else "success",
+                "message": message,
+                "sticky": bool(totals["errors"]),
+                "type": "warning" if totals["errors"] else "success",
             },
         }
 
@@ -418,141 +398,6 @@ class EsslServer(models.Model):
             return False
         return True
 
-    def _pull_attendance_logs(self, date_from_ist, date_to_ist):
-        self.ensure_one()
-        self._validate_identifier(self.attendance_logs_table, "Attendance Logs Table")
-        self._validate_identifier(self.employees_table, "Employees Table")
-
-        try:
-            conn = self._connect()
-        except UserError:
-            raise
-
-        try:
-            cur = conn.cursor()
-            sql = (
-                "SELECT a.[AttendanceLogId], a.[AttendanceDate], a.[EmployeeId], "
-                "       a.[InTime], a.[InDeviceId], a.[OutTime], a.[OutDeviceId], "
-                "       a.[Duration], a.[Present], a.[Absent], a.[IsOnLeave], "
-                "       a.[LeaveType], a.[LeaveTypeId], a.[LeaveDuration], a.[LeaveRemarks], "
-                "       a.[WeeklyOff], a.[Holiday], a.[OverTime], a.[Status], a.[StatusCode], "
-                "       a.[PunchRecords], a.[Remarks], "
-                "       e.[EmployeeCode] "
-                "FROM [%s] a "
-                "LEFT JOIN [%s] e ON e.[EmployeeId] = a.[EmployeeId] "
-                "WHERE a.[AttendanceDate] >= ? AND a.[AttendanceDate] < ? "
-                "ORDER BY a.[AttendanceDate], a.[EmployeeId]"
-            ) % (self.attendance_logs_table, self.employees_table)
-            cur.execute(sql, (date_from_ist, date_to_ist))
-            cols = [c[0] for c in cur.description]
-            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
-            cur.close()
-        except Exception as exc:
-            raise UserError(_("AttendanceLogs query failed: %s") % exc)
-        finally:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-        Daily = self.env["essl.attendance.daily"].sudo()
-        code_map = Daily._build_code_to_employee_map()
-
-        existing = Daily.search([
-            ("server_id", "=", self.id),
-            ("source_attendance_log_id", "in", [r["AttendanceLogId"] for r in rows]),
-        ])
-        existing_by_source = {r.source_attendance_log_id: r for r in existing}
-
-        stats = {"total": len(rows), "created": 0, "updated": 0, "unchanged": 0,
-                 "unmatched": 0, "failed": 0}
-        touched_records = Daily.browse()
-
-        for row in rows:
-            try:
-                source_id = int(row["AttendanceLogId"])
-                emp_code = (row.get("EmployeeCode") or "").strip()
-                in_time_src = row.get("InTime")
-                out_time_src = row.get("OutTime")
-                in_time_dt = self._coerce_datetime(in_time_src)
-                out_time_dt = self._coerce_datetime(out_time_src)
-                if in_time_dt and in_time_dt.year < 2000:
-                    in_time_dt = False
-                if out_time_dt and out_time_dt.year < 2000:
-                    out_time_dt = False
-                att_date = row.get("AttendanceDate")
-                if hasattr(att_date, "date"):
-                    att_date = att_date.date()
-
-                vals = {
-                    "server_id": self.id,
-                    "source_attendance_log_id": source_id,
-                    "attendance_date": att_date,
-                    "source_employee_id": int(row["EmployeeId"]) if row.get("EmployeeId") is not None else False,
-                    "employee_code": emp_code or False,
-                    "employee_id": code_map.get(emp_code) or False,
-                    "in_time": _ist_to_utc(in_time_dt) if in_time_dt else False,
-                    "out_time": _ist_to_utc(out_time_dt) if out_time_dt else False,
-                    "in_device_short": (row.get("InDeviceId") or "").strip() or False,
-                    "out_device_short": (row.get("OutDeviceId") or "").strip() or False,
-                    "duration_minutes": float(row.get("Duration") or 0.0),
-                    "present": float(row.get("Present") or 0.0),
-                    "absent": float(row.get("Absent") or 0.0),
-                    "is_on_leave": bool(row.get("IsOnLeave")),
-                    "leave_type": (row.get("LeaveType") or "").strip() or False,
-                    "leave_type_id": int(row.get("LeaveTypeId") or 0) or False,
-                    "leave_duration": float(row.get("LeaveDuration") or 0.0),
-                    "leave_remarks": (row.get("LeaveRemarks") or "").strip() or False,
-                    "weekly_off": bool(row.get("WeeklyOff")),
-                    "holiday": bool(row.get("Holiday")),
-                    "over_time": float(row.get("OverTime") or 0.0),
-                    "status": (row.get("Status") or "").strip() or False,
-                    "status_code": (row.get("StatusCode") or "").strip() or False,
-                    "punch_records": row.get("PunchRecords") or False,
-                    "remarks": (row.get("Remarks") or "").strip() or False,
-                    "error_note": False if code_map.get(emp_code) else (
-                        "No hr.employee for EmployeeCode=%s" % (emp_code or "(blank)")),
-                }
-
-                rec = existing_by_source.get(source_id)
-                if rec:
-                    changed = {k: v for k, v in vals.items() if rec[k] != v}
-                    if changed:
-                        rec.write(changed)
-                        stats["updated"] += 1
-                    else:
-                        stats["unchanged"] += 1
-                    touched_records |= rec
-                else:
-                    new_rec = Daily.create(vals)
-                    stats["created"] += 1
-                    touched_records |= new_rec
-
-                if not code_map.get(emp_code):
-                    stats["unmatched"] += 1
-            except Exception as exc:
-                stats["failed"] += 1
-                _logger.exception("essl.attendance.daily upsert failed for source id=%s: %s",
-                                  row.get("AttendanceLogId"), exc)
-
-        sync_stats = touched_records._sync_hr_attendance()
-        stats["hr_attendance"] = sync_stats
-        return stats
-
-    @staticmethod
-    def _coerce_datetime(value):
-        if value is None or value == "":
-            return None
-        if hasattr(value, "year"):
-            return value
-        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
-            try:
-                from datetime import datetime as _dt
-                return _dt.strptime(str(value), fmt)
-            except (TypeError, ValueError):
-                continue
-        return None
-
     @api.model
     def _cron_pull_devices_all_servers(self):
         for srv in self.search([("active", "=", True)]):
@@ -562,7 +407,303 @@ class EsslServer(models.Model):
                 srv.sudo().write({"last_device_sync_error": str(exc)[:1000]})
                 _logger.exception("ESSL: pull-devices cron failed for %s", srv.name)
 
+    @staticmethod
+    def _monthly_device_logs_table(dt):
+        # eTimeTrackLite schema uses un-padded month/year: 2026-07-15 -> "DeviceLogs_7_2026"
+        return "DeviceLogs_%d_%d" % (dt.month, dt.year)
+
+    def _sql_table_exists(self, conn, table_name):
+        if not table_name or not _IDENT_RE.match(table_name):
+            return False
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT 1 FROM INFORMATION_SCHEMA.TABLES "
+                "WHERE TABLE_NAME = ? AND TABLE_TYPE = 'BASE TABLE'",
+                (table_name,),
+            )
+            exists = cur.fetchone() is not None
+            cur.close()
+        except Exception:
+            _logger.exception(
+                "ESSL %s: table existence check failed for %s",
+                self.name, table_name,
+            )
+            return False
+        return exists
+
     def _pull_hr_attendance(self, date_from=None, date_to=None):
+        # Prefer monthly DeviceLogs_M_YYYY (raw punches); fall back to AttendanceLogs (pre-aggregated).
+        self.ensure_one()
+        if date_from is None:
+            stats = self._pull_hr_attendance_from_attendance_logs(date_from, date_to)
+            stats["source"] = "attendance_logs"
+            stats["source_table"] = "AttendanceLogs"
+            return stats
+
+        table_name = self._monthly_device_logs_table(date_from)
+        conn = self._connect()
+        try:
+            if self._sql_table_exists(conn, table_name):
+                stats = self._pull_hr_attendance_from_device_logs(
+                    conn, table_name, date_from, date_to,
+                )
+                stats["source"] = "device_logs"
+                stats["source_table"] = table_name
+                return stats
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+        stats = self._pull_hr_attendance_from_attendance_logs(date_from, date_to)
+        stats["source"] = "attendance_logs"
+        stats["source_table"] = "AttendanceLogs"
+        return stats
+
+    def _pull_hr_attendance_from_device_logs(
+        self, conn, table_name, date_from, date_to,
+    ):
+        # Per (UserId, day IST): first C1='in' -> check_in, last C1='out' -> check_out.
+        # UserId is matched directly against hr.employee.employee_code.
+        self.ensure_one()
+        from .essl_device import _ist_to_utc  # noqa: PLC0415
+
+        if not _IDENT_RE.match(table_name):
+            raise UserError(_("Invalid DeviceLogs table name: %s") % table_name)
+
+        try:
+            cur = conn.cursor()
+            sql = (
+                "SELECT [UserId], [LogDate], [DeviceId], [C1] "
+                "FROM [%s] "
+                "WHERE [LogDate] >= ? AND [LogDate] < ? "
+                "ORDER BY [LogDate]"
+            ) % table_name
+            cur.execute(sql, (date_from, date_to))
+            cols = [c[0] for c in cur.description]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            cur.close()
+        except Exception as exc:
+            raise UserError(_("DeviceLogs query failed for %s: %s") % (table_name, exc))
+
+        aggregated = {}
+        for row in rows:
+            user_id = row.get("UserId")
+            log_ts = row.get("LogDate")
+            if user_id is None or log_ts is None or not hasattr(log_ts, "date"):
+                continue
+            user_code = str(user_id).strip()
+            if not user_code:
+                continue
+            direction = (row.get("C1") or "").strip().lower()
+            device_ext = None
+            device_id_raw = row.get("DeviceId")
+            if device_id_raw is not None:
+                try:
+                    device_ext = int(device_id_raw)
+                except (TypeError, ValueError):
+                    pass
+            slot = aggregated.setdefault(
+                (user_code, log_ts.date()),
+                {
+                    "in_ts": None, "in_dev": None,
+                    "out_ts": None, "out_dev": None,
+                    "first_ts": None, "first_dev": None,
+                    "last_ts": None, "last_dev": None,
+                },
+            )
+            if slot["first_ts"] is None or log_ts < slot["first_ts"]:
+                slot["first_ts"] = log_ts
+                slot["first_dev"] = device_ext
+            if slot["last_ts"] is None or log_ts > slot["last_ts"]:
+                slot["last_ts"] = log_ts
+                slot["last_dev"] = device_ext
+            if direction == "in":
+                if slot["in_ts"] is None or log_ts < slot["in_ts"]:
+                    slot["in_ts"] = log_ts
+                    slot["in_dev"] = device_ext
+            elif direction == "out":
+                if slot["out_ts"] is None or log_ts > slot["out_ts"]:
+                    slot["out_ts"] = log_ts
+                    slot["out_dev"] = device_ext
+
+        Employee = self.env["hr.employee"].sudo()
+        emp_map = {}
+        for r in Employee.search_read(
+            [("employee_code", "!=", False)], ["id", "employee_code"],
+        ):
+            code = (r["employee_code"] or "").strip()
+            if code:
+                emp_map[code] = r["id"]
+
+        Device = self.env["essl.device"].sudo()
+        device_location_by_ext = {}
+        for d in Device.search_read(
+            [("server_id", "=", self.id)],
+            ["external_device_id", "name", "location", "device_location"],
+        ):
+            ext = d.get("external_device_id")
+            if not ext:
+                continue
+            loc = (
+                (d.get("location") or "").strip()
+                or (d.get("device_location") or "").strip()
+                or (d.get("name") or "").strip()
+                or ""
+            )
+            if loc:
+                device_location_by_ext[int(ext)] = loc
+
+        Attendance = self.env["hr.attendance"].sudo()
+        stats = {"created": 0, "updated": 0, "skipped": 0, "errors": []}
+
+        for (user_code, day), slot in aggregated.items():
+            emp_id = emp_map.get(user_code)
+            if not emp_id:
+                stats["skipped"] += 1
+                continue
+
+            # Fallback for missing/misconfigured C1: use earliest/latest punch of the day.
+            check_in_ist = slot["in_ts"] or slot["first_ts"]
+            check_out_ist = slot["out_ts"] or slot["last_ts"]
+            if check_in_ist is None:
+                stats["skipped"] += 1
+                continue
+            attendance_status = "present"
+            if check_out_ist and check_out_ist <= check_in_ist:
+                check_out_ist = None
+
+            check_in_utc = _ist_to_utc(check_in_ist)
+            check_out_utc = _ist_to_utc(check_out_ist) if check_out_ist else False
+
+            in_dev = slot["in_dev"] if slot["in_ts"] else slot["first_dev"]
+            out_dev = slot["out_dev"] if slot["out_ts"] else slot["last_dev"]
+            in_location = device_location_by_ext.get(in_dev) if in_dev else False
+            out_location = device_location_by_ext.get(out_dev) if out_dev else False
+            current_location = out_location if check_out_utc else (in_location or out_location)
+
+            day_start_ist = datetime.combine(day, datetime.min.time())
+            day_end_ist = day_start_ist + timedelta(days=1)
+            day_start = _ist_to_utc(day_start_ist)
+            day_end = _ist_to_utc(day_end_ist)
+
+            try:
+                with self.env.cr.savepoint():
+                    existing = Attendance.search(
+                        [
+                            ("employee_id", "=", emp_id),
+                            ("check_in", ">=", day_start),
+                            ("check_in", "<", day_end),
+                        ],
+                        limit=1,
+                        order="check_in asc",
+                    )
+                    if existing:
+                        vals = {}
+                        if existing.check_in != check_in_utc:
+                            vals["check_in"] = check_in_utc
+                        target_check_out = check_out_utc or False
+                        if (existing.check_out or False) != target_check_out:
+                            vals["check_out"] = target_check_out
+                        target_in_loc = in_location or False
+                        if (existing.in_location or False) != target_in_loc:
+                            vals["in_location"] = target_in_loc
+                        target_out_loc = out_location or False
+                        if (existing.out_location or False) != target_out_loc:
+                            vals["out_location"] = target_out_loc
+                        target_geo_loc = current_location or False
+                        if (existing.geo_location or False) != target_geo_loc:
+                            vals["geo_location"] = target_geo_loc
+                        if (existing.attendance_status or "") != attendance_status:
+                            vals["attendance_status"] = attendance_status
+                        if vals:
+                            self.env.cr.execute(
+                                "UPDATE hr_attendance SET "
+                                "check_in = %s, check_out = %s, "
+                                "in_location = %s, out_location = %s, "
+                                "geo_location = %s, attendance_status = %s "
+                                "WHERE id = %s",
+                                (
+                                    vals.get("check_in", existing.check_in) or None,
+                                    vals.get("check_out", existing.check_out) or None,
+                                    vals.get("in_location", existing.in_location) or None,
+                                    vals.get("out_location", existing.out_location) or None,
+                                    vals.get("geo_location", existing.geo_location) or None,
+                                    vals.get("attendance_status", existing.attendance_status) or None,
+                                    existing.id,
+                                ),
+                            )
+                            existing.invalidate_recordset(
+                                ["check_in", "check_out", "in_location",
+                                 "out_location", "geo_location",
+                                 "attendance_status", "worked_hours"]
+                            )
+                            self.env.add_to_compute(
+                                Attendance._fields["worked_hours"], existing,
+                            )
+                            stats["updated"] += 1
+                        else:
+                            stats["skipped"] += 1
+                    else:
+                        create_vals = {
+                            "employee_id": emp_id,
+                            "check_in": check_in_utc,
+                            "attendance_status": attendance_status,
+                        }
+                        if check_out_utc:
+                            create_vals["check_out"] = check_out_utc
+                        if in_location:
+                            create_vals["in_location"] = in_location
+                        if out_location:
+                            create_vals["out_location"] = out_location
+                        if current_location:
+                            create_vals["geo_location"] = current_location
+                        try:
+                            with self.env.cr.savepoint():
+                                Attendance.create(create_vals)
+                                self.env.flush_all()
+                        except Exception as _create_exc:
+                            _logger.warning(
+                                "hr.attendance create fallback (device_logs) for emp=%s date=%s: %s: %s",
+                                user_code, day, type(_create_exc).__name__, str(_create_exc)[:200],
+                            )
+                            self.env.cr.execute(
+                                "INSERT INTO hr_attendance "
+                                "(employee_id, check_in, check_out, in_location, out_location, "
+                                "geo_location, attendance_status, date, "
+                                "create_uid, create_date, write_uid, write_date) "
+                                "VALUES (%s, %s, %s, %s, %s, %s, %s, "
+                                "(%s AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')::date, "
+                                "1, NOW() AT TIME ZONE 'UTC', 1, NOW() AT TIME ZONE 'UTC') "
+                                "RETURNING id",
+                                (
+                                    emp_id, check_in_utc, check_out_utc or None,
+                                    in_location or None, out_location or None,
+                                    current_location or None,
+                                    attendance_status,
+                                    check_in_utc,
+                                ),
+                            )
+                            new_id = self.env.cr.fetchone()[0]
+                            new_att = Attendance.browse(new_id)
+                            new_att.invalidate_recordset(
+                                ["check_in", "check_out", "worked_hours"]
+                            )
+                            self.env.add_to_compute(
+                                Attendance._fields["worked_hours"], new_att,
+                            )
+                        stats["created"] += 1
+            except Exception as exc:
+                stats["errors"].append({
+                    "employee_code": user_code,
+                    "attendance_date": str(day),
+                    "error": str(exc)[:300],
+                })
+        return stats
+
+    def _pull_hr_attendance_from_attendance_logs(self, date_from=None, date_to=None):
         self.ensure_one()
         from .essl_device import _ist_to_utc  # noqa: PLC0415
 
@@ -709,12 +850,12 @@ class EsslServer(models.Model):
                                 "geo_location = %s, attendance_status = %s "
                                 "WHERE id = %s",
                                 (
-                                    vals.get("check_in", existing.check_in),
-                                    vals.get("check_out", existing.check_out),
-                                    vals.get("in_location", existing.in_location),
-                                    vals.get("out_location", existing.out_location),
-                                    vals.get("geo_location", existing.geo_location),
-                                    vals.get("attendance_status", existing.attendance_status),
+                                    vals.get("check_in", existing.check_in) or None,
+                                    vals.get("check_out", existing.check_out) or None,
+                                    vals.get("in_location", existing.in_location) or None,
+                                    vals.get("out_location", existing.out_location) or None,
+                                    vals.get("geo_location", existing.geo_location) or None,
+                                    vals.get("attendance_status", existing.attendance_status) or None,
                                     existing.id,
                                 ),
                             )
