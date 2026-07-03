@@ -29,7 +29,7 @@ LLM_COST_SOURCES = ("openai", "moonshot", "openrouter")
 LLM_AWS_SERVICE_NAME = "Amazon Bedrock"
 
 BATCH_VIEW_PARTITIONS = {
-    "current": ("in_progress",),
+    "current": ("approved", "in_progress",),
     "upcoming": ("draft",),
     "previous": ("delivered", "closed"),
 }

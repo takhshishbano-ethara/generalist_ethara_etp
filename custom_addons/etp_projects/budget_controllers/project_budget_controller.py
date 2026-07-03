@@ -863,7 +863,7 @@ def _request_to_summary(req):
         "project_budget_id": req.project_budget_id.id if req.project_budget_id else None,
         "total_tasks": req.total_tasks,
         "requested_total": req.requested_total,
-        "approved_total": req.approved_total,
+        "approved_total": req.approved_total if req.state in ['approved', 'partially_approved'] else 0.0,
         "remaining_amount": req.remaining_amount,
         "sequence_number": req.sequence_number,
         "is_followup": req.is_followup,
@@ -956,6 +956,8 @@ def _request_to_detail(req):
         "topup_reason_id": req.topup_reason_id.id if req.topup_reason_id else None,
         "topup_reason": _topup_reason_brief(req.topup_reason_id) if req.topup_reason_id else None,
         "rejection_reason": req.rejection_reason or "",
+        'rejected_by': req.rejected_by.name if req.rejected_by else '',
+        'rejected_by_role': req.rejected_by.user_role.name if req.rejected_by and req.rejected_by.user_role else '',
         "cto_review_note": getattr(req, "cto_review_note", "") or "",
         "cfo_change_request_note": getattr(req, "cfo_change_request_note", "") or "",
         "change_log": _change_log(req),
@@ -2976,7 +2978,7 @@ class EtpBudgetController(http.Controller):
 
         if params.get('active_batch') in [1,'1']:
             domain.append(("state", "in", ["approved", "in_progress"]))
-            
+
         requester_id = _coerce_int(params.get("requester_id"))
         if requester_id:
             domain.append(("requester_id", "=", requester_id))

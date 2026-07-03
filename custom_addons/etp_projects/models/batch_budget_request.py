@@ -99,7 +99,7 @@ class EtpBatchBudgetRequest(models.Model):
         tracking=True,
     )
     approval_date = fields.Datetime(readonly=True, tracking=True)
-    rejection_reason = fields.Text(readonly=True)
+    rejection_reason = fields.Text(readonly=True, tracking=True)
     request_type = fields.Selection(
         [
             ("budget", "Budget"),
@@ -136,6 +136,7 @@ class EtpBatchBudgetRequest(models.Model):
         string="CTO Review Note",
         readonly=True,
         copy=False,
+        tracking=True,
     )
     cfo_approver_id = fields.Many2one(
         "res.users",
@@ -154,6 +155,17 @@ class EtpBatchBudgetRequest(models.Model):
         string="CFO Change Request Note",
         readonly=True,
         copy=False,
+        tracking=True,
+    )
+    rejected_by = fields.Many2one(
+        "res.users",
+        string="Rejected By",
+        readonly=True,
+        copy=False,
+        tracking=True,
+        help="User who most recently sent this request back for changes "
+             "(CTO Send Back or CFO Request Changes). Overwritten on each "
+             "subsequent rejection.",
     )
     justification = fields.Text(
         string="Justification",
@@ -949,6 +961,7 @@ class EtpBatchBudgetRequest(models.Model):
             "cto_review_date": fields.Datetime.now(),
             "cto_review_note": note,
             "rejection_reason": note,
+            "rejected_by": self.env.user.id,
         })
         self._send_mail(
             "etp_projects.mail_template_request_cto_rejected",
@@ -971,6 +984,7 @@ class EtpBatchBudgetRequest(models.Model):
             "approver_id": self.env.user.id,
             "approval_date": now,
             "rejection_reason": note,
+            "rejected_by": self.env.user.id,
         })
         cto_partner_ids = (
             self.cto_reviewer_id.partner_id.ids

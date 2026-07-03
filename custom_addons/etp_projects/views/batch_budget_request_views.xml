@@ -25,6 +25,7 @@
                 <field name="cto_review_date" optional="hide"/>
                 <field name="cfo_approver_id" optional="show"/>
                 <field name="cfo_approval_date" optional="hide"/>
+                <field name="rejected_by" optional="hide"/>
                 <field name="state" widget="badge"
                        decoration-info="state in ('cto_review','cfo_review')"
                        decoration-success="state in ('approved','partially_approved')"
@@ -233,6 +234,8 @@
                         <page string="Changes Required" name="changes_required"
                               invisible="not cto_review_note and not cfo_change_request_note">
                             <group>
+                                <field name="rejected_by" readonly="1"
+                                       invisible="not rejected_by"/>
                                 <field name="cto_review_note" readonly="1"
                                        invisible="not cto_review_note"/>
                                 <field name="cfo_change_request_note" readonly="1"
@@ -257,6 +260,7 @@
                 <field name="requester_id"/>
                 <field name="cto_reviewer_id"/>
                 <field name="cfo_approver_id"/>
+                <field name="rejected_by"/>
                 <filter name="filter_draft" string="Draft" domain="[('state','=','draft')]"/>
                 <filter name="filter_cto_review" string="CTO Review" domain="[('state','=','cto_review')]"/>
                 <filter name="filter_cfo_review" string="CFO Approval" domain="[('state','=','cfo_review')]"/>
