@@ -38,7 +38,7 @@
         <record id="rule_fenrir_task_user_own" model="ir.rule">
             <field name="name">Fenrir Task: user sees own</field>
             <field name="model_id" ref="model_fenrir_task"/>
-            <field name="domain_force">[('lead_user_id', '=', user.id)]</field>
+            <field name="domain_force">[('buyer_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
@@ -52,7 +52,7 @@
         <record id="rule_fenrir_seller_offer_user_own" model="ir.rule">
             <field name="name">Fenrir Seller Offer: user sees own task's</field>
             <field name="model_id" ref="model_fenrir_seller_offer"/>
-            <field name="domain_force">[('task_id.lead_user_id', '=', user.id)]</field>
+            <field name="domain_force">[('task_id.buyer_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
@@ -66,7 +66,7 @@
         <record id="rule_fenrir_rubric_user_own" model="ir.rule">
             <field name="name">Fenrir Rubric: user sees own task's</field>
             <field name="model_id" ref="model_fenrir_rubric"/>
-            <field name="domain_force">[('task_id.lead_user_id', '=', user.id)]</field>
+            <field name="domain_force">[('task_id.buyer_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
@@ -80,7 +80,7 @@
         <record id="rule_fenrir_rubric_score_user_own" model="ir.rule">
             <field name="name">Fenrir Rubric Score: user sees own task's</field>
             <field name="model_id" ref="model_fenrir_rubric_score"/>
-            <field name="domain_force">[('task_id.lead_user_id', '=', user.id)]</field>
+            <field name="domain_force">[('task_id.buyer_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
@@ -94,7 +94,7 @@
         <record id="rule_fenrir_task_attachment_user_own" model="ir.rule">
             <field name="name">Fenrir Task Attachment: user sees own task's</field>
             <field name="model_id" ref="model_fenrir_task_attachment"/>
-            <field name="domain_force">[('task_id.lead_user_id', '=', user.id)]</field>
+            <field name="domain_force">[('task_id.buyer_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 
@@ -108,7 +108,7 @@
         <record id="rule_fenrir_input_asset_license_user_own" model="ir.rule">
             <field name="name">Fenrir Input Asset License: user sees own task's</field>
             <field name="model_id" ref="model_fenrir_input_asset_license"/>
-            <field name="domain_force">[('task_id.lead_user_id', '=', user.id)]</field>
+            <field name="domain_force">[('task_id.buyer_id', '=', user.id)]</field>
             <field name="groups" eval="[(4, ref('base.group_user'))]"/>
         </record>
 

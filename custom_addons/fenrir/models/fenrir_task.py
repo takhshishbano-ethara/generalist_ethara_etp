@@ -102,7 +102,6 @@ class FenrirTask(models.Model):
     lead_user_id = fields.Many2one(
         comodel_name="res.users",
         string="Name",
-        default=lambda self: self.env.user,
         readonly=True,
         tracking=True,
         help="Auto-filled with the user who created the record",

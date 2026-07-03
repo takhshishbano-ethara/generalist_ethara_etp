@@ -24,7 +24,9 @@ Recognised columns
     Buyer            -> buyer_id          (existing user; matched by login,
                                             email, then name)
     Name             -> lead_user_id      (the tasker; existing user, matched
-                                            like Buyer; blank keeps default)
+                                            like Buyer; blank leaves it unset)
+    Reviewer         -> reviewer_id       (existing user; matched like Buyer;
+                                            blank leaves it unset)
 """
 
 import base64
@@ -88,6 +90,11 @@ HEADER_MAP = {
     "leaduser": "lead_user_id",
     "lead": "lead_user_id",
     "assignee": "lead_user_id",
+    "reviewer": "reviewer_id",
+    "reviewerid": "reviewer_id",
+    "reviewername": "reviewer_id",
+    "revieweremail": "reviewer_id",
+    "reviewerlogin": "reviewer_id",
     "phase": "phase_id",
     "phaseno": "phase_id",
     "phasenumber": "phase_id",
@@ -299,6 +306,7 @@ class FenrirTaskImportWizard(models.TransientModel):
         invalid_tier = 0
         unknown_buyer = 0
         unknown_tasker = 0
+        unknown_reviewer = 0
 
         for row in data_rows:
             row_vals = {}
@@ -306,6 +314,7 @@ class FenrirTaskImportWizard(models.TransientModel):
             raw_tier = ""
             raw_buyer = ""
             raw_tasker = ""
+            raw_reviewer = ""
             raw_phase = ""
             for idx, field in col_to_field.items():
                 value = row[idx] if idx < len(row) else ""
@@ -319,6 +328,8 @@ class FenrirTaskImportWizard(models.TransientModel):
                     raw_buyer = value
                 elif field == "lead_user_id":
                     raw_tasker = value
+                elif field == "reviewer_id":
+                    raw_reviewer = value
                 elif field in _TEXT_FIELDS:
                     row_vals[field] = value
 
@@ -338,7 +349,7 @@ class FenrirTaskImportWizard(models.TransientModel):
             # Task ID is optional — generate <CAT>-<PHASE><SERIAL> when blank.
             if not code:
                 if not any(v for v in row_vals.values()) and not category_name \
-                        and not (raw_tier or raw_buyer or raw_tasker
+                        and not (raw_tier or raw_buyer or raw_tasker or raw_reviewer
                                  or raw_phase):
                     skipped_blank += 1  # genuinely empty row
                     continue
@@ -374,34 +385,48 @@ class FenrirTaskImportWizard(models.TransientModel):
             # Buyer is an existing res.users — resolve and assign; a blank cell
             # leaves it unset, an unknown one is reported and left unset too.
             raw_buyer = (raw_buyer or "").strip()
-            if raw_buyer:
-                buyer_id = resolve_user(raw_buyer)
-                if buyer_id:
-                    row_vals["buyer_id"] = buyer_id
-                else:
-                    unknown_buyer += 1
-                    _logger.warning(
-                        "Fenrir import: task %s references unknown Buyer %r "
-                        "(no user by login/email/name); leaving unset.",
-                        code, raw_buyer)
+            buyer_id = resolve_user(raw_buyer) if raw_buyer else False
+            row_vals["buyer_id"] = buyer_id
+            if raw_buyer and not buyer_id:
+                unknown_buyer += 1
+                _logger.warning(
+                    "Fenrir import: task %s references unknown Buyer %r "
+                    "(no user by login/email/name); leaving unset.",
+                    code, raw_buyer)
 
             # Name (the tasker) is an existing res.users — resolve and assign;
-            # a blank cell keeps the default (the importing user), an unknown
-            # one is reported and left at the default too.
+            # a blank cell leaves it unset, an unknown one is reported and left
+            # unset too.
             raw_tasker = (raw_tasker or "").strip()
-            if raw_tasker:
-                tasker_id = resolve_user(raw_tasker)
-                if tasker_id:
-                    row_vals["lead_user_id"] = tasker_id
+            tasker_id = resolve_user(raw_tasker) if raw_tasker else False
+            row_vals["lead_user_id"] = tasker_id
+            if raw_tasker and not tasker_id:
+                unknown_tasker += 1
+                _logger.warning(
+                    "Fenrir import: task %s references unknown Name/tasker "
+                    "%r (no user by login/email/name); leaving unset.",
+                    code, raw_tasker)
+
+            # Reviewer is an existing res.users — resolve and assign; a blank
+            # cell leaves it unset, an unknown one is reported and left unset too.
+            raw_reviewer = (raw_reviewer or "").strip()
+            if raw_reviewer:
+                reviewer_id = resolve_user(raw_reviewer)
+                if reviewer_id:
+                    row_vals["reviewer_id"] = reviewer_id
                 else:
-                    unknown_tasker += 1
+                    unknown_reviewer += 1
                     _logger.warning(
-                        "Fenrir import: task %s references unknown Name/tasker "
-                        "%r (no user by login/email/name); leaving default.",
-                        code, raw_tasker)
-            # Drop empty strings so we don't overwrite defaults with "".
+                        "Fenrir import: task %s references unknown Reviewer %r "
+                        "(no user by login/email/name); leaving unset.",
+                        code, raw_reviewer)
+
+            # Drop empty strings so we don't overwrite defaults with "". But
+            # keep explicit False for buyer_id/lead_user_id to override the
+            # model's default of the current user.
+            ALWAYS_KEEP = ("code", "buyer_id", "lead_user_id")
             row_vals = {k: v for k, v in row_vals.items()
-                        if k == "code" or v not in ("", None, False)}
+                        if k in ALWAYS_KEEP or v not in ("", None, False)}
             to_create.append(row_vals)
 
         if not to_create:
@@ -414,10 +439,10 @@ class FenrirTaskImportWizard(models.TransientModel):
         _logger.info(
             "Fenrir: imported %d tasks from %s (%d auto-coded, %d duplicates "
             "skipped, %d empty, %d unknown phase, %d invalid price tier, "
-            "%d unknown buyer, %d unknown tasker)", len(created),
+            "%d unknown buyer, %d unknown tasker, %d unknown reviewer)", len(created),
             self.data_filename or "(no name)", generated, len(skipped_dup),
             skipped_blank, unknown_phase, invalid_tier, unknown_buyer,
-            unknown_tasker)
+            unknown_tasker, unknown_reviewer)
 
         summary = _("%d created") % len(created)
         if generated:
@@ -437,6 +462,9 @@ class FenrirTaskImportWizard(models.TransientModel):
         if unknown_tasker:
             summary += _(", %d with unknown Name/tasker (left default)") % (
                 unknown_tasker)
+        if unknown_reviewer:
+            summary += _(", %d with unknown Reviewer (left unset)") % (
+                unknown_reviewer)
 
         return {
             "type": "ir.actions.act_window",

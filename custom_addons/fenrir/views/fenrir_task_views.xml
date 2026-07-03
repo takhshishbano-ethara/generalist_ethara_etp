@@ -8,7 +8,7 @@
             <list string="Tasks">
                 <field name="code" decoration-bf="1"/>
                 <field name="category_id"/>
-                <field name="lead_user_id" options="{'no_open': True}"/>
+                <!-- <field name="lead_user_id" options="{'no_open': True}"/> -->
                 <field name="title"/>
                 <field name="reviewer_id" widget="many2one_avatar_user"/>
                 <field name="buyer_id" widget="many2one_avatar_user"/>
@@ -92,7 +92,7 @@
                                    readonly="not is_fenrir_manager"/>
                             <field name="category_id" options="{'no_create_edit': True}"/>
                             <field name="subcategory" placeholder="e.g. Logo Design"/>
-                            <field name="lead_user_id" options="{'no_open': True}"/>
+                            <!-- <field name="lead_user_id" options="{'no_open': True}"/> -->
                             <field name="reviewer_id" widget="many2one_avatar_user"/>
                             <field name="difficulty_estimate"/>
                             <field name="estimated_completion_time_hours"/>
@@ -765,7 +765,7 @@
         <field name="arch" type="xml">
             <search string="Tasks">
                 <field name="code"/>
-                <field name="lead_user_id"/>
+                <!-- <field name="lead_user_id"/> -->
                 <field name="title"/>
                 <field name="category_id"/>
                 <field name="buyer_id"/>
@@ -905,8 +905,8 @@ action = (records or model).action_export_all_xlsx()
         <field name="name">My Tasks</field>
         <field name="res_model">fenrir.task</field>
         <field name="view_mode">list,kanban,form</field>
-        <field name="domain">[('lead_user_id', '=', uid)]</field>
-        <field name="context">{'default_lead_user_id': uid}</field>
+        <field name="domain">[('buyer_id', '=', uid)]</field>
+        <field name="context">{'default_buyer_id': uid}</field>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 Create a new Fenrir task
