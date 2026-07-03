@@ -34,6 +34,10 @@ from odoo.addons.api_auth_gateway.controllers.utility import (
 from odoo.addons.employee_extension.services.aadhaar_address import (
     extract_aadhaar_info_from_bytes,
 )
+from odoo.addons.employee_extension.services.identity_extractor import (
+    extract_aadhaar_full_from_bytes,
+    extract_pan_from_bytes,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -57,6 +61,8 @@ ALLOWED_DOCUMENT_TYPES = {
 
 AADHAAR_EXTRACT_ALLOWED_EXT = {"pdf", "jpg", "jpeg", "png", "webp"}
 AADHAAR_EXTRACT_MAX_SIZE = 10 * 1024 * 1024
+
+IDENTITY_TYPES = {"aadhaar", "pan"}
 
 # Maps incoming gender strings to the hr.version `sex` selection values.
 GENDER_MAP = {
@@ -415,6 +421,118 @@ def _serialize_employee(employee):
 
 
 class EmployeeOnboardingController(http.Controller):
+
+    @http.route(
+        "/api/v2/employee-onboarding/extract_identity",
+        type="http",
+        auth="none",
+        methods=["POST"],
+        csrf=False,
+        cors="*",
+    )
+    @validate_token
+    def extract_identity_from_proof(self, **kwargs):
+        identity_type = (kwargs.get("type") or "").strip().lower()
+        if identity_type not in IDENTITY_TYPES:
+            return return_Response(
+                message="Invalid 'type'. Must be 'aadhaar' or 'pan'.",
+                status=400,
+            )
+
+        files = request.httprequest.files
+        uploaded = files.get("file") or (
+            next(iter(files.values())) if files else None
+        )
+        if not uploaded or not uploaded.filename:
+            return return_Response(
+                message="No file uploaded.",
+                status=400,
+            )
+
+        filename = secure_filename(uploaded.filename) or "upload"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in AADHAAR_EXTRACT_ALLOWED_EXT:
+            return return_Response(
+                message=(
+                    f"Unsupported file type: {ext}. Allowed: "
+                    f"{', '.join(sorted(AADHAAR_EXTRACT_ALLOWED_EXT))}."
+                ),
+                status=400,
+            )
+
+        try:
+            file_bytes = uploaded.read()
+        except Exception as e:
+            _logger.warning("extract_identity: read failed: %s", e)
+            return return_Response(
+                message="Could not read uploaded file.",
+                status=400,
+            )
+        if not file_bytes:
+            return return_Response(
+                message="Uploaded file is empty.",
+                status=400,
+            )
+        if len(file_bytes) > AADHAAR_EXTRACT_MAX_SIZE:
+            return return_Response(
+                message="File too large. Max 10 MB.",
+                status=400,
+            )
+
+        try:
+            if identity_type == "aadhaar":
+                info = extract_aadhaar_full_from_bytes(file_bytes, filename) or {}
+            else:
+                info = extract_pan_from_bytes(file_bytes, filename) or {}
+        except Exception as e:
+            _logger.exception("extract_identity: extraction failed: %s", e)
+            info = {}
+
+        aadhaar_number = info.get("aadhaar_number") or ""
+        pan_number = info.get("pan_number") or ""
+        is_masked = bool(info.get("is_masked"))
+
+        _logger.info(
+            "extract_identity: type=%s has_number=%s is_masked=%s",
+            identity_type, bool(aadhaar_number or pan_number), is_masked,
+        )
+
+        if is_masked:
+            return return_Response(
+                message=(
+                    "The uploaded Aadhaar is masked. Masked Aadhaar cards are "
+                    "not accepted. Please upload an original, unmasked Aadhaar."
+                ),
+                data={
+                    "ok": False,
+                    "type": identity_type,
+                    "error_code": "masked_aadhaar",
+                    "is_masked": True,
+                },
+            )
+
+        if not (aadhaar_number or pan_number):
+            return return_Response(
+                message=(
+                    f"Could not extract {identity_type.upper()} number. "
+                    "Please upload a clear image."
+                ),
+                data={
+                    "ok": False,
+                    "type": identity_type,
+                    "error_code": "not_extractable",
+                },
+            )
+
+        return return_Response(
+            message="Identity extracted.",
+            data={
+                "ok": True,
+                "type": identity_type,
+                "aadhaar_number": aadhaar_number if identity_type == "aadhaar" else None,
+                "pan_number": pan_number if identity_type == "pan" else None,
+            },
+        )
 
     @http.route(
         "/api/v2/employee-onboarding/extract_address",
