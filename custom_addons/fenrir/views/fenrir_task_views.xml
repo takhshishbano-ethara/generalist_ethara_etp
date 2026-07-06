@@ -93,13 +93,15 @@
                             <field name="category_id" options="{'no_create_edit': True}"/>
                             <field name="subcategory" placeholder="e.g. Logo Design"/>
                             <!-- <field name="lead_user_id" options="{'no_open': True}"/> -->
-                            <field name="reviewer_id" widget="many2one_avatar_user"/>
+                            <field name="reviewer_id" widget="many2one_avatar_user"
+                                   readonly="not is_fenrir_manager"/>
                             <field name="difficulty_estimate"/>
                             <field name="estimated_completion_time_hours"/>
                             <field name="tags" placeholder="logo, vintage, emblem"/>
                         </group>
                         <group string="Buyer &amp; Pricing" name="group_pricing">
-                            <field name="buyer_id" widget="many2one_avatar_user"/>
+                            <field name="buyer_id" widget="many2one_avatar_user"
+                                   readonly="not is_fenrir_manager"/>
                             <!-- <field name="pricing" widget="float"/> -->
                             <field name="price_tier"/>
                             <field name="delivery_time"/>

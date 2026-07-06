@@ -234,10 +234,16 @@ class FenrirTask(models.Model):
                     "Task Code %s is already used by another task.") % rec.code)
 
     def write(self, vals):
-        if "delivery_status" in vals and not self.env.user.has_group(
-                "fenrir.group_fenrir_manager"):
-            raise AccessError(_(
-                "Only Fenrir managers can change the Delivery Status."))
+        if not self.env.user.has_group("fenrir.group_fenrir_manager"):
+            if "delivery_status" in vals:
+                raise AccessError(_(
+                    "Only Fenrir managers can change the Delivery Status."))
+            if "buyer_id" in vals:
+                raise AccessError(_(
+                    "Only Fenrir managers can change the Buyer."))
+            if "reviewer_id" in vals:
+                raise AccessError(_(
+                    "Only Fenrir managers can change the Reviewer."))
         return super().write(vals)
 
     # ── Task-code generation ─────────────────────────────────────────────

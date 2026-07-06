@@ -91,9 +91,10 @@ class FenrirCategory(models.Model):
     @api.constrains("code")
     def _check_code_format(self):
         for rec in self:
-            if rec.code and not re.match(r"^[A-Za-z]{2,3}$", rec.code):
+            if rec.code and not re.match(r"^[A-Za-z0-9]{2,3}$", rec.code):
                 raise ValidationError(
-                    f"Category code '{rec.code}' must be 2–3 letters (A–Z)."
+                    f"Category code '{rec.code}' must be 2–3 letters and/or "
+                    f"numbers (A–Z, 0–9)."
                 )
 
     @api.constrains("name")
