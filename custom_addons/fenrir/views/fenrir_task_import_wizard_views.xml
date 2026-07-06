@@ -41,10 +41,7 @@
                                 <code>$0-$50</code>, <code>$50-$100</code>,
                                 <code>$100-$150</code>, <code>$150-$200</code>
                                 (blank or unrecognised keeps the default)</li>
-                            <li><code>Buyer</code> — an existing user, matched by
-                                login, email, then name (unknown values are left
-                                unset)</li>
-                            <li><code>Name</code> — the tasker (an existing user,
+                            <li><code>Reviewer</code> — the reviewer (an existing user,
                                 matched like Buyer); blank keeps the importing
                                 user</li>
                         </ul>
