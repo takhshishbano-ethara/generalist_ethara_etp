@@ -7,41 +7,20 @@
         <field name="arch" type="xml">
             <form string="Request Phase Budget">
                 <sheet>
-                    <field name="is_followup" invisible="1"/>
-                    <field name="parent_request_id" invisible="1"/>
-                    <div class="alert alert-info" role="alert"
-                         invisible="not is_followup">
-                        <strong>Follow-up Request</strong> against
-                        <field name="parent_request_id" readonly="1" nolabel="1"/>.
-                        Model and infrastructure lines are copied from the parent
-                        and locked. Only adjust <strong>Total Tasks</strong> and
-                        <strong>Requested Total</strong> (capped at parent's
-                        remaining amount).
-                    </div>
                     <group>
                         <group>
                             <field name="batch_id" readonly="1"/>
                             <field name="project_id" readonly="1"/>
                             <field name="project_budget_id" readonly="1"/>
-                            <field name="request_type" readonly="is_followup"/>
+                            <field name="request_type"/>
                         </group>
                         <group>
-                            <field name="is_first_request" invisible="1"/>
                             <field name="total_tasks"
                                    invisible="request_type == 'topup'"/>
-                            <field name="buffer_pct" readonly="is_followup"
+                            <field name="buffer_pct"
                                    invisible="request_type == 'topup'"/>
                             <field name="requested_total"/>
                             <field name="priority"/>
-                        </group>
-                    </group>
-                    <group string="Parent Request" invisible="not is_followup">
-                        <group>
-                            <field name="parent_requested_total"/>
-                            <field name="parent_approved_total"/>
-                        </group>
-                        <group>
-                            <field name="parent_remaining_amount"/>
                         </group>
                     </group>
                     <group>
@@ -58,8 +37,7 @@
                     <notebook>
                         <page string="Model Lines" name="model_lines"
                               invisible="request_type in ('topup', 'device')">
-                            <field name="model_line_ids"
-                                   readonly="is_followup">
+                            <field name="model_line_ids">
                                 <list editable="bottom">
                                     <field name="ai_model_id"/>
                                     <field name="description"/>
@@ -76,8 +54,7 @@
                         </page>
                         <page string="Infrastructure" name="infrastructure"
                               invisible="request_type in ('topup', 'new_model')">
-                            <field name="infra_line_ids"
-                                   readonly="is_followup">
+                            <field name="infra_line_ids">
                                 <list editable="bottom">
                                     <field name="infra_type_id"/>
                                     <field name="description"/>
@@ -89,8 +66,7 @@
                         </page>
                         <page string="Subscriptions" name="subscriptions"
                               invisible="request_type == 'topup'">
-                            <field name="subscription_line_ids"
-                                   readonly="is_followup">
+                            <field name="subscription_line_ids">
                                 <list editable="bottom">
                                     <field name="subscription_id"/>
                                     <field name="cost_per_subscription"/>

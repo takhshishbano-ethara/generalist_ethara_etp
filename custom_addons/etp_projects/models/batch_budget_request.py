@@ -248,43 +248,10 @@ class EtpBatchBudgetRequest(models.Model):
              "(1 + buffer %) when lines or buffer change. Fully editable - "
              "the value is not recomputed on the server.",
     )
-    parent_request_id = fields.Many2one(
-        "etp.batch.budget.request",
-        string="Parent Request",
-        readonly=True,
-        copy=False,
-        index=True,
-        ondelete="restrict",
-        help="The partially-approved request this follow-up extends. "
-             "Empty for fresh requests.",
-    )
-    follow_up_request_ids = fields.One2many(
-        "etp.batch.budget.request",
-        "parent_request_id",
-        string="Follow-up Requests",
-    )
-    follow_up_count = fields.Integer(
-        string="Follow-up Count",
-        compute="_compute_follow_up_count",
-    )
-    is_followup = fields.Boolean(
-        string="Is Follow-up",
-        compute="_compute_is_followup",
-        store=True,
-    )
     remaining_amount = fields.Float(
         string="Remaining (USD)",
         compute="_compute_remaining_amount",
-        help="Requested Total minus Approved Total. Acts as the cap "
-             "for the next follow-up request against this one.",
-    )
-    has_active_followup = fields.Boolean(
-        string="Has Active Follow-up",
-        compute="_compute_has_active_followup",
-    )
-    can_follow_up = fields.Boolean(
-        string="Can Create Follow-up",
-        compute="_compute_can_follow_up",
+        help="Requested Total minus Approved Total. Informational only.",
     )
     is_current_user_pl_or_tpm = fields.Boolean(
         string="Current User is PL/TPM",
@@ -329,45 +296,12 @@ class EtpBatchBudgetRequest(models.Model):
                     break
             rec.sequence_number = pos
 
-    @api.depends("follow_up_request_ids")
-    def _compute_follow_up_count(self):
-        for rec in self:
-            rec.follow_up_count = len(rec.follow_up_request_ids)
-
-    @api.depends("parent_request_id")
-    def _compute_is_followup(self):
-        for rec in self:
-            rec.is_followup = bool(rec.parent_request_id)
-
     @api.depends("requested_total", "approved_total")
     def _compute_remaining_amount(self):
         for rec in self:
             rec.remaining_amount = max(
                 0.0,
                 (rec.requested_total or 0.0) - (rec.approved_total or 0.0),
-            )
-
-    @api.depends(
-        "follow_up_request_ids",
-        "follow_up_request_ids.state",
-    )
-    def _compute_has_active_followup(self):
-        for rec in self:
-            rec.has_active_followup = any(
-                child.state in (
-                    "draft", "cto_review", "cfo_review",
-                    "changes_required", "approved", "partially_approved",
-                )
-                for child in rec.follow_up_request_ids
-            )
-
-    @api.depends("state", "remaining_amount", "has_active_followup")
-    def _compute_can_follow_up(self):
-        for rec in self:
-            rec.can_follow_up = (
-                rec.state == "partially_approved"
-                and (rec.remaining_amount or 0.0) > 0.0
-                and not rec.has_active_followup
             )
 
     @api.onchange("total_tasks")
@@ -724,36 +658,6 @@ class EtpBatchBudgetRequest(models.Model):
                 raise UserError(_(
                     "Project Budget has no approvers configured."
                 ))
-            if rec.parent_request_id:
-                parent = rec.parent_request_id
-                if parent.state != "partially_approved":
-                    raise UserError(_(
-                        "Parent request must be in 'Partially Approved' "
-                        "state to accept a follow-up."
-                    ))
-                sibling_active = any(
-                    child.state in (
-                        "cto_review", "cfo_review", "changes_required",
-                        "approved", "partially_approved",
-                    )
-                    for child in parent.follow_up_request_ids
-                    if child.id != rec.id
-                )
-                if sibling_active:
-                    raise UserError(_(
-                        "Parent request already has an active follow-up. "
-                        "Resolve it before submitting another."
-                    ))
-                if (rec.requested_total or 0.0) > (
-                    parent.remaining_amount or 0.0
-                ) + 0.00001:
-                    raise UserError(_(
-                        "Follow-up requested total (USD %(req).2f) exceeds "
-                        "parent request's remaining amount (USD %(rem).2f)."
-                    ) % {
-                        "req": rec.requested_total,
-                        "rem": parent.remaining_amount,
-                    })
             for line in rec.model_line_ids:
                 if not line.approved_amount:
                     line.approved_amount = line.requested_amount
@@ -896,56 +800,6 @@ class EtpBatchBudgetRequest(models.Model):
                 "default_request_id": self.id,
                 "default_mode": "cfo_request_changes",
             },
-        }
-
-    def action_create_follow_up(self):
-        self.ensure_one()
-        if self.state != "partially_approved":
-            raise UserError(_(
-                "Only Partially Approved requests can be followed up."
-            ))
-        if (self.remaining_amount or 0.0) <= 0.0:
-            raise UserError(_(
-                "This request has no remaining amount to follow up."
-            ))
-        if self.has_active_followup:
-            raise UserError(_(
-                "This request already has an active follow-up."
-            ))
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Follow-up Budget Request"),
-            "res_model": "etp.batch.budget.request.wizard",
-            "view_mode": "form",
-            "target": "new",
-            "context": {
-                "default_batch_id": self.batch_id.id,
-                "default_parent_request_id": self.id,
-            },
-        }
-
-    def action_view_follow_ups(self):
-        self.ensure_one()
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Follow-up Requests"),
-            "res_model": "etp.batch.budget.request",
-            "view_mode": "list,form",
-            "domain": [("parent_request_id", "=", self.id)],
-            "context": {"default_parent_request_id": self.id},
-        }
-
-    def action_open_parent_request(self):
-        self.ensure_one()
-        if not self.parent_request_id:
-            raise UserError(_("This request has no parent."))
-        return {
-            "type": "ir.actions.act_window",
-            "name": _("Parent Request"),
-            "res_model": "etp.batch.budget.request",
-            "res_id": self.parent_request_id.id,
-            "view_mode": "form",
-            "target": "current",
         }
 
     def _do_cto_reject(self, note):

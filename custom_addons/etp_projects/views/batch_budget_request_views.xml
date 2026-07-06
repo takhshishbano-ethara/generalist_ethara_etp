@@ -20,7 +20,6 @@
                 <field name="requester_id"/>
                 <field name="requested_total" sum="USD"/>
                 <field name="approved_total" sum="USD"/>
-                <field name="parent_request_id" optional="hide"/>
                 <field name="cto_reviewer_id" optional="show"/>
                 <field name="cto_review_date" optional="hide"/>
                 <field name="cfo_approver_id" optional="show"/>
@@ -62,38 +61,13 @@
                     <button name="action_withdraw" type="object"
                             string="Withdraw" class="btn-secondary"
                             invisible="state not in ('draft','cto_review','cfo_review','changes_required')"/>
-                    <button name="action_create_follow_up" type="object"
-                            string="Create Follow-up Request" class="btn-primary"
-                            invisible="not can_follow_up"/>
                     <field name="state" widget="statusbar"
                            statusbar_visible="draft,cto_review,cfo_review,approved"/>
                 </header>
                 <sheet>
-                    <field name="is_followup" invisible="1"/>
-                    <field name="can_follow_up" invisible="1"/>
-                    <field name="has_active_followup" invisible="1"/>
-                    <field name="follow_up_count" invisible="1"/>
                     <field name="is_current_user_pl_or_tpm" invisible="1"/>
                     <field name="is_current_user_cto" invisible="1"/>
                     <field name="is_current_user_cfo" invisible="1"/>
-                    <div class="oe_button_box" name="button_box">
-                        <button name="action_view_follow_ups" type="object"
-                                class="oe_stat_button" icon="fa-list-alt"
-                                invisible="follow_up_count == 0">
-                            <field name="follow_up_count" widget="statinfo"
-                                   string="Follow-ups"/>
-                        </button>
-                        <button name="action_open_parent_request" type="object"
-                                class="oe_stat_button" icon="fa-arrow-up"
-                                invisible="not parent_request_id">
-                            <div class="o_field_widget o_stat_info">
-                                <span class="o_stat_text">Parent</span>
-                                <span class="o_stat_value">
-                                    <field name="parent_request_id" readonly="1" nolabel="1"/>
-                                </span>
-                            </div>
-                        </button>
-                    </div>
                     <div class="oe_title">
                         <h1><field name="name" readonly="1"/></h1>
                     </div>
@@ -272,11 +246,6 @@
                 <filter name="filter_new_model" string="New Model" domain="[('request_type','=','new_model')]"/>
                 <filter name="filter_topup" string="Top-up" domain="[('request_type','=','topup')]"/>
                 <filter name="filter_device" string="Device" domain="[('request_type','=','device')]"/>
-                <separator/>
-                <filter name="filter_followups" string="Follow-ups Only"
-                        domain="[('parent_request_id','!=', False)]"/>
-                <filter name="filter_originals" string="Originals Only"
-                        domain="[('parent_request_id','=', False)]"/>
                 <separator/>
                 <filter name="filter_my_requests" string="My Requests"
                         domain="[('requester_id','=', uid)]"/>

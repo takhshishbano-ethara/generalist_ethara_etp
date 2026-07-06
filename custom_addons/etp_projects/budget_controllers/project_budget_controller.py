@@ -209,6 +209,18 @@ def _serialize_attachment_links(urls):
     return ",".join(seen)
 
 
+def _sync_attachment_urls_from_ids(record):
+    if not record or "attachment_urls" not in record._fields:
+        return
+    urls = []
+    for att in record.attachment_ids:
+        if att.type == "url" and att.url:
+            urls.append(att.url)
+    record.sudo().with_context(
+        tracking_disable=True, mail_notrack=True,
+    ).write({"attachment_urls": _serialize_attachment_links(urls) or False})
+
+
 def _coerce_int(value, default=None):
     try:
         if value is None or value == "":
@@ -866,9 +878,6 @@ def _request_to_summary(req):
         "approved_total": req.approved_total if req.state in ['approved', 'partially_approved'] else 0.0,
         "remaining_amount": req.remaining_amount,
         "sequence_number": req.sequence_number,
-        "is_followup": req.is_followup,
-        "can_follow_up": req.can_follow_up,
-        "follow_up_count": req.follow_up_count,
     }
 
 
@@ -937,13 +946,6 @@ def _request_to_detail(req):
         }
         for ln in req.subscription_line_ids
     ]
-    parent_brief = None
-    if req.parent_request_id:
-        parent_brief = {
-            "id": req.parent_request_id.id,
-            "name": req.parent_request_id.name,
-            "state": req.parent_request_id.state,
-        }
     detail = _request_to_summary(req)
     attachments = _parse_attachment_links(req.attachment_urls)
     detail.update({
@@ -962,7 +964,6 @@ def _request_to_detail(req):
         "cfo_change_request_note": getattr(req, "cfo_change_request_note", "") or "",
         "change_log": _change_log(req),
         "buffer_pct": req.buffer_pct,
-        "parent_request": parent_brief,
         "model_lines": model_lines,
         "infra_lines": infra_lines,
         "subscription_lines": sub_lines,
@@ -2476,15 +2477,6 @@ class EtpBudgetController(http.Controller):
             "infra_line_ids": infra_cmds,
             "subscription_line_ids": sub_cmds,
         }
-        parent_request_id = _coerce_int(jdata.get("parent_request_id"))
-        if parent_request_id:
-            parent = Request.sudo().browse(parent_request_id).exists()
-            if not parent:
-                return return_Response(
-                    message=f"Parent request {parent_request_id} not found.",
-                    status=404, data={},
-                )
-            vals["parent_request_id"] = parent.id
 
         raw_attachments = jdata.get("attachment_ids") or []
         if raw_attachments:
@@ -2532,6 +2524,9 @@ class EtpBudgetController(http.Controller):
                 req.sudo().write({
                     "attachment_ids": [(4, i, 0) for i in new_att_ids],
                 })
+
+        if raw_attachments or uploaded_files:
+            _sync_attachment_urls_from_ids(req.sudo())
 
         submit_flag = jdata.get("submit")
         if submit_flag is None:
@@ -2698,6 +2693,9 @@ class EtpBudgetController(http.Controller):
                 req.sudo().write({
                     "attachment_ids": [(4, i, 0) for i in new_att_ids],
                 })
+
+        if "attachment_ids" in jdata or uploaded_files:
+            _sync_attachment_urls_from_ids(req.sudo())
 
         if jdata.get("submit"):
             try:
@@ -2885,6 +2883,9 @@ class EtpBudgetController(http.Controller):
                 req.sudo().write({
                     "attachment_ids": [(4, i, 0) for i in new_att_ids],
                 })
+
+        if "attachment_ids" in jdata or uploaded_files:
+            _sync_attachment_urls_from_ids(req.sudo())
 
         return return_Response(
             message=f"Budget request {step.upper()}-approved.", status=200,
@@ -3102,6 +3103,8 @@ class EtpBudgetController(http.Controller):
             cmds = [(4, i, 0) for i in (existing_ids + new_att_ids)]
             if cmds:
                 batch.write({"attachment_ids": cmds})
+
+        _sync_attachment_urls_from_ids(batch)
 
         return return_Response(
             message="Phase budget attachments updated.", status=200,

@@ -25,49 +25,6 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
         related="batch_id.project_budget_id.allocatable_amount",
         readonly=True,
     )
-    is_first_request = fields.Boolean(
-        string="First Request",
-        compute="_compute_is_first_request",
-    )
-    request_type = fields.Selection(
-        [
-            ("budget", "Budget"),
-            ("new_model", "New Model"),
-            ("topup", "Top-up"),
-            ("device", "Device"),
-        ],
-        string="Request Type",
-        default="budget",
-        required=True,
-    )
-    parent_request_id = fields.Many2one(
-        "etp.batch.budget.request",
-        string="Parent Request",
-        readonly=True,
-        help="If set, this wizard creates a follow-up request linked to a "
-             "partially-approved parent. Model/infra lines are copied from "
-             "the parent and the requested total is capped at the parent's "
-             "remaining amount.",
-    )
-    is_followup = fields.Boolean(
-        string="Is Follow-up",
-        compute="_compute_is_followup",
-    )
-    parent_remaining_amount = fields.Float(
-        string="Parent Remaining (USD)",
-        related="parent_request_id.remaining_amount",
-        readonly=True,
-    )
-    parent_requested_total = fields.Float(
-        string="Parent Requested Total (USD)",
-        related="parent_request_id.requested_total",
-        readonly=True,
-    )
-    parent_approved_total = fields.Float(
-        string="Parent Approved Total (USD)",
-        related="parent_request_id.approved_total",
-        readonly=True,
-    )
     justification = fields.Text(
         string="Justification",
         required=True,
@@ -151,20 +108,6 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
              "buffer. Fully editable - you can enter any amount.",
     )
 
-    @api.depends("batch_id", "batch_id.request_ids")
-    def _compute_is_first_request(self):
-        for wiz in self:
-            wiz.is_first_request = bool(
-                wiz.batch_id
-            ) and not wiz.batch_id.request_ids.filtered(
-                lambda r: r.state in ("pending", "approved", "partially_approved")
-            )
-
-    @api.depends("parent_request_id")
-    def _compute_is_followup(self):
-        for wiz in self:
-            wiz.is_followup = bool(wiz.parent_request_id)
-
     @api.onchange("total_tasks")
     def _onchange_total_tasks_update_lines(self):
         for wiz in self:
@@ -194,46 +137,6 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
     @api.model
     def default_get(self, fields_list):
         vals = super().default_get(fields_list)
-        parent_id = self.env.context.get("default_parent_request_id") or vals.get(
-            "parent_request_id"
-        )
-        parent = False
-        if parent_id:
-            parent = self.env["etp.batch.budget.request"].browse(parent_id)
-            if not parent.exists():
-                parent = False
-        if parent:
-            vals["parent_request_id"] = parent.id
-            vals["batch_id"] = parent.batch_id.id
-            if "buffer_pct" in fields_list:
-                vals["buffer_pct"] = parent.buffer_pct or 0.0
-            if "justification" in fields_list and parent.justification:
-                vals["justification"] = parent.justification
-            model_lines = []
-            for line in parent.model_line_ids:
-                model_lines.append((0, 0, {
-                    "ai_model_id": line.ai_model_id.id,
-                    "description": line.description or False,
-                    "cost_type": line.cost_type or "per_task",
-                    "per_trajectory_cost": line.per_trajectory_cost or 0.0,
-                    "iterations": line.iterations or 0,
-                    "per_task_cost": line.per_task_cost or 0.0,
-                    "requested_amount": 0.0,
-                }))
-            if model_lines:
-                vals["model_line_ids"] = model_lines
-            infra_lines = []
-            for line in parent.infra_line_ids:
-                infra_lines.append((0, 0, {
-                    "infra_type_id": line.infra_type_id.id,
-                    "description": line.description or False,
-                    "requested_amount": 0.0,
-                }))
-            if infra_lines:
-                vals["infra_line_ids"] = infra_lines
-            if "requested_total" in fields_list:
-                vals["requested_total"] = parent.remaining_amount or 0.0
-            return vals
         batch_id = self.env.context.get("default_batch_id") or vals.get(
             "batch_id"
         )
@@ -299,33 +202,8 @@ class EtpBatchBudgetRequestWizard(models.TransientModel):
             raise UserError(_(
                 "Project Budget has no approvers configured."
             ))
-        if self.parent_request_id:
-            parent = self.parent_request_id
-            if parent.state != "partially_approved":
-                raise UserError(_(
-                    "Follow-up requests can only be raised against a "
-                    "partially approved parent request."
-                ))
-            sibling = self.env["etp.batch.budget.request"].search([
-                ("parent_request_id", "=", parent.id),
-                ("state", "in", (
-                    "draft", "cto_review", "cfo_review",
-                    "changes_required", "approved", "partially_approved",
-                )),
-            ], limit=1)
-            if sibling:
-                raise UserError(_(
-                    "A follow-up request (%s) already exists for parent %s."
-                ) % (sibling.name, parent.name))
-            cap = parent.remaining_amount or 0.0
-            if (self.requested_total or 0.0) > cap + 0.00001:
-                raise UserError(_(
-                    "Requested total (%.2f) exceeds the parent's remaining "
-                    "amount (%.2f)."
-                ) % (self.requested_total, cap))
         request = self.env["etp.batch.budget.request"].create({
             "batch_id": self.batch_id.id,
-            "parent_request_id": self.parent_request_id.id or False,
             "request_type": rtype,
             "justification": self.justification,
             "requester_id": self.env.user.id,

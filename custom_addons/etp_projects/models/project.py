@@ -1,7 +1,9 @@
 import logging
 import random
+import threading
 
 from odoo import api, fields, models
+from odoo.modules.registry import Registry
 
 _logger = logging.getLogger(__name__)
 
@@ -96,13 +98,37 @@ class ProjectProject(models.Model):
             changed = {f for f in TEAM_FIELDS if f in vals}
             if changed:
                 record._cascade_team_assignments(changed)
-        for record in records:
-            try:
-                record._etp_send_welcome_email()
-            except Exception:
-                _logger.exception(
-                    "Welcome email failed for project %s", record.id,
-                )
+        record_ids = records.ids
+        if record_ids:
+            dbname = self.env.cr.dbname
+            uid = self.env.uid
+            ctx = dict(self.env.context)
+
+            def _launch():
+                def _run():
+                    try:
+                        registry = Registry(dbname)
+                        with registry.cursor() as new_cr:
+                            new_env = api.Environment(new_cr, uid, ctx)
+                            projects = new_env['project.project'].browse(record_ids).exists()
+                            for project in projects:
+                                try:
+                                    project._etp_send_welcome_email()
+                                except Exception:
+                                    _logger.exception(
+                                        "Welcome email failed for project %s",
+                                        project.id,
+                                    )
+                            new_cr.commit()
+                    except Exception:
+                        _logger.exception(
+                            "Deferred welcome email job failed for projects %s",
+                            record_ids,
+                        )
+
+                threading.Thread(target=_run, daemon=True).start()
+
+            self.env.cr.postcommit.add(_launch)
         return records
 
     _ETP_WELCOME_ROLE_FIELDS = (
