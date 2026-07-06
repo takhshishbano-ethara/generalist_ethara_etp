@@ -35,6 +35,7 @@ import os
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 from werkzeug.utils import secure_filename
@@ -152,9 +153,25 @@ def _upload_attachments_to_s3(files):
     return urls
 
 
+def _generate_s3_link_env(env, img_data, prefix, filename):
+    s3_connector = env["s3.connector"].sudo().search([], limit=1)
+    if not s3_connector:
+        raise UserError(_("No S3 connector configured."))
+    ts = time.time_ns()
+    uid_hex = uuid.uuid4().hex[:12]
+    base_name = os.path.splitext(filename or "")[0] or "file"
+    safe_name = secure_filename(f"{ts}_{uid_hex}_{base_name}")
+    wizard = env["s3.upload.wizard"].sudo().create({
+        "s3_connector_id": s3_connector.id,
+        "upload_file": img_data,
+        "prefix": prefix,
+        "file_name": safe_name,
+    })
+    return wizard.upload_images_in_s3_get_url()
+
+
 def _upload_files_as_url_attachments(files, res_model, res_id):
-    attachment_ids = []
-    IrAttachment = request.env["ir.attachment"].sudo()
+    prepared = []
     for f in files or []:
         try:
             data = f.read()
@@ -167,28 +184,68 @@ def _upload_files_as_url_attachments(files, res_model, res_id):
             continue
         filename = getattr(f, "filename", "") or "attachment.bin"
         b64 = base64.b64encode(data).decode("utf-8")
+        prepared.append((filename, b64))
+
+    if not prepared:
+        return [], []
+
+    dbname = request.env.cr.dbname
+    caller_uid = request.env.uid or SUPERUSER_ID
+
+    def _upload_one(item):
+        idx, filename, b64 = item
         try:
-            url = generate_s3_link(b64, ATTACHMENT_PREFIX, filename)
+            registry = Registry(dbname)
+            with registry.cursor() as cr:
+                env = api.Environment(cr, caller_uid, {})
+                url = _generate_s3_link_env(env, b64, ATTACHMENT_PREFIX, filename)
+                cr.commit()
+            return idx, filename, url
         except Exception:
             _logger.exception("S3 upload failed for %s", filename)
+            return idx, filename, None
+
+    items = [(i, fn, b64) for i, (fn, b64) in enumerate(prepared)]
+    results = [None] * len(items)
+
+    if len(items) == 1:
+        idx, filename, url = _upload_one(items[0])
+        results[idx] = (filename, url)
+    else:
+        max_workers = min(len(items), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            for idx, filename, url in pool.map(_upload_one, items):
+                results[idx] = (filename, url)
+
+    urls = []
+    to_create = []
+    for entry in results:
+        if not entry:
             continue
+        filename, url = entry
         if not url:
             continue
-        try:
-            att = IrAttachment.create({
-                "name": filename,
-                "type": "url",
-                "url": url,
-                "res_model": res_model,
-                "res_id": res_id,
-                "public": True,
-            })
-            attachment_ids.append(att.id)
-        except Exception:
-            _logger.exception(
-                "ir.attachment create failed for %s (url=%s)", filename, url,
-            )
-    return attachment_ids
+        urls.append(url)
+        to_create.append({
+            "name": filename,
+            "type": "url",
+            "url": url,
+            "res_model": res_model,
+            "res_id": res_id,
+            "public": True,
+        })
+
+    if not to_create:
+        return [], []
+
+    try:
+        attachments = request.env["ir.attachment"].sudo().create(to_create)
+        return attachments.ids, urls
+    except Exception:
+        _logger.exception(
+            "ir.attachment batch create failed for %d files", len(to_create),
+        )
+        return [], []
 
 
 def _parse_attachment_links(raw):
@@ -1160,6 +1217,7 @@ def _batch_summary(batch):
     return {
         "id": batch.id,
         "name": f"{pb.project_type}-{batch.name}",
+        "description": batch.description or "",
         "state": batch.state,
         "state_label": _batch_state_label(batch.state),
         "health_status": batch.health_status or "unknown",
@@ -1211,6 +1269,7 @@ def _batch_full_detail(batch):
         ),
         "closed_remaining": batch.closed_remaining or 0.0,
         "rejection_reason": batch.rejection_reason or "",
+        "completion_description": batch.completion_description or "",
         "s3_link": batch.s3_link or "",
         "alert_80_sent": bool(batch.alert_80_sent),
         "alert_100_sent": bool(batch.alert_100_sent),
@@ -2479,22 +2538,22 @@ class EtpBudgetController(http.Controller):
         }
 
         raw_attachments = jdata.get("attachment_ids") or []
+        raw_attachment_ids = []
         if raw_attachments:
             if not isinstance(raw_attachments, (list, tuple)):
                 return return_Response(
                     message="attachment_ids must be a list of integers.",
                     status=400, data={},
                 )
-            attachment_ids = [
+            raw_attachment_ids = [
                 _coerce_int(x) for x in raw_attachments if _coerce_int(x)
             ]
-            missing = _missing_ids("ir.attachment", attachment_ids)
+            missing = _missing_ids("ir.attachment", raw_attachment_ids)
             if missing:
                 return return_Response(
                     message=f"Attachment(s) not found: {missing}",
                     status=400, data={},
                 )
-            vals["attachment_ids"] = [(6, 0, attachment_ids)]
 
         reason_id = _coerce_int(jdata.get("topup_reason_id"))
         if reason_id:
@@ -2516,17 +2575,32 @@ class EtpBudgetController(http.Controller):
                 data={"errors": [str(e)]},
             )
 
-        if uploaded_files:
-            new_att_ids = _upload_files_as_url_attachments(
-                uploaded_files, REQUEST_MODEL, req.id,
-            )
-            if new_att_ids:
-                req.sudo().write({
-                    "attachment_ids": [(4, i, 0) for i in new_att_ids],
-                })
+        linked_attachment_ids = list(raw_attachment_ids)
+        persisted_urls = []
+        if raw_attachment_ids:
+            for att in request.env["ir.attachment"].sudo().browse(raw_attachment_ids):
+                if att.type == "url" and att.url:
+                    persisted_urls.append(att.url)
 
-        if raw_attachments or uploaded_files:
-            _sync_attachment_urls_from_ids(req.sudo())
+        if uploaded_files:
+            try:
+                new_att_ids, new_urls = _upload_files_as_url_attachments(
+                    uploaded_files, REQUEST_MODEL, req.id,
+                )
+                linked_attachment_ids.extend(new_att_ids)
+                persisted_urls.extend(new_urls)
+            except Exception:
+                _logger.exception("uploaded attachment persistence failed")
+
+        if linked_attachment_ids:
+            write_vals = {"attachment_ids": [(6, 0, linked_attachment_ids)]}
+            if "attachment_urls" in req._fields:
+                write_vals["attachment_urls"] = (
+                    _serialize_attachment_links(persisted_urls) or False
+                )
+            req.sudo().with_context(
+                tracking_disable=True, mail_notrack=True,
+            ).write(write_vals)
 
         submit_flag = jdata.get("submit")
         if submit_flag is None:
@@ -3115,6 +3189,609 @@ class EtpBudgetController(http.Controller):
                     _attachment_brief(a) for a in batch.attachment_ids
                 ],
             }},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/batches/create",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def create_batch_budget(self, **params):
+        jdata, uploaded_files = _read_multipart_or_json()
+
+        project_budget_id = _coerce_int(
+            jdata.get("budget_id") or jdata.get("project_budget_id"),
+        )
+        if not project_budget_id:
+            return return_Response(
+                message="budget_id (project_budget_id) is required.",
+                status=400, data={},
+            )
+        project_budget = request.env[BUDGET_MODEL].sudo().browse(
+            project_budget_id,
+        ).exists()
+        if not project_budget:
+            return return_Response(
+                message=f"Project budget {project_budget_id} not found.",
+                status=404, data={},
+            )
+
+        start_date = _coerce_date(jdata.get("start_date"))
+        if not start_date:
+            return return_Response(
+                message="start_date is required (YYYY-MM-DD).",
+                status=400, data={},
+            )
+        end_date = _coerce_date(jdata.get("end_date"))
+        if not end_date:
+            return return_Response(
+                message="end_date is required (YYYY-MM-DD).",
+                status=400, data={},
+            )
+        if end_date < start_date:
+            return return_Response(
+                message="end_date must be on or after start_date.",
+                status=400, data={},
+            )
+
+        raw_tasks = (
+            jdata.get("no_of_task")
+            if jdata.get("no_of_task") is not None
+            else jdata.get("total_tasks")
+        )
+        total_tasks = _coerce_int(raw_tasks)
+        if total_tasks is None or total_tasks <= 0:
+            return return_Response(
+                message="no_of_task must be a positive integer.",
+                status=400, data={},
+            )
+
+        name = (jdata.get("name") or "").strip() or "New"
+        description = jdata.get("description") or ""
+        s3_link = (jdata.get("s3_link") or "").strip()
+
+        raw_models = jdata.get("models") or jdata.get("model") or []
+        if raw_models and not isinstance(raw_models, list):
+            return return_Response(
+                message="models must be a list.", status=400, data={},
+            )
+        model_cmds = []
+        for idx, entry in enumerate(raw_models):
+            line_vals, _c, err = _parse_model_entry(
+                entry, idx, allow_zero_cost=True,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            model_cmds.append((0, 0, line_vals))
+        if model_cmds:
+            ai_ids = [c[2]["ai_model_id"] for c in model_cmds]
+            missing = _missing_ids(AI_MODEL, ai_ids)
+            if missing:
+                return return_Response(
+                    message=f"AI model ids do not exist: {missing}.",
+                    status=400, data={},
+                )
+
+        raw_infra = jdata.get("infra") or jdata.get("infras") or []
+        if raw_infra and not isinstance(raw_infra, list):
+            return return_Response(
+                message="infra must be a list.", status=400, data={},
+            )
+        infra_cmds = []
+        for idx, entry in enumerate(raw_infra):
+            line_vals, _c, err = _parse_infra_entry(entry, idx)
+            if err:
+                return return_Response(message=err, status=400, data={})
+            infra_cmds.append((0, 0, line_vals))
+        if infra_cmds:
+            infra_ids = [c[2]["infra_type_id"] for c in infra_cmds]
+            missing = _missing_ids(INFRA_MODEL, infra_ids)
+            if missing:
+                return return_Response(
+                    message=f"Infra type ids do not exist: {missing}.",
+                    status=400, data={},
+                )
+
+        raw_subs = jdata.get("subscription") or jdata.get("subscriptions") or []
+        if raw_subs and not isinstance(raw_subs, list):
+            return return_Response(
+                message="subscription must be a list.", status=400, data={},
+            )
+        sub_cmds = []
+        sub_catalog_updates = []
+        for idx, entry in enumerate(raw_subs):
+            line_vals, _m, cost_for_catalog, err = _parse_subscription_entry(
+                entry, idx,
+            )
+            if err:
+                return return_Response(message=err, status=400, data={})
+            sub_cmds.append((0, 0, line_vals))
+            if cost_for_catalog is not None:
+                sub_catalog_updates.append(
+                    (line_vals["subscription_id"], cost_for_catalog),
+                )
+        if sub_cmds:
+            sub_ids = [c[2]["subscription_id"] for c in sub_cmds]
+            missing = _missing_ids(SUBSCRIPTION_MODEL, sub_ids)
+            if missing:
+                return return_Response(
+                    message=f"Subscription ids do not exist: {missing}.",
+                    status=400, data={},
+                )
+            all_user_ids = []
+            for c in sub_cmds:
+                for cmd in c[2]["assigned_user_ids"]:
+                    if isinstance(cmd, (list, tuple)) and len(cmd) >= 3:
+                        all_user_ids.extend(cmd[2] or [])
+            missing_users = _missing_ids(
+                "res.users", list(set(all_user_ids)),
+            )
+            if missing_users:
+                return return_Response(
+                    message=(
+                        f"Subscription assigned user ids do not exist: "
+                        f"{missing_users}."
+                    ),
+                    status=400, data={},
+                )
+
+        raw_att_ids = jdata.get("attachment_ids") or []
+        if raw_att_ids and not isinstance(raw_att_ids, (list, tuple)):
+            return return_Response(
+                message="attachment_ids must be a list of integers.",
+                status=400, data={},
+            )
+        existing_att_ids = [
+            _coerce_int(x) for x in raw_att_ids if _coerce_int(x)
+        ]
+        if existing_att_ids:
+            missing = _missing_ids("ir.attachment", existing_att_ids)
+            if missing:
+                return return_Response(
+                    message=f"Attachment(s) not found: {missing}",
+                    status=400, data={},
+                )
+
+        try:
+            for sub_id, new_cost in sub_catalog_updates:
+                request.env[SUBSCRIPTION_MODEL].sudo().browse(sub_id).write(
+                    {"cost": new_cost},
+                )
+        except (UserError, ValidationError) as e:
+            request.env.cr.rollback()
+            return return_Response(message=str(e), status=400, data={})
+        except Exception:
+            request.env.cr.rollback()
+            _logger.exception(
+                "Subscription catalog update failed during phase budget create",
+            )
+            return return_Response(
+                message="Failed to update subscription catalog.",
+                status=500, data={},
+            )
+
+        create_env = request.env(context=dict(
+            request.env.context,
+            tracking_disable=True,
+            mail_create_nolog=True,
+            mail_create_nosubscribe=True,
+            mail_notrack=True,
+        ))
+
+        vals = {
+            "name": name,
+            "project_budget_id": project_budget.id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "total_tasks": total_tasks,
+            "description": description,
+        }
+        if s3_link:
+            vals["s3_link"] = s3_link
+        if model_cmds:
+            vals["model_line_ids"] = model_cmds
+        if infra_cmds:
+            vals["infra_line_ids"] = infra_cmds
+        if sub_cmds:
+            vals["subscription_line_ids"] = sub_cmds
+        if existing_att_ids:
+            vals["attachment_ids"] = [(6, 0, existing_att_ids)]
+
+        try:
+            batch = create_env[BATCH_MODEL].sudo().create(vals)
+        except (UserError, ValidationError) as e:
+            request.env.cr.rollback()
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            request.env.cr.rollback()
+            _logger.exception("Phase budget create failed")
+            return return_Response(
+                message=f"Failed to create phase budget: {e}",
+                status=500, data={},
+            )
+
+        if uploaded_files:
+            try:
+                new_att_ids, _urls = _upload_files_as_url_attachments(
+                    uploaded_files, BATCH_MODEL, batch.id,
+                )
+                if new_att_ids:
+                    batch.write({
+                        "attachment_ids": [(4, i, 0) for i in new_att_ids],
+                    })
+            except Exception:
+                _logger.exception(
+                    "Attachment upload failed for phase budget %s", batch.id,
+                )
+
+        _sync_attachment_urls_from_ids(batch)
+
+        return return_Response(
+            message="Phase budget created.", status=200,
+            data={"data": _batch_full_detail(batch)},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/batches/update",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def update_batch_budget(self, **params):
+        jdata, uploaded_files = _read_multipart_or_json()
+        batch_id = _coerce_int(jdata.get("id"))
+        if not batch_id:
+            return return_Response(
+                message="id is required.", status=400, data={},
+            )
+        batch = request.env[BATCH_MODEL].sudo().browse(batch_id).exists()
+        if not batch:
+            return return_Response(
+                message=f"Phase budget {batch_id} not found.",
+                status=404, data={},
+            )
+
+        vals = {}
+
+        if "project_budget_id" in jdata or "budget_id" in jdata:
+            new_pb = _coerce_int(
+                jdata.get("project_budget_id") or jdata.get("budget_id"),
+            )
+            if not new_pb:
+                return return_Response(
+                    message="project_budget_id must be a positive integer.",
+                    status=400, data={},
+                )
+            pb = request.env[BUDGET_MODEL].sudo().browse(new_pb).exists()
+            if not pb:
+                return return_Response(
+                    message=f"Project budget {new_pb} not found.",
+                    status=404, data={},
+                )
+            vals["project_budget_id"] = pb.id
+
+        if "name" in jdata:
+            name = (jdata.get("name") or "").strip()
+            if not name:
+                return return_Response(
+                    message="name cannot be empty.", status=400, data={},
+                )
+            vals["name"] = name
+
+        if "description" in jdata:
+            vals["description"] = jdata.get("description") or ""
+
+        if "start_date" in jdata:
+            sd = _coerce_date(jdata.get("start_date"))
+            if not sd:
+                return return_Response(
+                    message="start_date must be YYYY-MM-DD.",
+                    status=400, data={},
+                )
+            vals["start_date"] = sd
+
+        if "end_date" in jdata:
+            ed = _coerce_date(jdata.get("end_date"))
+            if not ed:
+                return return_Response(
+                    message="end_date must be YYYY-MM-DD.",
+                    status=400, data={},
+                )
+            vals["end_date"] = ed
+
+        new_start = vals.get("start_date", batch.start_date)
+        new_end = vals.get("end_date", batch.end_date)
+        if new_start and new_end and new_end < new_start:
+            return return_Response(
+                message="end_date must be on or after start_date.",
+                status=400, data={},
+            )
+
+        if "no_of_task" in jdata or "total_tasks" in jdata:
+            raw = (
+                jdata.get("no_of_task")
+                if jdata.get("no_of_task") is not None
+                else jdata.get("total_tasks")
+            )
+            total = _coerce_int(raw)
+            if total is None or total <= 0:
+                return return_Response(
+                    message="no_of_task must be a positive integer.",
+                    status=400, data={},
+                )
+            vals["total_tasks"] = total
+
+        if "buffer_pct" in jdata:
+            bp = _coerce_float(jdata.get("buffer_pct"), 0.0)
+            if bp < 0:
+                return return_Response(
+                    message="buffer_pct cannot be negative.",
+                    status=400, data={},
+                )
+            vals["buffer_pct"] = bp
+
+        if "s3_link" in jdata:
+            vals["s3_link"] = (jdata.get("s3_link") or "").strip()
+
+        if "active" in jdata:
+            vals["active"] = bool(_coerce_int(jdata.get("active"), 0))
+
+        if "state" in jdata:
+            state = (jdata.get("state") or "").strip()
+            valid_states = [
+                v for v, _l in batch._fields["state"].selection
+            ]
+            if state not in valid_states:
+                return return_Response(
+                    message=f"state must be one of {valid_states}.",
+                    status=400, data={},
+                )
+            vals["state"] = state
+
+        if "models" in jdata or "model" in jdata:
+            raw_models = jdata.get("models") or jdata.get("model") or []
+            if not isinstance(raw_models, list):
+                return return_Response(
+                    message="models must be a list.", status=400, data={},
+                )
+            cmds = [(5, 0, 0)]
+            for idx, entry in enumerate(raw_models):
+                line_vals, _c, err = _parse_model_entry(
+                    entry, idx, allow_zero_cost=True,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                cmds.append((0, 0, line_vals))
+            ai_ids = [c[2]["ai_model_id"] for c in cmds if c[0] == 0]
+            missing = _missing_ids(AI_MODEL, ai_ids)
+            if missing:
+                return return_Response(
+                    message=f"AI model ids do not exist: {missing}.",
+                    status=400, data={},
+                )
+            vals["model_line_ids"] = cmds
+
+        if "infra" in jdata or "infras" in jdata:
+            raw_infra = jdata.get("infra") or jdata.get("infras") or []
+            if not isinstance(raw_infra, list):
+                return return_Response(
+                    message="infra must be a list.", status=400, data={},
+                )
+            cmds = [(5, 0, 0)]
+            for idx, entry in enumerate(raw_infra):
+                line_vals, _c, err = _parse_infra_entry(entry, idx)
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                cmds.append((0, 0, line_vals))
+            infra_ids = [c[2]["infra_type_id"] for c in cmds if c[0] == 0]
+            missing = _missing_ids(INFRA_MODEL, infra_ids)
+            if missing:
+                return return_Response(
+                    message=f"Infra type ids do not exist: {missing}.",
+                    status=400, data={},
+                )
+            vals["infra_line_ids"] = cmds
+
+        sub_catalog_updates = []
+        if "subscription" in jdata or "subscriptions" in jdata:
+            raw_subs = jdata.get("subscription") or jdata.get("subscriptions") or []
+            if not isinstance(raw_subs, list):
+                return return_Response(
+                    message="subscription must be a list.",
+                    status=400, data={},
+                )
+            cmds = [(5, 0, 0)]
+            for idx, entry in enumerate(raw_subs):
+                line_vals, _m, cost_for_catalog, err = _parse_subscription_entry(
+                    entry, idx,
+                )
+                if err:
+                    return return_Response(message=err, status=400, data={})
+                cmds.append((0, 0, line_vals))
+                if cost_for_catalog is not None:
+                    sub_catalog_updates.append(
+                        (line_vals["subscription_id"], cost_for_catalog),
+                    )
+            sub_ids = [c[2]["subscription_id"] for c in cmds if c[0] == 0]
+            missing = _missing_ids(SUBSCRIPTION_MODEL, sub_ids)
+            if missing:
+                return return_Response(
+                    message=f"Subscription ids do not exist: {missing}.",
+                    status=400, data={},
+                )
+            all_user_ids = []
+            for c in cmds:
+                if c[0] != 0:
+                    continue
+                for cmd in c[2]["assigned_user_ids"]:
+                    if isinstance(cmd, (list, tuple)) and len(cmd) >= 3:
+                        all_user_ids.extend(cmd[2] or [])
+            missing_users = _missing_ids(
+                "res.users", list(set(all_user_ids)),
+            )
+            if missing_users:
+                return return_Response(
+                    message=(
+                        f"Subscription assigned user ids do not exist: "
+                        f"{missing_users}."
+                    ),
+                    status=400, data={},
+                )
+            vals["subscription_line_ids"] = cmds
+
+        replace_attachments = bool(
+            _coerce_int(jdata.get("replace_attachments"), 0),
+        )
+        incoming_att_ids = []
+        attachments_key_present = "attachment_ids" in jdata
+        if attachments_key_present:
+            raw_att = jdata.get("attachment_ids") or []
+            if not isinstance(raw_att, (list, tuple)):
+                return return_Response(
+                    message="attachment_ids must be a list of integers.",
+                    status=400, data={},
+                )
+            incoming_att_ids = [
+                _coerce_int(x) for x in raw_att if _coerce_int(x)
+            ]
+            if incoming_att_ids:
+                missing = _missing_ids("ir.attachment", incoming_att_ids)
+                if missing:
+                    return return_Response(
+                        message=f"Attachment(s) not found: {missing}",
+                        status=400, data={},
+                    )
+
+        try:
+            for sub_id, new_cost in sub_catalog_updates:
+                request.env[SUBSCRIPTION_MODEL].sudo().browse(sub_id).write(
+                    {"cost": new_cost},
+                )
+        except (UserError, ValidationError) as e:
+            request.env.cr.rollback()
+            return return_Response(message=str(e), status=400, data={})
+        except Exception:
+            request.env.cr.rollback()
+            _logger.exception(
+                "Subscription catalog update failed during phase budget update",
+            )
+            return return_Response(
+                message="Failed to update subscription catalog.",
+                status=500, data={},
+            )
+
+        try:
+            if vals:
+                batch.write(vals)
+        except (UserError, ValidationError) as e:
+            request.env.cr.rollback()
+            return return_Response(message=str(e), status=400, data={})
+        except Exception as e:
+            request.env.cr.rollback()
+            _logger.exception(
+                "Phase budget update failed for id=%s", batch.id,
+            )
+            return return_Response(
+                message=f"Failed to update phase budget: {e}",
+                status=500, data={},
+            )
+
+        if uploaded_files or attachments_key_present:
+            new_uploaded_ids = []
+            if uploaded_files:
+                try:
+                    new_uploaded_ids, _urls = _upload_files_as_url_attachments(
+                        uploaded_files, BATCH_MODEL, batch.id,
+                    )
+                except Exception:
+                    _logger.exception(
+                        "Attachment upload failed for phase budget %s",
+                        batch.id,
+                    )
+            if replace_attachments:
+                batch.write({
+                    "attachment_ids": [
+                        (6, 0, incoming_att_ids + new_uploaded_ids),
+                    ],
+                })
+            else:
+                add_cmds = [
+                    (4, i, 0) for i in (incoming_att_ids + new_uploaded_ids)
+                ]
+                if add_cmds:
+                    batch.write({"attachment_ids": add_cmds})
+            _sync_attachment_urls_from_ids(batch)
+
+        return return_Response(
+            message="Phase budget updated.", status=200,
+            data={"data": _batch_full_detail(batch)},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/batches/deliver",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def deliver_batch_budget(self, **params):
+        jdata, _files = _read_multipart_or_json()
+        batch_id = _coerce_int(jdata.get("id"))
+        url = (jdata.get("url") or "").strip()
+        completion_description = (jdata.get("completion_description") or "").strip()
+        label = (jdata.get("label") or "").strip() or "Completion Link"
+
+        if not batch_id:
+            return return_Response(
+                message="id is required.", status=400, data={},
+            )
+        if not url:
+            return return_Response(
+                message="url is required.", status=400, data={},
+            )
+        if not completion_description:
+            return return_Response(
+                message="completion_description is required.", status=400, data={},
+            )
+
+        batch = request.env[BATCH_MODEL].sudo().browse(batch_id).exists()
+        if not batch:
+            return return_Response(
+                message=f"Phase budget {batch_id} not found.",
+                status=404, data={},
+            )
+        if batch.state not in ("approved", "in_progress"):
+            return return_Response(
+                message=(
+                    f"Cannot deliver phase in state '{batch.state}'. "
+                    "Only Approved or In Progress phases can be delivered."
+                ),
+                status=400, data={},
+            )
+
+        try:
+            batch.write({"completion_description": completion_description})
+            request.env["etp.batch.budget.info.link"].sudo().create({
+                "batch_id": batch.id,
+                "label": label,
+                "url": url,
+            })
+            batch.action_deliver()
+        except (UserError, ValidationError) as exc:
+            request.env.cr.rollback()
+            return return_Response(
+                message=str(exc), status=400, data={},
+            )
+        except Exception as exc:
+            request.env.cr.rollback()
+            _logger.exception(
+                "Failed to deliver phase budget %s: %s", batch.id, exc,
+            )
+            return return_Response(
+                message="Failed to mark phase budget as delivered.",
+                status=500, data={},
+            )
+
+        return return_Response(
+            message="Phase budget marked as delivered.", status=200,
+            data={"data": _batch_full_detail(batch)},
         )
 
     @http.route(

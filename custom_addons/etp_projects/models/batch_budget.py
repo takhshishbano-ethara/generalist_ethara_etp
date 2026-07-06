@@ -96,6 +96,14 @@ class EtpBatchBudget(models.Model):
         string="Attachment URLs",
         help="CSV of S3 URLs propagated from the parent project budget on create.",
     )
+    description = fields.Text(
+        string="Description",
+        help="Free-form description / justification supplied when the phase budget was created.",
+    )
+    completion_description = fields.Text(
+        string="Completion Description",
+        help="Notes captured when the phase budget is marked delivered.",
+    )
     request_ids = fields.One2many(
         "etp.batch.budget.request",
         "batch_id",
