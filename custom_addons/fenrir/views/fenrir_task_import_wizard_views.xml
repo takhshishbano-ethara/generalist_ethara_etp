@@ -42,7 +42,7 @@
                                 <code>$100-$150</code>, <code>$150-$200</code>
                                 (blank or unrecognised keeps the default)</li>
                             <li><code>Reviewer</code> — the reviewer (an existing user,
-                                matched like Buyer); blank keeps the importing
+                                matched like Reviewer); blank keeps the importing
                                 user</li>
                         </ul>
                         <p class="mb-1">
