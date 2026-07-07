@@ -2383,13 +2383,26 @@ class EtpBudgetController(http.Controller):
             domain.append(("project_budget_id", "=", project_budget_id))
         state = (params.get("state") or "").strip()
         if state:
+            state_aliases = {
+                "pending": ["draft", "cto_review", "cfo_review"],
+                "approved": ["approved", "partially_approved"],
+                # CTO/CFO reject writes state=changes_required + rejection_reason
+                "rejected": ["changes_required"],
+                "withdrawn": ["withdrawn"],
+            }
             valid_states = [v for v, _l in Request._fields["state"].selection]
-            if state not in valid_states:
+            if state in state_aliases:
+                domain.append(("state", "in", state_aliases[state]))
+            elif state in valid_states:
+                domain.append(("state", "=", state))
+            else:
                 return return_Response(
-                    message=f"state must be one of {valid_states}.",
+                    message=(
+                        f"state must be one of {list(state_aliases.keys())} (aliases) "
+                        f"or {valid_states} (raw states)."
+                    ),
                     status=400, data={},
                 )
-            domain.append(("state", "=", state))
         request_type = (params.get("request_type") or "").strip()
         if request_type and "request_type" in Request._fields:
             valid_types = [v for v, _l in Request._fields["request_type"].selection]

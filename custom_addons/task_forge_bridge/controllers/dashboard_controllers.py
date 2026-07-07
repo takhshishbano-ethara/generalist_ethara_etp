@@ -599,6 +599,7 @@ class DashboardController(http.Controller):
                 task_domain = []
 
             elif user_id.user_role.id in [request.env.ref('api_auth_gateway.role_pl_technical').id, request.env.ref('api_auth_gateway.role_pl_stem').id, request.env.ref('api_auth_gateway.role_pl_non_stem').id]:
+                domain = []
                 domain.append(('project_lead', '=', employee.id))
                 task_domain.append(('employee_id.task_forge_qr_id.task_forge_pl_id', '=', employee.id))
 
