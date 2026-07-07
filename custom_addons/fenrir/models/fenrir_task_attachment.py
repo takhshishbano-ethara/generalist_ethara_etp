@@ -185,7 +185,8 @@ class FenrirTaskAttachment(models.Model):
         safe_name = (_slug(raw_name)
                      if folder in ("environment", "tests")
                      else _norm_filename(raw_name))
-        rel_path = safe_name if folder == "root" else f"{folder}/{safe_name}"
+        unique_name = f"{self.id}_{safe_name}"
+        rel_path = unique_name if folder == "root" else f"{folder}/{unique_name}"
 
         config = self.env["fenrir.drive.config"].sudo().get_singleton()
         s3_folder = (config.s3_folder or "").strip().strip("/")

@@ -545,7 +545,14 @@ class FenrirDriveService(models.AbstractModel):
                 continue
 
             # Otherwise we need the bytes — either to md5-check or upload.
-            content = content_loader()
+            try:
+                content = content_loader()
+            except Exception as exc:
+                raise UserError(_(
+                    "Could not read file '%s' for task %s while approving — the "
+                    "underlying content may be missing (e.g. deleted from S3). "
+                    "Original error: %s"
+                ) % (rel_path, task.code, exc)) from exc
             local_md5 = hashlib.md5(content).hexdigest()
 
             if existing_entry and existing_entry.get("md5") == local_md5:
