@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_candidate_list" model="ir.ui.view">
+        <field name="name">ethara.candidate.list</field>
+        <field name="model">ethara.candidate</field>
+        <field name="arch" type="xml">
+            <list string="Candidates">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="mobile"/>
+                <field name="linkedin_url" optional="hide"/>
+                <field name="portfolio_url" optional="hide"/>
+                <field name="github_url" optional="hide"/>
+                <field name="resume_url" optional="show"/>
+                <field name="create_date" string="Registered" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_candidate_form" model="ir.ui.view">
+        <field name="name">ethara.candidate.form</field>
+        <field name="model">ethara.candidate</field>
+        <field name="arch" type="xml">
+            <form string="Candidate">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Candidate Name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Contact">
+                            <field name="email"/>
+                            <field name="mobile"/>
+                        </group>
+                        <group string="Links">
+                            <field name="linkedin_url" widget="url"/>
+                            <field name="portfolio_url" widget="url"/>
+                            <field name="github_url" widget="url"/>
+                            <field name="resume_url" widget="url"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_candidate_search" model="ir.ui.view">
+        <field name="name">ethara.candidate.search</field>
+        <field name="model">ethara.candidate</field>
+        <field name="arch" type="xml">
+            <search string="Candidates">
+                <field name="name"/>
+                <field name="email"/>
+                <field name="mobile"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_candidate" model="ir.actions.act_window">
+        <field name="name">Candidates</field>
+        <field name="res_model">ethara.candidate</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_candidate_search"/>
+    </record>
+
+    <menuitem id="menu_ethara_candidate_root"
+              name="Ethara Candidates"
+              sequence="90"/>
+
+    <menuitem id="menu_ethara_candidate"
+              name="Candidates"
+              parent="menu_ethara_candidate_root"
+              action="action_ethara_candidate"
+              sequence="10"/>
+
+</odoo>

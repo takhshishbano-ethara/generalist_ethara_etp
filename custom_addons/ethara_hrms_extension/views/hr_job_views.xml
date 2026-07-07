@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_hr_job_form_inherit_ethara" model="ir.ui.view">
+        <field name="name">hr.job.form.inherit.ethara.hrms</field>
+        <field name="model">hr.job</field>
+        <field name="inherit_id" ref="hr.view_hr_job_form"/>
+        <field name="arch" type="xml">
+
+            <xpath expr="//field[@name='department_id']" position="after">
+                <field name="slug"/>
+                <field name="job_location"/>
+                <field name="employment_type"/>
+                <field name="work_mode"/>
+                <field name="experience_level"/>
+                <field name="experience_years"/>
+                <field name="salary_bracket"/>
+                <field name="is_featured"/>
+                <field name="urgency_level"/>
+                <field name="posted_at"/>
+            </xpath>
+
+            <xpath expr="//sheet" position="inside">
+                <group string="Summary">
+                    <field name="summary" nolabel="1"/>
+                </group>
+
+                <notebook>
+                    <page string="Responsibilities" name="responsibilities">
+                        <field name="responsibility_ids">
+                            <list editable="bottom">
+                                <field name="sequence" widget="handle"/>
+                                <field name="name"/>
+                            </list>
+                        </field>
+                    </page>
+                    <page string="Benefits" name="benefits">
+                        <field name="benefit_ids">
+                            <list editable="bottom">
+                                <field name="sequence" widget="handle"/>
+                                <field name="name"/>
+                            </list>
+                        </field>
+                    </page>
+                    <page string="Preferred Skills" name="preferred_skills">
+                        <field name="preferred_skill_ids" widget="many2many_tags"/>
+                    </page>
+                    <page string="Approval" name="approval">
+                        <group>
+                            <group>
+                                <field name="approval_status"/>
+                                <field name="requested_by_id"/>
+                                <field name="external_requested_by"/>
+                                <field name="approved_by_id"/>
+                            </group>
+                            <group>
+                                <field name="approval_requested_at"/>
+                                <field name="approval_decided_at"/>
+                                <field name="approval_email_sent_at"/>
+                                <field name="reviewed_by_email"/>
+                            </group>
+                        </group>
+                        <group string="Recipients">
+                            <field name="approval_recipient_email" nolabel="1"/>
+                        </group>
+                        <field name="approver_ids">
+                            <list editable="bottom">
+                                <field name="sequence" widget="handle"/>
+                                <field name="email"/>
+                                <field name="role"/>
+                            </list>
+                        </field>
+                        <group string="Rejection Reason" invisible="approval_status != 'rejected'">
+                            <field name="rejection_reason" nolabel="1"/>
+                        </group>
+                    </page>
+                    <page string="Screening Prompt" name="screening">
+                        <field name="screening_prompt" nolabel="1"/>
+                    </page>
+                </notebook>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>
