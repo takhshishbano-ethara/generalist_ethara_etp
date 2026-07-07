@@ -103,6 +103,7 @@ def _serialize_job(job, detail=False):
         'approvalStatus': job.approval_status or None,
         'createdAt': _iso_utc(job.create_date),
         'updatedAt': _iso_utc(job.write_date),
+        'preferredSkills': [s.name for s in job.preferred_skill_ids if s.name],
     }
 
     if detail:
@@ -114,7 +115,7 @@ def _serialize_job(job, detail=False):
                 if r.name and r.name.strip()
             ],
             'requirements': _split_lines(job.requirements),
-            'preferredSkills': [s.name for s in job.preferred_skill_ids if s.name],
+            # 'preferredSkills': [s.name for s in job.preferred_skill_ids if s.name],
             'benefits': [
                 b.name.strip()
                 for b in job.benefit_ids.sorted(lambda x: (x.sequence, x.id))

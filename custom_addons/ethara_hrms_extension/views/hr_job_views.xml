@@ -42,10 +42,15 @@
                             </list>
                         </field>
                     </page>
-                    <page string="Preferred Skills" name="preferred_skills">
-                        <field name="preferred_skill_ids" widget="many2many_tags"/>
-                    </page>
-                    <page string="Approval" name="approval">
+                    <page string="Preferred Skills" name="ethara_preferred_skills">
+                    <field name="preferred_skill_ids">
+                        <list>
+                            <field name="name"/>
+                            <field name="skill_type_id"/>
+                        </list>
+                    </field>
+                </page>
+                <page string="Approval" name="approval">
                         <group>
                             <group>
                                 <field name="approval_status"/>
