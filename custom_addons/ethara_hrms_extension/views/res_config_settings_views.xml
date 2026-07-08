@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_ethara_hrms" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.ethara.hrms</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="priority">95</field>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="HRMS Recruitment" string="HRMS Recruitment" name="ethara_hrms_extension">
+                    <block title="Job Position Approvals"
+                           help="Configure who can approve or reject job positions.">
+                        <setting string="Job Position Approvers"
+                                 help="Users allowed to approve or reject job positions. When a JD is submitted for approval, the approval email (View / Approve / Reject) is sent to every user listed here.">
+                            <field name="job_approver_user_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True, 'no_create_edit': True}"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
