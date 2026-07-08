@@ -13,7 +13,7 @@
 #     -> Generate report -> Upload to S3
 # =============================================================================
 
-name: Security Scan stage
+name: Security Scan Stage
 
 on:
   workflow_dispatch:
