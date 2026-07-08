@@ -176,6 +176,8 @@ jobs:
           docker buildx build \
             --platform linux/amd64 \
             --file Dockerfile \
+            --provenance=false \
+            --sbom=false \
             --tag ${FULL_IMAGE_URI} \
             --push \
             .
@@ -183,6 +185,25 @@ jobs:
           echo "Build and Push Complete!"
           echo "BUILD_ID=${BUILD_ID}" >> $GITHUB_ENV
           echo "FULL_IMAGE_URI=${FULL_IMAGE_URI}" >> $GITHUB_ENV
+
+      - name: Cleanup Untagged ECR Images
+        if: always()
+        run: |
+          echo "Cleaning up untagged images in ECR..."
+          UNTAGGED=$(aws ecr list-images --repository-name ethara-etp-stage-backend \
+            --region ap-south-1 \
+            --filter "tagStatus=UNTAGGED" \
+            --query 'imageIds[*]' --output json 2>/dev/null || echo "[]")
+          COUNT=$(echo "$UNTAGGED" | jq 'length' 2>/dev/null || echo "0")
+          if [ "$COUNT" -gt 0 ]; then
+            echo "Removing $COUNT untagged image(s)..."
+            aws ecr batch-delete-image --repository-name ethara-etp-stage-backend \
+              --region ap-south-1 \
+              --image-ids "$UNTAGGED" > /dev/null 2>&1 || true
+            echo "Cleanup complete"
+          else
+            echo "No untagged images found"
+          fi
 
       - name: Update Image Tag in Target Repository
         if: |
