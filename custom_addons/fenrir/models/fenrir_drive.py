@@ -525,13 +525,15 @@ class FenrirDriveService(models.AbstractModel):
             ensure_path((base,))
 
         drive_last = task.drive_last_uploaded_at
-        unchanged = updated = created = 0
+        unchanged = updated = created = deleted = 0
+        local_paths = set()
         for (rel_path, content_loader, mime, is_binary_upload,
              existing_s3_key, source_mtime) in task._collect_export_files():
             parts = rel_path.split("/")
             file_name = parts[-1]
             dir_parts = tuple(parts[:-1])
             content_mime = mime or DEFAULT_FILE_MIME
+            local_paths.add(rel_path)
 
             existing_entry = existing_files.get(rel_path)
 
@@ -588,13 +590,30 @@ class FenrirDriveService(models.AbstractModel):
                         "Fenrir: S3 mirror failed for %s (Drive copy OK): %s",
                         s3_key, exc)
 
+        # Clean up stale files: entries that exist in Drive but are no longer
+        # in the task's export (because the Odoo attachment was deleted or its
+        # file_name/folder changed). On first-time approve (reused=False),
+        # existing_files is empty so stale is naturally empty too.
+        stale = {p: e for p, e in existing_files.items() if p not in local_paths}
+        for rel_path, entry in stale.items():
+            try:
+                self._trash_folder(service, entry["id"])
+                deleted += 1
+                _logger.info(
+                    "Fenrir: trashed stale Drive file %s (%s) for task %s",
+                    entry["id"], rel_path, task.code)
+            except Exception as exc:  # noqa: BLE001
+                _logger.warning(
+                    "Fenrir: failed to trash stale Drive file %s (%s): %s",
+                    entry["id"], rel_path, exc)
+
         task.write({
             "drive_folder_id": task_folder_id,
             "drive_last_uploaded_at": fields.Datetime.now(),
         })
         _logger.info(
             "Fenrir: uploaded task %s (Drive folder %s, S3 prefix %s) "
-            "— delta: %s unchanged, %s updated, %s created",
+            "— delta: %s unchanged, %s updated, %s created, %s deleted",
             task.code, task_folder_id, s3_prefix,
-            unchanged, updated, created)
+            unchanged, updated, created, deleted)
         return task_folder_id
