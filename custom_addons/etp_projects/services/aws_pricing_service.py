@@ -59,11 +59,6 @@ def _client(env):
         raise UserError(_("Python package 'boto3' is not installed."))
 
     creds = env["etp.aws.credentials"].sudo().get_singleton()
-    if not creds.is_enabled:
-        raise UserError(_(
-            "AWS integration is disabled. Enable it in "
-            "Settings \u2192 ETP Projects \u2192 AWS Credentials."
-        ))
     access_key = creds.access_key_id or ""
     secret_key = creds.secret_key or ""
     if not access_key or not secret_key:

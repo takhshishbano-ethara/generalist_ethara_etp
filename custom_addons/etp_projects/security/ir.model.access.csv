@@ -40,6 +40,3 @@ access_etp_batch_budget_request_wizard_subscription_line,etp.batch.budget.reques
 access_etp_project_budget_topup,etp.project.budget.topup,model_etp_project_budget_topup,,1,1,1,1
 access_etp_project_budget_topup_reject_wizard,etp.project.budget.topup.reject.wizard,model_etp_project_budget_topup_reject_wizard,,1,1,1,1
 access_etp_project_budget_dashboard,etp.project.budget.dashboard,model_etp_project_budget_dashboard,,1,1,1,1
-access_etp_aws_pricing_item,etp.aws.pricing.item,model_etp_aws_pricing_item,,1,1,1,1
-access_etp_aws_pricing_sku,etp.aws.pricing.sku,model_etp_aws_pricing_sku,,1,1,1,1
-access_etp_aws_pricing_sync_log,etp.aws.pricing.sync.log,model_etp_aws_pricing_sync_log,,1,1,1,1

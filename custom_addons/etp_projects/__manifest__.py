@@ -43,7 +43,7 @@ Adds an Internal/External classification to projects.
             'etp_projects/static/src/components/budget_health_dashboard/budget_health_dashboard.xml',
         ],
     },
-    'external_dependencies': {'python': ['boto3', 'cryptography', 'google-cloud-bigquery', 'openpyxl']},
+    'external_dependencies': {'python': ['boto3', 'google-cloud-bigquery', 'openpyxl']},
     'installable': True,
     'application': False,
     'license': 'LGPL-3',
