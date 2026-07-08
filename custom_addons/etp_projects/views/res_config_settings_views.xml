@@ -17,6 +17,39 @@
                                    options="{'no_create': True, 'no_create_edit': True}"/>
                         </setting>
                     </block>
+                    <block title="AWS Credentials" groups="base.group_system" help="Encrypted at rest. Stored in etp.aws.credentials — not in System Parameters. Set ETP_ENCRYPTION_KEY env var for production.">
+                        <setting string="Enable AWS Integration"
+                                 help="Turn on to use these credentials for AWS API calls (Cost Explorer, S3, etc.).">
+                            <field name="etp_aws_is_enabled"/>
+                        </setting>
+                        <setting string="Access Key ID"
+help="Public identifier for the AWS IAM access key (starts with AKIA...). Stored value shown as dots — clear the field and paste to change.">
+                        <field name="etp_aws_access_key_id" placeholder="AKIA..."/>
+                        </setting>
+                        <setting string="Secret Access Key"
+                                 help="Sensitive. Encrypted at rest using Fernet AES-128. Stored secret shown as dots — clear and paste to change.">
+                            <field name="etp_aws_secret_access_key" password="True" placeholder="Paste new secret to change"/>
+                            <div class="text-muted mt-1">
+                                <field name="etp_aws_secret_is_set" invisible="1"/>
+                                <span invisible="not etp_aws_secret_is_set" class="text-success">✓ Secret is stored (Fernet-encrypted)</span>
+                                <span invisible="etp_aws_secret_is_set" class="text-warning">⚠ No secret stored yet</span>
+                            </div>
+                        </setting>
+                        <setting string="AWS Region"
+                                 help="Default region for API calls (e.g. us-east-1, us-west-2, ap-south-1).">
+                            <field name="etp_aws_region_name" placeholder="us-east-1"/>
+                        </setting>
+                        <setting string="AWS Pricing Sync"
+                                 help="Sync the full AWS service + item catalog into Odoo. Runs automatically every day at 02:00 UTC.">
+                            <div class="d-flex align-items-center gap-2">
+                                <button name="action_trigger_aws_sync" type="object" string="Sync AWS Pricing Now" class="btn btn-primary"/>
+                            </div>
+                            <div class="text-muted mt-2">
+                                <div>Services synced: <field name="etp_aws_synced_service_count" nolabel="1"/></div>
+                                <div>Last run: <field name="etp_aws_last_sync_summary" nolabel="1"/></div>
+                            </div>
+                        </setting>
+                    </block>
                 </app>
             </xpath>
         </field>

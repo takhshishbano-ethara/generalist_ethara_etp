@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+
+        <record id="view_etp_infra_type_list_aws_ext" model="ir.ui.view">
+            <field name="name">etp.infra.type.list.aws.extension</field>
+            <field name="model">etp.infra.type</field>
+            <field name="inherit_id" ref="etp_projects.view_etp_infra_type_list"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='code']" position="after">
+                    <field name="is_aws_managed" optional="show"/>
+                    <field name="aws_service_code" optional="show"/>
+                    <field name="primary_attr" optional="hide"/>
+                    <field name="item_count" optional="show"/>
+                    <field name="last_synced_at" optional="hide"/>
+                    <field name="sync_enabled" optional="hide"/>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="view_etp_infra_type_form_aws_ext" model="ir.ui.view">
+            <field name="name">etp.infra.type.form.aws.extension</field>
+            <field name="model">etp.infra.type</field>
+            <field name="inherit_id" ref="etp_projects.view_etp_infra_type_form"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='sequence']" position="after">
+                    <field name="is_aws_managed" readonly="1"/>
+                    <field name="aws_service_code" readonly="is_aws_managed"/>
+                    <field name="primary_attr" readonly="is_aws_managed"/>
+                    <field name="sync_enabled"/>
+                    <field name="item_count" readonly="1"/>
+                    <field name="last_synced_at" readonly="1"/>
+                    <field name="attribute_names" invisible="1"/>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="view_etp_infra_type_search_aws_ext" model="ir.ui.view">
+            <field name="name">etp.infra.type.search.aws.extension</field>
+            <field name="model">etp.infra.type</field>
+            <field name="inherit_id" ref="etp_projects.view_etp_infra_type_search"/>
+            <field name="arch" type="xml">
+                <xpath expr="//search" position="inside">
+                    <separator/>
+                    <filter name="filter_aws_managed" string="AWS-Managed"
+                            domain="[('is_aws_managed','=',True)]"/>
+                    <filter name="filter_legacy" string="Legacy (Manual)"
+                            domain="[('is_aws_managed','=',False)]"/>
+                    <filter name="filter_sync_enabled" string="Sync Enabled"
+                            domain="[('sync_enabled','=',True)]"/>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="view_etp_aws_pricing_item_tree" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.item.list</field>
+            <field name="model">etp.aws.pricing.item</field>
+            <field name="arch" type="xml">
+                <list string="AWS Pricing Items">
+                    <field name="service_code"/>
+                    <field name="name"/>
+                    <field name="sku_count"/>
+                    <field name="last_synced_at"/>
+                    <field name="active" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_etp_aws_pricing_item_form" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.item.form</field>
+            <field name="model">etp.aws.pricing.item</field>
+            <field name="arch" type="xml">
+                <form string="AWS Pricing Item">
+                    <sheet>
+                        <group>
+                            <field name="service_code" readonly="1"/>
+                            <field name="infra_type_id" readonly="1"/>
+                            <field name="name" readonly="1"/>
+                            <field name="sku_count" readonly="1"/>
+                            <field name="last_synced_at" readonly="1"/>
+                            <field name="active"/>
+                        </group>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="view_etp_aws_pricing_item_search" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.item.search</field>
+            <field name="model">etp.aws.pricing.item</field>
+            <field name="arch" type="xml">
+                <search string="Search AWS Items">
+                    <field name="name"/>
+                    <field name="service_code"/>
+                    <filter name="filter_archived" string="Archived"
+                            domain="[('active','=',False)]"/>
+                    <group>
+                        <filter name="group_service" string="Service"
+                                context="{'group_by':'service_code'}"/>
+                    </group>
+                </search>
+            </field>
+        </record>
+
+        <record id="action_etp_aws_pricing_item" model="ir.actions.act_window">
+            <field name="name">AWS Pricing Items</field>
+            <field name="res_model">etp.aws.pricing.item</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <record id="view_etp_aws_pricing_sku_tree" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.sku.list</field>
+            <field name="model">etp.aws.pricing.sku</field>
+            <field name="arch" type="xml">
+                <list string="AWS Pricing SKUs" create="false">
+                    <field name="service_code"/>
+                    <field name="item_name"/>
+                    <field name="region_label"/>
+                    <field name="on_demand_usd"/>
+                    <field name="unit"/>
+                    <field name="cache_expiry_at"/>
+                    <field name="active" widget="boolean_toggle"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_etp_aws_pricing_sku_form" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.sku.form</field>
+            <field name="model">etp.aws.pricing.sku</field>
+            <field name="arch" type="xml">
+                <form string="AWS Pricing SKU" create="false">
+                    <sheet>
+                        <group>
+                            <group string="Identity">
+                                <field name="service_code" readonly="1"/>
+                                <field name="item_name" readonly="1"/>
+                                <field name="aws_sku" readonly="1"/>
+                                <field name="region_label" readonly="1"/>
+                            </group>
+                            <group string="Price">
+                                <field name="on_demand_usd" readonly="1"/>
+                                <field name="unit" readonly="1"/>
+                                <field name="price_description" readonly="1"/>
+                                <field name="has_reserved" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="Specs">
+                            <field name="vcpu" readonly="1"/>
+                            <field name="memory" readonly="1"/>
+                            <field name="storage" readonly="1"/>
+                            <field name="network_performance" readonly="1"/>
+                            <field name="operating_system" readonly="1"/>
+                            <field name="tenancy" readonly="1"/>
+                            <field name="instance_family" readonly="1"/>
+                        </group>
+                        <group string="Cache">
+                            <field name="last_synced_at" readonly="1"/>
+                            <field name="cache_expiry_at" readonly="1"/>
+                            <field name="sync_batch_id" readonly="1"/>
+                            <field name="active"/>
+                        </group>
+                        <notebook>
+                            <page string="Attributes JSON">
+                                <field name="attributes_json" readonly="1" widget="text"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_etp_aws_pricing_sku" model="ir.actions.act_window">
+            <field name="name">AWS Pricing SKUs</field>
+            <field name="res_model">etp.aws.pricing.sku</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <record id="view_etp_aws_pricing_sync_log_tree" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.sync.log.list</field>
+            <field name="model">etp.aws.pricing.sync.log</field>
+            <field name="arch" type="xml">
+                <list string="AWS Pricing Sync Log" create="false"
+                      decoration-success="status=='success'"
+                      decoration-danger="status=='failed'"
+                      decoration-warning="status=='partial'"
+                      decoration-info="status=='running'">
+                    <field name="started_at"/>
+                    <field name="triggered_by"/>
+                    <field name="user_id"/>
+                    <field name="status"/>
+                    <field name="services_upserted"/>
+                    <field name="items_upserted"/>
+                    <field name="skus_upserted"/>
+                    <field name="api_call_count"/>
+                    <field name="duration_seconds"/>
+                </list>
+            </field>
+        </record>
+
+        <record id="view_etp_aws_pricing_sync_log_form" model="ir.ui.view">
+            <field name="name">etp.aws.pricing.sync.log.form</field>
+            <field name="model">etp.aws.pricing.sync.log</field>
+            <field name="arch" type="xml">
+                <form string="AWS Pricing Sync Log" create="false" edit="false">
+                    <sheet>
+                        <group>
+                            <group>
+                                <field name="batch_id" readonly="1"/>
+                                <field name="triggered_by" readonly="1"/>
+                                <field name="user_id" readonly="1"/>
+                                <field name="status" readonly="1"/>
+                            </group>
+                            <group>
+                                <field name="started_at" readonly="1"/>
+                                <field name="ended_at" readonly="1"/>
+                                <field name="duration_seconds" readonly="1"/>
+                                <field name="api_call_count" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="Counters">
+                            <group>
+                                <field name="services_fetched" readonly="1"/>
+                                <field name="services_upserted" readonly="1"/>
+                                <field name="items_fetched" readonly="1"/>
+                                <field name="items_upserted" readonly="1"/>
+                            </group>
+                            <group>
+                                <field name="skus_fetched" readonly="1"/>
+                                <field name="skus_upserted" readonly="1"/>
+                                <field name="skus_deprecated" readonly="1"/>
+                            </group>
+                        </group>
+                        <notebook>
+                            <page string="Error">
+                                <field name="error_message" readonly="1"/>
+                            </page>
+                            <page string="Detail Log">
+                                <field name="detail_log" readonly="1" widget="text"/>
+                            </page>
+                        </notebook>
+                    </sheet>
+                </form>
+            </field>
+        </record>
+
+        <record id="action_etp_aws_pricing_sync_log" model="ir.actions.act_window">
+            <field name="name">AWS Pricing Sync Log</field>
+            <field name="res_model">etp.aws.pricing.sync.log</field>
+            <field name="view_mode">list,form</field>
+        </record>
+
+        <menuitem id="menu_etp_aws_pricing_root"
+                  name="AWS Pricing"
+                  parent="etp_projects.menu_etp_project_aws_root"
+                  sequence="50"/>
+
+        <menuitem id="menu_etp_aws_pricing_items"
+                  name="Items"
+                  parent="menu_etp_aws_pricing_root"
+                  action="action_etp_aws_pricing_item"
+                  sequence="10"/>
+
+    </data>
+</odoo>

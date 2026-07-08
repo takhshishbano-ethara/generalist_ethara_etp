@@ -1385,6 +1385,201 @@ class EtpBudgetController(http.Controller):
         )
 
     @http.route(
+        "/api/v1/etp_projects/budget/infra/services",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def aws_pricing_services(self, **params):
+        limit, offset, err = _pagination(params)
+        if err:
+            return err
+        Model = request.env[INFRA_MODEL].sudo()
+        domain = [("is_aws_managed", "=", True), ("active", "=", True)]
+        search = (params.get("search") or "").strip()
+        if search:
+            domain += ["|", ("name", "ilike", search), ("aws_service_code", "ilike", search)]
+        total = Model.search_count(domain)
+        records = Model.search(domain, limit=limit, offset=offset, order="name")
+        items = [
+            {
+                "id": r.id,
+                "service_code": r.aws_service_code or "",
+                "name": r.name,
+                "primary_attr": r.primary_attr or "",
+                "item_count": r.item_count or 0,
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
+            }
+            for r in records
+        ]
+        return return_Response(
+            message="AWS pricing services fetched.", status=200,
+            data={"total": total, "limit": limit, "offset": offset, "services": items},
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/infra/items",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def aws_pricing_items(self, **params):
+        type_id = _coerce_int(params.get("type_id"))
+        service_code = (params.get("service") or "").strip()
+        force_refresh = bool(_coerce_int(params.get("force_refresh"), 0))
+        Infra = request.env[INFRA_MODEL].sudo()
+        infra = None
+        if type_id:
+            infra = Infra.browse(type_id).exists()
+        elif service_code:
+            infra = Infra.search(
+                [("aws_service_code", "=", service_code), ("is_aws_managed", "=", True)],
+                limit=1,
+            )
+        if not infra:
+            return return_Response(message="Service not found.", status=404, data={})
+
+        fetch_meta = {"from_cache": True}
+        if infra.aws_service_code and infra.primary_attr:
+            from odoo.addons.etp_projects.services import aws_pricing_service as _ps
+            try:
+                fetch_meta = _ps.fetch_items_for_service(
+                    request.env, infra, force_refresh=force_refresh
+                )
+                if not fetch_meta.get("from_cache"):
+                    request.env.cr.commit()
+            except Exception as e:
+                return return_Response(
+                    message=f"Items fetch failed: {e}", status=502, data={}
+                )
+
+        Item = request.env["etp.aws.pricing.item"].sudo()
+        domain = [("infra_type_id", "=", infra.id), ("active", "=", True)]
+        search = (params.get("search") or "").strip()
+        if search:
+            domain.append(("name", "ilike", search))
+        total = Item.search_count(domain)
+        # No pagination: capping would silently hide items the user must pick.
+        records = Item.search(domain, order="name")
+        items = [
+            {"id": r.id, "name": r.name, "sku_count": r.sku_count}
+            for r in records
+        ]
+        return return_Response(
+            message="AWS pricing items fetched.", status=200,
+            data={
+                "infra_type_id": infra.id,
+                "service_code": infra.aws_service_code or "",
+                "primary_attr": infra.primary_attr or "",
+                "total": total, "limit": total, "offset": 0,
+                "items": items,
+                "from_cache": fetch_meta.get("from_cache", False),
+            },
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/infra/pricing",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def aws_pricing_detail(self, **params):
+        service_code = (params.get("service") or "").strip()
+        item_name = (params.get("item") or "").strip()
+        region = (params.get("region") or "").strip()
+        force_refresh = bool(_coerce_int(params.get("force_refresh"), 0))
+        if not (service_code and item_name):
+            return return_Response(
+                message="service and item are required.", status=400, data={}
+            )
+        if not region:
+            region = request.env["ir.config_parameter"].sudo().get_param(
+                "aws_pricing.default_region_label", "US East (N. Virginia)"
+            )
+        from odoo.addons.etp_projects.services import aws_pricing_service as _ps
+        try:
+            result = _ps.fetch_pricing_cached(
+                request.env, service_code, item_name, region, force_refresh=force_refresh
+            )
+        except Exception as e:
+            return return_Response(
+                message=f"Pricing fetch failed: {e}", status=502, data={}
+            )
+        if result is None:
+            return return_Response(
+                message="Service or item not found. Ensure sync has run.",
+                status=404, data={},
+            )
+        return return_Response(message="Pricing fetched.", status=200, data=result)
+
+    @http.route(
+        "/api/v1/etp_projects/budget/infra/sync",
+        type="http", auth="none", methods=["POST"], csrf=False, cors="*",
+    )
+    @validate_token
+    def aws_pricing_sync_trigger(self, **params):
+        user = request.env.user
+        if not (user.has_group("base.group_system") or user._is_admin()):
+            return return_Response(
+                message="Admin permission required.", status=403, data={}
+            )
+        from odoo.addons.etp_projects.services import aws_pricing_service as _ps
+        try:
+            log = _ps.action_sync_all(
+                request.env, triggered_by="manual", user_id=user.id
+            )
+            request.env.cr.commit()
+        except Exception as e:
+            return return_Response(
+                message=f"Sync trigger failed: {e}", status=500, data={}
+            )
+        return return_Response(
+            message="Sync started.", status=200,
+            data={
+                "batch_id": log.batch_id,
+                "status": log.status,
+                "started_at": log.started_at.isoformat() if log.started_at else None,
+            },
+        )
+
+    @http.route(
+        "/api/v1/etp_projects/budget/infra/sync/status",
+        type="http", auth="none", methods=["GET"], csrf=False, cors="*",
+    )
+    @validate_token
+    def aws_pricing_sync_status(self, **params):
+        Log = request.env["etp.aws.pricing.sync.log"].sudo()
+        limit = _coerce_int(params.get("limit"), 5) or 5
+        recent = Log.search([], limit=limit, order="started_at desc")
+        last_success = Log.search(
+            [("status", "=", "success")], limit=1, order="ended_at desc"
+        )
+        in_progress = Log.search([("status", "=", "running")], limit=1)
+
+        def _to_dict(r):
+            return {
+                "batch_id": r.batch_id,
+                "triggered_by": r.triggered_by,
+                "status": r.status,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "ended_at": r.ended_at.isoformat() if r.ended_at else None,
+                "duration_seconds": r.duration_seconds,
+                "services_upserted": r.services_upserted,
+                "items_upserted": r.items_upserted,
+                "skus_upserted": r.skus_upserted,
+                "api_call_count": r.api_call_count,
+                "error_message": r.error_message or "",
+            }
+
+        return return_Response(
+            message="Sync status fetched.", status=200,
+            data={
+                "last_success_at": last_success.ended_at.isoformat()
+                if last_success and last_success.ended_at else None,
+                "last_status": last_success.status if last_success else None,
+                "in_progress_batch_id": in_progress.batch_id if in_progress else None,
+                "recent_runs": [_to_dict(r) for r in recent],
+            },
+        )
+
+    @http.route(
         "/api/v1/etp_projects/budget/subscriptions",
         type="http", auth="none", methods=["GET"], csrf=False, cors="*",
     )
