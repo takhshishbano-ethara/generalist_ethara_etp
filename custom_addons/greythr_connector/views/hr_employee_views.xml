@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_hr_employee_form_greythr" model="ir.ui.view">
+        <field name="name">hr.employee.form.greythr</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="greytHR" name="greythr"
+                      groups="greythr_connector.group_greythr_user">
+                    <group>
+                        <field name="greythr_employee_ids" readonly="1">
+                            <list>
+                                <field name="instance_id"/>
+                                <field name="external_employee_id"/>
+                                <field name="department"/>
+                                <field name="designation"/>
+                                <field name="last_sync_at"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Leave Balances">
+                        <field name="greythr_leave_balance_ids" readonly="1" nolabel="1">
+                            <list>
+                                <field name="year"/>
+                                <field name="leave_type_id"/>
+                                <field name="opening_balance"/>
+                                <field name="granted"/>
+                                <field name="availed"/>
+                                <field name="current_balance"/>
+                                <field name="last_sync_at"/>
+                            </list>
+                        </field>
+                    </group>
+                    <group string="Leave Transactions">
+                        <field name="greythr_leave_transaction_ids" readonly="1" nolabel="1">
+                            <list>
+                                <field name="from_date"/>
+                                <field name="to_date"/>
+                                <field name="leave_type_id"/>
+                                <field name="number_of_days"/>
+                                <field name="transaction_type"/>
+                                <field name="status"/>
+                            </list>
+                        </field>
+                    </group>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

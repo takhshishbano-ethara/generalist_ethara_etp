@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_greythr_instance_list" model="ir.ui.view">
+        <field name="name">greythr.instance.list</field>
+        <field name="model">greythr.instance</field>
+        <field name="arch" type="xml">
+            <list string="greytHR Instances">
+                <field name="name"/>
+                <field name="base_url"/>
+                <field name="domain"/>
+                <field name="employee_count"/>
+                <field name="last_employee_sync_at"/>
+                <field name="last_leave_balance_sync_at"/>
+                <field name="last_leave_transaction_sync_at"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_greythr_instance_form" model="ir.ui.view">
+        <field name="name">greythr.instance.form</field>
+        <field name="model">greythr.instance</field>
+        <field name="arch" type="xml">
+            <form string="greytHR Instance">
+                <header>
+                    <button name="action_test_connection" type="object"
+                            string="Test Connection" class="oe_highlight"/>
+                    <button name="action_sync_employees" type="object"
+                            string="Sync Employees" class="btn-primary"/>
+                    <button name="action_sync_leave_types" type="object"
+                            string="Sync Leave Types"/>
+                    <button name="action_sync_leave_balances" type="object"
+                            string="Sync Leave Balances"/>
+                    <button name="action_sync_leave_transactions" type="object"
+                            string="Sync Leave Transactions"/>
+                    <button name="action_sync_leave_requests" type="object"
+                            string="Sync Leave Requests"/>
+                    <button name="action_sync_payroll" type="object"
+                            string="Sync Payroll"
+                            invisible="not enable_payroll_sync"/>
+                    <button name="action_sync_all" type="object"
+                            string="Sync All" class="btn-secondary"/>
+                    <button name="action_debug_balance" type="object"
+                            string="Debug Balance"
+                            groups="greythr_connector.group_greythr_manager"/>
+                </header>
+                <sheet>
+                    <widget name="web_ribbon" title="Archived"
+                            bg_color="text-bg-danger" invisible="active"/>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="name" placeholder="e.g. greytHR Production"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group string="Connection">
+                            <field name="base_url"/>
+                            <field name="domain"/>
+                            <field name="client_id"/>
+                            <field name="client_secret" password="True"/>
+                            <field name="auth_mode"/>
+                            <field name="auth_base_url"/>
+                            <field name="auth_endpoint"/>
+                            <field name="timeout"/>
+                            <field name="page_size"/>
+                            <field name="active" invisible="1"/>
+                        </group>
+                        <group string="Sync Options">
+                            <field name="default_leave_year"/>
+                            <field name="transactions_lookback_days"/>
+                            <field name="push_employee_on_create"/>
+                            <field name="push_leave_on_state_change"/>
+                            <field name="enable_payroll_sync"/>
+                            <field name="default_payroll_year"
+                                   invisible="not enable_payroll_sync"/>
+                            <field name="default_payroll_month"
+                                   invisible="not enable_payroll_sync"/>
+                            <field name="employee_count"/>
+                            <field name="leave_type_count"/>
+                            <field name="leave_balance_count"/>
+                            <field name="leave_transaction_count"/>
+                            <field name="leave_request_count"/>
+                            <field name="payroll_count"
+                                   invisible="not enable_payroll_sync"/>
+                        </group>
+                    </group>
+                    <group string="Token" groups="greythr_connector.group_greythr_manager">
+                        <field name="access_token" readonly="1"/>
+                        <field name="access_token_expiry" readonly="1"/>
+                    </group>
+                    <group>
+                        <group string="Last Employee Sync">
+                            <field name="last_employee_sync_at" readonly="1"/>
+                            <field name="last_employee_sync_count" readonly="1"/>
+                        </group>
+                        <group string="Last Leave Type Sync">
+                            <field name="last_leave_type_sync_at" readonly="1"/>
+                            <field name="last_leave_type_sync_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Last Leave Balance Sync">
+                            <field name="last_leave_balance_sync_at" readonly="1"/>
+                            <field name="last_leave_balance_sync_count" readonly="1"/>
+                        </group>
+                        <group string="Last Leave Transaction Sync">
+                            <field name="last_leave_transaction_sync_at" readonly="1"/>
+                            <field name="last_leave_transaction_sync_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Last Leave Request Sync">
+                            <field name="last_leave_request_sync_at" readonly="1"/>
+                            <field name="last_leave_request_sync_count" readonly="1"/>
+                        </group>
+                        <group string="Last Payroll Sync"
+                               invisible="not enable_payroll_sync">
+                            <field name="last_payroll_sync_at" readonly="1"/>
+                            <field name="last_payroll_sync_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Errors" invisible="not last_employee_sync_error and not last_leave_type_sync_error and not last_leave_balance_sync_error and not last_leave_transaction_sync_error and not last_leave_request_sync_error and not last_payroll_sync_error">
+                        <field name="last_employee_sync_error" readonly="1"
+                               invisible="not last_employee_sync_error"/>
+                        <field name="last_leave_type_sync_error" readonly="1"
+                               invisible="not last_leave_type_sync_error"/>
+                        <field name="last_leave_balance_sync_error" readonly="1"
+                               invisible="not last_leave_balance_sync_error"/>
+                        <field name="last_leave_transaction_sync_error" readonly="1"
+                               invisible="not last_leave_transaction_sync_error"/>
+                        <field name="last_leave_request_sync_error" readonly="1"
+                               invisible="not last_leave_request_sync_error"/>
+                        <field name="last_payroll_sync_error" readonly="1"
+                               invisible="not last_payroll_sync_error"/>
+                    </group>
+                    <notebook>
+                        <page string="Employees" name="employees">
+                            <field name="employee_ids">
+                                <list>
+                                    <field name="external_employee_id"/>
+                                    <field name="name"/>
+                                    <field name="email"/>
+                                    <field name="department"/>
+                                    <field name="designation"/>
+                                    <field name="employee_id"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Leave Types" name="leave_types">
+                            <field name="leave_type_ids">
+                                <list>
+                                    <field name="external_code"/>
+                                    <field name="name"/>
+                                    <field name="holiday_status_id"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Leave Requests" name="leave_requests">
+                            <field name="leave_request_ids">
+                                <list>
+                                    <field name="direction"/>
+                                    <field name="greythr_employee_id"/>
+                                    <field name="leave_type_id"/>
+                                    <field name="from_date"/>
+                                    <field name="to_date"/>
+                                    <field name="number_of_days"/>
+                                    <field name="status" widget="badge"/>
+                                    <field name="push_state" widget="badge"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Payroll" name="payroll"
+                              invisible="not enable_payroll_sync">
+                            <field name="payroll_ids">
+                                <list>
+                                    <field name="greythr_employee_id"/>
+                                    <field name="period_year"/>
+                                    <field name="period_month"/>
+                                    <field name="gross_salary"/>
+                                    <field name="net_salary"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_greythr_instance" model="ir.actions.act_window">
+        <field name="name">greytHR Instances</field>
+        <field name="res_model">greythr.instance</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

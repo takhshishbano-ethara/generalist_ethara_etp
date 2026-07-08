@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem id="menu_greythr_root"
+              name="greytHR"
+              sequence="91"
+              groups="greythr_connector.group_greythr_user"/>
+
+    <menuitem id="menu_greythr_employees"
+              name="Employees"
+              parent="menu_greythr_root"
+              action="action_greythr_employee"
+              sequence="10"/>
+
+    <menuitem id="menu_greythr_leave_balances"
+              name="Leave Balances"
+              parent="menu_greythr_root"
+              action="action_greythr_leave_balance"
+              sequence="20"/>
+
+    <menuitem id="menu_greythr_leave_requests"
+              name="Leave Requests"
+              parent="menu_greythr_root"
+              action="action_greythr_leave_request"
+              sequence="25"/>
+
+    <menuitem id="menu_greythr_leave_transactions"
+              name="Leave Transactions"
+              parent="menu_greythr_root"
+              action="action_greythr_leave_transaction"
+              sequence="30"/>
+
+    <menuitem id="menu_greythr_payroll"
+              name="Payroll"
+              parent="menu_greythr_root"
+              action="action_greythr_payroll"
+              sequence="35"/>
+
+    <menuitem id="menu_greythr_configuration"
+              name="Configuration"
+              parent="menu_greythr_root"
+              sequence="90"
+              groups="greythr_connector.group_greythr_manager"/>
+
+    <menuitem id="menu_greythr_instances"
+              name="Instances"
+              parent="menu_greythr_configuration"
+              action="action_greythr_instance"
+              sequence="10"/>
+
+    <menuitem id="menu_greythr_leave_types"
+              name="Leave Types"
+              parent="menu_greythr_configuration"
+              action="action_greythr_leave_type"
+              sequence="20"/>
+</odoo>

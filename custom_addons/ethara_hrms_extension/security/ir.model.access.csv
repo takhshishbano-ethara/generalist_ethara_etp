@@ -3,4 +3,5 @@ access_hr_job_responsibility,hr.job.responsibility,model_hr_job_responsibility,b
 access_hr_job_benefit,hr.job.benefit,model_hr_job_benefit,base.group_user,1,1,1,1
 access_hr_job_approver,hr.job.approver,model_hr_job_approver,base.group_user,1,1,1,1
 access_ethara_candidate,ethara.candidate,model_ethara_candidate,base.group_user,1,1,1,1
+access_ethara_lead,ethara.lead,model_ethara_lead,base.group_user,1,1,1,1
 access_hr_applicant_job_history,hr.applicant.job.history,model_hr_applicant_job_history,base.group_user,1,1,1,1

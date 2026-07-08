@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_greythr_employee_list" model="ir.ui.view">
+        <field name="name">greythr.employee.list</field>
+        <field name="model">greythr.employee</field>
+        <field name="arch" type="xml">
+            <list string="greytHR Employees">
+                <field name="instance_id"/>
+                <field name="external_employee_id"/>
+                <field name="name"/>
+                <field name="email"/>
+                <field name="department"/>
+                <field name="designation"/>
+                <field name="employee_id"/>
+                <field name="last_sync_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_greythr_employee_form" model="ir.ui.view">
+        <field name="name">greythr.employee.form</field>
+        <field name="model">greythr.employee</field>
+        <field name="arch" type="xml">
+            <form string="greytHR Employee">
+                <header>
+                    <button name="action_push_to_greythr" type="object"
+                            string="Push to greytHR" class="btn-primary"/>
+                    <button name="action_create_hr_employee" type="object"
+                            string="Create Odoo Employee"
+                            invisible="employee_id"/>
+                    <button name="action_link_hr_employee" type="object"
+                            string="Match Odoo Employee"
+                            invisible="employee_id"/>
+                    <button name="action_open_hr_employee" type="object"
+                            string="Open Odoo Employee"
+                            invisible="not employee_id"/>
+                    <button name="action_sync_my_balance" type="object"
+                            string="Fetch Leave Balance" class="oe_highlight"/>
+                    <button name="action_sync_my_transactions" type="object"
+                            string="Fetch Leave Transactions"/>
+                    <button name="action_sync_my_requests" type="object"
+                            string="Fetch Leave Requests"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="instance_id"/>
+                            <field name="external_employee_id"/>
+                            <field name="employee_id"/>
+                            <field name="hr_employee_code"/>
+                        </group>
+                        <group>
+                            <field name="email"/>
+                            <field name="mobile"/>
+                            <field name="department"/>
+                            <field name="designation"/>
+                            <field name="date_of_joining"/>
+                            <field name="employment_status"/>
+                            <field name="last_sync_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Leave Balances" name="balances">
+                            <field name="leave_balance_ids">
+                                <list>
+                                    <field name="year"/>
+                                    <field name="leave_type_id"/>
+                                    <field name="opening_balance"/>
+                                    <field name="granted"/>
+                                    <field name="availed"/>
+                                    <field name="applied"/>
+                                    <field name="lapsed"/>
+                                    <field name="encashed"/>
+                                    <field name="current_balance"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Leave Transactions" name="transactions">
+                            <field name="leave_transaction_ids">
+                                <list>
+                                    <field name="from_date"/>
+                                    <field name="to_date"/>
+                                    <field name="leave_type_id"/>
+                                    <field name="number_of_days"/>
+                                    <field name="transaction_type"/>
+                                    <field name="status"/>
+                                    <field name="last_sync_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Raw Payload" name="raw" groups="greythr_connector.group_greythr_manager">
+                            <field name="raw_payload" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_greythr_employee_search" model="ir.ui.view">
+        <field name="name">greythr.employee.search</field>
+        <field name="model">greythr.employee</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="external_employee_id"/>
+                <field name="email"/>
+                <field name="department"/>
+                <field name="employee_id"/>
+                <filter name="unlinked" string="Not Linked"
+                        domain="[('employee_id', '=', False)]"/>
+                <separator/>
+                <group>
+                    <filter name="group_instance" string="Instance"
+                            context="{'group_by': 'instance_id'}"/>
+                    <filter name="group_department" string="Department"
+                            context="{'group_by': 'department'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_greythr_employee" model="ir.actions.act_window">
+        <field name="name">greytHR Employees</field>
+        <field name="res_model">greythr.employee</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_greythr_leave_balance_list" model="ir.ui.view">
+        <field name="name">greythr.leave.balance.list</field>
+        <field name="model">greythr.leave.balance</field>
+        <field name="arch" type="xml">
+            <list string="greytHR Leave Balances">
+                <field name="year"/>
+                <field name="greythr_employee_id"/>
+                <field name="employee_id"/>
+                <field name="leave_type_id"/>
+                <field name="opening_balance"/>
+                <field name="granted"/>
+                <field name="availed"/>
+                <field name="applied"/>
+                <field name="lapsed"/>
+                <field name="encashed"/>
+                <field name="current_balance" decoration-success="current_balance &gt; 0"/>
+                <field name="last_sync_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_greythr_leave_balance_form" model="ir.ui.view">
+        <field name="name">greythr.leave.balance.form</field>
+        <field name="model">greythr.leave.balance</field>
+        <field name="arch" type="xml">
+            <form string="greytHR Leave Balance">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="greythr_employee_id"/>
+                            <field name="employee_id" readonly="1"/>
+                            <field name="leave_type_id"/>
+                            <field name="holiday_status_id" readonly="1"/>
+                            <field name="year"/>
+                            <field name="last_sync_at" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="opening_balance"/>
+                            <field name="granted"/>
+                            <field name="availed"/>
+                            <field name="applied"/>
+                            <field name="lapsed"/>
+                            <field name="deducted"/>
+                            <field name="encashed"/>
+                            <field name="current_balance"/>
+                        </group>
+                    </group>
+                    <group string="Raw Payload" groups="greythr_connector.group_greythr_manager">
+                        <field name="raw_payload" readonly="1" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_greythr_leave_balance_search" model="ir.ui.view">
+        <field name="name">greythr.leave.balance.search</field>
+        <field name="model">greythr.leave.balance</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="greythr_employee_id"/>
+                <field name="employee_id"/>
+                <field name="leave_type_id"/>
+                <field name="year"/>
+                <separator/>
+                <group>
+                    <filter name="group_year" string="Year"
+                            context="{'group_by': 'year'}"/>
+                    <filter name="group_type" string="Leave Type"
+                            context="{'group_by': 'leave_type_id'}"/>
+                    <filter name="group_employee" string="Employee"
+                            context="{'group_by': 'greythr_employee_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_greythr_leave_balance" model="ir.actions.act_window">
+        <field name="name">greytHR Leave Balances</field>
+        <field name="res_model">greythr.leave.balance</field>
+        <field name="view_mode">list,form</field>
+    </record>
+</odoo>

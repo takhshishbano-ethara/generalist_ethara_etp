@@ -1,0 +1,15 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_greythr_instance_user,greythr.instance.user,model_greythr_instance,group_greythr_user,1,0,0,0
+access_greythr_instance_manager,greythr.instance.manager,model_greythr_instance,group_greythr_manager,1,1,1,1
+access_greythr_employee_user,greythr.employee.user,model_greythr_employee,group_greythr_user,1,0,0,0
+access_greythr_employee_manager,greythr.employee.manager,model_greythr_employee,group_greythr_manager,1,1,1,1
+access_greythr_leave_type_user,greythr.leave.type.user,model_greythr_leave_type,group_greythr_user,1,0,0,0
+access_greythr_leave_type_manager,greythr.leave.type.manager,model_greythr_leave_type,group_greythr_manager,1,1,1,1
+access_greythr_leave_balance_user,greythr.leave.balance.user,model_greythr_leave_balance,group_greythr_user,1,0,0,0
+access_greythr_leave_balance_manager,greythr.leave.balance.manager,model_greythr_leave_balance,group_greythr_manager,1,1,1,1
+access_greythr_leave_transaction_user,greythr.leave.transaction.user,model_greythr_leave_transaction,group_greythr_user,1,0,0,0
+access_greythr_leave_transaction_manager,greythr.leave.transaction.manager,model_greythr_leave_transaction,group_greythr_manager,1,1,1,1
+access_greythr_leave_request_user,greythr.leave.request.user,model_greythr_leave_request,group_greythr_user,1,0,0,0
+access_greythr_leave_request_manager,greythr.leave.request.manager,model_greythr_leave_request,group_greythr_manager,1,1,1,1
+access_greythr_payroll_user,greythr.payroll.user,model_greythr_payroll,group_greythr_user,1,0,0,0
+access_greythr_payroll_manager,greythr.payroll.manager,model_greythr_payroll,group_greythr_manager,1,1,1,1

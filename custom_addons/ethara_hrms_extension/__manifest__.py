@@ -10,6 +10,7 @@
         'views/res_config_settings_views.xml',
         'views/hr_job_views.xml',
         'views/ethara_candidate_views.xml',
+        'views/ethara_lead_views.xml',
         'views/hr_applicant_views.xml',
     ],
     'installable': True,

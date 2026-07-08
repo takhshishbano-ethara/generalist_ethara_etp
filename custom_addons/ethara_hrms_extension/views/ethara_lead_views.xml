@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_ethara_lead_list" model="ir.ui.view">
+        <field name="name">ethara.lead.list</field>
+        <field name="model">ethara.lead</field>
+        <field name="arch" type="xml">
+            <list string="Leads">
+                <field name="first_name"/>
+                <field name="last_name"/>
+                <field name="email"/>
+                <field name="company" optional="show"/>
+                <field name="query_type" optional="show"/>
+                <field name="create_date" string="Submitted" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_ethara_lead_form" model="ir.ui.view">
+        <field name="name">ethara.lead.form</field>
+        <field name="model">ethara.lead</field>
+        <field name="arch" type="xml">
+            <form string="Lead">
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Contact">
+                            <field name="first_name"/>
+                            <field name="last_name"/>
+                            <field name="email"/>
+                            <field name="company"/>
+                        </group>
+                        <group string="Enquiry">
+                            <field name="query_type"/>
+                        </group>
+                    </group>
+                    <group string="Message">
+                        <field name="message" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_ethara_lead_search" model="ir.ui.view">
+        <field name="name">ethara.lead.search</field>
+        <field name="model">ethara.lead</field>
+        <field name="arch" type="xml">
+            <search string="Leads">
+                <field name="first_name"/>
+                <field name="last_name"/>
+                <field name="email"/>
+                <field name="company"/>
+                <field name="query_type"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_ethara_lead" model="ir.actions.act_window">
+        <field name="name">Leads</field>
+        <field name="res_model">ethara.lead</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_ethara_lead_search"/>
+    </record>
+
+    <menuitem id="menu_ethara_lead_root"
+              name="Leads"
+              sequence="91"/>
+
+    <menuitem id="menu_ethara_lead"
+              name="Leads"
+              parent="menu_ethara_lead_root"
+              action="action_ethara_lead"
+              sequence="10"/>
+
+</odoo>

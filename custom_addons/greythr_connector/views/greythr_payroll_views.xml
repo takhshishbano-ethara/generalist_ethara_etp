@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_greythr_payroll_list" model="ir.ui.view">
+        <field name="name">greythr.payroll.list</field>
+        <field name="model">greythr.payroll</field>
+        <field name="arch" type="xml">
+            <list string="greytHR Payroll" default_order="period_year desc, period_month desc">
+                <field name="greythr_employee_id"/>
+                <field name="employee_id" optional="show"/>
+                <field name="period_year"/>
+                <field name="period_month"/>
+                <field name="payslip_date" optional="show"/>
+                <field name="gross_salary" sum="gross_salary"/>
+                <field name="total_earnings" optional="hide" sum="total_earnings"/>
+                <field name="total_deductions" optional="hide" sum="total_deductions"/>
+                <field name="net_salary" sum="net_salary"/>
+                <field name="currency" optional="hide"/>
+                <field name="status" optional="hide"/>
+                <field name="last_sync_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_greythr_payroll_form" model="ir.ui.view">
+        <field name="name">greythr.payroll.form</field>
+        <field name="model">greythr.payroll</field>
+        <field name="arch" type="xml">
+            <form string="greytHR Payroll">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="instance_id"/>
+                            <field name="greythr_employee_id"/>
+                            <field name="employee_id"/>
+                            <field name="external_payslip_id"/>
+                        </group>
+                        <group>
+                            <field name="period_year"/>
+                            <field name="period_month"/>
+                            <field name="payslip_date"/>
+                            <field name="currency"/>
+                            <field name="status"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Earnings">
+                            <field name="gross_salary"/>
+                            <field name="total_earnings"/>
+                            <field name="paid_days"/>
+                        </group>
+                        <group string="Deductions">
+                            <field name="total_deductions"/>
+                            <field name="tax"/>
+                            <field name="lop_days"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="net_salary"/>
+                        <field name="last_sync_at" readonly="1"/>
+                    </group>
+                    <group string="Raw Payload"
+                           groups="greythr_connector.group_greythr_manager"
+                           invisible="not raw_payload">
+                        <field name="raw_payload" nolabel="1" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_greythr_payroll_search" model="ir.ui.view">
+        <field name="name">greythr.payroll.search</field>
+        <field name="model">greythr.payroll</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="greythr_employee_id"/>
+                <field name="employee_id"/>
+                <field name="period_year"/>
+                <field name="period_month"/>
+                <separator/>
+                <group>
+                    <filter name="group_year" string="Year"
+                            context="{'group_by': 'period_year'}"/>
+                    <filter name="group_month" string="Month"
+                            context="{'group_by': 'period_month'}"/>
+                    <filter name="group_employee" string="Employee"
+                            context="{'group_by': 'greythr_employee_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_greythr_payroll" model="ir.actions.act_window">
+        <field name="name">greytHR Payroll</field>
+        <field name="res_model">greythr.payroll</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_greythr_payroll_search"/>
+    </record>
+</odoo>
