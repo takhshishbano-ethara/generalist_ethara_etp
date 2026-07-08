@@ -289,53 +289,6 @@ def action_sync_all(env, triggered_by="cron", user_id=None):
 
         env.cr.commit()
 
-        infra_rows = Infra.search(
-            [
-                ("is_aws_managed", "=", True),
-                ("sync_enabled", "=", True),
-                ("aws_service_code", "!=", False),
-                ("primary_attr", "!=", False),
-            ]
-        )
-        for infra in infra_rows:
-            code = infra.aws_service_code
-            prim = infra.primary_attr
-            try:
-                names, calls = list_items(env, code, prim)
-                api_calls += calls
-                items_fetched += len(names)
-                existing_items = Item.search([("infra_type_id", "=", infra.id)])
-                existing_by_name = {r.name: r for r in existing_items}
-                seen = set()
-                now = datetime.utcnow()
-                for nm in names:
-                    seen.add(nm)
-                    if nm in existing_by_name:
-                        existing_by_name[nm].write(
-                            {"active": True, "last_synced_at": now}
-                        )
-                    else:
-                        Item.create(
-                            {
-                                "infra_type_id": infra.id,
-                                "name": nm,
-                                "active": True,
-                                "last_synced_at": now,
-                            }
-                        )
-                        items_upserted += 1
-                to_deactivate = [
-                    r.id for r in existing_items if r.name not in seen and r.active
-                ]
-                if to_deactivate:
-                    Item.browse(to_deactivate).write({"active": False})
-                infra.write({"item_count": len(names), "last_synced_at": now})
-                env.cr.commit()
-            except Exception as e:
-                detail_lines.append(f"ITEMS-ERR {code}: {e}")
-                _logger.warning("AWS Pricing sync: items for %s failed: %s", code, e)
-                env.cr.rollback()
-
         log.write(
             {
                 "ended_at": datetime.utcnow(),
