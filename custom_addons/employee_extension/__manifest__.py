@@ -28,6 +28,7 @@ This module extends the hr.employee functionality with:
         "security/ir.model.access.csv",
         "data/onboarding_email_template.xml",
         "data/otp_email_template.xml",
+        "data/change_password_otp_email_template.xml",
         "views/hr_applicant_views.xml",
         "views/allocation_request_views.xml",
         "views/assignment_history_views.xml",
