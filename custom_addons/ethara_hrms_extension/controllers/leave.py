@@ -82,6 +82,56 @@ class EtharaGreythrLeaveController(http.Controller):
             _logger.exception('list_greythr_leaves failed')
             return return_Response(message=str(exc), status=400)
 
+    @http.route('/api/v1/greythr/employee/<int:employee_id>/buckets',
+                methods=['GET'], type='http', auth='none', csrf=False, cors='*')
+    @validate_token
+    def greythr_employee_buckets(self, employee_id, **params):
+        try:
+            env = request.env
+            employee = env['hr.employee'].sudo().browse(employee_id)
+            if not employee.exists():
+                return return_Response(message="Employee not found.", status=404)
+
+            balances = env['greythr.leave.balance'].sudo().search(
+                [('employee_id', '=', employee.id)],
+                order='year desc, id desc',
+            )
+
+            seen_leave_type_ids = set()
+            buckets = []
+            for bal in balances:
+                lt = bal.leave_type_id
+                if not lt or lt.id in seen_leave_type_ids:
+                    continue
+                seen_leave_type_ids.add(lt.id)
+
+                allocated = (bal.opening_balance or 0.0) + (bal.granted or 0.0)
+                remaining = bal.current_balance or 0.0
+                taken = allocated - remaining
+
+                hr_type = bal.holiday_status_id
+                buckets.append({
+                    'leave_type_id': hr_type.id if hr_type else lt.id,
+                    'leave_type': lt.name or '',
+                    'code': lt.external_code or '',
+                    'allocated': allocated,
+                    'taken': taken,
+                    'remaining': remaining,
+                    'color': hr_type.color if hr_type else 0,
+                })
+
+            return return_Response(message="Success", data={'data': {
+                'employee': {
+                    'id': employee.id,
+                    'name': employee.name,
+                    'email': employee.work_email or '',
+                },
+                'buckets': buckets,
+            }})
+        except Exception as exc:
+            _logger.exception('greythr_employee_buckets failed')
+            return return_Response(message=str(exc), status=400)
+
     def _format_greythr_leave(self, rec):
         emp = rec.employee_id
         user = emp.user_id if emp else False

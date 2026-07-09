@@ -112,25 +112,6 @@ def _serialize_document(doc):
     }
 
 
-def _serialize_leave_balance(bal):
-    return {
-        'id': safe_get_value(bal, 'id', 'int'),
-        'leave_type_id': safe_get_value(bal, 'leave_type_id.id', 'int'),
-        'leave_type_name': safe_get_value(bal, 'leave_type_id.name', 'str'),
-        'holiday_status_id': safe_get_value(bal, 'holiday_status_id.id', 'int'),
-        'holiday_status_name': safe_get_value(bal, 'holiday_status_id.name', 'str'),
-        'year': safe_get_value(bal, 'year', 'int'),
-        'opening_balance': safe_get_value(bal, 'opening_balance', 'float'),
-        'granted': safe_get_value(bal, 'granted', 'float'),
-        'availed': safe_get_value(bal, 'availed', 'float'),
-        'applied': safe_get_value(bal, 'applied', 'float'),
-        'lapsed': safe_get_value(bal, 'lapsed', 'float'),
-        'deducted': safe_get_value(bal, 'deducted', 'float'),
-        'encashed': safe_get_value(bal, 'encashed', 'float'),
-        'current_balance': safe_get_value(bal, 'current_balance', 'float'),
-    }
-
-
 def _build_onboarding_checklist(emp, uploaded_doc_types):
     basic_profile_completed = _all_filled(emp, BASIC_PROFILE_FIELDS)
     employee_detail_form_submitted = _all_filled(emp, DETAIL_FORM_FIELDS)
@@ -190,9 +171,27 @@ class EtharaEmployeeDashboardController(http.Controller):
             ])
             uploaded_doc_types = set(documents.mapped('document_type'))
 
-            leave_balances = request.env['greythr.leave.balance'].sudo().search([
-                ('employee_id', '=', emp.id),
-            ])
+            leave_types = request.env['greythr.leave.type'].sudo().search([])
+
+            existing_balances = request.env['greythr.leave.balance'].sudo().search(
+                [
+                    ('employee_id', '=', emp.id),
+                    ('leave_type_id', 'in', leave_types.ids),
+                ],
+                order='year desc, id desc',
+            )
+            balance_by_type = {}
+            for bal in existing_balances:
+                type_id = bal.leave_type_id.id if bal.leave_type_id else None
+                if type_id and type_id not in balance_by_type:
+                    balance_by_type[type_id] = bal
+
+            leave_balance_records = {}
+            for lt in leave_types:
+                bal = balance_by_type.get(lt.id)
+                leave_balance_records[lt.name] = (
+                    safe_get_value(bal, 'current_balance', 'float') if bal else 0.0
+                )
 
             onboarding_completed = bool(
                 'onboarding_completed' in emp._fields and emp.onboarding_completed
@@ -212,7 +211,7 @@ class EtharaEmployeeDashboardController(http.Controller):
                 'attendance_status': _today_attendance_status(emp),
                 'onboarding_status': 'on-boarded' if onboarding_completed else 'Action needed',
                 'contract_status': 'Draft',
-                'leave_balance': [_serialize_leave_balance(b) for b in leave_balances],
+                'leave_balance': leave_balance_records,
                 'document_uploaded_count': '%d/%d' % (uploaded_count, TOTAL_DOCUMENT_TYPES),
                 'compliance_status': 'Not Assigned',
                 'referral_count': 0,
