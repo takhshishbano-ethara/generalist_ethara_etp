@@ -713,6 +713,123 @@ class EsslPullApiController(http.Controller):
             "duration_ms": int((time.monotonic() - started_at) * 1000),
         })
 
+    @http.route(
+        "/essl/api/attendance/list",
+        type="http",
+        auth="public",
+        methods=["GET"],
+        csrf=False,
+    )
+    def list_attendance(self, token=None, **kwargs):
+        if not self._is_token_valid(token):
+            return self._json_response(
+                {"status": "error", "message": "Invalid or missing token"}, 401
+            )
+
+        try:
+            page = max(1, int(kwargs.get("page") or 1))
+        except (TypeError, ValueError):
+            page = 1
+        try:
+            limit = int(kwargs.get("limit") or 25)
+        except (TypeError, ValueError):
+            limit = 25
+        limit = max(1, min(200, limit))
+
+        now_ist = datetime.now(_IST).replace(tzinfo=None)
+        today_start_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        def _parse_day(value, default):
+            if not value:
+                return default
+            try:
+                return datetime.strptime(value, "%Y-%m-%d")
+            except (TypeError, ValueError):
+                return default
+
+        from_ist = _parse_day(kwargs.get("from"), today_start_ist.replace(day=1))
+        to_ist = _parse_day(kwargs.get("to"), today_start_ist) + timedelta(days=1)
+        if to_ist <= from_ist:
+            return self._json_response(
+                {"status": "error", "message": "'to' must be on or after 'from'"},
+                422,
+            )
+        date_from_utc = _ist_to_utc(from_ist)
+        date_to_utc = _ist_to_utc(to_ist)
+
+        domain = [
+            ("check_in", ">=", date_from_utc),
+            ("check_in", "<", date_to_utc),
+        ]
+
+        employee_id_raw = kwargs.get("employee_id") or kwargs.get("employeeId")
+        if employee_id_raw:
+            try:
+                domain.append(("employee_id", "=", int(employee_id_raw)))
+            except (TypeError, ValueError):
+                pass
+
+        department = (kwargs.get("department") or "").strip()
+        if department:
+            domain.append(("employee_id.department_id.name", "ilike", department))
+
+        status_filter = (kwargs.get("status") or "").strip().lower()
+        if status_filter:
+            domain.append(("attendance_status", "=", status_filter))
+
+        search = (kwargs.get("search") or "").strip()
+        if search:
+            domain += [
+                "|", "|",
+                ("employee_id.name", "ilike", search),
+                ("employee_id.employee_code", "ilike", search),
+                ("employee_id.department_id.name", "ilike", search),
+            ]
+
+        Attendance = request.env["hr.attendance"].sudo()
+        total = Attendance.search_count(domain)
+        records = Attendance.search(
+            domain,
+            order="check_in desc",
+            offset=(page - 1) * limit,
+            limit=limit,
+        )
+
+        data = []
+        for att in records:
+            emp = att.employee_id
+            check_in_ist = _utc_to_ist(att.check_in) if att.check_in else None
+            data.append({
+                "id": att.id,
+                "employeeId": emp.id if emp else False,
+                "employeeName": (emp.name or "") if emp else "",
+                "employeeCode": (emp.employee_code or "") if emp else "",
+                "department": emp.department_id.name if emp and emp.department_id else "",
+                "jobTitle": (emp.job_title or "") if emp else "",
+                "attendanceDate": check_in_ist.strftime("%Y-%m-%d") if check_in_ist else "",
+                "checkIn": self._format_dt(att.check_in),
+                "checkOut": self._format_dt(att.check_out) if att.check_out else "",
+                "workedHours": round(att.worked_hours, 2) if att.worked_hours else 0.0,
+                "status": att.attendance_status or "",
+                "checkInLocation": att.in_location or "",
+                "checkOutLocation": att.out_location or "",
+                "geoLocation": att.geo_location or "",
+            })
+
+        return self._json_response({
+            "status": "ok",
+            "data": data,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "totalPages": (total + limit - 1) // limit if limit else 1,
+            "range": {
+                "from": from_ist.strftime("%Y-%m-%d"),
+                "to": (to_ist - timedelta(days=1)).strftime("%Y-%m-%d"),
+                "timezone": "IST (Asia/Kolkata)",
+            },
+        })
+
     def _is_token_valid(self, supplied_token):
         if not supplied_token:
             auth_header = request.httprequest.headers.get("Authorization", "")
