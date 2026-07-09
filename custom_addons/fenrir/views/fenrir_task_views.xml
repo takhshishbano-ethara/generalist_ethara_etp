@@ -104,6 +104,7 @@
                                    readonly="not is_fenrir_manager"/>
                             <!-- <field name="pricing" widget="float"/> -->
                             <field name="price_tier"/>
+                            <field name="fenrir_delivery_time"/>
                             <field name="delivery_time"/>
                             <field name="order_accepted_date"/>
                             <field name="prd_link" widget="url" readonly="1"

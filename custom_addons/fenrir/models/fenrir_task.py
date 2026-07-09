@@ -644,6 +644,7 @@ class FenrirTask(models.Model):
         tracking=True,
     )
     # price_tier = fields.Char(string="Price Tier")
+    fenrir_delivery_time = fields.Integer(string="Delivery Time (Days)", tracking=True)
     delivery_time = fields.Date(string="Expected Delivery Date", tracking=True)
     order_accepted_date = fields.Date(string="Order Accepted Date", tracking=True)
 
@@ -792,7 +793,7 @@ class FenrirTask(models.Model):
         headers = [
             "Sr. No.", "Task ID", "Categories", "Title", "Overview",
             "Scope of work", "Company details", "Assets (PRD)",
-            "Price Tier", "Delivery time", "Seller", "Seller Profile",
+            "Price Tier", "Delivery time (Days)", "Seller", "Seller Profile",
             "Received Custom Offer", "Offer Cost", "Conversation",
             "Order Placed Date", "Order Received Date", "Accepted Deliver",
             "Instructions.md", "Data (media)",
@@ -1011,12 +1012,7 @@ class FenrirTask(models.Model):
             prd = prd_url or task.assets_filename or ""
             _put_task_cell(r0, r1, 7, prd, url=bool(prd_url))
             _put_task_cell(r0, r1, 8, task.price_tier)
-            if task.delivery_time:
-                if r1 > r0:
-                    ws.merge_range(r0, 9, r1, 9, "", date_fmt)
-                ws.write_datetime(r0, 9, task.delivery_time, date_fmt)
-            else:
-                _put_task_cell(r0, r1, 9, "")
+            _put_task_cell(r0, r1, 9, task.fenrir_delivery_time)
             instr_url = _drive_url_for(task,
                                        "instruction.md",
                                        "Instruction.md",
