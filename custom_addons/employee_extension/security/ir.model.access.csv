@@ -13,3 +13,4 @@ access_employee_import_wizard_user,employee.import.wizard.user,model_employee_im
 access_employee_import_wizard_manager,employee.import.wizard.manager,model_employee_import_wizard,hr.group_hr_manager,1,1,1,1
 access_employee_import_line_user,employee.import.line.user,model_employee_import_line,hr.group_hr_user,1,1,1,1
 access_employee_import_line_manager,employee.import.line.manager,model_employee_import_line,hr.group_hr_manager,1,1,1,1
+access_employee_registration_otp_system,employee.registration.otp.system,model_employee_registration_otp,base.group_system,1,1,1,1

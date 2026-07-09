@@ -851,3 +851,116 @@ approved / rejected --> draft (via reset)
 | 400 | Bad request / Validation error |
 | 403 | Insufficient permissions |
 | 404 | Resource not found |
+
+---
+
+## Self-Registration (Public, OTP-gated)
+
+These endpoints are **public** (`auth='public'`, no token) and power the
+employee/candidate self sign-up screen. Registration is a **two-step** flow:
+
+```
+1. POST /api/v2/employees/send_otp      -> emails a 6-digit code
+2. POST /api/v2/employees/self_register -> submit details + the code
+```
+
+The code is verified against the **login email** of the account being created:
+- **employee** -> the `@ethara.ai` **work email**
+- **candidate** -> the **personal email**
+
+> Policy: 6-digit code, valid **10 minutes**, max **5** verify attempts, **60s**
+> resend cooldown. Requesting a new code invalidates the previous one. Expired
+> codes are purged daily by the `Registration OTP: Purge Expired Codes` cron.
+
+---
+
+### S1. Send Registration OTP
+
+**`POST /api/v2/employees/send_otp`**
+
+Generates a one-time code, stores `(email, code, expiry)`, and emails the code
+to `email`. Send this to the same address you will register with.
+
+#### Request Body
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `email` | email | Yes | Employee: `@ethara.ai` work email. Candidate: personal email. |
+
+#### cURL
+
+```bash
+curl -X POST 'YOUR_BASE_URL/api/v2/employees/send_otp' \
+  -H 'Content-Type: application/json' \
+  -d '{ "email": "john.doe@ethara.ai" }'
+```
+
+#### Success Response (200)
+
+```json
+{
+  "message": "A verification code has been sent to john.doe@ethara.ai. It is valid for 10 minutes.",
+  "email": "john.doe@ethara.ai",
+  "expires_in_seconds": 600,
+  "status_code": 200
+}
+```
+
+#### Error Responses
+
+| Status | Condition |
+|---|---|
+| 400 | `email` missing or not a valid email |
+| 429 | Resend requested before the 60-second cooldown elapsed |
+| 502 | Email could not be delivered (check SMTP / the address) |
+
+---
+
+### S2. Self-Register (with OTP)
+
+**`POST /api/v2/employees/self_register`**
+
+Creates the employee/candidate account **only if** the supplied `otp` matches
+the code sent to that account's login email. All previously-required fields are
+unchanged; the single new field is **`otp`**.
+
+#### New / Relevant Fields
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `type` | string | Yes | `employee` or `candidate` |
+| `otp` | string | Yes | 6-digit code from `send_otp` |
+| `work_email` | email | employee | Code is verified against this for `type=employee` |
+| `personal_email` | email | candidate | Code is verified against this for `type=candidate` |
+| ... | | | (all other existing registration fields) |
+
+#### cURL (employee, abridged)
+
+```bash
+curl -X POST 'YOUR_BASE_URL/api/v2/employees/self_register' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type": "employee",
+    "otp": "482913",
+    "name": "John Doe",
+    "work_email": "john.doe@ethara.ai",
+    "personal_email": "john@gmail.com",
+    "password": "Secret123",
+    "confirm_password": "Secret123",
+    "...": "gender, phone, department_id, designation_id, aadhaar_number, birthday, aadhaar_file_base64, ..."
+  }'
+```
+
+#### OTP-related Error Responses (400)
+
+| Message | Condition |
+|---|---|
+| `OTP is required. Please verify your email first.` | `otp` missing |
+| `No OTP found for this email. Please request a new one.` | No code was sent (or it was purged) |
+| `Invalid OTP. N attempt(s) remaining.` | Wrong code |
+| `Too many incorrect attempts. Please request a new OTP.` | > 5 wrong tries |
+| `OTP has expired. Please request a new one.` | Code older than 10 minutes |
+
+> A successful OTP check does **not** consume the code — if a later step fails
+> (Aadhaar mismatch, duplicate account, ...) you can resubmit with the same code
+> while it is still valid.

@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <record id="email_template_registration_otp" model="mail.template">
+            <field name="name">Self-Registration - Email OTP</field>
+            <field name="model_id" ref="model_employee_registration_otp"/>
+            <field name="email_from">{{ ctx.get('email_from') or 'noreply@ethara.ai' }}</field>
+            <field name="email_to">{{ object.email }}</field>
+            <field name="subject">{{ object.otp_code }} is your Ethara.ai verification code</field>
+            <field name="body_html" type="html">
+                <div style="margin: 0; padding: 0; background-color: #eef2f9;">
+                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #eef2f9; padding: 32px 12px;">
+                        <tr>
+                            <td align="center">
+                                <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%; background-color: #ffffff; border-radius: 14px; overflow: hidden; box-shadow: 0 8px 28px rgba(16, 42, 94, 0.12); font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+
+                                    <!-- Brand header -->
+                                    <tr>
+                                        <td style="background: linear-gradient(135deg, #0b63f6 0%, #0a4fd0 55%, #002b8f 100%); padding: 36px 40px; text-align: center;">
+                                            <div style="font-size: 26px; font-weight: 700; letter-spacing: 0.5px; color: #ffffff;">
+                                                Ethara<span style="color: #8ec5ff;">.ai</span>
+                                            </div>
+                                            <div style="margin-top: 6px; font-size: 13px; color: #cfe0ff; letter-spacing: 1.5px; text-transform: uppercase;">
+                                                Email Verification
+                                            </div>
+                                        </td>
+                                    </tr>
+
+                                    <!-- Body -->
+                                    <tr>
+                                        <td style="padding: 40px 40px 8px 40px;">
+                                            <h1 style="margin: 0 0 14px 0; font-size: 22px; color: #101a34;">Verify your email address</h1>
+                                            <p style="margin: 0 0 26px 0; font-size: 15px; line-height: 1.6; color: #4a5568;">
+                                                Welcome to <strong>Ethara.ai</strong>. Use the one-time code below to confirm your
+                                                email and continue your registration. Please do not share this code with anyone.
+                                            </p>
+
+                                            <!-- Code -->
+                                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                                                <tr>
+                                                    <td align="center">
+                                                        <div style="display: inline-block; background-color: #f2f6ff; border: 1px solid #d3e0ff; border-radius: 12px; padding: 22px 34px;">
+                                                            <div style="font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #6b7a99; margin-bottom: 10px;">Your verification code</div>
+                                                            <div style="font-size: 40px; font-weight: 700; letter-spacing: 12px; color: #0a4fd0; font-family: 'Courier New', monospace; padding-left: 12px;">
+                                                                <t t-out="object.otp_code">000000</t>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </table>
+
+                                            <p style="margin: 26px 0 0 0; font-size: 14px; line-height: 1.6; color: #4a5568; text-align: center;">
+                                                This code is valid for
+                                                <strong><t t-out="ctx.get('ttl_minutes', 10)">10</t> minutes</strong>.
+                                            </p>
+                                        </td>
+                                    </tr>
+
+                                    <!-- Security note -->
+                                    <tr>
+                                        <td style="padding: 26px 40px 8px 40px;">
+                                            <div style="background-color: #fff8e6; border: 1px solid #ffe08a; border-radius: 10px; padding: 14px 18px;">
+                                                <p style="margin: 0; font-size: 13px; line-height: 1.6; color: #8a6d1a;">
+                                                    <strong>Didn't request this?</strong> You can safely ignore this email &#8212;
+                                                    no account will be created without this code.
+                                                </p>
+                                            </div>
+                                        </td>
+                                    </tr>
+
+                                    <!-- Footer -->
+                                    <tr>
+                                        <td style="padding: 28px 40px 34px 40px; text-align: center;">
+                                            <hr style="border: none; border-top: 1px solid #e6ebf3; margin: 0 0 18px 0;"/>
+                                            <p style="margin: 0; font-size: 12px; color: #9aa5b8;">
+                                                This is an automated message from the Ethara.ai platform. Please do not reply.
+                                            </p>
+                                            <p style="margin: 8px 0 0 0; font-size: 12px; color: #c2cad8;">
+                                                &#169; Ethara.ai &#8212; ETP Team
+                                            </p>
+                                        </td>
+                                    </tr>
+
+                                </table>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+            </field>
+            <field name="auto_delete" eval="False"/>
+        </record>
+
+    </data>
+
+    <data>
+
+        <record id="ir_cron_gc_registration_otp" model="ir.cron">
+            <field name="name">Registration OTP: Purge Expired Codes</field>
+            <field name="model_id" ref="model_employee_registration_otp"/>
+            <field name="state">code</field>
+            <field name="code">model._gc_expired_otps()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+        </record>
+
+    </data>
+</odoo>

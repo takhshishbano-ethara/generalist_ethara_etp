@@ -20,6 +20,7 @@ from odoo.addons.employee_extension.services.aadhaar_extractor import (
     mask_aadhaar,
     verify_against_input,
 )
+from odoo.addons.employee_extension.models.registration_otp import OTP_TTL_MINUTES
 
 _logger = logging.getLogger(__name__)
 
@@ -37,6 +38,28 @@ def _ext_of(filename):
     if not filename or '.' not in filename:
         return ''
     return filename.rsplit('.', 1)[-1].lower()
+
+
+def _otp_fallback_html(code, ttl_minutes):
+    # Inline body used only if the mail.template record is unavailable
+    # (e.g. module data not yet upgraded). The templated version is preferred.
+    return (
+        '<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 24px;">'
+        '<h2 style="color: #0a4fd0; margin: 0 0 8px 0;">Ethara.ai</h2>'
+        '<h3 style="color: #101a34; margin: 0 0 16px 0;">Verify your email address</h3>'
+        '<p style="color: #4a5568; font-size: 15px;">Use the one-time code below to continue your '
+        'registration. Please do not share it with anyone.</p>'
+        '<div style="text-align: center; margin: 24px 0;">'
+        '<span style="display: inline-block; background: #f2f6ff; border: 1px solid #d3e0ff; '
+        'border-radius: 10px; padding: 16px 28px; font-size: 34px; font-weight: 700; '
+        'letter-spacing: 10px; color: #0a4fd0; font-family: monospace;">%s</span></div>'
+        '<p style="color: #4a5568; font-size: 14px; text-align: center;">This code is valid for '
+        '<strong>%s minutes</strong>.</p>'
+        '<hr style="border: none; border-top: 1px solid #e6ebf3; margin: 20px 0;"/>'
+        '<p style="color: #9aa5b8; font-size: 12px; text-align: center;">If you did not request this, '
+        'please ignore this email. &copy; Ethara.ai</p>'
+        '</div>'
+    ) % (code, ttl_minutes)
 
 
 class _AbortRegistration(Exception):
@@ -88,6 +111,60 @@ class EmployeeSelfRegistrationController(http.Controller):
         except (binascii.Error, ValueError):
             return None, self._safe_response(f"{field_label} is not valid base64", status=400)
 
+    def _send_otp_email(self, admin_env, otp_rec):
+        """Deliver the verification code to ``otp_rec.email``.
+
+        Returns ``True`` only when the SMTP server accepts the message, so the
+        caller can surface a real failure instead of pretending the code was
+        sent. Uses the branded mail.template and falls back to an inline body
+        if that record is missing.
+        """
+        try:
+            email_from = admin_env['ir.config_parameter'].sudo().get_param(
+                'mail.catchall.email') or 'noreply@ethara.ai'
+            template = admin_env.ref(
+                'employee_extension.email_template_registration_otp',
+                raise_if_not_found=False,
+            )
+            if template:
+                mail_id = template.sudo().with_context(
+                    ttl_minutes=OTP_TTL_MINUTES,
+                    email_from=email_from,
+                ).send_mail(
+                    otp_rec.id,
+                    force_send=False,
+                    email_values={
+                        'email_from': email_from,
+                        'email_to': otp_rec.email,
+                        'recipient_ids': [(5, 0, 0)],
+                        'auto_delete': False,
+                    },
+                )
+            else:
+                _logger.warning("OTP mail.template missing; using inline fallback")
+                mail = admin_env['mail.mail'].sudo().create({
+                    'subject': f'{otp_rec.otp_code} is your Ethara.ai verification code',
+                    'email_from': email_from,
+                    'email_to': otp_rec.email,
+                    'body_html': _otp_fallback_html(otp_rec.otp_code, OTP_TTL_MINUTES),
+                    'auto_delete': False,
+                })
+                mail_id = mail.id
+
+            mail_rec = admin_env['mail.mail'].sudo().browse(mail_id)
+            mail_rec.send(raise_exception=False)
+            if mail_rec.state != 'sent':
+                _logger.error(
+                    "OTP email to %s not sent (state=%s reason=%s)",
+                    otp_rec.email, mail_rec.state,
+                    (mail_rec.failure_reason or 'unknown')[:200],
+                )
+                return False
+            return True
+        except Exception:
+            _logger.exception("Failed to send OTP email to %s", otp_rec.email)
+            return False
+
     def _process_employee(
         self, data,
         aadhaar_bytes, aadhaar_filename,
@@ -103,6 +180,7 @@ class EmployeeSelfRegistrationController(http.Controller):
         birthday_raw = (data.get('birthday') or '').strip()
         password = data.get('password') or ''
         confirm_password = data.get('confirm_password') or ''
+        otp_code = (data.get('otp') or '').strip()
 
         try:
             department_id = int(data.get('department_id') or 0)
@@ -134,6 +212,8 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Password must be at least 8 characters with 1 uppercase and 1 number")
         if password != confirm_password:
             errors.append("Passwords do not match")
+        if not otp_code:
+            errors.append("OTP is required. Please verify your email first.")
 
         birthday_value = False
         if not birthday_raw:
@@ -162,6 +242,12 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         if errors:
             return return_Response(message=errors[0], status=400, errors=errors)
+
+        otp_ok, otp_msg = request.env(user=SUPERUSER_ID)['employee.registration.otp'].verify_for_email(
+            work_email, otp_code,
+        )
+        if not otp_ok:
+            return return_Response(message=otp_msg, status=400)
 
         extracted = extract_aadhaar(aadhaar_bytes, aadhaar_filename)
         if extracted.get('error'):
@@ -330,6 +416,7 @@ class EmployeeSelfRegistrationController(http.Controller):
         password = data.get('password') or ''
         confirm_password = data.get('confirm_password') or ''
         experience = (data.get('experience') or 'fresher').strip().lower()
+        otp_code = (data.get('otp') or '').strip()
 
         try:
             experience_years = float(data.get('experience_years') or 0)
@@ -356,6 +443,8 @@ class EmployeeSelfRegistrationController(http.Controller):
             errors.append("Password must be at least 8 characters with 1 uppercase and 1 number")
         if password != confirm_password:
             errors.append("Passwords do not match")
+        if not otp_code:
+            errors.append("OTP is required. Please verify your email first.")
         if experience not in EXPERIENCE_VALUES:
             errors.append("Experience must be 'fresher' or 'experienced'")
         if experience == 'experienced' and experience_years <= 0:
@@ -390,6 +479,12 @@ class EmployeeSelfRegistrationController(http.Controller):
 
         if errors:
             return return_Response(message=errors[0], status=400, errors=errors)
+
+        otp_ok, otp_msg = request.env(user=SUPERUSER_ID)['employee.registration.otp'].verify_for_email(
+            personal_email, otp_code,
+        )
+        if not otp_ok:
+            return return_Response(message=otp_msg, status=400)
 
         extracted = extract_aadhaar(aadhaar_bytes, aadhaar_filename)
         if extracted.get('error'):
@@ -855,6 +950,55 @@ class EmployeeSelfRegistrationController(http.Controller):
             )
         except Exception as e:
             _logger.exception("verify_aadhaar failed")
+            return self._safe_response(str(e) or "Internal error", status=500)
+
+    @http.route(
+        '/api/v2/employees/send_otp',
+        methods=['POST'], type='http', auth='public', csrf=False, cors='*',
+    )
+    def send_registration_otp(self, **kwargs):
+        """Issue and email a one-time verification code.
+
+        Step 1 of the two-step self-registration flow. The caller sends the
+        email they intend to register with (an employee's ``@ethara.ai`` work
+        email, or a candidate's personal email); the same email + code is
+        stored so :meth:`self_register` can verify it later.
+        """
+        try:
+            data, err_resp = self._read_json_body(kwargs)
+            if err_resp is not None:
+                return err_resp
+
+            email = (data.get('email') or '').strip().lower()
+            if not is_valid_email(email):
+                return self._safe_response("A valid email is required", status=400)
+
+            admin_env = request.env(user=SUPERUSER_ID)
+            otp_rec, gen_err = admin_env['employee.registration.otp'].generate_for_email(email)
+            if gen_err:
+                status = 429 if 'wait' in gen_err.lower() else 400
+                return self._safe_response(gen_err, status=status)
+
+            if not self._send_otp_email(admin_env, otp_rec):
+                # Keep the stored OTP row (do NOT unlink) so verification can
+                # still find it even when delivery failed.
+                return self._safe_response(
+                    "Could not send the verification email. Please check the "
+                    "address and try again.",
+                    status=502,
+                )
+
+            return return_Response(
+                message=f"A verification code has been sent to {email}. "
+                        f"It is valid for {OTP_TTL_MINUTES} minutes.",
+                status=200,
+                data={'data': {
+                    'email': email,
+                    'expires_in_seconds': OTP_TTL_MINUTES * 60,
+                }},
+            )
+        except Exception as e:
+            _logger.exception("send_registration_otp failed")
             return self._safe_response(str(e) or "Internal error", status=500)
 
     @http.route(
