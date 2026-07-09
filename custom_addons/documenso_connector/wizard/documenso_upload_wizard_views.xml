@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_upload_wizard_form" model="ir.ui.view">
+        <field name="name">documenso.upload.wizard.form</field>
+        <field name="model">documenso.upload.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Upload to Documenso">
+                <group>
+                    <field name="title"/>
+                    <field name="filename"/>
+                    <field name="file_data" filename="filename"/>
+                    <field name="send_immediately"/>
+                </group>
+                <group string="Recipients (optional JSON)">
+                    <field name="recipients_json" nolabel="1"
+                           placeholder='[{"name":"Jane Doe","email":"jane@example.com","role":"SIGNER"}]'/>
+                </group>
+                <footer>
+                    <button name="action_upload" type="object" string="Upload"
+                            class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_upload_documents" model="ir.actions.act_window">
+        <field name="name">Upload to Documenso</field>
+        <field name="res_model">documenso.upload.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

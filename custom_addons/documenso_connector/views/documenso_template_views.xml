@@ -1,0 +1,119 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_template_search" model="ir.ui.view">
+        <field name="name">documenso.template.search</field>
+        <field name="model">documenso.template</field>
+        <field name="arch" type="xml">
+            <search string="Templates">
+                <field name="title"/>
+                <field name="documenso_id"/>
+                <field name="user_email"/>
+                <filter string="Active" name="filter_active" domain="[('active', '=', True)]"/>
+                <filter string="Archived" name="filter_archived" domain="[('active', '=', False)]"/>
+                <separator/>
+                <filter string="Contract" name="filter_contract" domain="[('doc_class', '=', 'contract')]"/>
+                <filter string="Compliance" name="filter_compliance" domain="[('doc_class', '=', 'compliance')]"/>
+                <group>
+                    <filter string="Document Class" name="group_doc_class" context="{'group_by': 'doc_class'}"/>
+                    <filter string="Owner" name="group_user_email" context="{'group_by': 'user_email'}"/>
+                    <filter string="Visibility" name="group_visibility" context="{'group_by': 'visibility'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_documenso_template_list" model="ir.ui.view">
+        <field name="name">documenso.template.list</field>
+        <field name="model">documenso.template</field>
+        <field name="arch" type="xml">
+            <list string="Templates">
+                <field name="title"/>
+                <field name="doc_class"/>
+                <field name="documenso_id"/>
+                <field name="recipient_count"/>
+                <field name="field_count"/>
+                <field name="visibility" optional="hide"/>
+                <field name="user_email" optional="show"/>
+                <field name="last_synced_at"/>
+                <field name="active" widget="boolean_toggle"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_documenso_template_form" model="ir.ui.view">
+        <field name="name">documenso.template.form</field>
+        <field name="model">documenso.template</field>
+        <field name="arch" type="xml">
+            <form string="Template">
+                <header>
+                    <button name="action_refresh_one" type="object" string="Refresh from Documenso" class="btn-primary"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="title" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="documenso_id" readonly="1"/>
+                            <field name="doc_class"/>
+                            <field name="external_id" readonly="1"/>
+                            <field name="visibility" readonly="1"/>
+                            <field name="user_email" readonly="1"/>
+                            <field name="active"/>
+                        </group>
+                        <group>
+                            <field name="documenso_created_at" readonly="1"/>
+                            <field name="documenso_updated_at" readonly="1"/>
+                            <field name="last_synced_at" readonly="1"/>
+                            <field name="recipient_count" readonly="1"/>
+                            <field name="field_count" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Recipients" name="recipients">
+                            <field name="recipient_ids" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="email"/>
+                                    <field name="role"/>
+                                    <field name="signing_order"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Fields" name="fields">
+                            <field name="field_ids" readonly="1">
+                                <list>
+                                    <field name="label"/>
+                                    <field name="field_type"/>
+                                    <field name="page"/>
+                                    <field name="required"/>
+                                    <field name="recipient_email"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Raw Payload" name="raw">
+                            <field name="raw_payload" readonly="1" widget="ace" options="{'mode': 'json'}"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_template" model="ir.actions.act_window">
+        <field name="name">Templates</field>
+        <field name="res_model">documenso.template</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_documenso_template_search"/>
+        <field name="context">{'search_default_filter_active': 1}</field>
+    </record>
+
+    <record id="action_documenso_refresh_templates" model="ir.actions.server">
+        <field name="name">Refresh Documenso Templates</field>
+        <field name="model_id" ref="model_documenso_template"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_refresh_cache()</field>
+    </record>
+
+</odoo>

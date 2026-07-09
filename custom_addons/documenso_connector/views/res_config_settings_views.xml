@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_documenso" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.documenso</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Documenso" string="Documenso" name="documenso_connector">
+                    <block title="Documenso API" name="documenso_api_settings">
+                        <setting id="documenso_api_url_setting" string="API URL"
+                                 help="Base URL of the Documenso API (e.g. https://app.documenso.com)">
+                            <field name="documenso_api_url"/>
+                        </setting>
+                        <setting id="documenso_web_url_setting" string="Web URL"
+                                 help="Base URL of the Documenso web app used for view links.">
+                            <field name="documenso_web_url"/>
+                        </setting>
+                        <setting id="documenso_api_token_setting" string="API Token"
+                                 help="Personal or team API token issued by Documenso.">
+                            <field name="documenso_api_token" password="True"/>
+                        </setting>
+                        <setting id="documenso_page_size_setting" string="Page Size"
+                                 help="Number of documents to fetch per API call.">
+                            <field name="documenso_page_size"/>
+                        </setting>
+                        <setting id="documenso_test_connection_setting" string="Test Connection">
+                            <button name="action_documenso_test_connection" type="object"
+                                    string="Test Connection" class="btn-secondary"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

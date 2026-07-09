@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_sync_wizard_form" model="ir.ui.view">
+        <field name="name">documenso.sync.wizard.form</field>
+        <field name="model">documenso.sync.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Sync Documenso">
+                <group>
+                    <field name="page_size"/>
+                    <field name="cache_binaries"/>
+                </group>
+                <footer>
+                    <button name="action_sync" type="object" string="Run Sync" class="btn-primary"/>
+                    <button string="Cancel" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+</odoo>

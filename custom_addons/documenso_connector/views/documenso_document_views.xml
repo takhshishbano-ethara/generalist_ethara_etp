@@ -1,0 +1,162 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_document_search" model="ir.ui.view">
+        <field name="name">documenso.document.search</field>
+        <field name="model">documenso.document</field>
+        <field name="arch" type="xml">
+            <search string="Documents">
+                <field name="title"/>
+                <field name="documenso_id"/>
+                <field name="external_id"/>
+                <field name="user_email"/>
+                <filter string="Draft" name="filter_draft" domain="[('status','=','DRAFT')]"/>
+                <filter string="Pending" name="filter_pending" domain="[('status','=','PENDING')]"/>
+                <filter string="Completed" name="filter_completed" domain="[('status','=','COMPLETED')]"/>
+                <filter string="Rejected" name="filter_rejected" domain="[('status','=','REJECTED')]"/>
+                <filter string="Expired" name="filter_expired" domain="[('status','=','EXPIRED')]"/>
+                <group>
+                    <filter string="Status" name="group_status" context="{'group_by':'status'}"/>
+                    <filter string="Owner" name="group_owner" context="{'group_by':'user_email'}"/>
+                    <filter string="Created (Documenso)" name="group_created"
+                            context="{'group_by':'documenso_created_at'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_documenso_document_list" model="ir.ui.view">
+        <field name="name">documenso.document.list</field>
+        <field name="model">documenso.document</field>
+        <field name="arch" type="xml">
+            <list string="Documents" default_order="documenso_created_at desc">
+                <field name="documenso_id"/>
+                <field name="title"/>
+                <field name="status" widget="badge"
+                       decoration-success="status == 'COMPLETED'"
+                       decoration-info="status == 'PENDING'"
+                       decoration-warning="status == 'DRAFT'"
+                       decoration-danger="status in ('REJECTED','EXPIRED')"/>
+                <field name="user_email"/>
+                <field name="recipient_count"/>
+                <field name="field_count"/>
+                <field name="documenso_created_at"/>
+                <field name="documenso_completed_at" optional="hide"/>
+                <field name="last_synced_at" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_documenso_document_form" model="ir.ui.view">
+        <field name="name">documenso.document.form</field>
+        <field name="model">documenso.document</field>
+        <field name="arch" type="xml">
+            <form string="Document">
+                <header>
+                    <button name="action_sync_one" type="object" string="Sync"
+                            class="btn-primary"/>
+                    <button name="action_open_view_url" type="object" string="Open in Documenso"
+                            class="btn-secondary"
+                            invisible="not view_url"/>
+                    <button name="action_download_pdf" type="object" string="Download PDF"
+                            class="btn-secondary"/>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="DRAFT,PENDING,COMPLETED"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="title" readonly="1"/>
+                        </h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="documenso_id" readonly="1"/>
+                            <field name="external_id" readonly="1"/>
+                            <field name="user_email" readonly="1"/>
+                            <field name="source" readonly="1"/>
+                            <field name="visibility" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="documenso_created_at" readonly="1"/>
+                            <field name="documenso_updated_at" readonly="1"/>
+                            <field name="documenso_completed_at" readonly="1"/>
+                            <field name="last_synced_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Links">
+                            <field name="view_url" widget="url" readonly="1"/>
+                            <field name="download_url" widget="url" readonly="1"/>
+                        </group>
+                        <group string="Cached File">
+                            <field name="download_filename" readonly="1"/>
+                            <field name="download_binary" filename="download_filename" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Recipients" name="recipients">
+                            <field name="recipient_ids" readonly="1">
+                                <list>
+                                    <field name="signing_order"/>
+                                    <field name="name"/>
+                                    <field name="email"/>
+                                    <field name="role"/>
+                                    <field name="signing_status" widget="badge"
+                                           decoration-success="signing_status == 'SIGNED'"
+                                           decoration-info="signing_status in ('OPENED','SENT')"
+                                           decoration-danger="signing_status == 'REJECTED'"/>
+                                    <field name="signed_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Fields" name="fields">
+                            <field name="field_ids" readonly="1">
+                                <list>
+                                    <field name="page"/>
+                                    <field name="field_type"/>
+                                    <field name="recipient_email"/>
+                                    <field name="inserted"/>
+                                    <field name="value"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Raw Payload" name="raw_payload">
+                            <field name="raw_payload" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_document" model="ir.actions.act_window">
+        <field name="name">Documents</field>
+        <field name="res_model">documenso.document</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_documenso_document_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No documents synced yet.
+            </p>
+            <p>
+                Configure the Documenso API in Settings and run a sync to import documents.
+            </p>
+        </field>
+    </record>
+
+    <record id="action_documenso_sync_documents" model="ir.actions.server">
+        <field name="name">Sync Documenso Documents</field>
+        <field name="model_id" ref="model_documenso_document"/>
+        <field name="state">code</field>
+        <field name="code">action = {
+            'type': 'ir.actions.act_window',
+            'name': 'Sync Documenso',
+            'res_model': 'documenso.sync.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+        }</field>
+    </record>
+
+</odoo>

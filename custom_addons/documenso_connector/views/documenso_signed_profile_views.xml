@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_signed_profile_search" model="ir.ui.view">
+        <field name="name">documenso.signed.profile.search</field>
+        <field name="model">documenso.signed.profile</field>
+        <field name="arch" type="xml">
+            <search string="Signed Documents">
+                <field name="title"/>
+                <field name="employee_id"/>
+                <field name="employee_email"/>
+                <field name="documenso_id"/>
+                <field name="template_id"/>
+                <filter string="Contracts" name="filter_contracts" domain="[('doc_class', '=', 'contract')]"/>
+                <filter string="Compliance" name="filter_compliance" domain="[('doc_class', '=', 'compliance')]"/>
+                <separator/>
+                <filter string="Signed Today" name="filter_signed_today"
+                        domain="[('signed_at', '&gt;=', datetime.datetime.combine(context_today(), datetime.time(0,0,0)))]"/>
+                <filter string="Signed This Week" name="filter_signed_week"
+                        domain="[('signed_at', '&gt;=', (context_today() - datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                <group>
+                    <filter string="Document Class" name="group_doc_class" context="{'group_by': 'doc_class'}"/>
+                    <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>
+                    <filter string="Department" name="group_department" context="{'group_by': 'department_id'}"/>
+                    <filter string="Template" name="group_template" context="{'group_by': 'template_id'}"/>
+                    <filter string="Signed Month" name="group_signed_month" context="{'group_by': 'signed_at:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_documenso_signed_profile_list" model="ir.ui.view">
+        <field name="name">documenso.signed.profile.list</field>
+        <field name="model">documenso.signed.profile</field>
+        <field name="arch" type="xml">
+            <list string="Signed Documents">
+                <field name="signed_at"/>
+                <field name="title"/>
+                <field name="employee_id"/>
+                <field name="department_id" optional="show"/>
+                <field name="template_id" optional="show"/>
+                <field name="doc_class"/>
+                <field name="documenso_id" optional="hide"/>
+                <field name="envelope_item_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_documenso_signed_profile_form" model="ir.ui.view">
+        <field name="name">documenso.signed.profile.form</field>
+        <field name="model">documenso.signed.profile</field>
+        <field name="arch" type="xml">
+            <form string="Signed Document">
+                <header>
+                    <button name="action_download_pdf" type="object" string="Download PDF" class="btn-primary"/>
+                    <button name="action_generate_open_url" type="object" string="Generate Open URL"
+                            groups="hr.group_hr_manager"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="title" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id" readonly="1"/>
+                            <field name="employee_email" readonly="1"/>
+                            <field name="department_id" readonly="1"/>
+                            <field name="doc_class"/>
+                        </group>
+                        <group>
+                            <field name="template_id" readonly="1"/>
+                            <field name="contract_id" readonly="1"/>
+                            <field name="signed_at" readonly="1"/>
+                            <field name="recorded_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Documenso IDs">
+                            <group>
+                                <field name="documenso_id" readonly="1"/>
+                                <field name="envelope_id" readonly="1"/>
+                                <field name="envelope_item_id" readonly="1"/>
+                                <field name="template_documenso_id" readonly="1"/>
+                            </group>
+                        </page>
+                        <page string="PDF">
+                            <group>
+                                <field name="pdf_filename" readonly="1"/>
+                                <field name="pdf_binary" filename="pdf_filename" readonly="1"/>
+                                <field name="external_url" widget="url" readonly="1"/>
+                            </group>
+                        </page>
+                        <page string="Extracted Fields">
+                            <field name="fields_json" widget="text" readonly="1"/>
+                        </page>
+                        <page string="Raw Payload">
+                            <field name="raw_payload" widget="text" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_signed_profile" model="ir.actions.act_window">
+        <field name="name">Signed Documents</field>
+        <field name="res_model">documenso.signed.profile</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_documenso_signed_profile_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No signed documents recorded yet.
+            </p><p>
+                Signed contracts and compliance documents from Documenso are collected here for
+                repository-style access across the whole company.
+            </p>
+        </field>
+    </record>
+
+    <record id="action_documenso_signed_profile_contracts" model="ir.actions.act_window">
+        <field name="name">Signed Contracts</field>
+        <field name="res_model">documenso.signed.profile</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('doc_class', '=', 'contract')]</field>
+        <field name="context">{'search_default_filter_contracts': 1}</field>
+        <field name="search_view_id" ref="view_documenso_signed_profile_search"/>
+    </record>
+
+    <record id="action_documenso_signed_profile_compliance" model="ir.actions.act_window">
+        <field name="name">Signed Compliance</field>
+        <field name="res_model">documenso.signed.profile</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('doc_class', '=', 'compliance')]</field>
+        <field name="context">{'search_default_filter_compliance': 1}</field>
+        <field name="search_view_id" ref="view_documenso_signed_profile_search"/>
+    </record>
+
+    <record id="action_documenso_signed_profile_export" model="ir.actions.server">
+        <field name="name">Export Signed Documents CSV</field>
+        <field name="model_id" ref="model_documenso_signed_profile"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_export_csv()</field>
+    </record>
+
+</odoo>

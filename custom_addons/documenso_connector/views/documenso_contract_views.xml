@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_documenso_contract_search" model="ir.ui.view">
+        <field name="name">documenso.contract.search</field>
+        <field name="model">documenso.contract</field>
+        <field name="arch" type="xml">
+            <search string="Contracts">
+                <field name="name"/>
+                <field name="employee_id"/>
+                <field name="documenso_id"/>
+                <field name="template_id"/>
+                <filter string="Draft" name="filter_draft" domain="[('status', '=', 'DRAFT')]"/>
+                <filter string="Sent" name="filter_sent" domain="[('status', '=', 'SENT')]"/>
+                <filter string="Signed" name="filter_signed" domain="[('status', '=', 'SIGNED')]"/>
+                <filter string="Rejected" name="filter_rejected" domain="[('status', '=', 'REJECTED')]"/>
+                <separator/>
+                <filter string="Contract" name="filter_class_contract" domain="[('doc_class', '=', 'contract')]"/>
+                <filter string="Compliance" name="filter_class_compliance" domain="[('doc_class', '=', 'compliance')]"/>
+                <group>
+                    <filter string="Status" name="group_status" context="{'group_by': 'status'}"/>
+                    <filter string="Document Class" name="group_doc_class" context="{'group_by': 'doc_class'}"/>
+                    <filter string="Employee" name="group_employee" context="{'group_by': 'employee_id'}"/>
+                    <filter string="Template" name="group_template" context="{'group_by': 'template_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_documenso_contract_list" model="ir.ui.view">
+        <field name="name">documenso.contract.list</field>
+        <field name="model">documenso.contract</field>
+        <field name="arch" type="xml">
+            <list string="Contracts" decoration-success="status == 'SIGNED'" decoration-info="status == 'SENT'" decoration-muted="status == 'DRAFT'" decoration-danger="status in ('REJECTED','EXPIRED','CANCELLED')">
+                <field name="name"/>
+                <field name="employee_id"/>
+                <field name="doc_class"/>
+                <field name="template_id"/>
+                <field name="documenso_id" optional="hide"/>
+                <field name="status"/>
+                <field name="sent_at"/>
+                <field name="signed_at"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_documenso_contract_form" model="ir.ui.view">
+        <field name="name">documenso.contract.form</field>
+        <field name="model">documenso.contract</field>
+        <field name="arch" type="xml">
+            <form string="Documenso Contract">
+                <header>
+                    <button name="action_send" type="object" string="Send" class="btn-primary"
+                            invisible="status in ('SENT','SIGNED')"/>
+                    <button name="action_sync" type="object" string="Sync from Documenso"
+                            invisible="not documenso_id"/>
+                    <button name="action_open_signing_url" type="object" string="Open Signing URL"
+                            invisible="not signing_url"/>
+                    <button name="action_download_pdf" type="object" string="Download Signed PDF"
+                            invisible="status != 'SIGNED'"/>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="DRAFT,SENT,SIGNED"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="employee_id" options="{'no_create': True}"/>
+                            <field name="employee_email" readonly="1"/>
+                            <field name="doc_class"/>
+                            <field name="template_id" readonly="1"/>
+                            <field name="template_ids" widget="many2many_tags" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="documenso_id" readonly="1"/>
+                            <field name="envelope_id" readonly="1"/>
+                            <field name="sent_at" readonly="1"/>
+                            <field name="signed_at" readonly="1"/>
+                            <field name="last_synced_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Signing">
+                        <field name="signing_url" widget="url" readonly="1"/>
+                        <field name="pdf_binary" filename="pdf_filename" readonly="1"/>
+                        <field name="pdf_filename" invisible="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Bundled Documents" name="items">
+                            <field name="item_ids" readonly="1">
+                                <list>
+                                    <field name="sequence"/>
+                                    <field name="title"/>
+                                    <field name="category"/>
+                                    <field name="item_id"/>
+                                    <field name="pdf_binary" filename="pdf_filename" widget="binary"/>
+                                    <field name="pdf_filename" invisible="1"/>
+                                    <button name="action_download" type="object" string="Download" icon="fa-download"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Extracted Fields" name="fields">
+                            <field name="field_ids" readonly="1">
+                                <list>
+                                    <field name="label"/>
+                                    <field name="field_type"/>
+                                    <field name="value"/>
+                                    <field name="recipient_email"/>
+                                    <field name="page"/>
+                                    <field name="inserted"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Sent Documents" name="sent">
+                            <field name="sent_documents" readonly="1" widget="ace" options="{'mode': 'json'}"/>
+                        </page>
+                        <page string="Notes" name="notes">
+                            <field name="note"/>
+                        </page>
+                        <page string="Raw Payload" name="raw" groups="base.group_no_one">
+                            <field name="raw_payload" readonly="1" widget="ace" options="{'mode': 'json'}"/>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_documenso_contract" model="ir.actions.act_window">
+        <field name="name">Contracts</field>
+        <field name="res_model">documenso.contract</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="view_documenso_contract_search"/>
+    </record>
+
+</odoo>
