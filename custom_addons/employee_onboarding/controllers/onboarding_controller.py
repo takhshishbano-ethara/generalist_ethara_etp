@@ -12,6 +12,11 @@ Endpoints:
 
   GET  /api/v2/employee-onboarding/<int:employee_id>/documents
        Return just the uploaded documents (with S3 URLs) for an employee.
+
+  DELETE /api/v2/employee-onboarding/<int:employee_id>/documents/<string:document_type>
+       Delete a single uploaded document by (employee_id, document_type).
+       Idempotent from the caller's perspective: a missing record returns 404
+       so the client can surface a consistent "already gone" state.
 """
 
 import base64
@@ -814,4 +819,44 @@ class EmployeeOnboardingController(http.Controller):
             )
         except Exception as exc:
             _logger.exception("Onboarding documents fetch failed for employee_id=%s", employee_id)
+            return return_Response(message=str(exc), status=400)
+
+    @http.route(
+        "/api/v2/employee-onboarding/<int:employee_id>/documents/<string:document_type>",
+        type="http",
+        auth="none",
+        methods=["DELETE"],
+        csrf=False,
+        cors="*",
+    )
+    @validate_token
+    def delete_onboarding_document(self, employee_id, document_type, **kwargs):
+        try:
+            document_type = (document_type or "").strip()
+            if document_type not in ALLOWED_DOCUMENT_TYPES:
+                return return_Response(message="Document not found.", status=404)
+
+            Document = request.env["employee.onboarding.document"].sudo()
+            record = Document.search([
+                ("employee_id", "=", employee_id),
+                ("document_type", "=", document_type),
+            ], limit=1)
+            if not record:
+                return return_Response(message="Document not found.", status=404)
+
+            record.unlink()
+
+            return return_Response(
+                message="Document deleted successfully.",
+                status=200,
+                data={
+                    "employee_id": employee_id,
+                    "document_type": document_type,
+                },
+            )
+        except Exception as exc:
+            _logger.exception(
+                "Onboarding document delete failed for employee_id=%s document_type=%s",
+                employee_id, document_type,
+            )
             return return_Response(message=str(exc), status=400)
