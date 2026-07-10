@@ -7,4 +7,6 @@ from . import (
     kensei_sandbox,
     kensei_sandbox_k8s,
     kensei_test_result,
+    kensei_tracker_allocation,
+    kensei_tracker_persona_assign,
 )

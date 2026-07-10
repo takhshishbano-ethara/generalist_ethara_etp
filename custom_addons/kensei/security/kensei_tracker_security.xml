@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+        <!-- Read-only observer role for the Kensei Tracker -->
+        <record id="group_kensei_tracker_viewer" model="res.groups">
+            <field name="name">Tracker Viewer</field>
+            <field name="privilege_id" ref="res_groups_privilege_kensei"/>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+            <field name="comment">Read-only access to Kensei Tracker task allocations and the Viewer page.</field>
+        </record>
+    </data>
+
+    <data noupdate="1">
+        <!-- ===== Record Rules: Tracker Allocation ===== -->
+
+        <!-- Tasker: sees only tasks allocated to them (matched via tasker email). -->
+        <record id="kensei_tracker_allocation_rule_tasker" model="ir.rule">
+            <field name="name">Tracker Allocation: Tasker sees own</field>
+            <field name="model_id" ref="model_kensei_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('group_kensei_tasker'))]"/>
+            <field name="domain_force">['|', ('tasker_user_id', '=', user.id), ('create_uid', '=', user.id)]</field>
+        </record>
+
+        <!-- Project Lead: full visibility. -->
+        <record id="kensei_tracker_allocation_rule_pl" model="ir.rule">
+            <field name="name">Tracker Allocation: PL sees all</field>
+            <field name="model_id" ref="model_kensei_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('group_kensei_pl'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
+        <!-- Viewer: full read-only visibility. -->
+        <record id="kensei_tracker_allocation_rule_viewer" model="ir.rule">
+            <field name="name">Tracker Allocation: Viewer sees all</field>
+            <field name="model_id" ref="model_kensei_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('group_kensei_tracker_viewer'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+    </data>
+</odoo>

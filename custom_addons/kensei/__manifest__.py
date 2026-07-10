@@ -1,6 +1,6 @@
 {
     "name": "Kensei",
-    "version": "19.0.1.1.0",
+    "version": "19.0.1.3.0",
     "category": "Tools",
     "summary": "Kensei — LLM task management with sandbox environments and file attachments",
     "description": """
@@ -10,9 +10,10 @@
         hybrid HTTP upload + WebSocket reference architecture.
     """,
     "author": "Ethara",
-    "depends": ["base", "web", "hr", "bus"],
+    "depends": ["base", "web", "hr", "bus", "mail", "etp_user_roles"],
     "data": [
         "security/kensei_security.xml",
+        "security/kensei_tracker_security.xml",
         "security/ir.model.access.csv",
         "data/cron.xml",
         "data/persona_seed.xml",
@@ -23,6 +24,8 @@
         "views/kensei_views.xml",
         "views/api_request_views.xml",
         "views/test_result_views.xml",
+        "views/kensei_tracker_persona_assign_views.xml",
+        "views/kensei_tracker_views.xml",
         "views/menuitems.xml",
     ],
     "installable": True,
@@ -59,6 +62,12 @@
             "kensei/static/src/costing_dashboard/costing_dashboard.js",
             "kensei/static/src/costing_dashboard/costing_dashboard.xml",
             "kensei/static/src/costing_dashboard/costing_dashboard.scss",
+            "kensei/static/src/tracker_dashboard/tracker_dashboard.js",
+            "kensei/static/src/tracker_dashboard/tracker_dashboard.xml",
+            "kensei/static/src/tracker_dashboard/tracker_dashboard.scss",
+            "kensei/static/src/tracker_daily/tracker_daily.js",
+            "kensei/static/src/tracker_daily/tracker_daily.xml",
+            "kensei/static/src/tracker_daily/tracker_daily.scss",
         ],
     },
 }

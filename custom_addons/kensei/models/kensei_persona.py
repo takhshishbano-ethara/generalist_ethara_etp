@@ -29,6 +29,9 @@ class KenseiPersona(models.Model):
     name = fields.Char(required=True, index=True)
     active = fields.Boolean(default=True)
 
+    l1_category = fields.Char(string="L1 Category")
+    l2_category = fields.Char(string="L2 Category")
+
     soul_md = fields.Text(string="SOUL.md")
     memory_md = fields.Text(string="MEMORY.md")
     agents_md = fields.Text(string="AGENTS.md")

@@ -6,7 +6,7 @@
     </record>
 
     <menuitem name="Kensei" id="kensei.menu_kensei_root"
-              groups="kensei.group_kensei_tasker"/>
+              groups="kensei.group_kensei_tasker,kensei.group_kensei_tracker_viewer"/>
 
     <menuitem name="Tasks" id="kensei.menu_kensei_tasks" parent="kensei.menu_kensei_root"
               action="kensei_kensei_action_window" sequence="10"
@@ -32,4 +32,31 @@
     <menuitem name="Test Results" id="kensei.menu_kensei_test_results" parent="kensei.menu_kensei_root"
               action="action_kensei_test_results" sequence="45"
               groups="kensei.group_kensei_tasker"/>
+
+    <!-- ===================== Kensei Tracker ===================== -->
+    <!-- Nested under the Kensei app, right after "Test Results" (seq 45). -->
+    <menuitem name="Kensei Tracker" id="kensei.menu_kensei_tracker_root"
+              parent="kensei.menu_kensei_root" sequence="50"
+              groups="kensei.group_kensei_tasker,kensei.group_kensei_tracker_viewer"/>
+
+    <menuitem name="Dashboard" id="kensei.menu_kensei_tracker_dashboard"
+              parent="kensei.menu_kensei_tracker_root"
+              action="kensei_tracker_dashboard_action" sequence="10"
+              groups="kensei.group_kensei_ql,kensei.group_kensei_tracker_viewer"/>
+    <menuitem name="Task Allocation" id="kensei.menu_kensei_tracker_allocation"
+              parent="kensei.menu_kensei_tracker_root"
+              action="kensei_tracker_allocation_action" sequence="20"
+              groups="kensei.group_kensei_tasker,kensei.group_kensei_tracker_viewer"/>
+    <menuitem name="Daily Tracker" id="kensei.menu_kensei_tracker_daily"
+              parent="kensei.menu_kensei_tracker_root"
+              action="kensei_tracker_daily_action" sequence="25"
+              groups="kensei.group_kensei_ql,kensei.group_kensei_tracker_viewer"/>
+    <menuitem name="Assign Personas" id="kensei.menu_kensei_tracker_persona_assign"
+              parent="kensei.menu_kensei_tracker_root"
+              action="action_kensei_tracker_persona_assign" sequence="28"
+              groups="kensei.group_kensei_ql"/>
+    <menuitem name="Viewer" id="kensei.menu_kensei_tracker_viewer"
+              parent="kensei.menu_kensei_tracker_root"
+              action="kensei_tracker_viewer_act_window" sequence="30"
+              groups="kensei.group_kensei_tasker,kensei.group_kensei_tracker_viewer"/>
 </odoo>

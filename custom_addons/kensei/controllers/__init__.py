@@ -6,3 +6,4 @@ from . import gog_auth
 from . import kensei_controller
 from . import costing
 from . import auto_hint
+from . import tracker

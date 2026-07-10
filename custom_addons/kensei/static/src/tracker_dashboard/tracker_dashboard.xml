@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kensei.TrackerDashboard">
+        <div class="o_kensei_tracker_dashboard">
+
+            <!-- Top bar -->
+            <div class="o_ktd_topbar">
+                <div class="o_ktd_topbar_titles">
+                    <span class="o_ktd_title">
+                        <i class="fa fa-line-chart me-2"/>Kensei-RL Dashboard
+                    </span>
+                    <span class="o_ktd_subtitle">
+                        Reinforcement Learning pipeline · Updated <t t-out="todayLabel"/>
+                    </span>
+                </div>
+                <button class="o_ktd_refresh_btn" t-on-click="onRefresh"
+                        t-att-disabled="state.loading">
+                    <i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/>
+                    <span>Refresh</span>
+                </button>
+            </div>
+
+            <!-- ===================== TEAM COMPOSITION ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header">
+                    <i class="fa fa-users me-2"/>TEAM COMPOSITION
+                </div>
+                <div class="o_ktd_cards">
+                    <t t-foreach="state.teamComposition" t-as="card" t-key="card.key">
+                        <div class="o_ktd_metric_card"
+                             t-attf-style="border-top-color: #{card.color}">
+                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                            <div class="o_ktd_metric_value" t-attf-style="color: #{card.color}">
+                                <t t-out="fmt(card.value)"/>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ===================== RL PIPELINE FUNNEL ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header">
+                    <i class="fa fa-filter me-2"/>RL PIPELINE FUNNEL
+                </div>
+                <div class="o_ktd_cards">
+                    <t t-foreach="state.funnel" t-as="card" t-key="card.key">
+                        <div t-attf-class="o_ktd_funnel_card o_ktd_funnel_#{card.key}">
+                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                            <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ===================== LATEST ACTIVITY ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header">
+                    <i class="fa fa-bolt me-2"/>LATEST ACTIVITY
+                </div>
+                <div class="o_ktd_cards">
+                    <t t-foreach="state.latestActivity" t-as="card" t-key="card.key">
+                        <div class="o_ktd_metric_card"
+                             t-attf-style="border-top-color: #{card.color}">
+                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                            <div class="o_ktd_metric_value" t-attf-style="color: #{card.color}">
+                                <t t-out="fmt(card.value)"/>
+                            </div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ===================== PER-PL PROGRESS ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header">
+                    <i class="fa fa-list-ol me-2"/>PER-PL PROGRESS
+                </div>
+                <div class="o_ktd_table_wrap">
+                    <table class="o_ktd_table">
+                        <thead>
+                            <tr>
+                                <th class="o_ktd_col_idx">#</th>
+                                <th class="o_ktd_col_pl">PL</th>
+                                <th>Team</th>
+                                <th>In Auth</th>
+                                <th>Ready</th>
+                                <th>In Traj</th>
+                                <th>Manual QC</th>
+                                <th>Verified</th>
+                                <th>Blocked</th>
+                                <th>Avg Score</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-if="state.perPl.length === 0">
+                                <tr>
+                                    <td colspan="10" class="o_ktd_empty">
+                                        <i class="fa fa-inbox me-1"/>No allocations yet.
+                                    </td>
+                                </tr>
+                            </t>
+                            <t t-foreach="state.perPl" t-as="row" t-key="row.id">
+                                <tr>
+                                    <td class="o_ktd_col_idx"><t t-out="row_index + 1"/></td>
+                                    <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
+                                    <td><t t-out="row.team"/></td>
+                                    <td><t t-out="row.in_auth"/></td>
+                                    <td><t t-out="row.ready"/></td>
+                                    <td><t t-out="row.in_traj"/></td>
+                                    <td><t t-out="row.manual_qc"/></td>
+                                    <td class="o_ktd_cell_verified"><t t-out="row.verified"/></td>
+                                    <td t-att-class="row.blocked > 0 ? 'o_ktd_cell_blocked' : ''">
+                                        <t t-out="row.blocked"/>
+                                    </td>
+                                    <td><t t-out="fmt(row.avg_score)"/></td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </t>
+</templates>
