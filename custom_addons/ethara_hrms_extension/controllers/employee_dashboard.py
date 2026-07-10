@@ -43,7 +43,7 @@ REQUIRED_DOCUMENT_TYPES = frozenset({
     "cancelled_cheque", "permanent_address_proof",
 })
 
-TOTAL_DOCUMENT_TYPES = 9
+TOTAL_DOCUMENT_TYPES = 10
 
 
 def _parse_int(v):
