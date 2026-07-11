@@ -3,16 +3,7 @@ import { Component, useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { rpc } from "@web/core/network/rpc";
-
-function isoToday() {
-    const d = new Date();
-    return d.toISOString().slice(0, 10);
-}
-function isoDaysAgo(n) {
-    const d = new Date();
-    d.setDate(d.getDate() - n);
-    return d.toISOString().slice(0, 10);
-}
+import { todayIso, daysAgoIso } from "@kensei/tracker_common";
 
 export class KenseiTrackerDaily extends Component {
     static template = "kensei.TrackerDaily";
@@ -35,8 +26,8 @@ export class KenseiTrackerDaily extends Component {
             opts: { pls: [], team_leads: [], projects: [], functions: [], statuses: [] },
             // filter values
             filters: {
-                date_from: isoDaysAgo(29),
-                date_to: isoToday(),
+                date_from: daysAgoIso(29),
+                date_to: todayIso(),
                 employee: "",
                 pl_id: "",
                 function: "",
@@ -107,8 +98,8 @@ export class KenseiTrackerDaily extends Component {
 
     onReset() {
         this.state.filters = {
-            date_from: isoDaysAgo(29),
-            date_to: isoToday(),
+            date_from: daysAgoIso(29),
+            date_to: todayIso(),
             employee: "",
             pl_id: "",
             function: "",

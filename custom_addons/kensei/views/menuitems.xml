@@ -47,16 +47,19 @@
               parent="kensei.menu_kensei_tracker_root"
               action="kensei_tracker_allocation_action" sequence="20"
               groups="kensei.group_kensei_tasker,kensei.group_kensei_tracker_viewer"/>
+    <!-- Personal performance dashboard — every tracker user sees their own. -->
+    <menuitem name="My Performance" id="kensei.menu_kensei_tracker_my_performance"
+              parent="kensei.menu_kensei_tracker_root"
+              action="kensei_tasker_dashboard_action" sequence="22"
+              groups="kensei.group_kensei_tasker"/>
     <menuitem name="Daily Tracker" id="kensei.menu_kensei_tracker_daily"
               parent="kensei.menu_kensei_tracker_root"
               action="kensei_tracker_daily_action" sequence="25"
               groups="kensei.group_kensei_ql,kensei.group_kensei_tracker_viewer"/>
-    <menuitem name="Assign Personas" id="kensei.menu_kensei_tracker_persona_assign"
+    <!-- "Assign Personas" is now a button on the Task Allocation list header
+         (QL-only), not a standalone submenu. -->
+    <menuitem name="Team Management" id="kensei.menu_kensei_tracker_team"
               parent="kensei.menu_kensei_tracker_root"
-              action="action_kensei_tracker_persona_assign" sequence="28"
-              groups="kensei.group_kensei_ql"/>
-    <menuitem name="Viewer" id="kensei.menu_kensei_tracker_viewer"
-              parent="kensei.menu_kensei_tracker_root"
-              action="kensei_tracker_viewer_act_window" sequence="30"
-              groups="kensei.group_kensei_tasker,kensei.group_kensei_tracker_viewer"/>
+              action="kensei_tracker_team_member_action" sequence="35"
+              groups="kensei.group_kensei_ql,kensei.group_kensei_tracker_viewer"/>
 </odoo>

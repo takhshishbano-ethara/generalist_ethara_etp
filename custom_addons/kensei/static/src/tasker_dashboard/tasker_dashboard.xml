@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kensei.TaskerDashboard">
+        <div class="o_kensei_tracker_dashboard o_kensei_tasker_dashboard">
+
+            <!-- Top bar -->
+            <div class="o_ktd_topbar">
+                <div class="o_ktd_topbar_titles">
+                    <span class="o_ktd_title">
+                        <i class="fa fa-user-circle-o me-2"/><t t-out="title"/>
+                    </span>
+                    <span class="o_ktd_subtitle">
+                        <t t-if="state.subject.email"><t t-out="state.subject.email"/></t>
+                        <t t-if="state.subject.role"> · <b t-out="state.subject.role"/></t>
+                        <t t-if="state.lastUpdated"> · Updated <t t-out="state.lastUpdated"/></t>
+                    </span>
+                </div>
+                <div class="o_ktd_topbar_actions">
+                    <div class="o_ktd_filters" title="Filter by assignment date">
+                        <i class="fa fa-calendar o_ktd_filter_icon"/>
+                        <input type="date" class="o_ktd_date" aria-label="From date"
+                               t-att-value="state.dateFrom"
+                               t-on-change="ev => this.onDateInput('dateFrom', ev)"/>
+                        <span class="o_ktd_date_sep">→</span>
+                        <input type="date" class="o_ktd_date" aria-label="To date"
+                               t-att-value="state.dateTo"
+                               t-on-change="ev => this.onDateInput('dateTo', ev)"/>
+                        <button class="o_ktd_preset" t-on-click="() => this.setPreset(7)">7D</button>
+                        <button class="o_ktd_preset" t-on-click="() => this.setPreset(30)">30D</button>
+                        <button class="o_ktd_preset"
+                                t-att-class="{ 'o_ktd_preset_active': !isFiltered }"
+                                t-on-click="() => this.setPreset(null)">All</button>
+                    </div>
+                    <button class="o_ktd_refresh_btn" t-on-click="onRefresh"
+                            t-att-disabled="state.loading">
+                        <i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/>
+                        <span>Refresh</span>
+                    </button>
+                </div>
+            </div>
+
+            <t t-if="state.denied">
+                <div class="o_ktd_section"><div class="o_ktd_empty">
+                    <i class="fa fa-lock me-1"/>You are not allowed to view this data.
+                </div></div>
+            </t>
+            <t t-else="">
+
+            <!-- ===================== KPIs ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header"><i class="fa fa-tachometer me-2"/>OVERVIEW</div>
+                <div class="o_ktd_cards o_ktd_cards_kpi">
+                    <t t-foreach="state.kpis" t-as="card" t-key="card.key">
+                        <div t-attf-class="o_ktd_metric_card o_ktd_metric_#{card.key}">
+                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                            <div class="o_ktd_metric_value"><t t-out="fmt(card.value, card.suffix)"/></div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ===================== My Pipeline ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header"><i class="fa fa-filter me-2"/>MY PIPELINE</div>
+                <div class="o_ktd_cards">
+                    <t t-foreach="state.funnel" t-as="card" t-key="card.key">
+                        <div t-attf-class="o_ktd_funnel_card o_ktd_funnel_#{card.key}">
+                            <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
+                            <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ===================== Weekly completions ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header"><i class="fa fa-line-chart me-2"/>COMPLETIONS (LAST 8 WEEKS)</div>
+                <div class="o_ktd_trend">
+                    <t t-foreach="state.trend" t-as="w" t-key="w.label">
+                        <div class="o_ktd_trend_col">
+                            <div class="o_ktd_trend_val"><t t-out="w.value"/></div>
+                            <div class="o_ktd_trend_track">
+                                <div class="o_ktd_trend_bar"
+                                     t-attf-style="height: #{trendHeight(w.value)}%"/>
+                            </div>
+                            <div class="o_ktd_trend_label"><t t-out="w.label"/></div>
+                        </div>
+                    </t>
+                </div>
+            </div>
+
+            <!-- ===================== Recent tasks ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header"><i class="fa fa-history me-2"/>RECENT TASKS</div>
+                <div class="o_ktd_table_wrap">
+                    <table class="o_ktd_table">
+                        <thead>
+                            <tr>
+                                <th class="o_ktd_col_pl">Task ID</th>
+                                <th class="o_ktd_col_pl">Persona</th>
+                                <th>Status</th>
+                                <th>Overall</th>
+                                <th>Assigned</th>
+                                <th>Completed</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-if="state.recent.length === 0">
+                                <tr><td colspan="6" class="o_ktd_empty">
+                                    <i class="fa fa-inbox me-1"/>No tasks yet.
+                                </td></tr>
+                            </t>
+                            <t t-foreach="state.recent" t-as="row" t-key="row.id">
+                                <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)">
+                                    <td class="o_ktd_col_pl"><t t-out="row.task_id"/></td>
+                                    <td class="o_ktd_col_pl"><t t-out="row.persona"/></td>
+                                    <td><t t-out="row.status_label"/></td>
+                                    <td><t t-out="fmt(row.overall, '%')"/></td>
+                                    <td><t t-out="row.assigned or '—'"/></td>
+                                    <td><t t-out="row.completed or '—'"/></td>
+                                </tr>
+                            </t>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            </t>
+        </div>
+    </t>
+</templates>

@@ -3,23 +3,58 @@
   <data>
 
     <!-- ===================== Task Allocation: List ===================== -->
+    <!-- ===================== Task Allocation: Kanban (pipeline board) ===================== -->
+    <record model="ir.ui.view" id="kensei_tracker_allocation_kanban">
+      <field name="name">kensei.tracker.allocation.kanban</field>
+      <field name="model">kensei.tracker.allocation</field>
+      <field name="arch" type="xml">
+        <kanban default_group_by="status" group_create="false" class="o_kanban_small_column">
+          <field name="final_status"/>
+          <templates>
+            <t t-name="card">
+              <div class="oe_kanban_global_click">
+                <strong><field name="task_id"/></strong>
+                <div><field name="tasker_name"/></div>
+                <div class="text-muted"><field name="persona_id"/></div>
+                <div class="d-flex justify-content-between align-items-center mt-1">
+                  <span class="text-muted"><field name="assigned_pl_id"/></span>
+                  <field name="final_status" widget="badge"
+                         decoration-success="final_status == 'deliverable'"
+                         decoration-danger="final_status == 'failed'"
+                         decoration-info="final_status == 'in_progress'"/>
+                </div>
+              </div>
+            </t>
+          </templates>
+        </kanban>
+      </field>
+    </record>
+
     <record model="ir.ui.view" id="kensei_tracker_allocation_list">
       <field name="name">kensei.tracker.allocation.list</field>
       <field name="model">kensei.tracker.allocation</field>
       <field name="arch" type="xml">
         <!-- export enabled by default (no export="0"); Export dialog offers "Export All" -->
         <list string="Task Allocation">
+          <header>
+            <!-- Opens the Bulk Allocation wizard: upload persona names, then
+                 distribute them across the selected taskers. -->
+            <button name="%(action_kensei_tracker_bulk_allocation)d" type="action"
+                    string="Bulk Allocation" class="btn-primary"
+                    icon="fa-random" display="always"
+                    groups="kensei.group_kensei_ql"/>
+          </header>
           <field name="task_id"/>
           <field name="tasker_name"/>
-          <field name="tasker_id" optional="show"/>
           <field name="tasker_email"/>
-          <field name="pl_id"/>
+          <field name="assigned_pl_id" string="PL" optional="show"/>
+          <field name="assigned_ql_id" string="QL" optional="show"/>
           <field name="assigned_date"/>
           <field name="persona_id" optional="show"/>
           <field name="status" widget="badge"
                  decoration-success="status == 'deliverable'"
                  decoration-danger="status == 'failed'"
-                 decoration-info="status in ('in_progress','baseline_generated','pass1')"
+                 decoration-info="status in ('in_progress','tasker_qc_completed','ready_baseline','baseline_generated')"
                  decoration-warning="status == 'manual_qc'"/>
           <field name="baseline_gen_status" widget="badge" optional="show"
                  decoration-success="baseline_gen_status == 'done'"
@@ -41,30 +76,35 @@
       <field name="name">kensei.tracker.allocation.form</field>
       <field name="model">kensei.tracker.allocation</field>
       <field name="arch" type="xml">
-        <form string="Task Allocation">
+        <form string="Task Allocation" class="o_kensei_alloc_form">
           <header>
-            <field name="status" widget="statusbar"
-                   statusbar_visible="task_created,in_progress,tasker_qc_completed,pl_verified,ready_baseline,baseline_generated,pass1,manual_qc,deliverable,failed"/>
+            <field name="status" widget="kensei_statusbar"
+                   statusbar_visible="in_progress,tasker_qc_completed,ready_baseline,baseline_generated,manual_qc,deliverable,failed"/>
           </header>
           <sheet>
             <div class="oe_title">
               <label for="task_id"/>
-              <h1><field name="task_id" placeholder="e.g. TASK-0001"/></h1>
+              <h1><field name="task_id" readonly="1"/></h1>
             </div>
             <group>
               <group string="Task Details">
-                <field name="tasker_name"/>
-                <field name="tasker_id"/>
-                <field name="tasker_email"/>
-                <field name="persona_id" options="{'no_open': True}"/>
+                <field name="is_manager" invisible="1"/>
+                <field name="tasker_member_id" readonly="not is_manager"
+                       options="{'no_create': True, 'no_open': True}"
+                       placeholder="Search a team member by name or email…"/>
+                <field name="tasker_email" readonly="1"/>
+                <field name="persona_id" readonly="not is_manager"
+                       options="{'no_open': True}"/>
               </group>
               <group string="Assignment">
-                <field name="pl_id" options="{'no_open': True}"/>
-                <field name="team_lead_id" options="{'no_open': True}"/>
-                <field name="project"/>
-                <field name="function"/>
-                <field name="assigned_date"/>
+                <field name="assigned_pl_id" string="PL"
+                       readonly="not is_manager"
+                       options="{'no_create': True, 'no_open': True}"/>
+                <field name="assigned_ql_id" string="QL" readonly="1"/>
+                <field name="function" readonly="not is_manager"/>
+                <field name="assigned_date" readonly="not is_manager"/>
                 <field name="status" readonly="1"/>
+                <field name="final_status" readonly="1"/>
               </group>
             </group>
 
@@ -74,7 +114,9 @@
 
             <!-- Tasker QC Completed -->
             <group string="1. Tasker QC Completed">
-              <field name="drive_link" placeholder="Paste the Drive link…"/>
+              <field name="drive_link" widget="url"
+                     placeholder="https://drive.google.com/…"/>
+              <field name="tasker_qc_notes" placeholder="Notes for this stage…"/>
             </group>
 
             <!-- PL Verified — enabled once the Drive link is provided -->
@@ -83,12 +125,15 @@
               <field name="pl_verified_reason"
                      readonly="pl_verified_status != 'failed'"
                      placeholder="Reason for failure…"/>
+              <field name="pl_verified_notes" placeholder="Notes for this stage…"/>
             </group>
 
             <!-- Ready for Baseline Trajectory — enabled once PL Verified = Done -->
             <group string="3. Ready for Baseline Trajectory">
-              <field name="baseline_drive_link" readonly="pl_verified_status != 'done'"
-                     placeholder="Paste the Baseline Trajectory Drive link…"/>
+              <field name="baseline_drive_link" widget="url"
+                     readonly="pl_verified_status != 'done'"
+                     placeholder="https://drive.google.com/…"/>
+              <field name="baseline_ready_notes" placeholder="Notes for this stage…"/>
             </group>
 
             <!-- Baseline Trajectory Generated — enabled once the baseline link is provided -->
@@ -97,6 +142,7 @@
               <field name="baseline_gen_reason"
                      readonly="baseline_gen_status != 'failed'"
                      placeholder="Reason for failure…"/>
+              <field name="baseline_gen_notes" placeholder="Notes for this stage…"/>
             </group>
             <group string="Evaluation Metrics — enabled when Baseline Generation = Done">
               <group>
@@ -106,7 +152,6 @@
               </group>
               <group>
                 <field name="qced_by" options="{'no_open': True}" readonly="baseline_gen_status != 'done'"/>
-                <field name="final_status" readonly="1"/>
               </group>
             </group>
 
@@ -116,6 +161,7 @@
               <field name="manual_qc_reason"
                      readonly="manual_qc_status != 'failed'"
                      placeholder="Reason for failure…"/>
+              <field name="manual_qc_notes" placeholder="Notes for this stage…"/>
             </group>
 
             <!-- Deliverable / Failed banners -->
@@ -135,58 +181,6 @@
             </group>
           </sheet>
           <chatter/>
-        </form>
-      </field>
-    </record>
-
-    <!-- ===================== Viewer: read-only detail form ===================== -->
-    <record model="ir.ui.view" id="kensei_tracker_viewer_form">
-      <field name="name">kensei.tracker.allocation.viewer.form</field>
-      <field name="model">kensei.tracker.allocation</field>
-      <field name="arch" type="xml">
-        <form string="Task Viewer" create="false" edit="false">
-          <header>
-            <field name="status" widget="statusbar"
-                   statusbar_visible="task_created,in_progress,tasker_qc_completed,pl_verified,ready_baseline,baseline_generated,pass1,manual_qc,deliverable,failed"/>
-          </header>
-          <sheet>
-            <div class="oe_title">
-              <h1><field name="task_id"/></h1>
-            </div>
-            <group>
-              <group string="Basic Information">
-                <field name="tasker_name"/>
-                <field name="tasker_id"/>
-                <field name="pl_id" string="PL Name"/>
-                <field name="persona_id"/>
-                <field name="status"/>
-                <field name="final_status"/>
-              </group>
-              <group string="Evaluation Metrics">
-                <field name="rubric_score"/>
-                <field name="pytest_score"/>
-                <field name="overall_score"/>
-                <field name="qced_by"/>
-              </group>
-            </group>
-            <group string="Stage Progress">
-              <group>
-                <field name="drive_link" widget="url"/>
-                <field name="pl_verified_status"/>
-                <field name="pl_verified_reason" invisible="not pl_verified_reason"/>
-              </group>
-              <group>
-                <field name="baseline_drive_link" widget="url"/>
-                <field name="baseline_gen_status"/>
-                <field name="baseline_gen_reason" invisible="not baseline_gen_reason"/>
-                <field name="manual_qc_status"/>
-                <field name="manual_qc_reason" invisible="not manual_qc_reason"/>
-              </group>
-            </group>
-            <group string="Failure" invisible="status != 'failed' and not failure_reason">
-              <field name="failure_reason" nolabel="1"/>
-            </group>
-          </sheet>
         </form>
       </field>
     </record>
@@ -223,66 +217,19 @@
       </field>
     </record>
 
-    <!-- Viewer list: plain read-only list (no import button) -->
-    <record model="ir.ui.view" id="kensei_tracker_viewer_list">
-      <field name="name">kensei.tracker.allocation.viewer.list</field>
-      <field name="model">kensei.tracker.allocation</field>
-      <field name="arch" type="xml">
-        <list string="Task Viewer" create="false" edit="false">
-          <field name="task_id"/>
-          <field name="tasker_name"/>
-          <field name="tasker_id" optional="show"/>
-          <field name="tasker_email"/>
-          <field name="pl_id"/>
-          <field name="assigned_date"/>
-          <field name="persona_id" optional="show"/>
-          <field name="status" widget="badge"
-                 decoration-success="status == 'deliverable'"
-                 decoration-danger="status == 'failed'"
-                 decoration-info="status in ('in_progress','baseline_generated','pass1')"
-                 decoration-warning="status == 'manual_qc'"/>
-          <field name="baseline_gen_status" widget="badge" optional="show"
-                 decoration-success="baseline_gen_status == 'done'"
-                 decoration-danger="baseline_gen_status == 'failed'"
-                 decoration-info="baseline_gen_status == 'in_progress'"/>
-          <field name="pytest_score" optional="hide"/>
-          <field name="overall_score" optional="show"/>
-          <field name="final_status" widget="badge"
-                 decoration-success="final_status == 'deliverable'"
-                 decoration-danger="final_status == 'failed'"
-                 decoration-info="final_status == 'in_progress'"/>
-        </list>
-      </field>
-    </record>
-
     <!-- ===================== Actions ===================== -->
     <record model="ir.actions.act_window" id="kensei_tracker_allocation_action">
       <field name="name">Task Allocation</field>
       <field name="res_model">kensei.tracker.allocation</field>
-      <field name="view_mode">list,form</field>
+      <field name="view_mode">list,kanban,form</field>
       <field name="search_view_id" ref="kensei_tracker_allocation_search"/>
       <field name="view_ids" eval="[(5, 0, 0),
             (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_tracker_allocation_list')}),
+            (0, 0, {'view_mode': 'kanban', 'view_id': ref('kensei_tracker_allocation_kanban')}),
             (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_tracker_allocation_form')})]"/>
       <field name="help" type="html">
         <p class="o_view_nocontent_smiling_face">No task allocations yet</p>
         <p>Allocate a task to a tasker and track it through the RL pipeline.</p>
-      </field>
-    </record>
-
-    <!-- Viewer: read-only list + detail form -->
-    <record model="ir.actions.act_window" id="kensei_tracker_viewer_act_window">
-      <field name="name">Viewer</field>
-      <field name="res_model">kensei.tracker.allocation</field>
-      <field name="view_mode">list,form</field>
-      <field name="search_view_id" ref="kensei_tracker_allocation_search"/>
-      <field name="context">{'create': False, 'edit': False, 'delete': False}</field>
-      <field name="view_ids" eval="[(5, 0, 0),
-            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei_tracker_viewer_list')}),
-            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei_tracker_viewer_form')})]"/>
-      <field name="help" type="html">
-        <p class="o_view_nocontent_smiling_face">No tasks to view yet</p>
-        <p>Open any task to see its full details and pipeline progress.</p>
       </field>
     </record>
 
@@ -296,6 +243,12 @@
     <record model="ir.actions.client" id="kensei_tracker_dashboard_action">
       <field name="name">Dashboard</field>
       <field name="tag">kensei_tracker_dashboard</field>
+    </record>
+
+    <!-- ===================== My Performance (per-tasker, client action) ===================== -->
+    <record model="ir.actions.client" id="kensei_tasker_dashboard_action">
+      <field name="name">My Performance</field>
+      <field name="tag">kensei_tasker_dashboard</field>
     </record>
 
   </data>

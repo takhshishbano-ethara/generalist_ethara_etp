@@ -9,18 +9,72 @@ _logger = logging.getLogger(__name__)
 
 # Funnel stages: (css-key, label, list of allocation statuses that count toward it).
 # css-key matches the .o_ktd_funnel_* pastel classes in tracker_dashboard.scss.
+# Every non-terminal-failed status maps into exactly one bucket; the earlier
+# "Input Bundles"/'task_created' and 'pass1' entries were dropped because the
+# model never produces those statuses (see STATUS_SELECTION).
 _FUNNEL = [
-    ("input_bundle", "Input Bundles", ["task_created"]),
-    ("in_authoring", "In Authoring", ["in_progress"]),
-    ("in_trajectory", "In Trajectory", ["baseline_generated", "pass1"]),
+    ("in_authoring", "In Authoring", ["in_progress", "tasker_qc_completed"]),
+    ("in_trajectory", "In Trajectory", ["ready_baseline", "baseline_generated"]),
     ("manual_qc", "Manual QC", ["manual_qc"]),
     ("verified", "Verified", ["deliverable"]),
 ]
 
+# allocation status -> per-PL / per-QL progress column
+_PROGRESS_BUCKET = {
+    "in_progress": "in_auth", "tasker_qc_completed": "in_auth",
+    "ready_baseline": "ready", "baseline_generated": "in_traj",
+    "manual_qc": "manual_qc", "deliverable": "verified", "failed": "blocked",
+}
 
-def _avg(values):
-    vals = [v for v in values if v]
-    return round(sum(vals) / len(vals), 1) if vals else None
+
+def _iso_date(v):
+    """Parse a 'YYYY-MM-DD' string to a date; None if empty/invalid."""
+    if not v:
+        return None
+    try:
+        return datetime.date.fromisoformat(str(v)[:10])
+    except Exception:
+        return None
+
+
+def _to_int(v):
+    """Best-effort int cast for request params; None on anything non-numeric
+    (so a bad client value yields a clean filter skip, not a 500)."""
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _progress_rows(Alloc, group_field, base_domain=None):
+    """Per-<group> progress buckets via grouped SQL. ``group_field`` is a m2o
+    whose record exposes ``.name`` (``pl_id`` -> hr.employee,
+    ``assigned_ql_id`` -> res.users). ``base_domain`` scopes the allocations
+    (e.g. the dashboard date range)."""
+    base_domain = base_domain or []
+    rows = {}
+
+    def _row(rec):
+        rid = rec.id if rec else 0
+        row = rows.get(rid)
+        if not row:
+            row = rows[rid] = {
+                "id": rid, "name": rec.name if rec else "Unassigned",
+                "team": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
+                "manual_qc": 0, "verified": 0, "blocked": 0, "avg_score": None,
+            }
+        return row
+
+    for rec, status, count in Alloc._read_group(base_domain, [group_field, "status"], ["__count"]):
+        row = _row(rec)
+        row["team"] += count
+        col = _PROGRESS_BUCKET.get(status)
+        if col:
+            row[col] += count
+    for rec, avg in Alloc._read_group(
+            base_domain + [("overall_score", ">", 0)], [group_field], ["overall_score:avg"]):
+        _row(rec)["avg_score"] = round(avg, 1) if avg else None
+    return sorted(rows.values(), key=lambda r: (-r["team"], r["name"].lower()))
 
 
 _PERSONA_SAMPLE_CSV = (
@@ -28,6 +82,13 @@ _PERSONA_SAMPLE_CSV = (
     "Marcus,Finance,Accounts Payable\n"
     "Sophia,Healthcare,Patient Intake\n"
     "Leo,Retail,\n"
+)
+
+_TEAM_SAMPLE_CSV = (
+    "Email,Assigned PL,Assigned QL,Status\n"
+    "alice@example.com,maya.rodriguez@example.com,Sofia Nguyen,Active\n"
+    "bob@example.com,Liam Patel,,On Hold\n"
+    "carol@example.com,,,\n"
 )
 
 
@@ -44,16 +105,34 @@ class KenseiTrackerController(http.Controller):
             ],
         )
 
+    @http.route("/kensei/tracker/team/sample_csv", type="http", auth="user")
+    def team_sample_csv(self, **kw):
+        """Serve a downloadable sample CSV for the team bulk import."""
+        return request.make_response(
+            _TEAM_SAMPLE_CSV,
+            headers=[
+                ("Content-Type", "text/csv"),
+                ("Content-Disposition", 'attachment; filename="team_sample.csv"'),
+            ],
+        )
+
     # ------------------------------------------------------------------ #
     #  Daily Tracker (custom pivot table)
     # ------------------------------------------------------------------ #
     @http.route("/kensei/tracker/daily/filters", type="json", auth="user")
     def daily_filters(self, **kw):
+        """Distinct filter-dropdown values (PLs, team leads, projects, functions,
+        statuses) for the Daily Tracker, sourced from grouped queries."""
         Alloc = request.env["kensei.tracker.allocation"]
-        allocs = Alloc.search([])
-        pls = [{"id": p.id, "name": p.name} for p in allocs.mapped("pl_id")]
-        leads = [{"id": p.id, "name": p.name} for p in allocs.mapped("team_lead_id")]
-        projects = sorted({a.project for a in allocs if a.project})
+        # Distinct dropdown values via grouped queries — the previous
+        # search([]).mapped(...) materialised every allocation just to collect a
+        # few dozen PLs/leads/projects (a full-table load on each page open).
+        pls = [{"id": pl.id, "name": pl.name}
+               for pl, in Alloc._read_group([("pl_id", "!=", False)], ["pl_id"])]
+        leads = [{"id": lead.id, "name": lead.name}
+                 for lead, in Alloc._read_group([("team_lead_id", "!=", False)], ["team_lead_id"])]
+        projects = sorted(
+            p for p, in Alloc._read_group([("project", "!=", False)], ["project"]) if p)
         functions = [{"value": k, "label": v}
                      for k, v in Alloc._fields["function"].selection]
         statuses = [{"value": k, "label": v}
@@ -71,6 +150,10 @@ class KenseiTrackerController(http.Controller):
                    function=None, status=None, project=None, team_lead_id=None,
                    sort_by="name", sort_dir="asc", page=1, page_size=20,
                    export=False, **kw):
+        """Paginated per-tasker daily completion pivot for the Daily Tracker,
+        with date-range/PL/lead/project/function/status filters, sorting and an
+        export payload. Aggregated via grouped queries (record rules scope the
+        rows to the caller)."""
         Alloc = request.env["kensei.tracker.allocation"]
 
         def _to_date(v, default):
@@ -88,10 +171,11 @@ class KenseiTrackerController(http.Controller):
             d_from, d_to = d_to, d_from
 
         domain = []
-        if pl_id:
-            domain.append(("pl_id", "=", int(pl_id)))
-        if team_lead_id:
-            domain.append(("team_lead_id", "=", int(team_lead_id)))
+        pl_int, lead_int = _to_int(pl_id), _to_int(team_lead_id)
+        if pl_int is not None:
+            domain.append(("pl_id", "=", pl_int))
+        if lead_int is not None:
+            domain.append(("team_lead_id", "=", lead_int))
         if function:
             domain.append(("function", "=", function))
         if status:
@@ -101,39 +185,47 @@ class KenseiTrackerController(http.Controller):
         if employee:
             domain += ["|", ("tasker_name", "ilike", employee),
                        ("tasker_email", "ilike", employee)]
-        allocs = Alloc.search(domain)
-
-        # date columns
+        # date columns (cap the window at 120 days)
         dates = []
         d = d_from
-        while d <= d_to and len(dates) <= 120:
+        while d <= d_to and len(dates) < 120:
             dates.append(d)
             d += datetime.timedelta(days=1)
-        date_keys = [d.isoformat() for d in dates]
+        date_keys = {d.isoformat() for d in dates}
         func_labels = dict(Alloc._fields["function"].selection)
 
+        # Roster: one lightweight grouped row per (tasker, pl, function) instead
+        # of instantiating every allocation record. Deduplicated by tasker email.
         emp = {}
-        for a in allocs:
-            key = (a.tasker_email or "").lower() or (a.tasker_name or "unknown")
-            e = emp.get(key)
-            if not e:
-                e = {
-                    "name": a.tasker_name or a.tasker_email or "Unknown",
-                    "email": a.tasker_email or "",
-                    "pl": a.pl_id.name or "",
-                    "function": func_labels.get(a.function, ""),
+        for email, name, pl, func, _count in Alloc._read_group(
+                domain, ["tasker_email", "tasker_name", "pl_id", "function"],
+                ["__count"]):
+            key = (email or "").lower() or (name or "unknown")
+            if key not in emp:
+                emp[key] = {
+                    "name": name or email or "Unknown",
+                    "email": email or "",
+                    "pl": pl.name if pl else "",
+                    "function": func_labels.get(func, ""),
                     "cells": {k: 0 for k in date_keys},
                     "total": 0,
                 }
-                emp[key] = e
-            if a.status == "deliverable":
-                cd = a.date_final or a.assigned_date
-                if cd:
-                    cdd = cd.date() if hasattr(cd, "date") else cd
-                    ck = cdd.isoformat()
-                    if ck in e["cells"]:
-                        e["cells"][ck] += 1
-                        e["total"] += 1
+
+        # Completions: grouped by tasker + completion day, scoped to the window.
+        comp_domain = domain + [
+            ("status", "=", "deliverable"),
+            ("date_final", ">=", d_from),
+            ("date_final", "<", d_to + datetime.timedelta(days=1)),
+        ]
+        for email, day, count in Alloc._read_group(
+                comp_domain, ["tasker_email", "date_final:day"], ["__count"]):
+            e = emp.get((email or "").lower())
+            if not e or not day:
+                continue
+            ck = (day.date() if hasattr(day, "date") else day).isoformat()
+            if ck in e["cells"]:
+                e["cells"][ck] += count
+                e["total"] += count
 
         rows = list(emp.values())
         reverse = sort_dir == "desc"
@@ -173,83 +265,205 @@ class KenseiTrackerController(http.Controller):
         }
 
     @http.route("/kensei/tracker/dashboard", type="json", auth="user")
-    def tracker_dashboard(self, **kw):
-        """Aggregate allocation data for the Tracker Dashboard."""
-        if not request.env.user.has_group("kensei.group_kensei_ql"):
+    def tracker_dashboard(self, date_from=None, date_to=None, **kw):
+        """Aggregate allocation data for the Tracker Dashboard.
+
+        All figures come from grouped SQL (``_read_group``) rather than loading
+        every allocation into memory — the previous ``search([])`` did not scale
+        past a few thousand rows. Card colours live in the SCSS (keyed by
+        ``card.key``), not here.
+        """
+        user = request.env.user
+        if not (user.has_group("kensei.group_kensei_ql")
+                or user.has_group("kensei.group_kensei_tracker_viewer")):
             return {"error": "access_denied"}
 
-        allocs = request.env["kensei.tracker.allocation"].search([])
+        Alloc = request.env["kensei.tracker.allocation"]
 
-        # ----- counts by status -----
-        sc = {}
-        for a in allocs:
-            sc[a.status] = sc.get(a.status, 0) + 1
+        # ----- date range (scopes the allocation-based sections by assignment
+        # date; the roster composition below is intentionally not date-bound). -----
+        df, dt = _iso_date(date_from), _iso_date(date_to)
+        if df and dt and df > dt:
+            df, dt = dt, df
+        domain = []
+        if df:
+            domain.append(("assigned_date", ">=", df))
+        if dt:
+            domain.append(("assigned_date", "<=", dt))
+
+        # ----- counts by status (one grouped query) -----
+        sc = {status: count
+              for status, count in Alloc._read_group(domain, ["status"], ["__count"])}
 
         funnel = [
             {"key": key, "label": label,
-             "value": sum(sc.get(s, 0) for s in statuses)}
+             "value": sum(sc.get(s, 0) for s in statuses), "statuses": statuses}
             for key, label, statuses in _FUNNEL
         ]
 
-        # ----- team composition -----
-        taskers = set(a.tasker_email for a in allocs if a.tasker_email)
-        pls = allocs.mapped("pl_id")
-        trajectory_generated = sum(
-            1 for a in allocs
-            if a.status in ("baseline_generated", "pass1", "manual_qc", "deliverable"))
+        # ----- team composition (real counts from the Team Management roster) -----
+        Member = request.env["kensei.tracker.team.member"]
+        role_counts = {role: c for role, c in Member._read_group([], ["role"], ["__count"])}
         team_composition = [
-            {"key": "total_people", "label": "Total People", "value": len(taskers), "color": "#6366f1"},
-            {"key": "tpms", "label": "TPMs", "value": 0, "color": "#06b6d4"},
-            {"key": "pls", "label": "PLs", "value": len(pls), "color": "#3b82f6"},
-            {"key": "task_authoring", "label": "Task Authoring", "value": sc.get("in_progress", 0), "color": "#f59e0b"},
-            {"key": "trajectory", "label": "Trajectory", "value": trajectory_generated, "color": "#10b981"},
+            {"key": "total", "label": "Total Members",
+             "value": sum(role_counts.values()), "role": False},
+            {"key": "tasker", "label": "Taskers",
+             "value": role_counts.get("tasker", 0), "role": "tasker"},
+            {"key": "ql", "label": "QLs",
+             "value": role_counts.get("ql", 0), "role": "ql"},
+            {"key": "pl", "label": "PLs",
+             "value": role_counts.get("pl", 0), "role": "pl"},
+            {"key": "admin", "label": "Admins",
+             "value": role_counts.get("admin", 0), "role": "admin"},
         ]
 
-        # ----- latest activity -----
+        # ----- activity (within range; drill-down where meaningful) -----
+        avg_overall = next((avg for avg, in Alloc._read_group(
+            domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
         latest_activity = [
-            {"key": "present", "label": "Present", "value": 0, "color": "#10b981"},
-            {"key": "wfh", "label": "WFH", "value": 0, "color": "#6366f1"},
-            {"key": "completions", "label": "Completions", "value": sc.get("deliverable", 0), "color": "#3b82f6"},
-            {"key": "avg_score", "label": "Avg Score", "value": _avg(allocs.mapped("overall_score")), "color": "#f59e0b"},
-            {"key": "blockers", "label": "Blockers", "value": sc.get("failed", 0), "color": "#ef4444"},
+            {"key": "completions", "label": "Completions",
+             "value": sc.get("deliverable", 0), "statuses": ["deliverable"]},
+            {"key": "avg_score", "label": "Avg Score",
+             "value": round(avg_overall, 1) if avg_overall else None},
+            {"key": "blockers", "label": "Blockers",
+             "value": sc.get("failed", 0), "statuses": ["failed"]},
         ]
-
-        # ----- per-PL progress -----
-        per_pl = {}
-        for a in allocs:
-            pl = a.pl_id
-            pid = pl.id or 0
-            row = per_pl.setdefault(pid, {
-                "id": pid, "name": pl.name if pl else "Unassigned",
-                "team": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
-                "manual_qc": 0, "verified": 0, "blocked": 0,
-                "_scores": [],
-            })
-            row["team"] += 1
-            if a.overall_score:
-                row["_scores"].append(a.overall_score)
-            st = a.status
-            if st == "in_progress":
-                row["in_auth"] += 1
-            elif st == "ready_baseline":
-                row["ready"] += 1
-            elif st in ("baseline_generated", "pass1"):
-                row["in_traj"] += 1
-            elif st == "manual_qc":
-                row["manual_qc"] += 1
-            elif st == "deliverable":
-                row["verified"] += 1
-            elif st == "failed":
-                row["blocked"] += 1
-
-        per_pl_rows = []
-        for row in sorted(per_pl.values(), key=lambda r: (-r["team"], r["name"].lower())):
-            row["avg_score"] = _avg(row.pop("_scores"))
-            per_pl_rows.append(row)
 
         return {
             "team_composition": team_composition,
             "funnel": funnel,
             "latest_activity": latest_activity,
-            "per_pl": per_pl_rows,
+            "per_pl": _progress_rows(Alloc, "pl_id", domain),
+            "per_ql": _progress_rows(Alloc, "assigned_ql_id", domain),
+            "date_from": df.isoformat() if df else None,
+            "date_to": dt.isoformat() if dt else None,
+        }
+
+    # ------------------------------------------------------------------ #
+    #  Per-tasker performance — powers both "My Performance" (self) and the
+    #  Team Management drill-in (a QL/PL viewing a specific member).
+    # ------------------------------------------------------------------ #
+    @http.route("/kensei/tracker/performance", type="json", auth="user")
+    def tracker_performance(self, member_id=None, date_from=None, date_to=None, **kw):
+        env = request.env
+        caller = env.user
+        if member_id:
+            mid = _to_int(member_id)
+            member = env["kensei.tracker.team.member"].browse(mid).exists() if mid else None
+            if not member:
+                return {"error": "not_found"}
+            target = member.user_id
+            is_lead = (caller.has_group("kensei.group_kensei_ql")
+                       or caller.has_group("base.group_system"))
+            if not is_lead and target != caller:
+                return {"error": "access_denied"}
+        else:
+            target = caller
+        if not target:
+            return {"error": "no_user"}
+        return self._performance(target, date_from, date_to)
+
+    def _performance(self, user, date_from, date_to):
+        """Aggregate one tasker's allocation stats (grouped SQL). Runs as the
+        caller, so a Tasker's own record rule keeps them scoped to their rows;
+        a QL/PL (sees-all) is narrowed to the target via the domain."""
+        Alloc = request.env["kensei.tracker.allocation"]
+        Member = request.env["kensei.tracker.team.member"]
+
+        df, dt = _iso_date(date_from), _iso_date(date_to)
+        if df and dt and df > dt:
+            df, dt = dt, df
+        dom = [("tasker_user_id", "=", user.id)]
+        if df:
+            dom.append(("assigned_date", ">=", df))
+        if dt:
+            dom.append(("assigned_date", "<=", dt))
+
+        sc = {s: c for s, c in Alloc._read_group(dom, ["status"], ["__count"])}
+        total = sum(sc.values())
+        completed = sc.get("deliverable", 0)
+        blocked = sc.get("failed", 0)
+        active = total - completed - blocked
+        comp_rate = round(100 * completed / (completed + blocked), 1) \
+            if (completed + blocked) else None
+
+        def _avg(field):
+            v = next((a for a, in Alloc._read_group(
+                dom + [(field, ">", 0)], [], ["%s:avg" % field])), None)
+            return round(v, 1) if v else None
+
+        # cycle time (assigned -> completed), in days. search_read pulls only the
+        # two date columns instead of materialising full records.
+        cycles = []
+        for r in Alloc.search_read(
+                dom + [("date_final", "!=", False)], ["assigned_date", "date_final"]):
+            if r["assigned_date"] and r["date_final"]:
+                cycles.append((r["date_final"].date() - r["assigned_date"]).days)
+        avg_cycle = round(sum(cycles) / len(cycles), 1) if cycles else None
+
+        personas = sum(1 for p, in Alloc._read_group(
+            dom + [("persona_id", "!=", False)], ["persona_id"]) if p)
+
+        kpis = [
+            {"key": "total", "label": "Total Tasks", "value": total},
+            {"key": "active", "label": "Active", "value": active},
+            {"key": "completed", "label": "Completed", "value": completed},
+            {"key": "blocked", "label": "Blocked", "value": blocked},
+            {"key": "rate", "label": "Completion Rate", "value": comp_rate, "suffix": "%"},
+            {"key": "overall", "label": "Avg Overall", "value": _avg("overall_score"), "suffix": "%"},
+            {"key": "rubric", "label": "Avg Rubric", "value": _avg("rubric_score"), "suffix": "%"},
+            {"key": "pytest", "label": "Avg Pytest", "value": _avg("pytest_score"), "suffix": "%"},
+            {"key": "cycle", "label": "Avg Cycle (days)", "value": avg_cycle},
+            {"key": "personas", "label": "Personas", "value": personas},
+        ]
+
+        funnel = [
+            {"key": key, "label": label,
+             "value": sum(sc.get(s, 0) for s in statuses), "statuses": statuses}
+            for key, label, statuses in _FUNNEL
+        ]
+
+        # weekly completion trend (last 8 weeks) — counted in SQL via
+        # ``date_final:week`` rather than loading records. Odoo's :week groups on
+        # a Sunday-start boundary, so the display weeks are Sunday-aligned to
+        # match the returned group keys.
+        today = datetime.date.today()
+        week_start = today - datetime.timedelta(days=(today.weekday() + 1) % 7)
+        weeks = [week_start - datetime.timedelta(weeks=i) for i in range(7, -1, -1)]
+        counts = {w: 0 for w in weeks}
+        start_dt = datetime.datetime.combine(weeks[0], datetime.time.min)
+        for period, cnt in Alloc._read_group(
+                dom + [("status", "=", "deliverable"), ("date_final", ">=", start_dt)],
+                ["date_final:week"], ["__count"]):
+            if period and period.date() in counts:
+                counts[period.date()] += cnt
+        trend = [{"label": w.strftime("%b %d"), "value": counts[w]} for w in weeks]
+
+        # recent tasks
+        status_labels = dict(Alloc._fields["status"].selection)
+        recent = []
+        for a in Alloc.search(dom, order="assigned_date desc, id desc", limit=10):
+            recent.append({
+                "id": a.id, "task_id": a.task_id,
+                "persona": a.persona_id.name or "",
+                "status": a.status, "status_label": status_labels.get(a.status, a.status),
+                "overall": a.overall_score or None,
+                "assigned": a.assigned_date and a.assigned_date.isoformat(),
+                "completed": a.date_final and a.date_final.date().isoformat(),
+            })
+
+        member = Member.search([("user_id", "=", user.id)], limit=1)
+        role_label = dict(Member._fields["role"].selection).get(member.role, "") \
+            if member else ""
+        subject = {
+            "name": user.name,
+            "email": user.email or user.login,
+            "role": role_label,
+        }
+
+        return {
+            "subject": subject, "kpis": kpis, "funnel": funnel,
+            "trend": trend, "recent": recent,
+            "date_from": df.isoformat() if df else None,
+            "date_to": dt.isoformat() if dt else None,
         }

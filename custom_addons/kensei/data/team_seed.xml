@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- Dummy demo roster for Kensei Tracker → Team Management.
+       Creates a small org (2 PLs, 2 QLs, 4 Taskers) as real res.users so the
+       Role column resolves from group membership, then links them as team
+       members with an Assigned PL. All @example.com — safe to delete.
+       NOTE: this DB auto-creates an hr.employee per user, so we do NOT create
+       employees here (that would collide on the user_id unique constraint). -->
+  <data noupdate="1">
+
+    <!-- ===================== Users: Project Leads ===================== -->
+    <record id="user_pl_maya" model="res.users">
+      <field name="name">Maya Rodriguez</field>
+      <field name="login">maya.rodriguez@example.com</field>
+      <field name="email">maya.rodriguez@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_pl')])]"/>
+    </record>
+    <record id="user_pl_liam" model="res.users">
+      <field name="name">Liam Patel</field>
+      <field name="login">liam.patel@example.com</field>
+      <field name="email">liam.patel@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_pl')])]"/>
+    </record>
+
+    <!-- ===================== Users: Quality Leads ===================== -->
+    <record id="user_ql_sofia" model="res.users">
+      <field name="name">Sofia Nguyen</field>
+      <field name="login">sofia.nguyen@example.com</field>
+      <field name="email">sofia.nguyen@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_ql')])]"/>
+    </record>
+    <record id="user_ql_omar" model="res.users">
+      <field name="name">Omar Haddad</field>
+      <field name="login">omar.haddad@example.com</field>
+      <field name="email">omar.haddad@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_ql')])]"/>
+    </record>
+
+    <!-- ===================== Users: Taskers ===================== -->
+    <record id="user_tk_ava" model="res.users">
+      <field name="name">Ava Thompson</field>
+      <field name="login">ava.thompson@example.com</field>
+      <field name="email">ava.thompson@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_tasker')])]"/>
+    </record>
+    <record id="user_tk_noah" model="res.users">
+      <field name="name">Noah Kim</field>
+      <field name="login">noah.kim@example.com</field>
+      <field name="email">noah.kim@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_tasker')])]"/>
+    </record>
+    <record id="user_tk_ella" model="res.users">
+      <field name="name">Ella Rossi</field>
+      <field name="login">ella.rossi@example.com</field>
+      <field name="email">ella.rossi@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_tasker')])]"/>
+    </record>
+    <record id="user_tk_raj" model="res.users">
+      <field name="name">Raj Verma</field>
+      <field name="login">raj.verma@example.com</field>
+      <field name="email">raj.verma@example.com</field>
+      <field name="group_ids" eval="[(6, 0, [ref('base.group_user'), ref('kensei.group_kensei_tasker')])]"/>
+    </record>
+
+    <!-- ===================== Team Members (the roster) ===================== -->
+    <!-- Name, Email and Role are resolved from the user above; here we set the
+         team-management fields incl. Assigned PL. -->
+    <record id="tm_maya" model="kensei.tracker.team.member">
+      <field name="email">maya.rodriguez@example.com</field>
+      <field name="status">active</field>
+      <field name="notes">Project Lead — AI Data Operations pod A.</field>
+    </record>
+    <record id="tm_liam" model="kensei.tracker.team.member">
+      <field name="email">liam.patel@example.com</field>
+      <field name="status">active</field>
+      <field name="notes">Project Lead — AI Data Operations pod B.</field>
+    </record>
+    <record id="tm_sofia" model="kensei.tracker.team.member">
+      <field name="email">sofia.nguyen@example.com</field>
+      <field name="assigned_pl_id" ref="user_pl_maya"/>
+      <field name="status">active</field>
+      <field name="notes">Quality Lead under Maya.</field>
+    </record>
+    <record id="tm_omar" model="kensei.tracker.team.member">
+      <field name="email">omar.haddad@example.com</field>
+      <field name="assigned_pl_id" ref="user_pl_liam"/>
+      <field name="status">active</field>
+      <field name="notes">Quality Lead under Liam.</field>
+    </record>
+    <record id="tm_ava" model="kensei.tracker.team.member">
+      <field name="email">ava.thompson@example.com</field>
+      <field name="assigned_pl_id" ref="user_pl_maya"/>
+      <field name="assigned_ql_id" ref="user_ql_sofia"/>
+      <field name="status">active</field>
+    </record>
+    <record id="tm_noah" model="kensei.tracker.team.member">
+      <field name="email">noah.kim@example.com</field>
+      <field name="assigned_pl_id" ref="user_pl_maya"/>
+      <field name="assigned_ql_id" ref="user_ql_sofia"/>
+      <field name="status">on_hold</field>
+      <field name="notes">On ramp-up; shadowing Ava this week.</field>
+    </record>
+    <record id="tm_ella" model="kensei.tracker.team.member">
+      <field name="email">ella.rossi@example.com</field>
+      <field name="assigned_pl_id" ref="user_pl_liam"/>
+      <field name="assigned_ql_id" ref="user_ql_omar"/>
+      <field name="status">active</field>
+    </record>
+    <record id="tm_raj" model="kensei.tracker.team.member">
+      <field name="email">raj.verma@example.com</field>
+      <field name="assigned_pl_id" ref="user_pl_liam"/>
+      <field name="assigned_ql_id" ref="user_ql_omar"/>
+      <field name="status">active</field>
+    </record>
+
+  </data>
+</odoo>

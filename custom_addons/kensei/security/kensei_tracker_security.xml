@@ -21,6 +21,16 @@
             <field name="domain_force">['|', ('tasker_user_id', '=', user.id), ('create_uid', '=', user.id)]</field>
         </record>
 
+        <!-- Quality Lead: full visibility (reviews every task). Without this,
+             QL — which implies the Tasker group — inherits the Tasker
+             "own only" rule and can't see/verify other taskers' allocations. -->
+        <record id="kensei_tracker_allocation_rule_ql" model="ir.rule">
+            <field name="name">Tracker Allocation: QL sees all</field>
+            <field name="model_id" ref="model_kensei_tracker_allocation"/>
+            <field name="groups" eval="[(4, ref('group_kensei_ql'))]"/>
+            <field name="domain_force">[(1, '=', 1)]</field>
+        </record>
+
         <!-- Project Lead: full visibility. -->
         <record id="kensei_tracker_allocation_rule_pl" model="ir.rule">
             <field name="name">Tracker Allocation: PL sees all</field>

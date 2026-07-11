@@ -1,0 +1,47 @@
+// Task Allocation form tweaks (scoped to .o_kensei_alloc_form so nothing else
+// in the app is affected).
+.o_kensei_alloc_form {
+
+    // Widen the sheet so the whole status progress bar fits across the top
+    // instead of collapsing early stages into a "…" dropdown.
+    .o_form_sheet_bg,
+    .o_form_sheet {
+        max-width: 100%;
+    }
+
+    // Make the status bar span the full header width instead of being pushed to
+    // the right (Odoo default: margin-left:auto), and let each stage grow to
+    // fill the row evenly. NOTE: in this build the stage buttons render straight
+    // in DOM order (In Progress → … → Failed), so we force plain `row`; a
+    // `row-reverse` here read the whole bar backwards (Failed → … → In Progress).
+    .o_form_statusbar > .o_statusbar_status {
+        --o-statusbar-padding-x: 0.5rem;
+        margin-left: 0;
+        flex: 1 1 auto;
+        flex-flow: row wrap !important;   // straight left-to-right order
+
+        > .o_arrow_button:not(.d-none) {
+            flex: 1 1 auto;
+            justify-content: center;
+        }
+    }
+
+    // Completed stages = GREEN (distinct from grey "upcoming"). The done class is
+    // applied by the `kensei_statusbar` widget from the field's selection order +
+    // each button's data-value, so this does NOT depend on the statusbar's
+    // (reversed) DOM order — no `~`/`:has` sibling-order hack.
+    .o_statusbar_status .o_arrow_button.o_kensei_stage_done {
+        &, &:disabled, &:hover, &:focus {
+            background-color: #d1fae5;            // light green = completed
+            color: #065f46 !important;            // dark green text (beats muted)
+            font-weight: 500;
+        }
+    }
+
+    // Show the Assignment Date in full — stop it being clipped to day/month.
+    .o_field_date,
+    .o_field_widget[name="assigned_date"] {
+        white-space: nowrap;
+        min-width: 8rem;
+    }
+}
