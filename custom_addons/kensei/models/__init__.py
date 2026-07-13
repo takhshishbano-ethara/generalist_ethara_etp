@@ -10,6 +10,8 @@ from . import (
     kensei_test_result,
     kensei_tracker_allocation,
     kensei_tracker_bulk_allocation,
+    kensei_persona_import,
+    kensei_tracker_stage_handoff,
     kensei_tracker_team_member,
     kensei_tracker_team_import,
 )

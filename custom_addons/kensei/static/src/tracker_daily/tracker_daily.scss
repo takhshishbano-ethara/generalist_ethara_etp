@@ -13,9 +13,17 @@
 
     padding: 1.25rem 1.5rem 2rem;
     background: #f9fafb;
-    min-height: 100%;
     color: var(--kd-text);
     font-family: inherit;
+
+    // SCROLLING — `height: 100%` is load-bearing; see the long note in
+    // tracker_dashboard.scss. This root sits directly inside `.o_action_manager`
+    // (a plain block with `height:100%; overflow:hidden`) and never receives the
+    // `o_action` class, so with `min-height: 100%` its height stayed `auto` and it
+    // simply grew past the clipping parent — no scrollbar, content below the fold
+    // unreachable. `height: 100%` bounds it, which is what `overflow-y: auto` needs.
+    height: 100%;
+    overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 1rem;
@@ -93,9 +101,8 @@
     .o_kd_sticky { position: sticky; z-index: 2; text-align: left; }
     thead .o_kd_sticky { z-index: 4; }
     .o_kd_col_name { left: 0; min-width: 190px; max-width: 190px; font-weight: 600; }
-    .o_kd_col_pl { left: 190px; min-width: 140px; max-width: 140px; }
-    .o_kd_col_func { left: 330px; min-width: 130px; max-width: 130px; border-right: 2px solid var(--kd-border); }
-    tbody .o_kd_col_name, tbody .o_kd_col_pl, tbody .o_kd_col_func { background: inherit; }
+    .o_kd_col_pl { left: 190px; min-width: 140px; max-width: 140px; border-right: 2px solid var(--kd-border); }
+    tbody .o_kd_col_name, tbody .o_kd_col_pl { background: inherit; }
     tbody tr:nth-child(even) .o_kd_sticky { background: var(--kd-zebra); }
     tbody tr:nth-child(odd) .o_kd_sticky { background: #fff; }
     tbody tr:hover .o_kd_sticky { background: #f4f1fb; }

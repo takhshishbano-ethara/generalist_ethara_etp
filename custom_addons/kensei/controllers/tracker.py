@@ -16,15 +16,44 @@ _FUNNEL = [
     ("in_authoring", "In Authoring", ["in_progress", "tasker_qc_completed"]),
     ("in_trajectory", "In Trajectory", ["ready_baseline", "baseline_generated"]),
     ("manual_qc", "Manual QC", ["manual_qc"]),
+    # A non-final stage that finished its pipeline: the task is NOT delivered, it
+    # is waiting to be handed to the next stage. Its own funnel step so it is
+    # never mistaken for a delivered task.
+    ("ready_next_stage", "Ready for Next Stage", ["ready_next_stage"]),
     ("verified", "Verified", ["deliverable"]),
+    ("failed", "Failed", ["failed"]),
+]
+
+# Non-terminal statuses (used for the "In Progress" stat + drill-down).
+# 'ready_next_stage' counts as active: the TASK is still in flight — it just needs
+# handing off — so it must not be counted as completed.
+_ACTIVE_STATUSES = [
+    "in_progress", "tasker_qc_completed", "ready_baseline",
+    "baseline_generated", "manual_qc", "ready_next_stage",
 ]
 
 # allocation status -> per-PL / per-QL progress column
 _PROGRESS_BUCKET = {
     "in_progress": "in_auth", "tasker_qc_completed": "in_auth",
     "ready_baseline": "ready", "baseline_generated": "in_traj",
-    "manual_qc": "manual_qc", "deliverable": "verified", "failed": "blocked",
+    "manual_qc": "manual_qc", "ready_next_stage": "manual_qc",
+    "deliverable": "verified", "failed": "blocked",
 }
+
+# A stage's own work is finished in these states — used by the Daily Tracker,
+# which credits the tasker who completed THAT stage (finishing a non-final stage
+# is still a real day's work).
+_STAGE_DONE_STATUSES = ["deliverable", "ready_next_stage"]
+
+
+def _funnel(sc):
+    """Build the RL-pipeline funnel cards from a {status: count} map. Shared by
+    the org dashboard and the per-tasker performance view."""
+    return [
+        {"key": key, "label": label,
+         "value": sum(sc.get(s, 0) for s in statuses), "statuses": statuses}
+        for key, label, statuses in _FUNNEL
+    ]
 
 
 def _iso_date(v):
@@ -47,10 +76,10 @@ def _to_int(v):
 
 
 def _progress_rows(Alloc, group_field, base_domain=None):
-    """Per-<group> progress buckets via grouped SQL. ``group_field`` is a m2o
-    whose record exposes ``.name`` (``pl_id`` -> hr.employee,
-    ``assigned_ql_id`` -> res.users). ``base_domain`` scopes the allocations
-    (e.g. the dashboard date range)."""
+    """Per-<group> progress buckets via grouped SQL. ``group_field`` is any m2o
+    (``pl_id`` -> hr.employee, ``assigned_ql_id`` -> res.users,
+    ``tasker_member_id`` -> team member); ``display_name`` labels every model.
+    ``base_domain`` scopes the allocations (e.g. the dashboard date range)."""
     base_domain = base_domain or []
     rows = {}
 
@@ -59,7 +88,7 @@ def _progress_rows(Alloc, group_field, base_domain=None):
         row = rows.get(rid)
         if not row:
             row = rows[rid] = {
-                "id": rid, "name": rec.name if rec else "Unassigned",
+                "id": rid, "name": rec.display_name if rec else "Unassigned",
                 "team": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
                 "manual_qc": 0, "verified": 0, "blocked": 0, "avg_score": None,
             }
@@ -121,8 +150,8 @@ class KenseiTrackerController(http.Controller):
     # ------------------------------------------------------------------ #
     @http.route("/kensei/tracker/daily/filters", type="json", auth="user")
     def daily_filters(self, **kw):
-        """Distinct filter-dropdown values (PLs, team leads, projects, functions,
-        statuses) for the Daily Tracker, sourced from grouped queries."""
+        """Distinct filter-dropdown values (PLs, team leads, projects, statuses)
+        for the Daily Tracker, sourced from grouped queries."""
         Alloc = request.env["kensei.tracker.allocation"]
         # Distinct dropdown values via grouped queries — the previous
         # search([]).mapped(...) materialised every allocation just to collect a
@@ -133,27 +162,24 @@ class KenseiTrackerController(http.Controller):
                  for lead, in Alloc._read_group([("team_lead_id", "!=", False)], ["team_lead_id"])]
         projects = sorted(
             p for p, in Alloc._read_group([("project", "!=", False)], ["project"]) if p)
-        functions = [{"value": k, "label": v}
-                     for k, v in Alloc._fields["function"].selection]
         statuses = [{"value": k, "label": v}
                     for k, v in Alloc._fields["status"].selection]
         return {
             "pls": sorted(pls, key=lambda x: (x["name"] or "").lower()),
             "team_leads": sorted(leads, key=lambda x: (x["name"] or "").lower()),
             "projects": projects,
-            "functions": functions,
             "statuses": statuses,
         }
 
     @http.route("/kensei/tracker/daily/data", type="json", auth="user")
     def daily_data(self, date_from=None, date_to=None, employee=None, pl_id=None,
-                   function=None, status=None, project=None, team_lead_id=None,
+                   status=None, project=None, team_lead_id=None,
                    sort_by="name", sort_dir="asc", page=1, page_size=20,
                    export=False, **kw):
         """Paginated per-tasker daily completion pivot for the Daily Tracker,
-        with date-range/PL/lead/project/function/status filters, sorting and an
-        export payload. Aggregated via grouped queries (record rules scope the
-        rows to the caller)."""
+        with date-range/PL/lead/project/status filters, sorting and an export
+        payload. Aggregated via grouped queries (record rules scope the rows to
+        the caller)."""
         Alloc = request.env["kensei.tracker.allocation"]
 
         def _to_date(v, default):
@@ -176,8 +202,6 @@ class KenseiTrackerController(http.Controller):
             domain.append(("pl_id", "=", pl_int))
         if lead_int is not None:
             domain.append(("team_lead_id", "=", lead_int))
-        if function:
-            domain.append(("function", "=", function))
         if status:
             domain.append(("status", "=", status))
         if project:
@@ -192,13 +216,12 @@ class KenseiTrackerController(http.Controller):
             dates.append(d)
             d += datetime.timedelta(days=1)
         date_keys = {d.isoformat() for d in dates}
-        func_labels = dict(Alloc._fields["function"].selection)
 
-        # Roster: one lightweight grouped row per (tasker, pl, function) instead
-        # of instantiating every allocation record. Deduplicated by tasker email.
+        # Roster: one lightweight grouped row per (tasker, pl) instead of
+        # instantiating every allocation record. Deduplicated by tasker email.
         emp = {}
-        for email, name, pl, func, _count in Alloc._read_group(
-                domain, ["tasker_email", "tasker_name", "pl_id", "function"],
+        for email, name, pl, _count in Alloc._read_group(
+                domain, ["tasker_email", "tasker_name", "pl_id"],
                 ["__count"]):
             key = (email or "").lower() or (name or "unknown")
             if key not in emp:
@@ -206,14 +229,16 @@ class KenseiTrackerController(http.Controller):
                     "name": name or email or "Unknown",
                     "email": email or "",
                     "pl": pl.name if pl else "",
-                    "function": func_labels.get(func, ""),
                     "cells": {k: 0 for k in date_keys},
                     "total": 0,
                 }
 
         # Completions: grouped by tasker + completion day, scoped to the window.
+        # A tasker who finished a NON-final stage ('ready_next_stage') completed a
+        # real piece of work, so it counts here just like a delivered task —
+        # otherwise their credit would vanish the moment the task is handed off.
         comp_domain = domain + [
-            ("status", "=", "deliverable"),
+            ("status", "in", _STAGE_DONE_STATUSES),
             ("date_final", ">=", d_from),
             ("date_final", "<", d_to + datetime.timedelta(days=1)),
         ]
@@ -232,7 +257,6 @@ class KenseiTrackerController(http.Controller):
         keyfn = {
             "total": lambda r: r["total"],
             "pl": lambda r: (r["pl"] or "").lower(),
-            "function": lambda r: (r["function"] or "").lower(),
         }.get(sort_by, lambda r: (r["name"] or "").lower())
         rows.sort(key=keyfn, reverse=reverse)
 
@@ -274,18 +298,40 @@ class KenseiTrackerController(http.Controller):
         ``card.key``), not here.
         """
         user = request.env.user
-        if not (user.has_group("kensei.group_kensei_ql")
-                or user.has_group("kensei.group_kensei_tracker_viewer")):
+        is_admin = user.has_group("base.group_system")
+        is_lead = user.has_group("kensei.group_kensei_ql")  # PL implies QL
+        if not (is_admin or is_lead):
             return {"error": "access_denied"}
+
+        # ----- role scope -----
+        # Admin sees the whole org. A PL/QL sees the same scoped view: only the
+        # tasks / members where they are the assigned PL OR assigned QL.
+        if is_admin:
+            scope, member_scope = [], []
+        else:
+            scope = ['|', ("assigned_pl_id", "=", user.id),
+                     ("assigned_ql_id", "=", user.id)]
+            member_scope = list(scope)
 
         Alloc = request.env["kensei.tracker.allocation"]
 
         # ----- date range (scopes the allocation-based sections by assignment
-        # date; the roster composition below is intentionally not date-bound). -----
+        # date; the roster composition below is not date-bound). -----
         df, dt = _iso_date(date_from), _iso_date(date_to)
         if df and dt and df > dt:
             df, dt = dt, df
-        domain = []
+        domain = list(scope)
+        # Count each TASK once, not once per stage. A task is worked in stages and
+        # each stage is its own allocation record; `is_current_stage` is True only
+        # for the latest stage of a task (nothing handed off from it yet), so this
+        # single leaf makes every funnel/stat/progress query below report tasks at
+        # the stage they are actually sitting in — no query rewrites needed.
+        #
+        # NOTE: the Daily Tracker deliberately does NOT apply this filter. It
+        # reports completions per person per day, and finishing stage 1 and stage 2
+        # are two real pieces of work by (possibly) two different taskers — both
+        # must keep their credit.
+        domain.append(("is_current_stage", "=", True))
         if df:
             domain.append(("assigned_date", ">=", df))
         if dt:
@@ -295,15 +341,12 @@ class KenseiTrackerController(http.Controller):
         sc = {status: count
               for status, count in Alloc._read_group(domain, ["status"], ["__count"])}
 
-        funnel = [
-            {"key": key, "label": label,
-             "value": sum(sc.get(s, 0) for s in statuses), "statuses": statuses}
-            for key, label, statuses in _FUNNEL
-        ]
+        funnel = _funnel(sc)
 
-        # ----- team composition (real counts from the Team Management roster) -----
+        # ----- team composition (roster counts, scoped to the caller's team) -----
         Member = request.env["kensei.tracker.team.member"]
-        role_counts = {role: c for role, c in Member._read_group([], ["role"], ["__count"])}
+        role_counts = {role: c for role, c in
+                       Member._read_group(member_scope, ["role"], ["__count"])}
         team_composition = [
             {"key": "total", "label": "Total Members",
              "value": sum(role_counts.values()), "role": False},
@@ -313,28 +356,34 @@ class KenseiTrackerController(http.Controller):
              "value": role_counts.get("ql", 0), "role": "ql"},
             {"key": "pl", "label": "PLs",
              "value": role_counts.get("pl", 0), "role": "pl"},
-            {"key": "admin", "label": "Admins",
-             "value": role_counts.get("admin", 0), "role": "admin"},
         ]
 
-        # ----- activity (within range; drill-down where meaningful) -----
+        # ----- stats (within range; drill-down where meaningful) -----
+        total = sum(sc.values())
+        completed = sc.get("deliverable", 0)
+        failed = sc.get("failed", 0)
+        active = total - completed - failed
         avg_overall = next((avg for avg, in Alloc._read_group(
             domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
-        latest_activity = [
-            {"key": "completions", "label": "Completions",
-             "value": sc.get("deliverable", 0), "statuses": ["deliverable"]},
+        stats = [
+            {"key": "total", "label": "Total Tasks", "value": total},
+            {"key": "active", "label": "In Progress",
+             "value": active, "statuses": _ACTIVE_STATUSES},
+            {"key": "completions", "label": "Completed",
+             "value": completed, "statuses": ["deliverable"]},
+            {"key": "failed", "label": "Failed",
+             "value": failed, "statuses": ["failed"]},
             {"key": "avg_score", "label": "Avg Score",
              "value": round(avg_overall, 1) if avg_overall else None},
-            {"key": "blockers", "label": "Blockers",
-             "value": sc.get("failed", 0), "statuses": ["failed"]},
         ]
 
         return {
             "team_composition": team_composition,
             "funnel": funnel,
-            "latest_activity": latest_activity,
+            "stats": stats,
             "per_pl": _progress_rows(Alloc, "pl_id", domain),
             "per_ql": _progress_rows(Alloc, "assigned_ql_id", domain),
+            "per_tasker": _progress_rows(Alloc, "tasker_member_id", domain),
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }
@@ -381,7 +430,12 @@ class KenseiTrackerController(http.Controller):
 
         sc = {s: c for s, c in Alloc._read_group(dom, ["status"], ["__count"])}
         total = sum(sc.values())
-        completed = sc.get("deliverable", 0)
+        # This is a PERSONAL performance view, so it measures what this tasker
+        # finished. Completing a non-final stage ('ready_next_stage') is real work
+        # they delivered — it counts, even though the task itself is not delivered
+        # yet. (The org dashboard's "Completed" stat deliberately counts only
+        # 'deliverable', because there it is TASKS being counted, not effort.)
+        completed = sum(sc.get(s, 0) for s in _STAGE_DONE_STATUSES)
         blocked = sc.get("failed", 0)
         active = total - completed - blocked
         comp_rate = round(100 * completed / (completed + blocked), 1) \
@@ -417,11 +471,7 @@ class KenseiTrackerController(http.Controller):
             {"key": "personas", "label": "Personas", "value": personas},
         ]
 
-        funnel = [
-            {"key": key, "label": label,
-             "value": sum(sc.get(s, 0) for s in statuses), "statuses": statuses}
-            for key, label, statuses in _FUNNEL
-        ]
+        funnel = _funnel(sc)
 
         # weekly completion trend (last 8 weeks) — counted in SQL via
         # ``date_final:week`` rather than loading records. Odoo's :week groups on
@@ -433,7 +483,8 @@ class KenseiTrackerController(http.Controller):
         counts = {w: 0 for w in weeks}
         start_dt = datetime.datetime.combine(weeks[0], datetime.time.min)
         for period, cnt in Alloc._read_group(
-                dom + [("status", "=", "deliverable"), ("date_final", ">=", start_dt)],
+                dom + [("status", "in", _STAGE_DONE_STATUSES),
+                       ("date_final", ">=", start_dt)],
                 ["date_final:week"], ["__count"]):
             if period and period.date() in counts:
                 counts[period.date()] += cnt

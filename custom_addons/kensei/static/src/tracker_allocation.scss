@@ -11,18 +11,31 @@
 
     // Make the status bar span the full header width instead of being pushed to
     // the right (Odoo default: margin-left:auto), and let each stage grow to
-    // fill the row evenly. NOTE: in this build the stage buttons render straight
-    // in DOM order (In Progress → … → Failed), so we force plain `row`; a
-    // `row-reverse` here read the whole bar backwards (Failed → … → In Progress).
-    .o_form_statusbar > .o_statusbar_status {
+    // fill the row evenly.
+    //
+    // The parent must be `.o_field_statusbar` (the field wrapper), not
+    // `.o_form_statusbar` (the header) — core uses that same child combinator.
+    //
+    // DO NOT set `flex-flow` here. Odoo renders the stage buttons in REVERSED DOM
+    // order on purpose — see StatusBarField.getSortedItems():
+    //     inline.reverse(); // CSS rules account for this list to be reversed
+    // and then flips them back with `flex-flow: row-reverse wrap-reverse`. The two
+    // cancel out to a straight left-to-right bar. Overriding it here would leave
+    // the reversed DOM showing through, i.e. Failed → … → In Progress.
+    .o_field_statusbar > .o_statusbar_status {
         --o-statusbar-padding-x: 0.5rem;
         margin-left: 0;
         flex: 1 1 auto;
-        flex-flow: row wrap !important;   // straight left-to-right order
 
         > .o_arrow_button:not(.d-none) {
-            flex: 1 1 auto;
+            // grow to fill the row, but NEVER shrink below the label. `flex-shrink: 1`
+            // (the default, and what this used to be) let the buttons compress past
+            // their own text, so the stage names collided. At 0 they keep their width,
+            // the row wraps instead, and StatusBarField.adjust() folds the overflow into
+            // its "…" dropdown — which is the behaviour core already ships.
+            flex: 1 0 auto;
             justify-content: center;
+            white-space: nowrap;
         }
     }
 

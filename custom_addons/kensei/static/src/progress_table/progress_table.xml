@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="kensei.ProgressTable">
+        <div class="o_ktd_table_wrap">
+            <table class="o_ktd_table">
+                <thead>
+                    <tr>
+                        <th class="o_ktd_col_idx">#</th>
+                        <th class="o_ktd_col_pl"><t t-out="props.head"/></th>
+                        <th>Team</th>
+                        <th>In Auth</th>
+                        <th>Ready</th>
+                        <th>In Traj</th>
+                        <th>Manual QC</th>
+                        <th>Verified</th>
+                        <th>Blocked</th>
+                        <th>Avg Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-if="total === 0">
+                        <tr>
+                            <td colspan="10" class="o_ktd_empty">
+                                <i class="fa fa-inbox me-1"/>No allocations yet.
+                            </td>
+                        </tr>
+                    </t>
+                    <t t-foreach="pageRows" t-as="row" t-key="row.id">
+                        <tr class="o_ktd_clickable" t-on-click="() => this.rowClick(row)">
+                            <td class="o_ktd_col_idx"><t t-out="row._idx"/></td>
+                            <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
+                            <td><t t-out="row.team"/></td>
+                            <td><t t-out="row.in_auth"/></td>
+                            <td><t t-out="row.ready"/></td>
+                            <td><t t-out="row.in_traj"/></td>
+                            <td><t t-out="row.manual_qc"/></td>
+                            <td class="o_ktd_cell_verified"><t t-out="row.verified"/></td>
+                            <td t-att-class="row.blocked > 0 ? 'o_ktd_cell_blocked' : ''">
+                                <t t-out="row.blocked"/>
+                            </td>
+                            <td><t t-out="fmt(row.avg_score)"/></td>
+                        </tr>
+                    </t>
+                </tbody>
+            </table>
+            <div class="o_ktd_pager" t-if="totalPages > 1">
+                <button class="o_ktd_pager_btn" t-att-disabled="state.page &lt;= 1"
+                        t-on-click="prev" aria-label="Previous page">
+                    <i class="fa fa-chevron-left"/>
+                </button>
+                <span class="o_ktd_pager_info">
+                    <t t-out="state.page"/> / <t t-out="totalPages"/>
+                    <span class="text-muted"> · <t t-out="total"/></span>
+                </span>
+                <button class="o_ktd_pager_btn" t-att-disabled="state.page >= totalPages"
+                        t-on-click="next" aria-label="Next page">
+                    <i class="fa fa-chevron-right"/>
+                </button>
+            </div>
+        </div>
+    </t>
+</templates>

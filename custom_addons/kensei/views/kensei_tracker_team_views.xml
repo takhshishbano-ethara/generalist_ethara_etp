@@ -29,8 +29,10 @@
                  decoration-warning="status == 'on_hold'"
                  decoration-danger="status == 'inactive'"/>
           <field name="date_added"/>
+          <!-- Performance is a per-tasker completions view; only taskers have it -->
           <button name="action_view_performance" type="object" string="Performance"
-                  icon="fa-line-chart" title="View performance"/>
+                  icon="fa-line-chart" title="View performance"
+                  invisible="role != 'tasker'"/>
         </list>
       </field>
     </record>
@@ -70,7 +72,7 @@
           <header>
             <button name="action_view_performance" type="object"
                     string="Performance" class="btn-primary" icon="fa-line-chart"
-                    invisible="not id"/>
+                    invisible="not id or role != 'tasker'"/>
           </header>
           <sheet>
             <div class="alert alert-info" role="alert">

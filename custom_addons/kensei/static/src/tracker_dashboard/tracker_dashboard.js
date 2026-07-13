@@ -1,91 +1,47 @@
 /** @odoo-module */
-import { Component, useState, onWillStart } from "@odoo/owl";
+import { useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
-import { useService } from "@web/core/utils/hooks";
-import { rpc } from "@web/core/network/rpc";
-import { isoLocal, fmt } from "@kensei/tracker_common";
+import { KenseiDashboardBase } from "@kensei/dashboard_base/dashboard_base";
+import { ProgressTable } from "@kensei/progress_table/progress_table";
 
-export class KenseiTrackerDashboard extends Component {
+export class KenseiTrackerDashboard extends KenseiDashboardBase {
     static template = "kensei.TrackerDashboard";
-    static props = { action: { type: Object, optional: true }, "*": true };
+    static components = { ProgressTable };
 
     setup() {
-        this.notification = useService("notification");
-        this.action = useService("action");
-        this.fmt = fmt;  // exposed for the template
-
+        super.setup();
         this.state = useState({
             loading: true,
             teamComposition: [],
             funnel: [],
-            latestActivity: [],
+            stats: [],
             perPl: [],
             perQl: [],
+            perTasker: [],
             lastUpdated: "",
             dateFrom: "",
             dateTo: "",
         });
-
-        onWillStart(() => this._loadData());
+        onWillStart(() => this._load());
     }
 
-    async _loadData() {
-        this.state.loading = true;
-        try {
-            const res = await rpc("/kensei/tracker/dashboard", {
-                date_from: this.state.dateFrom || false,
-                date_to: this.state.dateTo || false,
-            });
-            if (res && res.error) {
-                this.notification.add("You are not allowed to view this dashboard.", {
-                    type: "warning",
-                });
-                return;
-            }
-            this.state.teamComposition = res.team_composition || [];
-            this.state.funnel = res.funnel || [];
-            this.state.latestActivity = res.latest_activity || [];
-            this.state.perPl = res.per_pl || [];
-            this.state.perQl = res.per_ql || [];
-            this.state.lastUpdated = new Date().toLocaleTimeString("en-US", {
-                hour: "2-digit",
-                minute: "2-digit",
-            });
-        } catch (e) {
-            this.notification.add("Failed to load dashboard data.", { type: "danger" });
-            console.error("[kensei-tracker]", e);
-        } finally {
-            this.state.loading = false;
+    async _load() {
+        const res = await this._fetch(
+            "/kensei/tracker/dashboard", {}, "Failed to load dashboard data.");
+        if (!res) {
+            return;
         }
-    }
-
-    onRefresh() {
-        this._loadData();
-    }
-
-    // ---- date-range filter (scopes allocation sections by assignment date) ----
-    /** days=null clears the range (All time); otherwise the last N days incl. today. */
-    setPreset(days) {
-        if (days === null) {
-            this.state.dateFrom = "";
-            this.state.dateTo = "";
-        } else {
-            const to = new Date();
-            const from = new Date();
-            from.setDate(to.getDate() - (days - 1));
-            this.state.dateFrom = isoLocal(from);
-            this.state.dateTo = isoLocal(to);
+        if (res.error) {
+            this.notification.add("You are not allowed to view this dashboard.",
+                { type: "warning" });
+            return;
         }
-        this._loadData();
-    }
-
-    onDateInput(which, ev) {
-        this.state[which] = ev.target.value || "";
-        this._loadData();
-    }
-
-    get isFiltered() {
-        return Boolean(this.state.dateFrom || this.state.dateTo);
+        this.state.teamComposition = res.team_composition || [];
+        this.state.funnel = res.funnel || [];
+        this.state.stats = res.stats || [];
+        this.state.perPl = res.per_pl || [];
+        this.state.perQl = res.per_ql || [];
+        this.state.perTasker = res.per_tasker || [];
     }
 
     // ---- drill-down: open the filtered Task Allocation / Team Management list ----
@@ -139,6 +95,13 @@ export class KenseiTrackerDashboard extends Component {
             ? [["assigned_ql_id", "=", row.id]]
             : [["assigned_ql_id", "=", false]];
         this._openAllocations(domain, `QL — ${row.name}`);
+    }
+
+    onTaskerClick(row) {
+        const domain = row.id
+            ? [["tasker_member_id", "=", row.id]]
+            : [["tasker_member_id", "=", false]];
+        this._openAllocations(domain, `Tasker — ${row.name}`);
     }
 }
 

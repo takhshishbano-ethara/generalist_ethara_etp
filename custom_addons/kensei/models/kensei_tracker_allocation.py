@@ -2,10 +2,49 @@
 import re
 
 from odoo import models, fields, api, _
-from odoo.exceptions import AccessError, ValidationError
+from odoo.exceptions import AccessError, UserError, ValidationError
 
 _TASK_ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 _URL_RE = re.compile(r'^https?://\S+$', re.IGNORECASE)
+
+# Each stage of a task lives in its OWN record, so a single form can only reach the
+# other stage's data through the mirror fields (s1_* / s2_*). These tuples are the
+# one source of truth for which pipeline fields are mirrored: the field list, the
+# @api.depends and the compute all derive from them, so they cannot drift apart.
+_STAGE1_MIRROR = (
+    'status',
+    # Each stage carries its OWN PL/QL, synced from that stage's tasker on the roster,
+    # so the two stages can sit under different leads. Mirrored so the form can show
+    # each tasker next to the lead who actually owns them.
+    'assigned_pl_id', 'assigned_ql_id',
+    'drive_link', 'tasker_qc_notes',
+    'pl_verified_status', 'pl_verified_reason', 'pl_verified_notes',
+    'baseline_ready_status', 'baseline_ready_reason', 'baseline_ready_notes',
+    'baseline_drive_link', 'baseline_gen_status', 'baseline_gen_reason',
+    'baseline_gen_notes',
+    'rubric_score', 'pytest_score', 'overall_score', 'qced_by',
+    'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
+    'date_final',
+)
+# Stage 2 inherits a task that stage 1 already authored, PL-verified and signed off
+# as ready, so it runs a shorter pipeline: generate the baseline trajectory, QC it.
+_STAGE2_MIRROR = (
+    'status',
+    'assigned_pl_id', 'assigned_ql_id',
+    'baseline_drive_link', 'baseline_gen_status', 'baseline_gen_reason',
+    'baseline_gen_notes',
+    'rubric_score', 'pytest_score', 'overall_score', 'qced_by',
+    'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
+    'date_final',
+)
+
+
+def _mirror_value(source, name):
+    """Read ``name`` off a stage record, flattening a Many2one to its id."""
+    if not source:
+        return False
+    value = source[name]
+    return value.id if isinstance(value, models.BaseModel) else value
 
 
 class KenseiTrackerAllocation(models.Model):
@@ -33,6 +72,11 @@ class KenseiTrackerAllocation(models.Model):
         ('ready_baseline', 'Ready for Baseline Trajectory'),
         ('baseline_generated', 'Baseline Trajectory Generated'),
         ('manual_qc', 'Manual QC'),
+        # Finishing the pipeline does NOT mean the task is delivered: a task runs
+        # over several stages. A non-final stage lands here — its work is done and
+        # it is waiting to be handed off to the next stage. Only the FINAL stage
+        # can reach 'deliverable'.
+        ('ready_next_stage', 'Ready for Next Stage'),
         ('deliverable', 'Deliverable'),
         ('failed', 'Failed'),
     ]
@@ -45,12 +89,190 @@ class KenseiTrackerAllocation(models.Model):
     # ------------------------------------------------------------------ #
     #  Basic information
     # ------------------------------------------------------------------ #
-    # Auto-generated, unique, alphanumeric identifier (prefilled from a sequence).
+    # Auto-generated, alphanumeric identifier (prefilled from a sequence). NOT
+    # unique on its own: one task runs through several stages, and each stage is
+    # its own allocation record sharing the same Task ID (unique per stage).
     task_id = fields.Char(
         string='Task ID', required=True, index=True, copy=False, tracking=True,
         default=lambda self: self.env['ir.sequence'].next_by_code(
             'kensei.tracker.allocation'),
     )
+
+    # ---------------- Stage chain -------------------------------------- #
+    # A task is worked in stages. Each stage is a SEPARATE allocation record so
+    # it gets its own tasker, PL/QL, pipeline status, scores and audit trail —
+    # the whole existing pipeline is simply replayed. Stage N+1 is created from
+    # stage N via the hand-off wizard once stage N reaches Deliverable.
+    stage_no = fields.Integer(
+        string='Stage', default=1, required=True, index=True, tracking=True,
+        help='Which stage of the task this allocation covers (1, 2, …).',
+    )
+    # How many stages this task takes end to end. Drives what "finished" means:
+    # completing a NON-final stage makes the task "Ready for Next Stage"; only the
+    # final stage can become "Deliverable". Carried forward on hand-off.
+    # Fixed at 2 and not an input: a task is authored + verified in stage 1, then its
+    # baseline trajectory is generated + QC'd in stage 2. ``readonly`` blocks the UI
+    # only, so the hand-off wizard's ORM create still carries it forward.
+    total_stages = fields.Integer(
+        string='Total Stages', default=2, required=True, readonly=True, tracking=True,
+        help='A task always runs through exactly two stages. Only stage 2 can reach '
+             'Deliverable.',
+    )
+    is_final_stage = fields.Boolean(
+        compute='_compute_is_final_stage', store=True,
+        help='True when this is the last stage of the task — the only stage that '
+             'can deliver.',
+    )
+    parent_id = fields.Many2one(
+        'kensei.tracker.allocation', string='Previous Stage',
+        ondelete='restrict', index=True, copy=False,
+        help='The allocation of the preceding stage this one was handed off from.',
+    )
+    child_ids = fields.One2many(
+        'kensei.tracker.allocation', 'parent_id', string='Next Stages')
+    # True when this is the LATEST stage of its task (nothing handed off from it
+    # yet). The Dashboard filters on this so a multi-stage task is counted ONCE,
+    # at the stage it currently sits in, instead of once per stage record.
+    is_current_stage = fields.Boolean(
+        string='Current Stage', compute='_compute_is_current_stage',
+        store=True, index=True, default=True,
+    )
+    # Drives the "Hand off to next stage" button: only a completed (Deliverable)
+    # stage that has not been handed off yet can start the next one. A Failed
+    # stage is terminal — no hand-off.
+    can_hand_off = fields.Boolean(compute='_compute_can_hand_off')
+    # A finished stage's inputs are frozen: everything downstream (the next
+    # stage's baseline, the delivery credit, the dashboards) was derived from
+    # them, so editing them in place would silently invalidate that work. Getting
+    # back in is an explicit, audited act -- see action_reopen.
+    is_locked = fields.Boolean(
+        string='Locked', compute='_compute_is_locked',
+        help='Finished (Deliverable/Failed) or already handed off to a next '
+             'stage, so its inputs can no longer be edited in place.',
+    )
+
+    # A record only ever holds its OWN tasker, so these are what let any one stage
+    # show who works the others: the whole chain (every record sharing the Task ID,
+    # oldest first) plus stage 1's and stage 2's tasker surfaced directly. Not
+    # stored — a sibling stage can be created or reassigned at any time.
+    stage_ids = fields.Many2many(
+        'kensei.tracker.allocation', 'kensei_alloc_stage_chain_rel',
+        'alloc_id', 'stage_id', string='All Stages',
+        compute='_compute_stage_chain',
+    )
+    stage1_tasker_id = fields.Many2one(
+        'kensei.tracker.team.member', string='Stage 1 Tasker',
+        compute='_compute_stage_chain',
+    )
+    stage2_tasker_id = fields.Many2one(
+        'kensei.tracker.team.member', string='Stage 2 Tasker',
+        compute='_compute_stage_chain',
+    )
+
+    # ---------------- Cross-stage mirrors ------------------------------ #
+    # Which record holds each stage of this task. Resolved from the chain relations
+    # (parent_id / child_ids) rather than a search on task_id, so Odoo can track the
+    # dependency and refresh the mirrors when the sibling stage changes.
+    stage1_alloc_id = fields.Many2one(
+        'kensei.tracker.allocation', string='Stage 1 Record',
+        compute='_compute_stage_targets',
+    )
+    stage2_alloc_id = fields.Many2one(
+        'kensei.tracker.allocation', string='Stage 2 Record',
+        compute='_compute_stage_targets',
+    )
+    has_stage_2 = fields.Boolean(
+        string='Stage 2 Assigned', compute='_compute_stage_targets',
+    )
+
+    # Stage 1's pipeline, projected onto this record so one form can show both stages.
+    s1_status = fields.Selection(
+        selection=STATUS_SELECTION, string='Stage 1 Status',
+        compute='_compute_stage_mirrors')
+    s1_assigned_pl_id = fields.Many2one(
+        'res.users', string='PL', compute='_compute_stage_mirrors')
+    s1_assigned_ql_id = fields.Many2one(
+        'res.users', string='QL', compute='_compute_stage_mirrors')
+    s1_drive_link = fields.Char(
+        string='Drive Link', compute='_compute_stage_mirrors')
+    s1_tasker_qc_notes = fields.Text(
+        string='Tasker QC Notes', compute='_compute_stage_mirrors')
+    s1_pl_verified_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='PL Verification',
+        compute='_compute_stage_mirrors')
+    s1_pl_verified_reason = fields.Text(
+        string='PL Verification Reason', compute='_compute_stage_mirrors')
+    s1_pl_verified_notes = fields.Text(
+        string='PL Verified Notes', compute='_compute_stage_mirrors')
+    s1_baseline_ready_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='Ready for Baseline Trajectory',
+        compute='_compute_stage_mirrors')
+    s1_baseline_ready_reason = fields.Text(
+        string='Ready for Baseline Reason', compute='_compute_stage_mirrors')
+    s1_baseline_ready_notes = fields.Text(
+        string='Ready for Baseline Notes', compute='_compute_stage_mirrors')
+    s1_baseline_drive_link = fields.Char(
+        string='Baseline Trajectory Drive Link', compute='_compute_stage_mirrors')
+    s1_baseline_gen_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='Baseline Generation',
+        compute='_compute_stage_mirrors')
+    s1_baseline_gen_reason = fields.Text(
+        string='Baseline Generation Reason', compute='_compute_stage_mirrors')
+    s1_baseline_gen_notes = fields.Text(
+        string='Baseline Generation Notes', compute='_compute_stage_mirrors')
+    s1_rubric_score = fields.Float(
+        string='Rubric Score (%)', compute='_compute_stage_mirrors')
+    s1_pytest_score = fields.Float(
+        string='Pytest Score (%)', compute='_compute_stage_mirrors')
+    s1_overall_score = fields.Float(
+        string='Overall Score (%)', compute='_compute_stage_mirrors')
+    s1_qced_by = fields.Many2one(
+        'res.users', string='QCed By', compute='_compute_stage_mirrors')
+    s1_manual_qc_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='Manual QC Result',
+        compute='_compute_stage_mirrors')
+    s1_manual_qc_reason = fields.Text(
+        string='Manual QC Reason', compute='_compute_stage_mirrors')
+    s1_manual_qc_notes = fields.Text(
+        string='Manual QC Notes', compute='_compute_stage_mirrors')
+    s1_date_final = fields.Datetime(
+        string='Stage 1 Completed On', compute='_compute_stage_mirrors')
+
+    # Stage 2's shorter pipeline (baseline trajectory + manual QC only).
+    s2_status = fields.Selection(
+        selection=STATUS_SELECTION, string='Stage 2 Status',
+        compute='_compute_stage_mirrors')
+    s2_assigned_pl_id = fields.Many2one(
+        'res.users', string='PL', compute='_compute_stage_mirrors')
+    s2_assigned_ql_id = fields.Many2one(
+        'res.users', string='QL', compute='_compute_stage_mirrors')
+    s2_baseline_drive_link = fields.Char(
+        string='Baseline Trajectory Drive Link', compute='_compute_stage_mirrors')
+    s2_baseline_gen_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='Baseline Generation',
+        compute='_compute_stage_mirrors')
+    s2_baseline_gen_reason = fields.Text(
+        string='Baseline Generation Reason', compute='_compute_stage_mirrors')
+    s2_baseline_gen_notes = fields.Text(
+        string='Baseline Generation Notes', compute='_compute_stage_mirrors')
+    s2_rubric_score = fields.Float(
+        string='Rubric Score (%)', compute='_compute_stage_mirrors')
+    s2_pytest_score = fields.Float(
+        string='Pytest Score (%)', compute='_compute_stage_mirrors')
+    s2_overall_score = fields.Float(
+        string='Overall Score (%)', compute='_compute_stage_mirrors')
+    s2_qced_by = fields.Many2one(
+        'res.users', string='QCed By', compute='_compute_stage_mirrors')
+    s2_manual_qc_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='Manual QC Result',
+        compute='_compute_stage_mirrors')
+    s2_manual_qc_reason = fields.Text(
+        string='Manual QC Reason', compute='_compute_stage_mirrors')
+    s2_manual_qc_notes = fields.Text(
+        string='Manual QC Notes', compute='_compute_stage_mirrors')
+    s2_date_final = fields.Datetime(
+        string='Stage 2 Completed On', compute='_compute_stage_mirrors')
+
     # The tasker is picked from the Kensei team roster (search by name or email);
     # tasker_email/name and the assigned PL/QL are all synced from that member.
     tasker_member_id = fields.Many2one(
@@ -100,13 +322,17 @@ class KenseiTrackerAllocation(models.Model):
     )
     persona_id = fields.Many2one(
         'kensei.persona', string='Persona', required=True, tracking=True)
+    # Derived from the current Status (the pipeline phase) rather than set by
+    # hand, so it can never drift from where the task actually is. Terminal
+    # statuses (Deliverable/Failed) map to Manual QC — the last phase reached.
     function = fields.Selection(
         selection=[
             ('task_authoring', 'Task Authoring'),
             ('trajectory', 'Trajectory'),
             ('manual_qc', 'Manual QC'),
         ],
-        string='Function', default='task_authoring', index=True, tracking=True,
+        string='Function', compute='_compute_function', store=True,
+        readonly=True, index=True, tracking=True,
     )
     # Auto-derived from the fields completed at each stage (see _compute_status).
     status = fields.Selection(
@@ -133,6 +359,11 @@ class KenseiTrackerAllocation(models.Model):
         default='in_progress', tracking=True,
     )
     pl_verified_reason = fields.Text(string='PL Verification Reason')
+    baseline_ready_status = fields.Selection(
+        selection=STAGE_STATUS_SELECTION, string='Ready for Baseline Trajectory',
+        default='in_progress', tracking=True,
+    )
+    baseline_ready_reason = fields.Text(string='Ready for Baseline Reason')
     baseline_drive_link = fields.Char(string='Baseline Trajectory Drive Link', tracking=True)
     baseline_gen_status = fields.Selection(
         selection=STAGE_STATUS_SELECTION, string='Baseline Generation',
@@ -145,7 +376,8 @@ class KenseiTrackerAllocation(models.Model):
     )
     manual_qc_reason = fields.Text(string='Manual QC Reason')
 
-    # Free-form per-stage notes (always editable — collaborative context).
+    # Per-stage notes. Each one unlocks with its own stage (the form gates them on
+    # the preceding stage) so a stage cannot be annotated before it is reachable.
     tasker_qc_notes = fields.Text(string='Tasker QC Notes')
     pl_verified_notes = fields.Text(string='PL Verified Notes')
     baseline_ready_notes = fields.Text(string='Ready for Baseline Notes')
@@ -279,42 +511,105 @@ class KenseiTrackerAllocation(models.Model):
                         "%s must be a valid URL starting with http:// or "
                         "https:// — got “%s”.", label, val))
 
-    @api.depends('pl_verified_reason', 'baseline_gen_reason', 'manual_qc_reason')
+    @api.depends('pl_verified_reason', 'baseline_ready_reason',
+                 'baseline_gen_reason', 'manual_qc_reason')
     def _compute_failure_reason(self):
         """Surface the most recent stage failure reason for the Failed view."""
         for rec in self:
             rec.failure_reason = (
                 rec.manual_qc_reason or rec.baseline_gen_reason
-                or rec.pl_verified_reason or ''
+                or rec.baseline_ready_reason or rec.pl_verified_reason or ''
             )
 
-    @api.depends('drive_link', 'pl_verified_status', 'baseline_drive_link',
-                 'baseline_gen_status', 'qced_by', 'manual_qc_status')
+    # Pipeline phase (Function) for each Status. Terminal statuses map to the
+    # last active phase (Manual QC).
+    _FUNCTION_BY_STATUS = {
+        'in_progress': 'task_authoring',
+        'tasker_qc_completed': 'task_authoring',
+        'ready_baseline': 'trajectory',
+        'baseline_generated': 'trajectory',
+        'manual_qc': 'manual_qc',
+        'ready_next_stage': 'manual_qc',
+        'deliverable': 'manual_qc',
+        'failed': 'manual_qc',
+    }
+
+    @api.depends('status')
+    def _compute_function(self):
+        for rec in self:
+            rec.function = self._FUNCTION_BY_STATUS.get(rec.status, 'task_authoring')
+
+    @api.depends('stage_no', 'drive_link', 'pl_verified_status',
+                 'baseline_ready_status', 'baseline_drive_link',
+                 'baseline_gen_status', 'qced_by', 'manual_qc_status',
+                 'is_final_stage')
     def _compute_status(self):
         """Derive the current stage (and mirrored final status) from the fields
         completed so far.
 
-        Sequential: a stage is only reached once the previous stage's required
-        fields are filled. A ``failed`` outcome at any gated stage terminates.
+        STRICTLY sequential: the rungs are NESTED, so every rung re-checks the
+        ones below it. Clearing or reverting an earlier input therefore drops the
+        status back down to wherever the chain now breaks -- an already-delivered
+        task whose Drive Link is emptied stops being Deliverable instead of
+        silently keeping the credit. (A flat series of independent ``if``s, which
+        this used to be, let the last rung win regardless of the ones below it.)
+        A ``failed`` outcome at any gated stage still terminates, and is checked
+        last so it overrides whatever the ladder reached.
         ``final_status`` is derived in the same pass so every surface shares one
         source of truth without a second (chained) recompute.
+
+        The two stages run DIFFERENT pipelines. Stage 1 authors the task and gets it
+        verified (Tasker QC -> PL Verification -> Ready for Baseline). Stage 2 picks
+        that finished task up, so those three steps are already behind it: it starts
+        at 'ready_baseline' and only generates the trajectory and manual-QCs it.
         """
         for rec in self:
+            if rec.stage_no and rec.stage_no >= 2:
+                s = 'ready_baseline'
+                if rec.baseline_drive_link:
+                    s = 'baseline_generated'
+                    if rec.baseline_gen_status == 'done' and rec.qced_by:
+                        s = 'manual_qc'
+                        if rec.manual_qc_status == 'done':
+                            s = ('deliverable' if rec.is_final_stage
+                                 else 'ready_next_stage')
+                if 'failed' in (rec.baseline_gen_status, rec.manual_qc_status):
+                    s = 'failed'
+                rec.status = s
+                rec.final_status = (
+                    s if s in ('deliverable', 'failed') else 'in_progress')
+                continue
+
             s = 'in_progress'
             if rec.drive_link:
                 s = 'tasker_qc_completed'
-            if rec.pl_verified_status == 'done':
-                s = 'ready_baseline'
-            if rec.pl_verified_status == 'done' and rec.baseline_drive_link:
-                s = 'baseline_generated'
-            if rec.baseline_gen_status == 'done' and rec.qced_by:
-                s = 'manual_qc'
-            if rec.manual_qc_status == 'done':
-                s = 'deliverable'
-            if 'failed' in (rec.pl_verified_status, rec.baseline_gen_status,
-                            rec.manual_qc_status):
+                # Ready for Baseline is an explicit sign-off of its own: the PL
+                # first verifies the authored task, and only then is the stage
+                # declared ready for a baseline trajectory. Both must be Done, so
+                # marking either one alone can never advance the task.
+                if (rec.pl_verified_status == 'done'
+                        and rec.baseline_ready_status == 'done'):
+                    s = 'ready_baseline'
+                    # The baseline link belongs to the Baseline Trajectory stage,
+                    # which only unlocks once that sign-off is in.
+                    if rec.baseline_drive_link:
+                        s = 'baseline_generated'
+                        if rec.baseline_gen_status == 'done' and rec.qced_by:
+                            s = 'manual_qc'
+                            if rec.manual_qc_status == 'done':
+                                # Completing the pipeline only DELIVERS the task
+                                # on its final stage. On any earlier stage the
+                                # task is not delivered -- it is done with this
+                                # stage and ready to hand to the next one.
+                                s = ('deliverable' if rec.is_final_stage
+                                     else 'ready_next_stage')
+            if 'failed' in (rec.pl_verified_status, rec.baseline_ready_status,
+                            rec.baseline_gen_status, rec.manual_qc_status):
                 s = 'failed'
             rec.status = s
+            # The TASK is only finished at 'deliverable' (final stage) or 'failed'.
+            # 'ready_next_stage' means more work is coming, so the task is still
+            # in progress overall.
             rec.final_status = s if s in ('deliverable', 'failed') else 'in_progress'
 
     # ------------------------------------------------------------------ #
@@ -329,11 +624,14 @@ class KenseiTrackerAllocation(models.Model):
                     "marking Baseline Generation as Done."))
 
     @api.constrains('pl_verified_status', 'pl_verified_reason',
+                    'baseline_ready_status', 'baseline_ready_reason',
                     'baseline_gen_status', 'baseline_gen_reason',
                     'manual_qc_status', 'manual_qc_reason')
     def _check_failure_reasons(self):
         checks = [
             ('pl_verified_status', 'pl_verified_reason', 'PL Verification'),
+            ('baseline_ready_status', 'baseline_ready_reason',
+             'Ready for Baseline Trajectory'),
             ('baseline_gen_status', 'baseline_gen_reason', 'Baseline Generation'),
             ('manual_qc_status', 'manual_qc_reason', 'Manual QC'),
         ]
@@ -351,10 +649,13 @@ class KenseiTrackerAllocation(models.Model):
     #  which the previous sudo()-search approach only papered over.
     # ------------------------------------------------------------------ #
     # Odoo 19 replaces the old ``_sql_constraints`` list with models.Constraint.
-    _task_id_uniq = models.Constraint(
-        'unique(task_id)',
-        'This Task ID is already allocated. One task can be assigned to '
-        'only one tasker at a time.',
+    # A task now runs through stages, each its own record, so the key is
+    # (task_id, stage_no): one tasker per task PER STAGE, and a stage can never
+    # be allocated twice.
+    _task_id_stage_uniq = models.Constraint(
+        'unique(task_id, stage_no)',
+        'This task is already allocated for that stage. One task can be '
+        'assigned to only one tasker per stage.',
     )
 
     # ------------------------------------------------------------------ #
@@ -370,8 +671,11 @@ class KenseiTrackerAllocation(models.Model):
     _PRIVILEGED_STAGE_STATES = {}
     _PRIVILEGED_VALUE_FIELDS = (
         # core allocation fields — only a QL/PL may set/change these
-        'tasker_member_id', 'persona_id', 'assigned_pl_id',
-        'function', 'assigned_date',
+        'tasker_member_id', 'persona_id', 'assigned_pl_id', 'assigned_date',
+        # the stage chain is set by the hand-off wizard, never by a tasker — and
+        # total_stages decides which stage may DELIVER, so it must not be
+        # self-served either.
+        'stage_no', 'parent_id', 'total_stages',
     )
 
     def _guard_privileged_fields(self, vals):
@@ -393,14 +697,254 @@ class KenseiTrackerAllocation(models.Model):
                 "PL, function or assignment date). Restricted field(s): %s",
                 ", ".join(sorted(set(blocked)))))
 
+    # ------------------------------------------------------------------ #
+    #  Stage chain
+    # ------------------------------------------------------------------ #
+    @api.depends('stage_no', 'total_stages')
+    def _compute_is_final_stage(self):
+        """The last stage of the task — the only one allowed to deliver."""
+        for rec in self:
+            rec.is_final_stage = rec.stage_no >= rec.total_stages
+
+    @api.depends('child_ids')
+    def _compute_is_current_stage(self):
+        """A stage is 'current' until the next stage is handed off from it.
+
+        The Dashboard filters on this so a task that has run through several
+        stages is counted ONCE, at the stage it is actually sitting in, rather
+        than once per stage record.
+        """
+        for rec in self:
+            rec.is_current_stage = not rec.child_ids
+
+    @api.depends('status', 'child_ids')
+    def _compute_can_hand_off(self):
+        """A stage that finished its pipeline but is NOT the final stage sits at
+        'ready_next_stage' — that is what can be handed off. 'Deliverable' means
+        the whole task is done (final stage), and 'Failed' is terminal; neither
+        starts a new stage.
+        """
+        for rec in self:
+            rec.can_hand_off = (
+                rec.status == 'ready_next_stage' and not rec.child_ids)
+
+    @api.depends('status', 'child_ids')
+    def _compute_is_locked(self):
+        """Frozen once the stage is finished, or once a next stage was built on it.
+
+        Not stored, and there is no companion 'reopened' flag: action_reopen works
+        by actively reverting the record OUT of its terminal status, which drops it
+        out of this compute on its own.
+        """
+        for rec in self:
+            rec.is_locked = bool(
+                rec.status in ('deliverable', 'failed') or rec.child_ids)
+
+    @api.depends('task_id', 'stage_no', 'parent_id', 'child_ids')
+    def _sibling_stages(self):
+        """This task's stage-1 and stage-2 records, AS VISIBLE TO THE CURRENT USER.
+
+        Resolved with a search rather than by walking parent_id / child_ids, and with NO
+        sudo, because the record rules are what decide who sees which stage: a tasker is
+        scoped to the stage assigned to them, so the sibling stage legitimately resolves
+        to nothing for them, while a QL/PL gets both.
+
+        The search matters. A search is FILTERED by the rules and simply comes back
+        empty, whereas reading a field off a forbidden record reached through a relation
+        RAISES AccessError — so walking parent_id would crash a stage-2 tasker's form
+        instead of just hiding stage 1 from it.
+        """
+        self.ensure_one()
+        Alloc = self.env['kensei.tracker.allocation']
+        if not self.task_id:
+            return Alloc, Alloc
+        if self.stage_no and self.stage_no >= 2:
+            stage1 = Alloc.search(
+                [('task_id', '=', self.task_id), ('stage_no', '=', 1)], limit=1)
+            return stage1, self
+        stage2 = Alloc.search(
+            [('task_id', '=', self.task_id), ('stage_no', '=', 2)], limit=1)
+        return self, stage2
+
+    @api.depends('task_id', 'stage_no', 'parent_id', 'child_ids')
+    def _compute_stage_chain(self):
+        """The stages of this task the current user may see, oldest first, and who works
+        each one. Rule-scoped: a tasker sees only their own stage, a QL/PL the chain."""
+        Alloc = self.env['kensei.tracker.allocation']
+        for rec in self:
+            if not rec.task_id:
+                rec.stage_ids = False
+                rec.stage1_tasker_id = False
+                rec.stage2_tasker_id = False
+                continue
+            visible = Alloc.search(
+                [('task_id', '=', rec.task_id)], order='stage_no asc')
+            rec.stage_ids = visible
+            by_stage = {stage.stage_no: stage for stage in visible}
+            rec.stage1_tasker_id = (
+                by_stage[1].tasker_member_id.id if 1 in by_stage else False)
+            rec.stage2_tasker_id = (
+                by_stage[2].tasker_member_id.id if 2 in by_stage else False)
+
+    @api.depends('task_id', 'stage_no', 'parent_id', 'child_ids')
+    def _compute_stage_targets(self):
+        for rec in self:
+            stage1, stage2 = rec._sibling_stages()
+            rec.stage1_alloc_id = stage1
+            rec.stage2_alloc_id = stage2
+            # The form gates the Stage 2 tab on this rather than on stage2_alloc_id: a
+            # bare boolean cannot blow up on a display_name fetch.
+            rec.has_stage_2 = bool(stage2)
+
+    @api.depends(
+        'task_id', 'stage_no', 'parent_id', 'child_ids',
+        *_STAGE1_MIRROR,
+        *['parent_id.%s' % name for name in _STAGE1_MIRROR],
+        *['child_ids.%s' % name for name in _STAGE2_MIRROR],
+    )
+    def _compute_stage_mirrors(self):
+        """Project both stages of the task onto this record so one form can show them.
+
+        Scoped by the record rules (see _sibling_stages), so a tasker only ever sees the
+        stage assigned to them and the other stage's mirrors come back blank. The mirrors
+        are read-only — no inverse on purpose. Each stage is still EDITED on its own
+        record; making these writable would fire a cross-record write on every save,
+        which a tasker has no access to.
+        """
+        for rec in self:
+            stage1, stage2 = rec._sibling_stages()
+            for name in _STAGE1_MIRROR:
+                rec['s1_%s' % name] = _mirror_value(stage1, name)
+            for name in _STAGE2_MIRROR:
+                rec['s2_%s' % name] = _mirror_value(stage2, name)
+
+    def action_hand_off(self):
+        """Open the wizard that allocates the NEXT stage of this task."""
+        self.ensure_one()
+        if not self.can_hand_off:
+            raise ValidationError(_(
+                "Only a completed (Deliverable) stage that has not been handed "
+                "off yet can start the next stage."))
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Hand off to Stage %s', self.stage_no + 1),
+            'res_model': 'kensei.tracker.stage.handoff',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {'default_allocation_id': self.id},
+        }
+
+    def action_view_stage_chain(self):
+        """Show every stage of this task (the whole chain), oldest first."""
+        self.ensure_one()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Task %s — all stages', self.task_id),
+            'res_model': 'kensei.tracker.allocation',
+            'domain': [('task_id', '=', self.task_id)],
+            'view_mode': 'list,form',
+            'context': {'default_task_id': self.task_id},
+        }
+
+    # Every field a stage's own worker fills in. A locked record accepts writes to
+    # none of them. Deliberately does NOT include the computed status fields or
+    # date_final: _stamp_completion writes date_final on every save, and status /
+    # final_status / function are recomputed by the ORM, so freezing them here
+    # would deadlock the record's own bookkeeping.
+    _LOCKED_INPUT_FIELDS = (
+        'drive_link', 'tasker_qc_notes',
+        'pl_verified_status', 'pl_verified_reason', 'pl_verified_notes',
+        'baseline_ready_status', 'baseline_ready_reason', 'baseline_ready_notes',
+        'baseline_drive_link',
+        'baseline_gen_status', 'baseline_gen_reason', 'baseline_gen_notes',
+        'rubric_score', 'pytest_score', 'overall_score', 'qced_by',
+        'manual_qc_status', 'manual_qc_reason', 'manual_qc_notes',
+    )
+
+    def _check_locked(self, vals):
+        """Refuse stage-input edits on a finished or handed-off record.
+
+        The view's ``readonly="is_locked"`` is only a hint -- it is trivially
+        bypassed over RPC -- so the freeze has to be enforced here, where every
+        write goes through.
+        """
+        if self.env.su or self.env.context.get('kensei_reopen'):
+            return
+        touched = [f for f in self._LOCKED_INPUT_FIELDS if f in vals]
+        if not touched:
+            return
+        for rec in self:
+            if not rec.is_locked:
+                continue
+            if rec.child_ids:
+                raise UserError(_(
+                    "Task %s stage %s has already been handed off to the next "
+                    "stage, which was built on this data. Delete the next stage "
+                    "before changing it.", rec.task_id, rec.stage_no))
+            raise UserError(_(
+                "Task %s stage %s is %s and its results are frozen. Use Reopen "
+                "to make changes.",
+                rec.task_id, rec.stage_no,
+                dict(self.STATUS_SELECTION).get(rec.status, rec.status)))
+
+    def action_reopen(self):
+        """Take a finished stage back out of its terminal status so it can be
+        corrected, and say so in the chatter.
+
+        Reverting the statuses IS the unlock: is_locked is derived from status, so
+        once the record is no longer Deliverable/Failed it is editable again, and
+        _stamp_completion clears date_final -- which withdraws the delivery credit
+        the Daily Tracker had already counted. That is the point: the work is not
+        finished any more.
+        """
+        if not (self.env.user.has_group('kensei.group_kensei_ql')
+                or self.env.user.has_group('base.group_system')):
+            raise AccessError(_(
+                "Only a Quality Lead or an administrator can reopen a finished "
+                "task."))
+        for rec in self:
+            if not rec.is_locked:
+                continue
+            if rec.child_ids:
+                raise UserError(_(
+                    "Task %s stage %s has already been handed off. Delete stage "
+                    "%s before reopening it.",
+                    rec.task_id, rec.stage_no, rec.stage_no + 1))
+            was = dict(self.STATUS_SELECTION).get(rec.status, rec.status)
+            vals = {}
+            for gate, reason in (
+                    ('pl_verified_status', 'pl_verified_reason'),
+                    ('baseline_ready_status', 'baseline_ready_reason'),
+                    ('baseline_gen_status', 'baseline_gen_reason'),
+                    ('manual_qc_status', 'manual_qc_reason')):
+                if rec[gate] == 'failed':
+                    vals[gate] = 'in_progress'
+                    vals[reason] = False
+            # A Deliverable stage is held there by its Manual QC sign-off; taking
+            # that back is what returns it to the pipeline.
+            if rec.manual_qc_status == 'done':
+                vals['manual_qc_status'] = 'in_progress'
+            if vals:
+                rec.with_context(kensei_reopen=True).write(vals)
+            rec.message_post(body=_(
+                "Reopened from %(was)s by %(user)s.",
+                was=was, user=self.env.user.name))
+        return True
+
+    # A stage's own work is finished in any of these states. Note this includes
+    # 'ready_next_stage': that tasker DID complete their stage — they just are not
+    # the last stage — so the completion must still be stamped, otherwise the
+    # Daily Tracker (which keys off date_final) would silently drop their credit.
+    _RECORD_DONE_STATES = ('deliverable', 'failed', 'ready_next_stage')
+
     def _stamp_completion(self):
-        """Stamp the completion datetime when a task enters a terminal stage,
-        and clear it again if the task later reverts to an in-progress stage —
-        so the Daily Tracker never attributes a completion to a stale date.
+        """Stamp the completion datetime when this stage's work is finished, and
+        clear it again if it later reverts to an in-progress stage — so the Daily
+        Tracker never attributes a completion to a stale date.
         """
         now = fields.Datetime.now()
         for rec in self:
-            if rec.status in ('deliverable', 'failed'):
+            if rec.status in self._RECORD_DONE_STATES:
                 if not rec.date_final:
                     rec.date_final = now
             elif rec.date_final:
@@ -408,6 +952,7 @@ class KenseiTrackerAllocation(models.Model):
 
     def write(self, vals):
         self._guard_privileged_fields(vals)
+        self._check_locked(vals)
         self._sync_tasker([vals])
         res = super().write(vals)
         # status is computed; stamp completion based on the (re)computed value.

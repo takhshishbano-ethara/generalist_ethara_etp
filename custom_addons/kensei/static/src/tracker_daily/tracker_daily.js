@@ -23,14 +23,13 @@ export class KenseiTrackerDaily extends Component {
             sortBy: "name",
             sortDir: "asc",
             // filter options
-            opts: { pls: [], team_leads: [], projects: [], functions: [], statuses: [] },
+            opts: { pls: [], team_leads: [], projects: [], statuses: [] },
             // filter values
             filters: {
-                date_from: daysAgoIso(29),
+                date_from: daysAgoIso(6),
                 date_to: todayIso(),
                 employee: "",
                 pl_id: "",
-                function: "",
                 status: "",
                 project: "",
                 team_lead_id: "",
@@ -58,7 +57,6 @@ export class KenseiTrackerDaily extends Component {
             date_to: f.date_to,
             employee: f.employee,
             pl_id: f.pl_id,
-            function: f.function,
             status: f.status,
             project: f.project,
             team_lead_id: f.team_lead_id,
@@ -98,11 +96,10 @@ export class KenseiTrackerDaily extends Component {
 
     onReset() {
         this.state.filters = {
-            date_from: daysAgoIso(29),
+            date_from: daysAgoIso(6),
             date_to: todayIso(),
             employee: "",
             pl_id: "",
-            function: "",
             status: "",
             project: "",
             team_lead_id: "",
@@ -156,10 +153,10 @@ export class KenseiTrackerDaily extends Component {
             const res = await rpc("/kensei/tracker/daily/data", this._params({ export: true, page_size: 100000 }));
             const dates = res.dates || [];
             const rows = res.rows || [];
-            const header = ["Employee Name", "PL", "Function", ...dates.map((d) => d.label), "Total"];
+            const header = ["Employee Name", "PL", ...dates.map((d) => d.label), "Total"];
             const lines = [header.map(csvCell).join(",")];
             for (const r of rows) {
-                const line = [r.name, r.pl, r.function, ...dates.map((d) => r.cells[d.key] || 0), r.total];
+                const line = [r.name, r.pl, ...dates.map((d) => r.cells[d.key] || 0), r.total];
                 lines.push(line.map(csvCell).join(","));
             }
             const blob = new Blob(["﻿" + lines.join("\n")], { type: "text/csv;charset=utf-8;" });

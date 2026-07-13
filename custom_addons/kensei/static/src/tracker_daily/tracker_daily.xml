@@ -84,15 +84,6 @@
                     </select>
                 </div>
                 <div class="o_kd_filter">
-                    <label>Function</label>
-                    <select t-on-change="(ev) => this.onFilterInput('function', ev)">
-                        <option value="">All</option>
-                        <t t-foreach="state.opts.functions" t-as="f" t-key="f.value">
-                            <option t-att-value="f.value" t-att-selected="state.filters.function == f.value"><t t-esc="f.label"/></option>
-                        </t>
-                    </select>
-                </div>
-                <div class="o_kd_filter">
                     <label>Task Status</label>
                     <select t-on-change="(ev) => this.onFilterInput('status', ev)">
                         <option value="">All</option>
@@ -130,9 +121,6 @@
                             <th scope="col" aria-sort="none" class="o_kd_sticky o_kd_col_pl o_kd_sortable" t-on-click="() => this.onSort('pl')">
                                 PL <i class="fa" t-att-class="sortIcon('pl')" aria-hidden="true"/>
                             </th>
-                            <th scope="col" aria-sort="none" class="o_kd_sticky o_kd_col_func o_kd_sortable" t-on-click="() => this.onSort('function')">
-                                Function <i class="fa" t-att-class="sortIcon('function')" aria-hidden="true"/>
-                            </th>
                             <t t-foreach="state.dates" t-as="d" t-key="d.key">
                                 <th scope="col" t-attf-class="o_kd_date {{ d.weekend ? 'o_kd_weekend' : '' }}">
                                     <div class="o_kd_date_d"><t t-esc="d.label"/></div>
@@ -146,13 +134,12 @@
                     </thead>
                     <tbody>
                         <t t-if="state.rows.length === 0">
-                            <tr><td class="o_kd_empty" t-att-colspan="state.dates.length + 4"><i class="fa fa-inbox me-1"/>No data for the selected filters.</td></tr>
+                            <tr><td class="o_kd_empty" t-att-colspan="state.dates.length + 3"><i class="fa fa-inbox me-1"/>No data for the selected filters.</td></tr>
                         </t>
                         <t t-foreach="state.rows" t-as="row" t-key="row.email or row.name">
                             <tr>
                                 <td class="o_kd_sticky o_kd_col_name"><t t-esc="row.name"/></td>
                                 <td class="o_kd_sticky o_kd_col_pl"><t t-esc="row.pl"/></td>
-                                <td class="o_kd_sticky o_kd_col_func"><t t-esc="row.function"/></td>
                                 <t t-foreach="state.dates" t-as="d" t-key="d.key">
                                     <td t-att-class="cellClass(row, d)"><t t-esc="row.cells[d.key] || 0"/></td>
                                 </t>

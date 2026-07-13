@@ -21,7 +21,6 @@ access_kensei_test_result_pl,kensei.test.result.pl,model_kensei_test_result,grou
 access_kensei_tracker_allocation_tasker,kensei.tracker.allocation.tasker,model_kensei_tracker_allocation,group_kensei_tasker,1,1,0,0
 access_kensei_tracker_allocation_ql,kensei.tracker.allocation.ql,model_kensei_tracker_allocation,group_kensei_ql,1,1,1,1
 access_kensei_tracker_allocation_pl,kensei.tracker.allocation.pl,model_kensei_tracker_allocation,group_kensei_pl,1,1,1,1
-access_kensei_tracker_allocation_viewer,kensei.tracker.allocation.viewer,model_kensei_tracker_allocation,group_kensei_tracker_viewer,1,0,0,0
 access_kensei_tracker_allocation_admin,kensei.tracker.allocation.admin,model_kensei_tracker_allocation,base.group_system,1,1,1,1
 access_kensei_tracker_allocation_etp_tasker,kensei.tracker.allocation.etp.tasker,model_kensei_tracker_allocation,etp_user_roles.group_tasker,1,1,1,0
 access_kensei_tracker_allocation_etp_hr,kensei.tracker.allocation.etp.hr,model_kensei_tracker_allocation,etp_user_roles.group_hr_admin,1,1,1,0
@@ -33,8 +32,13 @@ access_kensei_tracker_bulk_allocation_line_admin,kensei.tracker.bulk.allocation.
 access_kensei_tracker_team_member_tasker,kensei.tracker.team.member.tasker,model_kensei_tracker_team_member,group_kensei_tasker,1,0,0,0
 access_kensei_tracker_team_member_ql,kensei.tracker.team.member.ql,model_kensei_tracker_team_member,group_kensei_ql,1,1,1,1
 access_kensei_tracker_team_member_pl,kensei.tracker.team.member.pl,model_kensei_tracker_team_member,group_kensei_pl,1,1,1,1
-access_kensei_tracker_team_member_viewer,kensei.tracker.team.member.viewer,model_kensei_tracker_team_member,group_kensei_tracker_viewer,1,0,0,0
 access_kensei_tracker_team_member_admin,kensei.tracker.team.member.admin,model_kensei_tracker_team_member,base.group_system,1,1,1,1
 access_kensei_tracker_team_import_ql,kensei.tracker.team.import.ql,model_kensei_tracker_team_import,group_kensei_ql,1,1,1,1
 access_kensei_tracker_team_import_pl,kensei.tracker.team.import.pl,model_kensei_tracker_team_import,group_kensei_pl,1,1,1,1
 access_kensei_tracker_team_import_admin,kensei.tracker.team.import.admin,model_kensei_tracker_team_import,base.group_system,1,1,1,1
+access_kensei_tracker_stage_handoff_ql,kensei.tracker.stage.handoff.ql,model_kensei_tracker_stage_handoff,group_kensei_ql,1,1,1,1
+access_kensei_tracker_stage_handoff_pl,kensei.tracker.stage.handoff.pl,model_kensei_tracker_stage_handoff,group_kensei_pl,1,1,1,1
+access_kensei_tracker_stage_handoff_admin,kensei.tracker.stage.handoff.admin,model_kensei_tracker_stage_handoff,base.group_system,1,1,1,1
+access_kensei_persona_import_ql,kensei.persona.import.ql,model_kensei_persona_import,group_kensei_ql,1,1,1,1
+access_kensei_persona_import_pl,kensei.persona.import.pl,model_kensei_persona_import,group_kensei_pl,1,1,1,1
+access_kensei_persona_import_admin,kensei.persona.import.admin,model_kensei_persona_import,base.group_system,1,1,1,1

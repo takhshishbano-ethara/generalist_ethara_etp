@@ -5,7 +5,9 @@
 // ============================================================================
 
 .o_kensei_tracker_dashboard {
-    --ktd-purple: #4d3c8f;
+    // Reuse the app navbar colour so the section headers stay consistent with
+    // the theme (instead of a separate hard-coded purple).
+    --ktd-purple: #{$o-navbar-background};
     --ktd-purple-soft: #ede9f7;
     --ktd-border: #e5e7eb;
     --ktd-text: #1f2937;
@@ -14,9 +16,30 @@
 
     padding: 1.25rem 1.5rem 2rem;
     background: #f9fafb;
-    min-height: 100%;
     font-family: inherit;
     color: var(--ktd-text);
+
+    // SCROLLING — `height: 100%` is load-bearing. Do NOT change it to
+    // `min-height: 100%` (or drop it): that is what broke scrolling before.
+    //
+    // Odoo's ActionContainer renders `<div class="o_action_manager">` and passes
+    // the `o_action` class to the action component as a PROP (className), which
+    // the component is expected to put on its own root. This dashboard does not
+    // do that, so its root is a direct child of `.o_action_manager` WITHOUT the
+    // `.o_action` class — meaning core's `> .o_action { height:100%; display:flex;
+    // overflow:hidden }` rules never apply to it, and `.o_action_manager` itself
+    // is a plain block (`height:100%; overflow:hidden`), not a flex container.
+    //
+    // So the root's height stays `auto` = its content height. It grows past the
+    // parent, the parent clips it (`overflow: hidden`), and `overflow-y: auto`
+    // here never fires because nothing bounds the height — the page simply cannot
+    // scroll and everything below the fold is unreachable. (Flex tricks like
+    // `flex: 1 1 auto; min-height: 0` are inert here: the parent is not flex.)
+    //
+    // `height: 100%` resolves against `.o_action_manager`'s definite 100% height,
+    // giving this element a bounded box — which is exactly what `overflow-y: auto`
+    // needs in order to produce its own scrollbar.
+    height: 100%;
     overflow-y: auto;
 }
 
@@ -156,9 +179,16 @@
 }
 
 // --- Metric cards row ---
+// `auto-fit` instead of a hard-coded 5 columns: the sections do NOT all hold five
+// cards (Team Composition has 4, the funnel now has 6 since "Ready for Next Stage"
+// was added, Stats has 5). A fixed 5-column grid left dead grey cells wherever the
+// count did not divide evenly, and pushed the funnel's 6th card ("Failed") onto a
+// row of its own next to a large empty block — the grey came from the grid's own
+// background showing through the empty tracks. auto-fit creates exactly as many
+// columns as there are cards, so every row is filled whatever the count.
 .o_ktd_cards {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 1px;
     background: var(--ktd-border);
 
@@ -199,10 +229,9 @@
 // previously inline styles fed from hex codes in the Python controller.
 @each $key, $color in (
     // team composition (roster)
-    "total": #4d3c8f, "tasker": #3b82f6, "ql": #06b6d4,
-    "pl": #6366f1, "admin": #f59e0b,
-    // activity
-    "completions": #10b981, "avg_score": #f59e0b, "blockers": #ef4444
+    "total": $o-navbar-background, "tasker": #3b82f6, "ql": #06b6d4, "pl": #6366f1,
+    // stats
+    "active": #f59e0b, "completions": #10b981, "failed": #ef4444, "avg_score": #f59e0b
 ) {
     .o_ktd_metric_#{$key} {
         border-top-color: $color;
@@ -246,6 +275,7 @@
 .o_ktd_funnel_in_trajectory { background: #e6f7f5; }
 .o_ktd_funnel_manual_qc { background: #fdeaf1; }
 .o_ktd_funnel_verified { background: #e8f5e9; }
+.o_ktd_funnel_failed { background: #fdecea; }
 
 // --- Per-PL progress table ---
 .o_ktd_table_wrap {
@@ -306,4 +336,45 @@
     text-align: center !important;
     color: var(--ktd-text-muted);
     padding: 2rem !important;
+}
+
+// --- Table pager ---
+.o_ktd_pager {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border-top: 1px solid var(--ktd-border);
+    font-size: 0.8125rem;
+    color: var(--ktd-text);
+}
+
+.o_ktd_pager_info {
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5rem;
+    text-align: center;
+}
+
+.o_ktd_pager_btn {
+    border: 1px solid var(--ktd-border);
+    background: #fff;
+    color: var(--ktd-text);
+    border-radius: 4px;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        border-color: var(--ktd-purple);
+        color: var(--ktd-purple);
+        background: var(--ktd-purple-soft);
+    }
+    &:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
 }

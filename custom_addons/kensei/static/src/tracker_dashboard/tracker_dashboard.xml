@@ -14,29 +14,7 @@
                         <t t-if="state.lastUpdated">· Updated <t t-out="state.lastUpdated"/></t>
                     </span>
                 </div>
-                <div class="o_ktd_topbar_actions">
-                    <div class="o_ktd_filters" title="Filter the pipeline by assignment date">
-                        <i class="fa fa-calendar o_ktd_filter_icon"/>
-                        <input type="date" class="o_ktd_date" aria-label="From date"
-                               t-att-value="state.dateFrom"
-                               t-on-change="ev => this.onDateInput('dateFrom', ev)"/>
-                        <span class="o_ktd_date_sep">→</span>
-                        <input type="date" class="o_ktd_date" aria-label="To date"
-                               t-att-value="state.dateTo"
-                               t-on-change="ev => this.onDateInput('dateTo', ev)"/>
-                        <button class="o_ktd_preset" t-on-click="() => this.setPreset(1)">Today</button>
-                        <button class="o_ktd_preset" t-on-click="() => this.setPreset(7)">7D</button>
-                        <button class="o_ktd_preset" t-on-click="() => this.setPreset(30)">30D</button>
-                        <button class="o_ktd_preset"
-                                t-att-class="{ 'o_ktd_preset_active': !isFiltered }"
-                                t-on-click="() => this.setPreset(null)">All</button>
-                    </div>
-                    <button class="o_ktd_refresh_btn" t-on-click="onRefresh"
-                            t-att-disabled="state.loading">
-                        <i class="fa fa-refresh" t-att-class="{ 'fa-spin': state.loading }"/>
-                        <span>Refresh</span>
-                    </button>
-                </div>
+                <t t-call="kensei.DashboardFilterBar"/>
             </div>
 
             <!-- ===================== TEAM COMPOSITION ===================== -->
@@ -75,13 +53,13 @@
                 </div>
             </div>
 
-            <!-- ===================== ACTIVITY ===================== -->
+            <!-- ===================== STATS ===================== -->
             <div class="o_ktd_section">
                 <div class="o_ktd_section_header">
-                    <i class="fa fa-bolt me-2"/>ACTIVITY
+                    <i class="fa fa-bar-chart me-2"/>STATS
                 </div>
                 <div class="o_ktd_cards">
-                    <t t-foreach="state.latestActivity" t-as="card" t-key="card.key">
+                    <t t-foreach="state.stats" t-as="card" t-key="card.key">
                         <div t-attf-class="o_ktd_metric_card o_ktd_metric_#{card.key}"
                              t-att-class="{ 'o_ktd_clickable': card.statuses and card.statuses.length }"
                              t-on-click="() => this.onStatusCardClick(card)">
@@ -99,11 +77,8 @@
                 <div class="o_ktd_section_header">
                     <i class="fa fa-list-ol me-2"/>PER-PL PROGRESS
                 </div>
-                <t t-call="kensei.TrackerProgressTable">
-                    <t t-set="rows" t-value="state.perPl"/>
-                    <t t-set="head" t-value="'PL'"/>
-                    <t t-set="onRowClick" t-value="row => this.onPlClick(row)"/>
-                </t>
+                <ProgressTable rows="state.perPl" head="'PL'"
+                               onRowClick="row => this.onPlClick(row)"/>
             </div>
 
             <!-- ===================== PER-QL PROGRESS ===================== -->
@@ -111,60 +86,19 @@
                 <div class="o_ktd_section_header">
                     <i class="fa fa-check-square-o me-2"/>PER-QL PROGRESS
                 </div>
-                <t t-call="kensei.TrackerProgressTable">
-                    <t t-set="rows" t-value="state.perQl"/>
-                    <t t-set="head" t-value="'QL'"/>
-                    <t t-set="onRowClick" t-value="row => this.onQlClick(row)"/>
-                </t>
+                <ProgressTable rows="state.perQl" head="'QL'"
+                               onRowClick="row => this.onQlClick(row)"/>
             </div>
 
-        </div>
-    </t>
+            <!-- ===================== PER-TASKER PROGRESS ===================== -->
+            <div class="o_ktd_section">
+                <div class="o_ktd_section_header">
+                    <i class="fa fa-user me-2"/>PER-TASKER PROGRESS
+                </div>
+                <ProgressTable rows="state.perTasker" head="'Tasker'"
+                               onRowClick="row => this.onTaskerClick(row)"/>
+            </div>
 
-    <!-- Reusable progress table (Per-PL / Per-QL) -->
-    <t t-name="kensei.TrackerProgressTable">
-        <div class="o_ktd_table_wrap">
-            <table class="o_ktd_table">
-                <thead>
-                    <tr>
-                        <th class="o_ktd_col_idx">#</th>
-                        <th class="o_ktd_col_pl"><t t-out="head"/></th>
-                        <th>Team</th>
-                        <th>In Auth</th>
-                        <th>Ready</th>
-                        <th>In Traj</th>
-                        <th>Manual QC</th>
-                        <th>Verified</th>
-                        <th>Blocked</th>
-                        <th>Avg Score</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <t t-if="rows.length === 0">
-                        <tr>
-                            <td colspan="10" class="o_ktd_empty">
-                                <i class="fa fa-inbox me-1"/>No allocations yet.
-                            </td>
-                        </tr>
-                    </t>
-                    <t t-foreach="rows" t-as="row" t-key="row.id">
-                        <tr class="o_ktd_clickable" t-on-click="() => onRowClick(row)">
-                            <td class="o_ktd_col_idx"><t t-out="row_index + 1"/></td>
-                            <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
-                            <td><t t-out="row.team"/></td>
-                            <td><t t-out="row.in_auth"/></td>
-                            <td><t t-out="row.ready"/></td>
-                            <td><t t-out="row.in_traj"/></td>
-                            <td><t t-out="row.manual_qc"/></td>
-                            <td class="o_ktd_cell_verified"><t t-out="row.verified"/></td>
-                            <td t-att-class="row.blocked > 0 ? 'o_ktd_cell_blocked' : ''">
-                                <t t-out="row.blocked"/>
-                            </td>
-                            <td><t t-out="fmt(row.avg_score)"/></td>
-                        </tr>
-                    </t>
-                </tbody>
-            </table>
         </div>
     </t>
 </templates>

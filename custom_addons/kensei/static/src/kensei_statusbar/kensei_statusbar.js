@@ -40,6 +40,10 @@ export class KenseiStatusBarField extends StatusBarField {
 export const kenseiStatusBarField = {
     ...statusBarField,
     component: KenseiStatusBarField,
+    // Odoo names the wrapper class after the *widget*, so without this the field
+    // misses core's `.o_field_statusbar` stylesheet — including the `row-reverse`
+    // that un-reverses getSortedItems()'s deliberately reversed DOM.
+    additionalClasses: ["o_field_statusbar"],
 };
 
 registry.category("fields").add("kensei_statusbar", kenseiStatusBarField);

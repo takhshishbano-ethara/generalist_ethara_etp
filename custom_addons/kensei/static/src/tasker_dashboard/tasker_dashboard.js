@@ -1,26 +1,20 @@
 /** @odoo-module */
-import { Component, useState, onWillStart } from "@odoo/owl";
+import { useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
-import { useService } from "@web/core/utils/hooks";
-import { rpc } from "@web/core/network/rpc";
-import { isoLocal, fmt } from "@kensei/tracker_common";
+import { KenseiDashboardBase } from "@kensei/dashboard_base/dashboard_base";
 
 /**
  * Per-tasker performance dashboard. Serves two entry points:
- *  - "My Performance" menu  -> no member_id  -> the current user.
- *  - Team Management button  -> params.member_id -> that member (QL/PL only,
- *    enforced server-side).
+ *  - Dashboard menu (plain taskers)  -> no member_id  -> the current user.
+ *  - Team Management button          -> params.member_id -> that member
+ *    (QL/PL only, enforced server-side).
  */
-export class KenseiTaskerDashboard extends Component {
+export class KenseiTaskerDashboard extends KenseiDashboardBase {
     static template = "kensei.TaskerDashboard";
-    static props = { action: { type: Object, optional: true }, "*": true };
 
     setup() {
-        this.notification = useService("notification");
-        this.action = useService("action");
-        this.fmt = fmt;  // exposed for the template
+        super.setup();
         this.memberId = this.props.action?.params?.member_id || false;
-
         this.state = useState({
             loading: true,
             denied: false,
@@ -33,74 +27,36 @@ export class KenseiTaskerDashboard extends Component {
             dateTo: "",
             lastUpdated: "",
         });
-
         onWillStart(() => this._load());
     }
 
     async _load() {
-        this.state.loading = true;
-        try {
-            const res = await rpc("/kensei/tracker/performance", {
-                member_id: this.memberId || false,
-                date_from: this.state.dateFrom || false,
-                date_to: this.state.dateTo || false,
-            });
-            if (res && res.error) {
-                this.state.denied = true;
-                this.notification.add(
-                    res.error === "access_denied"
-                        ? "You are not allowed to view this tasker."
-                        : "No performance data available.",
-                    { type: "warning" }
-                );
-                return;
-            }
-            this.state.denied = false;
-            this.state.subject = res.subject || {};
-            this.state.kpis = res.kpis || [];
-            this.state.funnel = res.funnel || [];
-            this.state.trend = res.trend || [];
-            this.state.recent = res.recent || [];
-            this.state.lastUpdated = new Date().toLocaleTimeString("en-US", {
-                hour: "2-digit",
-                minute: "2-digit",
-            });
-        } catch (e) {
-            this.notification.add("Failed to load performance data.", { type: "danger" });
-            console.error("[kensei-tasker]", e);
-        } finally {
-            this.state.loading = false;
+        const res = await this._fetch(
+            "/kensei/tracker/performance",
+            { member_id: this.memberId || false },
+            "Failed to load performance data.");
+        if (!res) {
+            return;
         }
-    }
-
-    onRefresh() {
-        this._load();
-    }
-
-    // ---- date range ----
-    setPreset(days) {
-        if (days === null) {
-            this.state.dateFrom = "";
-            this.state.dateTo = "";
-        } else {
-            const to = new Date();
-            const from = new Date();
-            from.setDate(to.getDate() - (days - 1));
-            this.state.dateFrom = isoLocal(from);
-            this.state.dateTo = isoLocal(to);
+        if (res.error) {
+            this.state.denied = true;
+            this.notification.add(
+                res.error === "access_denied"
+                    ? "You are not allowed to view this tasker."
+                    : "No performance data available.",
+                { type: "warning" });
+            return;
         }
-        this._load();
-    }
-    onDateInput(which, ev) {
-        this.state[which] = ev.target.value || "";
-        this._load();
-    }
-    get isFiltered() {
-        return Boolean(this.state.dateFrom || this.state.dateTo);
+        this.state.denied = false;
+        this.state.subject = res.subject || {};
+        this.state.kpis = res.kpis || [];
+        this.state.funnel = res.funnel || [];
+        this.state.trend = res.trend || [];
+        this.state.recent = res.recent || [];
     }
 
     get title() {
-        return this.memberId ? this.state.subject.name || "Tasker" : "My Performance";
+        return this.memberId ? this.state.subject.name || "Tasker" : "My Dashboard";
     }
 
     get maxTrend() {
