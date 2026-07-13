@@ -1,6 +1,5 @@
 // Tasker performance dashboard. Reuses the .o_kensei_tracker_dashboard base
-// (CSS vars + card/table/topbar styles); only the KPI grid and the weekly
-// trend bars are new.
+// (CSS vars + card/table/topbar styles); only the KPI grid is new.
 .o_kensei_tasker_dashboard {
 
     // KPIs: 10 cards -> tidy 5-wide grid (2 rows), 2-wide on small screens.
@@ -10,52 +9,5 @@
         @media (max-width: 900px) {
             grid-template-columns: repeat(2, 1fr);
         }
-    }
-
-    // --- Weekly completion bars ---
-    .o_ktd_trend {
-        display: flex;
-        align-items: flex-end;
-        gap: 0.5rem;
-        padding: 1rem 1.25rem 0.75rem;
-        min-height: 160px;
-    }
-
-    .o_ktd_trend_col {
-        flex: 1;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 0.25rem;
-        min-width: 0;
-    }
-
-    .o_ktd_trend_val {
-        font-size: 0.75rem;
-        font-weight: 700;
-        color: var(--ktd-text);
-        font-variant-numeric: tabular-nums;
-    }
-
-    .o_ktd_trend_track {
-        width: 100%;
-        height: 96px;
-        display: flex;
-        align-items: flex-end;
-        justify-content: center;
-    }
-
-    .o_ktd_trend_bar {
-        width: 60%;
-        min-height: 2px;
-        background: var(--ktd-purple);
-        border-radius: 3px 3px 0 0;
-        transition: height 0.2s ease;
-    }
-
-    .o_ktd_trend_label {
-        font-size: 0.6875rem;
-        color: var(--ktd-text-muted);
-        white-space: nowrap;
     }
 }

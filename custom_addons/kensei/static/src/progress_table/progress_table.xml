@@ -7,11 +7,12 @@
                     <tr>
                         <th class="o_ktd_col_idx">#</th>
                         <th class="o_ktd_col_pl"><t t-out="props.head"/></th>
-                        <th>Team</th>
+                        <th>Total</th>
                         <th>In Auth</th>
                         <th>Ready</th>
                         <th>In Traj</th>
                         <th>Manual QC</th>
+                        <th>Handed Off</th>
                         <th>Verified</th>
                         <th>Blocked</th>
                         <th>Avg Score</th>
@@ -20,7 +21,7 @@
                 <tbody>
                     <t t-if="total === 0">
                         <tr>
-                            <td colspan="10" class="o_ktd_empty">
+                            <td colspan="11" class="o_ktd_empty">
                                 <i class="fa fa-inbox me-1"/>No allocations yet.
                             </td>
                         </tr>
@@ -29,11 +30,12 @@
                         <tr class="o_ktd_clickable" t-on-click="() => this.rowClick(row)">
                             <td class="o_ktd_col_idx"><t t-out="row._idx"/></td>
                             <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
-                            <td><t t-out="row.team"/></td>
+                            <td><t t-out="row.total"/></td>
                             <td><t t-out="row.in_auth"/></td>
                             <td><t t-out="row.ready"/></td>
                             <td><t t-out="row.in_traj"/></td>
                             <td><t t-out="row.manual_qc"/></td>
+                            <td><t t-out="row.handed_off"/></td>
                             <td class="o_ktd_cell_verified"><t t-out="row.verified"/></td>
                             <td t-att-class="row.blocked > 0 ? 'o_ktd_cell_blocked' : ''">
                                 <t t-out="row.blocked"/>

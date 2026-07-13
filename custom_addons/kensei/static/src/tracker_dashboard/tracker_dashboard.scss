@@ -178,6 +178,59 @@
     align-items: center;
 }
 
+.o_ktd_section_header_split {
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+// --- Segmented controls (group-by axis + stage axis) ---
+// They sit on the purple section header, so they are drawn as translucent white
+// chips rather than borrowing the light-on-white card palette.
+.o_ktd_segments {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.o_ktd_segment {
+    display: inline-flex;
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    padding: 2px;
+}
+
+.o_ktd_segment_btn {
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    font: inherit;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+
+    &:hover:not(.o_ktd_segment_active) {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+    }
+
+    &:focus-visible {
+        outline: 2px solid #fff;
+        outline-offset: 1px;
+    }
+}
+
+.o_ktd_segment_active {
+    background: #fff;
+    color: var(--ktd-purple);
+}
+
 // --- Metric cards row ---
 // `auto-fit` instead of a hard-coded 5 columns: the sections do NOT all hold five
 // cards (Team Composition has 4, the funnel now has 6 since "Ready for Next Stage"
@@ -274,6 +327,7 @@
 .o_ktd_funnel_in_authoring { background: #fef3e6; }
 .o_ktd_funnel_in_trajectory { background: #e6f7f5; }
 .o_ktd_funnel_manual_qc { background: #fdeaf1; }
+.o_ktd_funnel_ready_next_stage { background: #ede9f7; }
 .o_ktd_funnel_verified { background: #e8f5e9; }
 .o_ktd_funnel_failed { background: #fdecea; }
 

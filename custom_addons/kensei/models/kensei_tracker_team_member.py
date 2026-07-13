@@ -187,7 +187,8 @@ class KenseiTrackerTeamMember(models.Model):
             return grp.id if grp else None
 
         ladder = [
-            ('admin', {gid('base.group_system'), gid('etp_user_roles.group_it_admin'),
+            ('admin', {gid('base.group_system'), gid('kensei.group_kensei_admin'),
+                       gid('etp_user_roles.group_it_admin'),
                        gid('etp_user_roles.group_hr_admin'), gid('etp_user_roles.group_cto')}),
             ('pl', {gid('etp_user_roles.group_project_lead'), gid('kensei.group_kensei_pl')}),
             ('ql', {gid('etp_user_roles.group_quality_lead'), gid('kensei.group_kensei_ql')}),

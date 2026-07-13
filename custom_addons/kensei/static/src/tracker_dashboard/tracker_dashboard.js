@@ -4,20 +4,37 @@ import { registry } from "@web/core/registry";
 import { KenseiDashboardBase } from "@kensei/dashboard_base/dashboard_base";
 import { ProgressTable } from "@kensei/progress_table/progress_table";
 
+// The progress table's grouping axis: label + the allocation field to drill into.
+const GROUPS = [
+    { key: "pl", label: "PL", field: "pl_id" },
+    { key: "ql", label: "QL", field: "assigned_ql_id" },
+    { key: "tasker", label: "Tasker", field: "tasker_member_id" },
+];
+
+// The stage axis. `value: null` means "count every stage record", which is what
+// credits a person for each stage they actually worked.
+const STAGES = [
+    { key: "all", label: "All Stages", value: null },
+    { key: "s1", label: "Stage 1", value: 1 },
+    { key: "s2", label: "Stage 2", value: 2 },
+];
+
 export class KenseiTrackerDashboard extends KenseiDashboardBase {
     static template = "kensei.TrackerDashboard";
     static components = { ProgressTable };
 
     setup() {
         super.setup();
+        this.groups = GROUPS;
+        this.stages = STAGES;
         this.state = useState({
             loading: true,
             teamComposition: [],
             funnel: [],
             stats: [],
-            perPl: [],
-            perQl: [],
-            perTasker: [],
+            rows: [],
+            groupBy: "pl",
+            stage: null,
             lastUpdated: "",
             dateFrom: "",
             dateTo: "",
@@ -27,7 +44,9 @@ export class KenseiTrackerDashboard extends KenseiDashboardBase {
 
     async _load() {
         const res = await this._fetch(
-            "/kensei/tracker/dashboard", {}, "Failed to load dashboard data.");
+            "/kensei/tracker/dashboard",
+            { group_by: this.state.groupBy, stage: this.state.stage },
+            "Failed to load dashboard data.");
         if (!res) {
             return;
         }
@@ -39,9 +58,25 @@ export class KenseiTrackerDashboard extends KenseiDashboardBase {
         this.state.teamComposition = res.team_composition || [];
         this.state.funnel = res.funnel || [];
         this.state.stats = res.stats || [];
-        this.state.perPl = res.per_pl || [];
-        this.state.perQl = res.per_ql || [];
-        this.state.perTasker = res.per_tasker || [];
+        this.state.rows = res.rows || [];
+    }
+
+    get group() {
+        return GROUPS.find((g) => g.key === this.state.groupBy) || GROUPS[0];
+    }
+
+    setGroupBy(key) {
+        if (this.state.groupBy !== key) {
+            this.state.groupBy = key;
+            this._load();
+        }
+    }
+
+    setStage(value) {
+        if (this.state.stage !== value) {
+            this.state.stage = value;
+            this._load();
+        }
     }
 
     // ---- drill-down: open the filtered Task Allocation / Team Management list ----
@@ -85,23 +120,17 @@ export class KenseiTrackerDashboard extends KenseiDashboardBase {
         this._openAllocations([["status", "in", card.statuses]], card.label);
     }
 
-    onPlClick(row) {
-        const domain = row.id ? [["pl_id", "=", row.id]] : [["pl_id", "=", false]];
-        this._openAllocations(domain, `PL — ${row.name}`);
-    }
-
-    onQlClick(row) {
-        const domain = row.id
-            ? [["assigned_ql_id", "=", row.id]]
-            : [["assigned_ql_id", "=", false]];
-        this._openAllocations(domain, `QL — ${row.name}`);
-    }
-
-    onTaskerClick(row) {
-        const domain = row.id
-            ? [["tasker_member_id", "=", row.id]]
-            : [["tasker_member_id", "=", false]];
-        this._openAllocations(domain, `Tasker — ${row.name}`);
+    // A row is one person on the currently selected axis. The drill-down repeats
+    // the stage filter so the list shows exactly the records the row counted.
+    onRowClick(row) {
+        const { label, field } = this.group;
+        const domain = [[field, "=", row.id || false]];
+        let name = `${label} — ${row.name}`;
+        if (this.state.stage) {
+            domain.push(["stage_no", "=", this.state.stage]);
+            name += ` (Stage ${this.state.stage})`;
+        }
+        this._openAllocations(domain, name);
     }
 }
 

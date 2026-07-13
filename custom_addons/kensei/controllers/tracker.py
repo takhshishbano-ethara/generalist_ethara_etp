@@ -32,11 +32,13 @@ _ACTIVE_STATUSES = [
     "baseline_generated", "manual_qc", "ready_next_stage",
 ]
 
-# allocation status -> per-PL / per-QL progress column
+# allocation status -> progress-table column. 'ready_next_stage' has its own
+# column: a stage in that state is FINISHED and waiting to be handed off, which is
+# not the same thing as sitting in Manual QC (where it used to be folded in).
 _PROGRESS_BUCKET = {
     "in_progress": "in_auth", "tasker_qc_completed": "in_auth",
     "ready_baseline": "ready", "baseline_generated": "in_traj",
-    "manual_qc": "manual_qc", "ready_next_stage": "manual_qc",
+    "manual_qc": "manual_qc", "ready_next_stage": "handed_off",
     "deliverable": "verified", "failed": "blocked",
 }
 
@@ -44,6 +46,13 @@ _PROGRESS_BUCKET = {
 # which credits the tasker who completed THAT stage (finishing a non-final stage
 # is still a real day's work).
 _STAGE_DONE_STATUSES = ["deliverable", "ready_next_stage"]
+
+# Progress-table grouping axis -> the m2o field to group allocations by.
+_PROGRESS_GROUPS = {
+    "pl": "pl_id",
+    "ql": "assigned_ql_id",
+    "tasker": "tasker_member_id",
+}
 
 
 def _funnel(sc):
@@ -89,21 +98,22 @@ def _progress_rows(Alloc, group_field, base_domain=None):
         if not row:
             row = rows[rid] = {
                 "id": rid, "name": rec.display_name if rec else "Unassigned",
-                "team": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
-                "manual_qc": 0, "verified": 0, "blocked": 0, "avg_score": None,
+                "total": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
+                "manual_qc": 0, "handed_off": 0, "verified": 0, "blocked": 0,
+                "avg_score": None,
             }
         return row
 
     for rec, status, count in Alloc._read_group(base_domain, [group_field, "status"], ["__count"]):
         row = _row(rec)
-        row["team"] += count
+        row["total"] += count
         col = _PROGRESS_BUCKET.get(status)
         if col:
             row[col] += count
     for rec, avg in Alloc._read_group(
             base_domain + [("overall_score", ">", 0)], [group_field], ["overall_score:avg"]):
         _row(rec)["avg_score"] = round(avg, 1) if avg else None
-    return sorted(rows.values(), key=lambda r: (-r["team"], r["name"].lower()))
+    return sorted(rows.values(), key=lambda r: (-r["total"], r["name"].lower()))
 
 
 _PERSONA_SAMPLE_CSV = (
@@ -289,7 +299,8 @@ class KenseiTrackerController(http.Controller):
         }
 
     @http.route("/kensei/tracker/dashboard", type="json", auth="user")
-    def tracker_dashboard(self, date_from=None, date_to=None, **kw):
+    def tracker_dashboard(self, date_from=None, date_to=None,
+                          group_by=None, stage=None, **kw):
         """Aggregate allocation data for the Tracker Dashboard.
 
         All figures come from grouped SQL (``_read_group``) rather than loading
@@ -298,7 +309,11 @@ class KenseiTrackerController(http.Controller):
         ``card.key``), not here.
         """
         user = request.env.user
-        is_admin = user.has_group("base.group_system")
+        # Kensei Admin is the in-app equivalent of a sysadmin for this dashboard:
+        # it is the only role whose scope is the whole organisation. Keeping
+        # base.group_system alongside it means an Odoo sysadmin never loses access.
+        is_admin = (user.has_group("base.group_system")
+                    or user.has_group("kensei.group_kensei_admin"))
         is_lead = user.has_group("kensei.group_kensei_ql")  # PL implies QL
         if not (is_admin or is_lead):
             return {"error": "access_denied"}
@@ -320,26 +335,35 @@ class KenseiTrackerController(http.Controller):
         df, dt = _iso_date(date_from), _iso_date(date_to)
         if df and dt and df > dt:
             df, dt = dt, df
-        domain = list(scope)
-        # Count each TASK once, not once per stage. A task is worked in stages and
-        # each stage is its own allocation record; `is_current_stage` is True only
-        # for the latest stage of a task (nothing handed off from it yet), so this
-        # single leaf makes every funnel/stat/progress query below report tasks at
-        # the stage they are actually sitting in — no query rewrites needed.
-        #
-        # NOTE: the Daily Tracker deliberately does NOT apply this filter. It
-        # reports completions per person per day, and finishing stage 1 and stage 2
-        # are two real pieces of work by (possibly) two different taskers — both
-        # must keep their credit.
-        domain.append(("is_current_stage", "=", True))
+        date_domain = []
         if df:
-            domain.append(("assigned_date", ">=", df))
+            date_domain.append(("assigned_date", ">=", df))
         if dt:
-            domain.append(("assigned_date", "<=", dt))
+            date_domain.append(("assigned_date", "<=", dt))
+
+        # TWO domains, because the dashboard answers two questions in two different
+        # units. Tasks are counted once; people are credited per stage.
+        #
+        # `task_domain` ("how many tasks, and where are they stuck?") counts each
+        # TASK once. A task is worked in stages and each stage is its own allocation
+        # record, so `is_current_stage` (True only for the latest stage of a task)
+        # collapses the chain down to the one stage the task is actually sitting in.
+        task_domain = list(scope) + date_domain
+        task_domain.append(("is_current_stage", "=", True))
+
+        # `people_domain` ("what has each person done?") must NOT apply that filter:
+        # a stage record IS the unit of a person's work, so filtering to the current
+        # stage would erase stage 1's tasker/PL/QL — and their scores — the instant
+        # the task was handed off, i.e. penalise them for finishing. The Daily
+        # Tracker already credits per stage for the same reason.
+        people_domain = list(scope) + date_domain
+        stage_no = _to_int(stage)
+        if stage_no in (1, 2):
+            people_domain.append(("stage_no", "=", stage_no))
 
         # ----- counts by status (one grouped query) -----
         sc = {status: count
-              for status, count in Alloc._read_group(domain, ["status"], ["__count"])}
+              for status, count in Alloc._read_group(task_domain, ["status"], ["__count"])}
 
         funnel = _funnel(sc)
 
@@ -364,7 +388,7 @@ class KenseiTrackerController(http.Controller):
         failed = sc.get("failed", 0)
         active = total - completed - failed
         avg_overall = next((avg for avg, in Alloc._read_group(
-            domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
+            task_domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
         stats = [
             {"key": "total", "label": "Total Tasks", "value": total},
             {"key": "active", "label": "In Progress",
@@ -377,13 +401,17 @@ class KenseiTrackerController(http.Controller):
              "value": round(avg_overall, 1) if avg_overall else None},
         ]
 
+        # One progress table, two axes: WHO to group by, and WHICH stage to count.
+        group_key = group_by if group_by in _PROGRESS_GROUPS else "pl"
+        group_field = _PROGRESS_GROUPS[group_key]
+
         return {
             "team_composition": team_composition,
             "funnel": funnel,
             "stats": stats,
-            "per_pl": _progress_rows(Alloc, "pl_id", domain),
-            "per_ql": _progress_rows(Alloc, "assigned_ql_id", domain),
-            "per_tasker": _progress_rows(Alloc, "tasker_member_id", domain),
+            "rows": _progress_rows(Alloc, group_field, people_domain),
+            "group_by": group_key,
+            "stage": stage_no if stage_no in (1, 2) else None,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }
@@ -473,29 +501,13 @@ class KenseiTrackerController(http.Controller):
 
         funnel = _funnel(sc)
 
-        # weekly completion trend (last 8 weeks) — counted in SQL via
-        # ``date_final:week`` rather than loading records. Odoo's :week groups on
-        # a Sunday-start boundary, so the display weeks are Sunday-aligned to
-        # match the returned group keys.
-        today = datetime.date.today()
-        week_start = today - datetime.timedelta(days=(today.weekday() + 1) % 7)
-        weeks = [week_start - datetime.timedelta(weeks=i) for i in range(7, -1, -1)]
-        counts = {w: 0 for w in weeks}
-        start_dt = datetime.datetime.combine(weeks[0], datetime.time.min)
-        for period, cnt in Alloc._read_group(
-                dom + [("status", "in", _STAGE_DONE_STATUSES),
-                       ("date_final", ">=", start_dt)],
-                ["date_final:week"], ["__count"]):
-            if period and period.date() in counts:
-                counts[period.date()] += cnt
-        trend = [{"label": w.strftime("%b %d"), "value": counts[w]} for w in weeks]
-
         # recent tasks
         status_labels = dict(Alloc._fields["status"].selection)
         recent = []
         for a in Alloc.search(dom, order="assigned_date desc, id desc", limit=10):
             recent.append({
                 "id": a.id, "task_id": a.task_id,
+                "stage": a.stage_no, "total_stages": a.total_stages,
                 "persona": a.persona_id.name or "",
                 "status": a.status, "status_label": status_labels.get(a.status, a.status),
                 "overall": a.overall_score or None,
@@ -514,7 +526,7 @@ class KenseiTrackerController(http.Controller):
 
         return {
             "subject": subject, "kpis": kpis, "funnel": funnel,
-            "trend": trend, "recent": recent,
+            "recent": recent,
             "date_from": df.isoformat() if df else None,
             "date_to": dt.isoformat() if dt else None,
         }

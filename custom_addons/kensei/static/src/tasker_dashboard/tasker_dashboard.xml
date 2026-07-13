@@ -51,23 +51,6 @@
                 </div>
             </div>
 
-            <!-- ===================== Weekly completions ===================== -->
-            <div class="o_ktd_section">
-                <div class="o_ktd_section_header"><i class="fa fa-line-chart me-2"/>COMPLETIONS (LAST 8 WEEKS)</div>
-                <div class="o_ktd_trend">
-                    <t t-foreach="state.trend" t-as="w" t-key="w.label">
-                        <div class="o_ktd_trend_col">
-                            <div class="o_ktd_trend_val"><t t-out="w.value"/></div>
-                            <div class="o_ktd_trend_track">
-                                <div class="o_ktd_trend_bar"
-                                     t-attf-style="height: #{trendHeight(w.value)}%"/>
-                            </div>
-                            <div class="o_ktd_trend_label"><t t-out="w.label"/></div>
-                        </div>
-                    </t>
-                </div>
-            </div>
-
             <!-- ===================== Recent tasks ===================== -->
             <div class="o_ktd_section">
                 <div class="o_ktd_section_header"><i class="fa fa-history me-2"/>RECENT TASKS</div>
@@ -76,6 +59,7 @@
                         <thead>
                             <tr>
                                 <th class="o_ktd_col_pl">Task ID</th>
+                                <th>Stage</th>
                                 <th class="o_ktd_col_pl">Persona</th>
                                 <th>Status</th>
                                 <th>Overall</th>
@@ -85,13 +69,14 @@
                         </thead>
                         <tbody>
                             <t t-if="state.recent.length === 0">
-                                <tr><td colspan="6" class="o_ktd_empty">
+                                <tr><td colspan="7" class="o_ktd_empty">
                                     <i class="fa fa-inbox me-1"/>No tasks yet.
                                 </td></tr>
                             </t>
                             <t t-foreach="state.recent" t-as="row" t-key="row.id">
                                 <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)">
                                     <td class="o_ktd_col_pl"><t t-out="row.task_id"/></td>
+                                    <td><t t-out="row.stage"/> / <t t-out="row.total_stages"/></td>
                                     <td class="o_ktd_col_pl"><t t-out="row.persona"/></td>
                                     <td><t t-out="row.status_label"/></td>
                                     <td><t t-out="fmt(row.overall, '%')"/></td>
