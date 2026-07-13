@@ -7,11 +7,19 @@ import hashlib
 from odoo.tools import DEFAULT_SERVER_DATETIME_FORMAT
 from odoo.http import request
 
+class DepartmentRole(models.Model):
+    _name = 'department.role'
+    _description = 'API User Role'
+
+    name = fields.Char(required=True)
+    url_key = fields.Char(index=True)
+
 class ApiRole(models.Model):
     _name = 'api.role'
     _description = 'API User Role'
 
     name = fields.Char(required=True)
+    department_id = fields.Many2one('department.role', string='Role Department')
     line_ids = fields.Many2many('api.role.line', string="Permissions")
     project_type = fields.Selection([('non-stem', 'Non Stem'), ('stem', 'Stem'), ('technical', 'Technical')], default='technical')
     user_type = fields.Char(string='User Type')

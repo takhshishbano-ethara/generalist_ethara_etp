@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="view_department_role_tree" model="ir.ui.view">
+        <field name="name">department.role.tree</field>
+        <field name="model">department.role</field>
+        <field name="arch" type="xml">
+            <list string="Department" editable="bottom">
+                <field name="name"/>
+                <field name="url_key"/>
+            </list>
+        </field>
+    </record>
     <record id="view_api_role_line_tree" model="ir.ui.view">
         <field name="name">api.role.line.tree</field>
         <field name="model">api.role.line</field>
@@ -76,6 +86,17 @@
         </field>
     </record>
 
+    <record id="action_department_role" model="ir.actions.act_window">
+        <field name="name">Department</field>
+        <field name="res_model">department.role</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first Department to manage permissions.
+            </p>
+        </field>
+    </record>
+
     <menuitem id="menu_api_config_root"
               name="API Gateway"
               sequence="50"
@@ -85,6 +106,12 @@
               name="API Roles"
               parent="menu_api_config_root"
               action="action_api_role"
+              sequence="10"/>
+
+    <menuitem id="menu_department_roles"
+              name="Department"
+              parent="menu_api_config_root"
+              action="action_department_role"
               sequence="10"/>
     <menuitem id="menu_api_role_lines"
               name="Role Lines"
