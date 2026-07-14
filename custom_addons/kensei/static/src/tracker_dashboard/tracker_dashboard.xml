@@ -26,6 +26,8 @@
                     <t t-foreach="state.teamComposition" t-as="card" t-key="card.key">
                         <div t-attf-class="o_ktd_metric_card o_ktd_clickable o_ktd_metric_#{card.key}"
                              t-on-click="() => this.onCompositionClick(card)"
+                             t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onCompositionClick(card))"
+                             tabindex="0" role="button"
                              title="View these members">
                             <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
                             <div class="o_ktd_metric_value">
@@ -45,6 +47,8 @@
                     <t t-foreach="state.funnel" t-as="card" t-key="card.key">
                         <div t-attf-class="o_ktd_funnel_card o_ktd_clickable o_ktd_funnel_#{card.key}"
                              t-on-click="() => this.onStatusCardClick(card)"
+                             t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onStatusCardClick(card))"
+                             tabindex="0" role="button"
                              title="View these tasks">
                             <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
                             <div class="o_ktd_metric_value"><t t-out="fmt(card.value)"/></div>
@@ -60,9 +64,14 @@
                 </div>
                 <div class="o_ktd_cards">
                     <t t-foreach="state.stats" t-as="card" t-key="card.key">
+                        <!-- only drillable stats are focusable: a tab stop on a card
+                             that does nothing when activated is worse than no tab stop -->
                         <div t-attf-class="o_ktd_metric_card o_ktd_metric_#{card.key}"
                              t-att-class="{ 'o_ktd_clickable': card.statuses and card.statuses.length }"
-                             t-on-click="() => this.onStatusCardClick(card)">
+                             t-on-click="() => this.onStatusCardClick(card)"
+                             t-on-keydown="(ev) => this.onCardKeydown(ev, () => this.onStatusCardClick(card))"
+                             t-att-tabindex="card.statuses and card.statuses.length ? 0 : undefined"
+                             t-att-role="card.statuses and card.statuses.length ? 'button' : undefined">
                             <div class="o_ktd_metric_label"><t t-out="card.label"/></div>
                             <div class="o_ktd_metric_value">
                                 <t t-out="fmt(card.value)"/>

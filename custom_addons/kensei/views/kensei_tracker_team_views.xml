@@ -9,7 +9,7 @@
       <field name="arch" type="xml">
         <!-- import="0": hide Odoo's generic "Import records"; bulk-adding goes
              through the guided Bulk Upload wizard below. Export stays enabled. -->
-        <list string="Team Members" multi_edit="1" import="0">
+        <list string="Team Members" multi_edit="1" import="0" js_class="kensei_stats_list">
           <header>
             <button name="%(action_kensei_tracker_team_import)d" type="action"
                     string="Bulk Upload" class="btn-primary"

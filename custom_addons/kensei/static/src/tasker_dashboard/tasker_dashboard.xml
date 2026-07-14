@@ -74,7 +74,9 @@
                                 </td></tr>
                             </t>
                             <t t-foreach="state.recent" t-as="row" t-key="row.id">
-                                <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)">
+                                <tr class="o_ktd_clickable" t-on-click="() => this.openTask(row)"
+                                    t-on-keydown="(ev) => this.onRowKeydown(ev, row)"
+                                    tabindex="0" role="button">
                                     <td class="o_ktd_col_pl"><t t-out="row.task_id"/></td>
                                     <td><t t-out="row.stage"/> / <t t-out="row.total_stages"/></td>
                                     <td class="o_ktd_col_pl"><t t-out="row.persona"/></td>

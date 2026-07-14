@@ -154,11 +154,17 @@ class KenseiTrackerBulkAllocation(models.TransientModel):
     @api.model
     def _unassigned_persona_domain(self):
         """Domain for personas not referenced by any Task Allocation (active
-        personas only)."""
-        Alloc = self.env['kensei.tracker.allocation']
-        allocated_ids = [p.id for p, in Alloc._read_group(
-            [('persona_id', '!=', False)], ['persona_id']) if p]
-        return [('id', 'not in', allocated_ids)] if allocated_ids else []
+        personas only).
+
+        ``kensei.persona.assignment_status`` is a STORED, INDEXED compute kept in
+        sync by ``_compute_tracker_allocation`` — the model already answers this
+        question. The previous implementation read every allocated persona id back
+        into Python and shipped it to Postgres as a literal ``NOT IN (...)``: a
+        five-figure IN-list at the target scale of 50k personas, rebuilt on every
+        wizard open and on every ``source_mode`` change (see
+        ``_compute_unassigned_available``). This is one indexed equality instead.
+        """
+        return [('assignment_status', '=', 'unassigned')]
 
     @api.depends('source_mode')
     def _compute_unassigned_available(self):

@@ -108,6 +108,21 @@ export class KenseiTrackerDashboard extends KenseiDashboardBase {
         });
     }
 
+    /**
+     * Keyboard equivalent of clicking a drill-down card.
+     *
+     * The cards are <div t-on-click>, so without this the entire drill-down is
+     * mouse-only: unreachable by keyboard and invisible to a screen reader. The
+     * segmented controls right below them are real <button>s with aria-pressed —
+     * this brings the cards up to the same bar.
+     */
+    onCardKeydown(ev, activate) {
+        if (ev.key === "Enter" || ev.key === " " || ev.key === "Spacebar") {
+            ev.preventDefault();
+            activate();
+        }
+    }
+
     onCompositionClick(card) {
         const domain = card.role ? [["role", "=", card.role]] : [];
         this._openMembers(domain, `Team — ${card.label}`);

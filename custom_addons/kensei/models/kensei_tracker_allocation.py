@@ -321,7 +321,7 @@ class KenseiTrackerAllocation(models.Model):
         string='Assignment Date', default=fields.Date.context_today, index=True, tracking=True,
     )
     persona_id = fields.Many2one(
-        'kensei.persona', string='Persona', required=True, tracking=True)
+        'kensei.persona', string='Persona', required=True, index=True, tracking=True)
     # Derived from the current Status (the pipeline phase) rather than set by
     # hand, so it can never drift from where the task actually is. Terminal
     # statuses (Deliverable/Failed) map to Manual QC — the last phase reached.
@@ -486,11 +486,20 @@ class KenseiTrackerAllocation(models.Model):
     @api.depends('assigned_pl_id')
     def _compute_pl_employee(self):
         """Mirror the (possibly overridden) Assigned PL onto ``pl_id``
-        (hr.employee) so the Dashboard / Daily Tracker keep grouping by PL."""
+        (hr.employee) so the Dashboard / Daily Tracker keep grouping by PL.
+
+        Resolved in ONE query for the whole batch. The per-record version issued a
+        sudo() browse + employee lookup per row, which is an N+1 on any bulk create
+        (the bulk-allocation wizard creates thousands of rows in a single call).
+        """
+        pl_ids = [pl.id for pl in self.mapped('assigned_pl_id')]
+        emp_by_user = {}
+        if pl_ids:
+            for emp in self.env['hr.employee'].sudo().search(
+                    [('user_id', 'in', pl_ids)]):
+                emp_by_user.setdefault(emp.user_id.id, emp.id)
         for rec in self:
-            u = rec.assigned_pl_id.sudo()
-            emp = (u.employee_id or u.employee_ids[:1]) if u else False
-            rec.pl_id = emp.id if emp else False
+            rec.pl_id = emp_by_user.get(rec.assigned_pl_id.id, False)
 
     @api.constrains('task_id')
     def _check_task_id(self):
@@ -668,33 +677,48 @@ class KenseiTrackerAllocation(models.Model):
     #  verification, trajectory, scoring and Manual QC) on their own record; they
     #  just cannot reassign the task itself (tasker/persona/PL/function/date).
     # ------------------------------------------------------------------ #
-    _PRIVILEGED_STAGE_STATES = {}
     _PRIVILEGED_VALUE_FIELDS = (
         # core allocation fields — only a QL/PL may set/change these
         'tasker_member_id', 'persona_id', 'assigned_pl_id', 'assigned_date',
+        # tasker_email/tasker_name are the SAME control surface as
+        # tasker_member_id: _sync_tasker resolves an email back to a member and
+        # writes tasker_member_id from it. Leaving them out let a tasker re-assign
+        # their own task to somebody else by writing an email — passing the guard,
+        # which never saw a protected key. Guard the derivation, not just the
+        # derived field.
+        'tasker_email', 'tasker_name',
         # the stage chain is set by the hand-off wizard, never by a tasker — and
         # total_stages decides which stage may DELIVER, so it must not be
         # self-served either.
         'stage_no', 'parent_id', 'total_stages',
     )
 
+    def _is_tracker_manager(self):
+        """QL (implied by PL/Admin) or an Odoo sysadmin."""
+        user = self.env.user
+        return (user.has_group('kensei.group_kensei_ql')
+                or user.has_group('base.group_system'))
+
     def _guard_privileged_fields(self, vals):
         """Block non-QL users from changing the core assignment fields (tasker,
-        persona, PL, function, assignment date). Stage/QC fields are intentionally
-        left open to taskers so they can drive their task end to end.
+        persona, PL, assignment date, stage chain). Stage/QC fields are
+        intentionally left open to taskers so they can drive their task end to end.
+
+        Membership is tested with ``f in vals``, NOT ``vals.get(f)``. A truthiness
+        test silently let every falsy value through, and the falsy values are the
+        dangerous ones: ``{'total_stages': 0}`` passed the guard and made
+        ``is_final_stage`` (stage_no >= total_stages) True on stage 1, so a tasker
+        could mark their own stage 'deliverable' instead of 'ready_next_stage' —
+        self-certifying delivery and skipping stage 2 entirely. ``required=True``
+        does not save us: Odoo does not reject 0 for an Integer.
         """
-        env = self.env
-        user = env.user
-        if (env.su or user.has_group('kensei.group_kensei_ql')
-                or user.has_group('base.group_system')):
+        if self.env.su or self._is_tracker_manager():
             return
-        blocked = [f for f, states in self._PRIVILEGED_STAGE_STATES.items()
-                   if vals.get(f) in states]
-        blocked += [f for f in self._PRIVILEGED_VALUE_FIELDS if vals.get(f)]
+        blocked = [f for f in self._PRIVILEGED_VALUE_FIELDS if f in vals]
         if blocked:
             raise AccessError(_(
                 "Only a Project Lead / QL can re-assign a task (tasker, persona, "
-                "PL, function or assignment date). Restricted field(s): %s",
+                "PL or assignment date) or change its stage. Restricted field(s): %s",
                 ", ".join(sorted(set(blocked)))))
 
     # ------------------------------------------------------------------ #
@@ -740,9 +764,9 @@ class KenseiTrackerAllocation(models.Model):
             rec.is_locked = bool(
                 rec.status in ('deliverable', 'failed') or rec.child_ids)
 
-    @api.depends('task_id', 'stage_no', 'parent_id', 'child_ids')
-    def _sibling_stages(self):
-        """This task's stage-1 and stage-2 records, AS VISIBLE TO THE CURRENT USER.
+    def _stage_map(self):
+        """``{task_id: {stage_no: record}}`` for every task in ``self``, AS VISIBLE TO
+        THE CURRENT USER, in ONE search.
 
         Resolved with a search rather than by walking parent_id / child_ids, and with NO
         sudo, because the record rules are what decide who sees which stage: a tasker is
@@ -753,43 +777,66 @@ class KenseiTrackerAllocation(models.Model):
         empty, whereas reading a field off a forbidden record reached through a relation
         RAISES AccessError — so walking parent_id would crash a stage-2 tasker's form
         instead of just hiding stage 1 from it.
+
+        Batched on purpose. This used to be a per-record helper (``_sibling_stages``,
+        with an ensure_one) called once by _compute_stage_targets and AGAIN by
+        _compute_stage_mirrors, with _compute_stage_chain running a third search of its
+        own — up to 4 rule-filtered searches per record, each re-evaluating the rule
+        domain. All three computes now share this one query.
         """
-        self.ensure_one()
-        Alloc = self.env['kensei.tracker.allocation']
-        if not self.task_id:
-            return Alloc, Alloc
-        if self.stage_no and self.stage_no >= 2:
-            stage1 = Alloc.search(
-                [('task_id', '=', self.task_id), ('stage_no', '=', 1)], limit=1)
-            return stage1, self
-        stage2 = Alloc.search(
-            [('task_id', '=', self.task_id), ('stage_no', '=', 2)], limit=1)
-        return self, stage2
+        task_ids = [t for t in set(self.mapped('task_id')) if t]
+        if not task_ids:
+            return {}
+        stages = self.env['kensei.tracker.allocation'].search(
+            [('task_id', 'in', task_ids)], order='stage_no asc')
+        by_task = {}
+        for stage in stages:
+            by_task.setdefault(stage.task_id, {})[stage.stage_no] = stage
+        return by_task
+
+    @staticmethod
+    def _siblings_from(stages, rec):
+        """Pull (stage1, stage2) for ``rec`` out of a ``_stage_map`` bucket.
+
+        ``rec`` itself always stands in for its own stage: it is trivially visible to
+        the user reading it, even when the search that built the map did not surface it
+        (a fresh, unsaved record has no row yet).
+        """
+        empty = rec.browse()
+        stage1 = stages.get(1, empty)
+        stage2 = stages.get(2, empty)
+        if rec.stage_no and rec.stage_no >= 2:
+            stage2 = rec
+        else:
+            stage1 = rec
+        return stage1, stage2
 
     @api.depends('task_id', 'stage_no', 'parent_id', 'child_ids')
     def _compute_stage_chain(self):
         """The stages of this task the current user may see, oldest first, and who works
         each one. Rule-scoped: a tasker sees only their own stage, a QL/PL the chain."""
-        Alloc = self.env['kensei.tracker.allocation']
+        by_task = self._stage_map()
         for rec in self:
+            stages = by_task.get(rec.task_id) or {}
             if not rec.task_id:
                 rec.stage_ids = False
                 rec.stage1_tasker_id = False
                 rec.stage2_tasker_id = False
                 continue
-            visible = Alloc.search(
-                [('task_id', '=', rec.task_id)], order='stage_no asc')
+            visible = rec.browse()
+            for _no, stage in sorted(stages.items()):
+                visible |= stage
             rec.stage_ids = visible
-            by_stage = {stage.stage_no: stage for stage in visible}
             rec.stage1_tasker_id = (
-                by_stage[1].tasker_member_id.id if 1 in by_stage else False)
+                stages[1].tasker_member_id.id if 1 in stages else False)
             rec.stage2_tasker_id = (
-                by_stage[2].tasker_member_id.id if 2 in by_stage else False)
+                stages[2].tasker_member_id.id if 2 in stages else False)
 
     @api.depends('task_id', 'stage_no', 'parent_id', 'child_ids')
     def _compute_stage_targets(self):
+        by_task = self._stage_map()
         for rec in self:
-            stage1, stage2 = rec._sibling_stages()
+            stage1, stage2 = self._siblings_from(by_task.get(rec.task_id) or {}, rec)
             rec.stage1_alloc_id = stage1
             rec.stage2_alloc_id = stage2
             # The form gates the Stage 2 tab on this rather than on stage2_alloc_id: a
@@ -805,14 +852,15 @@ class KenseiTrackerAllocation(models.Model):
     def _compute_stage_mirrors(self):
         """Project both stages of the task onto this record so one form can show them.
 
-        Scoped by the record rules (see _sibling_stages), so a tasker only ever sees the
+        Scoped by the record rules (see _stage_map), so a tasker only ever sees the
         stage assigned to them and the other stage's mirrors come back blank. The mirrors
         are read-only — no inverse on purpose. Each stage is still EDITED on its own
         record; making these writable would fire a cross-record write on every save,
         which a tasker has no access to.
         """
+        by_task = self._stage_map()
         for rec in self:
-            stage1, stage2 = rec._sibling_stages()
+            stage1, stage2 = self._siblings_from(by_task.get(rec.task_id) or {}, rec)
             for name in _STAGE1_MIRROR:
                 rec['s1_%s' % name] = _mirror_value(stage1, name)
             for name in _STAGE2_MIRROR:
@@ -867,8 +915,18 @@ class KenseiTrackerAllocation(models.Model):
         The view's ``readonly="is_locked"`` is only a hint -- it is trivially
         bypassed over RPC -- so the freeze has to be enforced here, where every
         write goes through.
+
+        The ``kensei_reopen`` escape hatch is gated on the QL/admin groups. It used
+        to be honoured on the context key ALONE, which made it useless as a control:
+        context travels with every RPC call and is fully attacker-supplied, so any
+        tasker could write with ``context={'kensei_reopen': True}`` and edit a frozen
+        Deliverable record -- overwriting the scores and QC sign-offs that the next
+        stage and the Daily Tracker were derived from. A context flag is a statement
+        of intent, never a proof of privilege: re-check the group.
         """
-        if self.env.su or self.env.context.get('kensei_reopen'):
+        if self.env.su:
+            return
+        if self.env.context.get('kensei_reopen') and self._is_tracker_manager():
             return
         touched = [f for f in self._LOCKED_INPUT_FIELDS if f in vals]
         if not touched:
@@ -897,8 +955,7 @@ class KenseiTrackerAllocation(models.Model):
         the Daily Tracker had already counted. That is the point: the work is not
         finished any more.
         """
-        if not (self.env.user.has_group('kensei.group_kensei_ql')
-                or self.env.user.has_group('base.group_system')):
+        if not self._is_tracker_manager():
             raise AccessError(_(
                 "Only a Quality Lead or an administrator can reopen a finished "
                 "task."))
@@ -931,6 +988,100 @@ class KenseiTrackerAllocation(models.Model):
                 was=was, user=self.env.user.name))
         return True
 
+    # Every stage input restored to its as-created value by action_reset_task.
+    # The three-status gates go back to their column default ('in_progress'), the
+    # rest are simply cleared.
+    _RESET_VALUES = {
+        'drive_link': False,
+        'tasker_qc_notes': False,
+        'pl_verified_status': 'in_progress',
+        'pl_verified_reason': False,
+        'pl_verified_notes': False,
+        'baseline_ready_status': 'in_progress',
+        'baseline_ready_reason': False,
+        'baseline_ready_notes': False,
+        'baseline_drive_link': False,
+        'baseline_gen_status': 'in_progress',
+        'baseline_gen_reason': False,
+        'baseline_gen_notes': False,
+        'rubric_score': 0.0,
+        'pytest_score': 0.0,
+        'overall_score': 0.0,
+        'qced_by': False,
+        'manual_qc_status': 'in_progress',
+        'manual_qc_reason': False,
+        'manual_qc_notes': False,
+    }
+
+    def action_reset_task(self):
+        """Reset the WHOLE task — every stage — back to a clean, unstarted state.
+
+        This is the counterpart action_reopen never was. Reopen un-freezes ONE
+        stage and leaves its work in place; this throws the work away and starts
+        the task over:
+
+          * stages 2..N are DELETED (deepest first — parent_id is ondelete=restrict,
+            so a stage cannot be removed while a later one still points at it),
+          * stage 1 keeps its IDENTITY — task_id, persona, tasker, assigned PL/QL and
+            assignment date all survive — and has every stage input wiped: drive
+            links, QC gates, reasons, notes, scores and qced_by,
+          * ``date_final`` clears itself, because _stamp_completion follows the
+            recomputed status back down to 'in_progress'. The delivery credit the
+            Daily Tracker had counted is withdrawn, which is the point: the work no
+            longer exists.
+
+        Destructive and irreversible, so it is QL/PL-gated (the same guard as
+        action_reopen), confirmed in the UI, and logged to the chatter of the stage
+        that survives — with the count of what was destroyed.
+        """
+        self.ensure_one()
+        if not self._is_tracker_manager():
+            raise AccessError(_(
+                "Only a Project Lead / QL can reset a task."))
+        if not self.task_id:
+            raise UserError(_("This allocation has no Task ID to reset."))
+
+        # sudo: a later stage can sit under a DIFFERENT lead, so the caller may not
+        # be able to see it under the team-scoped record rules — but the task is one
+        # unit and resetting it half-way would leave an orphaned stage 2 pointing at
+        # a stage 1 that no longer has the work it was built on. The QL/PL check
+        # above is the authorisation; this is just reach.
+        stages = self.env['kensei.tracker.allocation'].sudo().search(
+            [('task_id', '=', self.task_id)], order='stage_no asc')
+        if not stages:
+            return True
+
+        first = stages[0]
+        later = stages[1:]
+        destroyed = len(later)
+        if later:
+            # deepest stage first: parent_id is ondelete='restrict'
+            later.sorted(key=lambda s: s.stage_no, reverse=True).unlink()
+
+        # kensei_reopen: stage 1 may be locked (Deliverable/Failed, or it was locked
+        # by the very children we just deleted). sudo already bypasses the lock; the
+        # flag keeps the intent explicit if the sudo is ever removed.
+        first.with_context(kensei_reopen=True).write(dict(self._RESET_VALUES))
+
+        first.message_post(body=_(
+            "Task reset by %(user)s. All stage inputs were cleared%(also)s. "
+            "The task starts again from Tasker QC; its tasker, persona and "
+            "leads are unchanged.",
+            user=self.env.user.name,
+            also=(_(" and %s later stage(s) were deleted", destroyed)
+                  if destroyed else ""),
+        ))
+
+        # self may BE one of the deleted stages, so always land on the survivor.
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Task %s', first.task_id),
+            'res_model': 'kensei.tracker.allocation',
+            'res_id': first.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
     # A stage's own work is finished in any of these states. Note this includes
     # 'ready_next_stage': that tasker DID complete their stage — they just are not
     # the last stage — so the completion must still be stamped, otherwise the
@@ -941,19 +1092,38 @@ class KenseiTrackerAllocation(models.Model):
         """Stamp the completion datetime when this stage's work is finished, and
         clear it again if it later reverts to an in-progress stage — so the Daily
         Tracker never attributes a completion to a stale date.
+
+        Two grouped writes instead of one per record. Assigning ``rec.date_final``
+        in a loop fires a fresh ``write`` per row, each re-running all three guards
+        and recursing back into this method — trivial for a form save, but the bulk
+        wizard creates thousands of rows in one call.
         """
-        now = fields.Datetime.now()
+        to_stamp = self.browse()
+        to_clear = self.browse()
         for rec in self:
             if rec.status in self._RECORD_DONE_STATES:
                 if not rec.date_final:
-                    rec.date_final = now
+                    to_stamp |= rec
             elif rec.date_final:
-                rec.date_final = False
+                to_clear |= rec
+        # sudo + kensei_reopen: date_final is bookkeeping the record owes itself, not
+        # a user edit. It must land even on a record that is (now) locked, and
+        # regardless of who triggered the status change.
+        if to_stamp:
+            to_stamp.sudo().with_context(kensei_reopen=True).write(
+                {'date_final': fields.Datetime.now()})
+        if to_clear:
+            to_clear.sudo().with_context(kensei_reopen=True).write(
+                {'date_final': False})
 
     def write(self, vals):
+        # _sync_tasker FIRST, then guard. It resolves tasker_email -> tasker_member_id,
+        # so guarding before it meant the guard inspected a vals dict that did not yet
+        # contain the privileged field the write was about to set — a tasker could
+        # re-assign their task by writing an email. Guard the resolved vals.
+        self._sync_tasker([vals])
         self._guard_privileged_fields(vals)
         self._check_locked(vals)
-        self._sync_tasker([vals])
         res = super().write(vals)
         # status is computed; stamp completion based on the (re)computed value.
         self._stamp_completion()
@@ -961,9 +1131,9 @@ class KenseiTrackerAllocation(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        self._sync_tasker(vals_list)
         for vals in vals_list:
             self._guard_privileged_fields(vals)
-        self._sync_tasker(vals_list)
         records = super().create(vals_list)
         records._stamp_completion()
         return records
