@@ -1,0 +1,272 @@
+/* ===================================================================
+   Raiden Dashboard - Backend (OWL) Styles
+   Prefix: rd-  |  Max-width: 900px
+   =================================================================== */
+
+.rd-showcase {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 32px 24px;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1a1a2e;
+    line-height: 1.6;
+}
+
+/* ---------- Header ---------- */
+.rd-showcase-header {
+    text-align: center;
+    margin-bottom: 48px;
+}
+
+.rd-showcase-header .rd-tag {
+    display: inline-block;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: #6366f1;
+    border: 1px solid #6366f1;
+    border-radius: 4px;
+    padding: 3px 10px;
+    margin-bottom: 12px;
+}
+
+.rd-showcase-header .rd-title {
+    font-size: 2.8rem;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    color: #1a1a2e;
+    margin: 0 0 12px;
+}
+
+.rd-showcase-header .rd-subtitle {
+    font-size: 1rem;
+    color: #6c757d;
+    margin: 0 0 6px;
+}
+
+.rd-showcase-header .rd-byline {
+    font-size: 0.8rem;
+    color: #9ca3af;
+    margin: 0;
+}
+
+.rd-showcase-header .rd-byline a {
+    color: #6366f1;
+    text-decoration: none;
+}
+
+.rd-showcase-header .rd-byline a:hover {
+    text-decoration: underline;
+}
+
+/* ---------- Sections ---------- */
+.rd-showcase .rd-section {
+    margin-bottom: 48px;
+    padding: 0;
+}
+
+/* ---------- Description ---------- */
+.rd-showcase .rd-description p {
+    text-align: center;
+    max-width: 720px;
+    margin: 0 auto;
+    font-size: 0.95rem;
+    color: #6c757d;
+    line-height: 1.7;
+}
+
+/* ---------- Capabilities ---------- */
+.rd-showcase .rd-capabilities-list {
+    list-style: none;
+    padding: 0;
+    margin: 0 auto 24px;
+    max-width: 680px;
+}
+
+.rd-showcase .rd-capabilities-list li {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 0.9rem;
+    color: #6c757d;
+    padding: 6px 0;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.rd-showcase .rd-capabilities-list li:last-child {
+    border-bottom: none;
+}
+
+.rd-showcase .rd-cap-arrow {
+    color: #4f46e5;
+    font-weight: 600;
+    flex-shrink: 0;
+}
+
+
+/* ---------- Metrics ---------- */
+.rd-showcase .rd-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+.rd-showcase .rd-metric-card {
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.rd-showcase .rd-metric-value {
+    display: block;
+    font-size: 1.8rem;
+    font-weight: 800;
+    color: #6366f1;
+    line-height: 1;
+    margin-bottom: 6px;
+}
+
+.rd-showcase .rd-metric-label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #1a1a2e;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.rd-showcase .rd-metric-detail {
+    display: block;
+    font-size: 0.7rem;
+    color: #9ca3af;
+}
+
+/* ---------- Phases ---------- */
+.rd-showcase .rd-phases-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+}
+
+.rd-showcase .rd-phase-card {
+    flex: 1;
+    max-width: 240px;
+    background: #f8f9fa;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+
+.rd-showcase .rd-phase-number {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: #6366f1;
+    color: #fff;
+    font-size: 0.9rem;
+    font-weight: 700;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+}
+
+.rd-showcase .rd-phase-card h3 {
+    font-size: 0.9rem;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: #1a1a2e;
+}
+
+.rd-showcase .rd-phase-card p {
+    font-size: 0.8rem;
+    color: #6c757d;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.rd-showcase .rd-phase-arrow {
+    display: flex;
+    align-items: center;
+    padding-top: 28px;
+    color: #9ca3af;
+    font-size: 1.2rem;
+}
+
+/* ---------- Links ---------- */
+.rd-showcase .rd-links {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+}
+
+.rd-showcase .rd-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid #e5e7eb;
+    color: #1a1a2e;
+    background: #fff;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.rd-showcase .rd-btn:hover {
+    border-color: #6366f1;
+    color: #6366f1;
+}
+
+.rd-showcase .rd-btn-filled {
+    background: #6366f1;
+    border-color: #6366f1;
+    color: #fff;
+}
+
+.rd-showcase .rd-btn-filled:hover {
+    background: #818cf8;
+    border-color: #818cf8;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 700px) {
+    .rd-showcase {
+        padding: 24px 16px;
+    }
+
+    .rd-showcase-header .rd-title {
+        font-size: 2rem;
+    }
+
+    .rd-showcase .rd-metric-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .rd-showcase .rd-phases-row {
+        flex-direction: column;
+        align-items: center;
+    }
+
+    .rd-showcase .rd-phase-card {
+        max-width: 100%;
+    }
+
+    .rd-showcase .rd-phase-arrow {
+        transform: rotate(90deg);
+        padding-top: 0;
+    }
+
+    .rd-showcase .rd-links {
+        flex-direction: column;
+        align-items: center;
+    }
+}

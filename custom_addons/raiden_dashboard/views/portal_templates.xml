@@ -1,0 +1,449 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+  <!--
+    Raiden Showcase - public single-page editorial view.
+
+    Mounted at /raiden by controllers/main.py (RaidenShowcaseController).
+    The client-side JS fetches /raiden/api/instances to render the dataset
+    viewer table (the 30 Harbor tasks with per-model reward).
+
+    Layout: standalone HTML (no portal.portal_layout). Dark editorial
+    section-numbered design with Raiden's AWS CLI DynamoDB RL content;
+    all DOM IDs preserved for the raiden_portal.js hooks.
+  -->
+
+  <template id="portal_showcase" name="Raiden Dashboard">
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8"/>
+      <meta name="viewport" content="width=device-width, initial-scale=1"/>
+      <title>RAIDEN - AWS CLI S3 + DynamoDB RL Environment · ETHARA AI</title>
+      <meta name="description" content="Raiden is a reinforcement-learning environment for agentic code generation: two scoped deliveries (10 aws s3 and 30 aws dynamodb Harbor-format tasks) that ask a model to implement the CLI surface from scratch, graded by a held-out suite of 3,404 E2E tests against simulated MinIO and DynamoDB Local backends."/>
+      <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
+      <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
+
+      <!-- Sync theme-setter: reads the saved choice BEFORE stylesheet
+           tokens resolve, so there is no flash when revisiting the page. -->
+      <script>
+        (function(){
+          try {
+            var saved = localStorage.getItem('raiden:theme');
+            if (saved === 'light' || saved === 'dark') {
+              document.documentElement.setAttribute('data-theme', saved);
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
+            }
+          } catch(e) {}
+        })();
+      </script>
+
+      <link rel="preconnect" href="https://fonts.googleapis.com"/>
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+      <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"/>
+
+      <!-- Raiden dark editorial stylesheet served as a static asset
+           (bypasses web.assets_frontend so Bootstrap/portal chrome
+           does not override the design). -->
+      <link rel="stylesheet" href="/raiden_dashboard/static/src/portal/css/raiden_portal.css"/>
+
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"/>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"/>
+      <script src="/raiden_dashboard/static/src/portal/js/raiden_portal.js" defer="defer"/>
+    </head>
+    <body>
+      <a class="skip-link" href="#main">Skip to content</a>
+
+      <!-- Scroll progress rail. -->
+      <div class="scroll-progress" aria-hidden="true"/>
+
+      <!-- Theme toggle. -->
+      <button type="button" id="rd-theme-toggle" class="theme-toggle"
+              aria-label="Toggle light / dark mode"
+              title="Toggle light / dark mode">
+        <svg class="icon-moon" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <path d="M21 12.79A9 9 0 1 1 11.21 3a7 7 0 0 0 9.79 9.79z"/>
+        </svg>
+        <svg class="icon-sun" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round"
+             aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/>
+          <path d="M12 2v2"/><path d="M12 20v2"/>
+          <path d="M4.93 4.93l1.41 1.41"/><path d="M17.66 17.66l1.41 1.41"/>
+          <path d="M2 12h2"/><path d="M20 12h2"/>
+          <path d="M4.93 19.07l1.41-1.41"/><path d="M17.66 6.34l1.41-1.41"/>
+        </svg>
+      </button>
+
+      <div class="page" id="rd-portal">
+
+  <!-- ================= MASTHEAD ================= -->
+  <header class="masthead">
+    <div class="mast-top">
+      <h1 class="wordmark">RAIDEN</h1>
+      <span class="badge mono">AGENTIC CODING · RL ENVIRONMENT</span>
+    </div>
+    <hr class="rule"/>
+    <p class="thesis">Can a coding agent build a stateful AWS CLI (aws s3 or aws dynamodb) from a spec it is never tested against?</p>
+    <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
+  </header>
+
+  <main id="main">
+
+  <!-- ================= §01 Overview ================= -->
+  <section class="section" id="overview" aria-labelledby="overview-label" data-animate="fade-up">
+    <p class="section-label" id="overview-label">§01 · Overview</p>
+    <div class="overview-grid">
+      <div class="prose">
+        <p>Raiden is a reinforcement-learning <em>environment</em> - not a static Q/A set - for agentic code generation. It ships <b>two scoped deliveries</b>: 10 <code>aws s3</code> tasks and 30 <code>aws dynamodb</code> tasks. Each drops a coding agent into a container with a prose spec and no test code, asks it to build a subset of the CLI surface from scratch, and grades the result against a hidden end-to-end suite. The pass fraction is the reward. Both surfaces are deliberately stateful - buckets/objects and tables/items persist across commands - so the task rewards genuine implementation over recall. S3 is simulated by a per-session <code>MinIO</code> server and DynamoDB by an <code>amazon/dynamodb-local</code> sidecar, offline by construction.</p>
+        <ul class="capabilities">
+          <li>Held-out grading: the agent never sees the 3,404 E2E tests</li>
+          <li>Two CLI surfaces: 7 <code>aws s3</code> + 8 <code>aws dynamodb</code> commands</li>
+          <li>Dense scalar reward = passed / total ∈ [0, 1], anti-NOP guarded</li>
+          <li>Hermetic, offline MinIO (S3) and DynamoDB Local (DynamoDB) sidecars</li>
+          <li>Two-model calibration: Claude Opus 4.8 and Claude Haiku 4.5</li>
+        </ul>
+      </div>
+
+      <aside class="glance" aria-label="At a glance">
+        <p class="glance-label mono">At a glance</p>
+        <dl class="glance-list">
+          <div class="glance-row"><dt>Tasks</dt><dd><b>40</b></dd></div>
+          <div class="glance-row"><dt>Held-out tests</dt><dd><b>3,404</b></dd></div>
+          <div class="glance-row"><dt>Workflow tests</dt><dd><b>381</b></dd></div>
+          <div class="glance-row"><dt>S3 · DynamoDB</dt><dd><b>10 · 30</b></dd></div>
+          <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
+          <div class="glance-row"><dt>Backends</dt><dd>MinIO · DynamoDB Local</dd></div>
+        </dl>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ================= §02 KEY METRICS ================= -->
+  <section class="section" id="scale" aria-labelledby="scale-label">
+    <p class="section-label" id="scale-label">§02 · Key metrics</p>
+    <p class="section-desc">Three numbers that define the scope of the Raiden delivery, across two AWS CLI surfaces.</p>
+    <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
+      <div class="kpi-card">
+        <p class="kpi-label">Harbor Tasks</p>
+        <p class="kpi-value"><span class="kpi-big">40</span></p>
+        <p class="kpi-sub mono">10 aws s3 · 30 aws dynamodb</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Held-out Tests</p>
+        <p class="kpi-value"><span class="kpi-big">3,404</span></p>
+        <p class="kpi-sub mono">626 aws s3 · 2,778 aws dynamodb</p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Calibration Models</p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
+        <p class="kpi-sub mono">Opus 4.8 · Haiku 4.5</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §03 METHODOLOGY ================= -->
+  <section class="section" id="methodology" aria-labelledby="methodology-label">
+    <p class="section-label" id="methodology-label">§03 · Methodology</p>
+    <p class="section-desc">How the reward is computed. Four principles govern the Raiden grading system.</p>
+
+    <div class="pipeline-frame">
+      <div class="pipeline pipeline-a" style="grid-template-columns: repeat(2, 1fr);">
+        <article class="phase">
+          <p class="phase-label">Principle 01</p>
+          <h4 class="phase-title">Held-Out Grading</h4>
+          <ul class="phase-body">
+            <li>The agent never sees any test code during generation</li>
+            <li>It must satisfy real DynamoDB semantics, not pattern-match the grader</li>
+            <li>Graded on observable behaviour: stdout, stderr, exit code, table/item state</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 02</p>
+          <h4 class="phase-title">Dense Scalar Reward</h4>
+          <ul class="phase-body">
+            <li>reward = passed / total ∈ [0, 1] - the simplest dense signal</li>
+            <li>No partial credit within a test, no weighting, no exit-code shortcut</li>
+            <li>Turns the suite into a dense curriculum over DynamoDB behaviours</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 03</p>
+          <h4 class="phase-title">Anti-NOP Floor &amp; Anti-Gaming</h4>
+          <ul class="phase-body">
+            <li>A conftest guard aborts before collection if <code>submission/aws</code> is absent</li>
+            <li>An empty / missing / non-executable stub scores exactly 0.0</li>
+            <li>Closed exit-code contract: {0, 1, 252, 254, 255}</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Principle 04</p>
+          <h4 class="phase-title">Hermetic &amp; Offline</h4>
+          <ul class="phase-body">
+            <li>MinIO (S3) and DynamoDB Local (DynamoDB) sidecars, sha256-pinned, offline</li>
+            <li>A socket-connect guard blocks any non-loopback / non-private connect</li>
+            <li>PYTHONHASHSEED=0 · TZ=UTC · LC_ALL=C.UTF-8 baked into the image</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §04 PIPELINE ================= -->
+  <section class="section section-pipeline" id="pipeline" aria-labelledby="pipeline-label" data-animate="fade-up">
+    <p class="section-label" id="pipeline-label">§04 · Evaluation pipeline</p>
+    <div class="pipeline-frame">
+      <div class="pipeline-intro">
+        <p class="pipeline-eyebrow mono">The method</p>
+        <h2 class="pipeline-title">Three phases turn a prose spec into a scored, reproducible reinforcement-learning signal.</h2>
+      </div>
+
+      <div class="pipeline">
+        <article class="phase">
+          <p class="phase-label">Phase 01</p>
+          <h4 class="phase-title">Environment Setup</h4>
+          <ul class="phase-body">
+            <li>Build the task container from a pinned sha256 base image</li>
+            <li>Ship an <code>instruction.md</code> spec - commands, I/O, error cases</li>
+            <li>Boot the simulation sidecar - MinIO for S3, DynamoDB Local for DynamoDB</li>
+            <li>Put <code>/workspace/submission/</code> first on <code>PATH</code></li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 02</p>
+          <h4 class="phase-title">Agent Interaction</h4>
+          <ul class="phase-body">
+            <li>The agent writes an <code>aws</code> executable from scratch (any language)</li>
+            <li>It dispatches every <code>s3</code> / <code>dynamodb</code> subcommand in its subset</li>
+            <li>State stays consistent across a multi-command workflow</li>
+            <li>The agent never sees the held-out tests</li>
+          </ul>
+        </article>
+        <article class="phase">
+          <p class="phase-label">Phase 03</p>
+          <h4 class="phase-title">Evaluation &amp; Scoring</h4>
+          <ul class="phase-body">
+            <li>Apply the submission and run pytest with randomization off</li>
+            <li>Cross-check collected count against <code>tests_shipped</code></li>
+            <li>Compute reward = passed / total and write <code>reward.txt</code></li>
+            <li>Always exit 0 - the reward file is the grading channel</li>
+          </ul>
+        </article>
+      </div>
+    </div><!-- /.pipeline-frame -->
+  </section>
+
+  <!-- ================= §05 RESULTS ================= -->
+  <section class="section section-reveal" id="results" aria-labelledby="results-label" data-animate="fade-up">
+    <p class="section-label" id="results-label">§05 · Results</p>
+
+    <div class="reveal">
+      <p class="reveal-line">
+        Two Anthropic models were run end-to-end against all 40 tasks under the openhands-sdk v1.12.0 / harbor 0.13.1 scaffold (pass@1).
+      </p>
+      <p class="reveal-line reveal-kicker">
+        Claude Opus 4.8 leads Claude Haiku 4.5 on every one of the 40 tasks. The capability gap is widest on aws s3 (Opus 92.8% vs Haiku 44.8%, +48.0 pts) and narrower on aws dynamodb (Opus 97.6% vs Haiku 72.3%, +25.3 pts). Combined mean gap +31.0 pts.
+      </p>
+    </div>
+
+    <div class="charts">
+      <figure class="chart chart--hero">
+        <button type="button" class="chart-trigger" aria-label="Preview per-task reward chart full size">
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/opus_vs_haiku.png" alt="Per-task reward across all 40 AWS CLI tasks (10 S3 + 30 DynamoDB) - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 1 - Per-task reward across all 40 tasks (green = S3, blue = DynamoDB), sorted by Haiku - Opus 4.8 μ 96.4% vs Haiku 4.5 μ 65.4%</figcaption>
+      </figure>
+    </div>
+
+    <p class="section-desc">Distribution of Claude Haiku 4.5 reward - the discriminating axis, since Opus saturates.</p>
+
+    <div class="quality-grid">
+      <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
+        <span class="rd-quality-num">5</span>
+        <span class="quality-label">= 100% REWARD</span>
+        <span class="quality-pct mono">12.5%</span>
+      </div>
+      <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
+        <span class="rd-quality-num">17</span>
+        <span class="quality-label">75-99% REWARD</span>
+        <span class="quality-pct mono">42.5%</span>
+      </div>
+      <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
+        <span class="rd-quality-num">4</span>
+        <span class="quality-label">50-75% REWARD</span>
+        <span class="quality-pct mono">10.0%</span>
+      </div>
+      <div class="quality-card quality-broken" data-animate="fade-up" data-delay="3">
+        <span class="rd-quality-num">14</span>
+        <span class="quality-label">&lt; 50% REWARD</span>
+        <span class="quality-pct mono">35.0%</span>
+      </div>
+    </div>
+
+    <div class="confidence-strip" data-animate="fade-up">
+      <span class="rd-confidence-big">96.4%</span>
+      <span class="confidence-lbl mono">Claude Opus 4.8 Mean Reward</span>
+    </div>
+  </section>
+
+  <!-- ================= §06 DATASET VIEWER ================= -->
+  <section class="section" id="rd-eval-viewer" aria-labelledby="viewer-label" data-animate="fade-up">
+    <p class="section-label" id="viewer-label">§06 · Dataset Viewer</p>
+
+    <!-- KPI row -->
+    <div class="kpi-row" aria-label="Headline statistics for the delivery">
+      <div class="kpi-card">
+        <p class="kpi-label">Total Tasks</p>
+        <p class="kpi-value"><span class="kpi-big">40</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Scopes</p>
+        <p class="kpi-value"><span class="kpi-big">2</span></p>
+      </div>
+      <div class="kpi-card">
+        <p class="kpi-label">Held-out Tests</p>
+        <p class="kpi-value"><span class="kpi-big">3,404</span></p>
+      </div>
+      <div class="kpi-card kpi-card--accent">
+        <p class="kpi-label">Opus Mean Reward</p>
+        <p class="kpi-value"><span class="kpi-big">96.4<small>%</small></span></p>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="eval-controls">
+      <div class="eval-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="rd-eval-search" placeholder="Search tasks or commands..." autocomplete="off"/>
+      </div>
+      <div class="eval-filters">
+        <select id="rd-eval-scope">
+          <option value="">All Scopes</option>
+          <option value="DynamoDB">DynamoDB</option>
+          <option value="S3">S3</option>
+        </select>
+        <select id="rd-eval-difficulty">
+          <option value="">All Difficulties</option>
+          <option value="Easy">Easy</option>
+          <option value="Medium">Medium</option>
+          <option value="Hard">Hard</option>
+        </select>
+        <select id="rd-eval-sort">
+          <option value="instance_id">Task (A-Z)</option>
+          <option value="command_count">Commands</option>
+          <option value="difficulty">Difficulty</option>
+          <option value="opus_reward" selected="selected">Opus 4.8</option>
+          <option value="haiku_reward">Haiku 4.5</option>
+        </select>
+        <button type="button" id="rd-eval-sort-dir-btn" class="sort-dir-btn" title="Descending - click to reverse">↓</button>
+      </div>
+      <div class="eval-meta">
+        <span id="rd-eval-count">Loading...</span>
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="eval-table-wrap" id="rd-eval-table-wrap">
+      <table class="eval-table">
+        <thead>
+          <tr>
+            <th class="eth-instance">Task</th>
+            <th class="eth-prrange">Commands</th>
+            <th class="eth-lang">Difficulty</th>
+            <th class="eth-opus">Opus 4.8</th>
+            <th class="eth-haiku">Haiku 4.5</th>
+            <th class="eth-repo">Tests</th>
+            <th class="eth-expand"></th>
+          </tr>
+        </thead>
+        <tbody id="rd-eval-tbody"></tbody>
+      </table>
+    </div>
+    <div class="eval-pagination" id="rd-eval-pagination"></div>
+  </section>
+
+  <!-- ================= §07 MODEL COMPARISON ================= -->
+  <section class="section" id="models" aria-labelledby="models-label">
+    <p class="section-label" id="models-label">§07 · Scope comparison</p>
+    <p class="section-desc">The two scoped deliveries side by side. Opus 4.8 leads Haiku 4.5 on every task; the capability gap is far wider on the S3 surface.</p>
+
+    <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label">aws s3 · 10 tasks</p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Opus 4.8 mean</dt><dd><b>92.8%</b></dd></div>
+          <div class="glance-row"><dt>Haiku 4.5 mean</dt><dd><b>44.8%</b></dd></div>
+          <div class="glance-row"><dt>Mean gap</dt><dd><b>+48.0 pts</b></dd></div>
+          <div class="glance-row"><dt>Held-out tests</dt><dd><b>626</b></dd></div>
+          <div class="glance-row"><dt>Backend</dt><dd>MinIO</dd></div>
+        </dl>
+      </div>
+      <div class="kpi-card" style="min-height: auto;">
+        <p class="kpi-label">aws dynamodb · 30 tasks</p>
+        <dl class="glance-list" style="margin-top: 12px;">
+          <div class="glance-row"><dt>Opus 4.8 mean</dt><dd><b>97.6%</b></dd></div>
+          <div class="glance-row"><dt>Haiku 4.5 mean</dt><dd><b>72.3%</b></dd></div>
+          <div class="glance-row"><dt>Mean gap</dt><dd><b>+25.3 pts</b></dd></div>
+          <div class="glance-row"><dt>Held-out tests</dt><dd><b>2,778</b></dd></div>
+          <div class="glance-row"><dt>Backend</dt><dd>DynamoDB Local</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= §08 RESOURCES ================= -->
+  <section class="section" id="resources" aria-labelledby="resources-label" data-animate="fade-up">
+    <p class="section-label" id="resources-label">§08 · Resources</p>
+    <div class="resources" style="display:grid; grid-template-columns:repeat(3, 1fr); gap:16px;">
+      <a class="resource" href="https://github.com/harbor-framework/harbor" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Harbor Framework</p>
+        <p class="res-url mono">github.com/harbor-framework/harbor</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://hub.docker.com/r/amazon/dynamodb-local" target="_blank" rel="noopener">
+        <p class="res-label mono">Docker Hub</p>
+        <p class="res-title">DynamoDB Local</p>
+        <p class="res-url mono">hub.docker.com/r/amazon/dynamodb-local</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+      <a class="resource" href="https://github.com/Ethara-Ai/software-agent-sdk" target="_blank" rel="noopener">
+        <p class="res-label mono">GitHub</p>
+        <p class="res-title">Ethara Agent SDK</p>
+        <p class="res-url mono">github.com/Ethara-Ai/software-agent-sdk</p>
+        <span class="res-arrow" aria-hidden="true">↗</span>
+      </a>
+    </div>
+  </section>
+
+  </main>
+
+  <footer class="foot">
+    <div class="foot-inner">
+      <p class="mono">ethara.ai · project raiden</p>
+    </div>
+  </footer>
+
+</div><!-- /.page -->
+
+      <!-- Lightbox overlay - hidden until a chart image is clicked. -->
+      <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
+           aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
+        <button type="button" class="lightbox-close" id="lightbox-close"
+                aria-label="Close preview">×</button>
+        <figure class="lightbox-figure">
+          <img id="lightbox-img" src="" alt=""/>
+          <figcaption id="lightbox-caption" class="lightbox-caption mono"></figcaption>
+        </figure>
+      </div>
+
+    </body>
+    </html>
+  </template>
+
+</odoo>

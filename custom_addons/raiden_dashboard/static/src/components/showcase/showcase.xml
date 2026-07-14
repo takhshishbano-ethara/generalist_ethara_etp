@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<templates xml:space="preserve">
+    <t t-name="raiden_dashboard.RaidenShowcase">
+        <div class="rd-showcase">
+            <header class="rd-showcase-header">
+                <span class="rd-tag">AGENTIC CODING &#xB7; RL ENVIRONMENT</span>
+                <h1 class="rd-title">RAIDEN</h1>
+                <p class="rd-subtitle">
+                    AWS CLI S3 + DynamoDB &#xB7; Harbor-format tasks &#xB7; held-out E2E grading
+                </p>
+                <p class="rd-byline">
+                    by <strong>Ethara AI</strong> &#xB7;
+                    <a href="https://www.ethara.ai" target="_blank" rel="noopener">www.ethara.ai</a>
+                </p>
+            </header>
+
+            <section class="rd-section rd-description">
+                <p>
+                    Raiden is a reinforcement-learning environment for agentic code
+                    generation. Each of its 40 Harbor-format tasks drops a coding agent
+                    into a container with a prose spec and no test code, asks it to
+                    implement a subset of an <code>aws s3</code> or <code>aws dynamodb</code> surface
+                    from scratch, and grades the result against a hidden suite of 3,404
+                    end-to-end tests running on a fully simulated, offline-by-construction
+                    MinIO or DynamoDB Local backend. The pass fraction is the scalar reward.
+                </p>
+            </section>
+
+            <section class="rd-section rd-capabilities">
+                <ul class="rd-capabilities-list">
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Stateful CLI evaluation: build <code>aws s3</code> and <code>aws dynamodb</code> surfaces from a spec</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Two surfaces: 7 <code>aws s3</code> + 8 <code>aws dynamodb</code> commands</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Held-out grading: the agent never sees the 3,404 E2E tests</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Hermetic, offline MinIO (S3) and DynamoDB Local (DynamoDB) sidecars</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Dense scalar reward = passed / total &#x2208; [0, 1], anti-NOP guarded</li>
+                </ul>
+            </section>
+
+            <section class="rd-section rd-metrics">
+                <div class="rd-metric-grid">
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">40</span>
+                        <span class="rd-metric-label">Harbor Tasks</span>
+                        <span class="rd-metric-detail">10 S3 &#xB7; 30 DynamoDB</span>
+                    </div>
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">3,404</span>
+                        <span class="rd-metric-label">Held-out Tests</span>
+                        <span class="rd-metric-detail">~85 per task &#xB7; 381 workflow</span>
+                    </div>
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">2</span>
+                        <span class="rd-metric-label">CLI Surfaces</span>
+                        <span class="rd-metric-detail">aws s3 &#xB7; aws dynamodb</span>
+                    </div>
+                    <div class="rd-metric-card">
+                        <span class="rd-metric-value">2</span>
+                        <span class="rd-metric-label">Calibration Models</span>
+                        <span class="rd-metric-detail">Opus 4.8, Haiku 4.5</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rd-section rd-phases">
+                <div class="rd-phases-row">
+                    <div class="rd-phase-card">
+                        <div class="rd-phase-number">1</div>
+                        <h3>Environment &amp; Spec</h3>
+                        <p>
+                            Ship a container with an <code>instruction.md</code> spec and a
+                            simulated MinIO / DynamoDB Local sidecar. No test code is exposed.
+                        </p>
+                    </div>
+                    <div class="rd-phase-arrow">&#x2192;</div>
+                    <div class="rd-phase-card">
+                        <div class="rd-phase-number">2</div>
+                        <h3>Agent Builds CLI</h3>
+                        <p>
+                            The agent writes an <code>aws</code> executable from scratch,
+                            dispatching every <code>s3</code> / <code>dynamodb</code> subcommand against real
+                            AWS service semantics.
+                        </p>
+                    </div>
+                    <div class="rd-phase-arrow">&#x2192;</div>
+                    <div class="rd-phase-card">
+                        <div class="rd-phase-number">3</div>
+                        <h3>Grade via pytest</h3>
+                        <p>
+                            <code>test.sh</code> runs the held-out suite and writes
+                            reward = passed / total to <code>reward.txt</code>,
+                            the RL signal.
+                        </p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="rd-section rd-links">
+                <a class="rd-btn" t-att-href="state.trajectoriesUrl"
+                   target="_blank" rel="noopener">
+                    Harbor Framework
+                </a>
+                <a class="rd-btn rd-btn-filled" t-att-href="state.datasetUrl"
+                   target="_blank" rel="noopener">
+                    Ethara Agent SDK
+                </a>
+            </section>
+        </div>
+    </t>
+</templates>

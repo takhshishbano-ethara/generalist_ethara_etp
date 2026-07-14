@@ -1,0 +1,1794 @@
+[
+  {
+    "instance_id": "05b5142a",
+    "task_id": "05b5142a-95d3-40e4-a17c-812927eee2ea",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "query"
+    ],
+    "tests_shipped": 75,
+    "workflow_tests": 8,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 6,
+      "happy_path": 40,
+      "error_invalid_args": 17,
+      "workflow": 8
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 75
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9467,
+        "reward_pct": "94.67%",
+        "tier": "easy",
+        "tests_passed": 71
+      }
+    }
+  },
+  {
+    "instance_id": "0c6a9e33",
+    "task_id": "0c6a9e33-7b2a-4e40-9908-a303ef7bfe18",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "update-item"
+    ],
+    "tests_shipped": 71,
+    "workflow_tests": 9,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 7,
+      "happy_path": 40,
+      "error_invalid_args": 11,
+      "workflow": 9
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9859,
+        "reward_pct": "98.59%",
+        "tier": "easy",
+        "tests_passed": 70
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1831,
+        "reward_pct": "18.31%",
+        "tier": "hard",
+        "tests_passed": 13
+      }
+    }
+  },
+  {
+    "instance_id": "0c8f28fe",
+    "task_id": "0c8f28fe-c9cb-4291-8cfc-8e683f08039b",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Medium",
+    "difficulty": "Medium",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "mb",
+      "mv",
+      "rb",
+      "sync"
+    ],
+    "tests_shipped": 84,
+    "workflow_tests": 4,
+    "behaviour_tag_counts": {
+      "happy_path": 24,
+      "error": 51,
+      "edge": 5,
+      "workflow": 4
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9892,
+        "reward_pct": "98.92%",
+        "tier": "easy",
+        "tests_passed": 83
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.6129,
+        "reward_pct": "61.29%",
+        "tier": "medium",
+        "tests_passed": 51
+      }
+    }
+  },
+  {
+    "instance_id": "0e9a9a99",
+    "task_id": "0e9a9a99-f107-4259-8ded-10419a51bfd4",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item"
+    ],
+    "tests_shipped": 91,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 9,
+      "happy_path": 48,
+      "error_invalid_args": 18,
+      "error_nonexistent": 4,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.956,
+        "reward_pct": "95.60%",
+        "tier": "easy",
+        "tests_passed": 87
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.978,
+        "reward_pct": "97.80%",
+        "tier": "easy",
+        "tests_passed": 89
+      }
+    }
+  },
+  {
+    "instance_id": "1ae0acee",
+    "task_id": "1ae0acee-9ceb-44c0-a220-810e4327b02a",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "mb",
+      "mv",
+      "rb",
+      "rm",
+      "sync"
+    ],
+    "tests_shipped": 57,
+    "workflow_tests": 3,
+    "behaviour_tag_counts": {
+      "happy_path": 7,
+      "error": 42,
+      "edge": 5,
+      "workflow": 3
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9298,
+        "reward_pct": "92.98%",
+        "tier": "easy",
+        "tests_passed": 53
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.7544,
+        "reward_pct": "75.44%",
+        "tier": "easy",
+        "tests_passed": 43
+      }
+    }
+  },
+  {
+    "instance_id": "221e3fcb",
+    "task_id": "221e3fcb-7464-4c12-985f-cd070b73dfe9",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query"
+    ],
+    "tests_shipped": 106,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 10,
+      "happy_path": 56,
+      "error_invalid_args": 23,
+      "error_nonexistent": 5,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9623,
+        "reward_pct": "96.23%",
+        "tier": "easy",
+        "tests_passed": 102
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1415,
+        "reward_pct": "14.15%",
+        "tier": "hard",
+        "tests_passed": 15
+      }
+    }
+  },
+  {
+    "instance_id": "2ddd0759",
+    "task_id": "2ddd0759-f857-4ab5-8e03-ff6624729e78",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "update-item"
+    ],
+    "tests_shipped": 92,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 9,
+      "happy_path": 48,
+      "error_invalid_args": 18,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9674,
+        "reward_pct": "96.74%",
+        "tier": "easy",
+        "tests_passed": 89
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1739,
+        "reward_pct": "17.39%",
+        "tier": "hard",
+        "tests_passed": 16
+      }
+    }
+  },
+  {
+    "instance_id": "3779846b",
+    "task_id": "3779846b-25c0-483d-8259-8fb0dfb05286",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 84,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 7,
+      "happy_path": 40,
+      "error_invalid_args": 21,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 84
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9762,
+        "reward_pct": "97.62%",
+        "tier": "easy",
+        "tests_passed": 82
+      }
+    }
+  },
+  {
+    "instance_id": "3ab4a594",
+    "task_id": "3ab4a594-d57f-4838-bace-2793737abfb7",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 105,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 11,
+      "happy_path": 55,
+      "error_invalid_args": 22,
+      "error_nonexistent": 5,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 105
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9524,
+        "reward_pct": "95.24%",
+        "tier": "easy",
+        "tests_passed": 100
+      }
+    }
+  },
+  {
+    "instance_id": "4282c1c5",
+    "task_id": "4282c1c5-7c6a-4e7a-a3d6-c0ee3754afda",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "ls",
+      "mv",
+      "rm",
+      "sync"
+    ],
+    "tests_shipped": 73,
+    "workflow_tests": 7,
+    "behaviour_tag_counts": {
+      "happy_path": 12,
+      "error": 26,
+      "edge": 28,
+      "workflow": 7
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9315,
+        "reward_pct": "93.15%",
+        "tier": "easy",
+        "tests_passed": 68
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.3151,
+        "reward_pct": "31.51%",
+        "tier": "hard",
+        "tests_passed": 23
+      }
+    }
+  },
+  {
+    "instance_id": "5404935d",
+    "task_id": "5404935d-cf9c-4de3-a474-0ce1d5fcb170",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "mb",
+      "rb",
+      "rm",
+      "sync"
+    ],
+    "tests_shipped": 57,
+    "workflow_tests": 4,
+    "behaviour_tag_counts": {
+      "happy_path": 8,
+      "error": 38,
+      "edge": 7,
+      "workflow": 4
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9298,
+        "reward_pct": "92.98%",
+        "tier": "easy",
+        "tests_passed": 53
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.4912,
+        "reward_pct": "49.12%",
+        "tier": "hard",
+        "tests_passed": 28
+      }
+    }
+  },
+  {
+    "instance_id": "54c57af9",
+    "task_id": "54c57af9-c002-4878-b6c7-c7bfefb91986",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 8,
+    "pr_range": "8 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 120,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 12,
+      "happy_path": 64,
+      "error_invalid_args": 26,
+      "error_nonexistent": 6,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 120
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1083,
+        "reward_pct": "10.83%",
+        "tier": "hard",
+        "tests_passed": 13
+      }
+    }
+  },
+  {
+    "instance_id": "5c7db31d",
+    "task_id": "5c7db31d-c7ef-4f30-9495-17db30da1057",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 72,
+    "workflow_tests": 6,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 6,
+      "happy_path": 40,
+      "error_invalid_args": 16,
+      "workflow": 6
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 72
+      },
+      "Claude Haiku 4.5": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 72
+      }
+    }
+  },
+  {
+    "instance_id": "631be157",
+    "task_id": "631be157-e0d2-4e5a-88e0-ca4b95a4f56d",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 98,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 9,
+      "happy_path": 48,
+      "error_invalid_args": 24,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 98
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9592,
+        "reward_pct": "95.92%",
+        "tier": "easy",
+        "tests_passed": 94
+      }
+    }
+  },
+  {
+    "instance_id": "68223d40",
+    "task_id": "68223d40-7ec3-440c-b2c9-77590dfc695e",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 91,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 9,
+      "happy_path": 48,
+      "error_invalid_args": 18,
+      "error_nonexistent": 4,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 91
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.978,
+        "reward_pct": "97.80%",
+        "tier": "easy",
+        "tests_passed": 89
+      }
+    }
+  },
+  {
+    "instance_id": "6e2f803c",
+    "task_id": "6e2f803c-7c9e-47f3-8d82-d06d9b07d1c1",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "update-item"
+    ],
+    "tests_shipped": 77,
+    "workflow_tests": 7,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 7,
+      "happy_path": 40,
+      "error_invalid_args": 19,
+      "workflow": 7
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 77
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.974,
+        "reward_pct": "97.40%",
+        "tier": "easy",
+        "tests_passed": 75
+      }
+    }
+  },
+  {
+    "instance_id": "6e680093",
+    "task_id": "6e680093-e81a-4dd7-b378-62970bfe7571",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "ls",
+      "mb",
+      "mv",
+      "rb",
+      "rm",
+      "sync"
+    ],
+    "tests_shipped": 68,
+    "workflow_tests": 4,
+    "behaviour_tag_counts": {
+      "happy_path": 7,
+      "error": 51,
+      "edge": 6,
+      "workflow": 4
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9265,
+        "reward_pct": "92.65%",
+        "tier": "easy",
+        "tests_passed": 63
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.2059,
+        "reward_pct": "20.59%",
+        "tier": "hard",
+        "tests_passed": 14
+      }
+    }
+  },
+  {
+    "instance_id": "770505ea",
+    "task_id": "770505ea-eb4d-41d7-a4ab-e0afa201ecb0",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Medium",
+    "difficulty": "Medium",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "ls",
+      "mb",
+      "mv",
+      "rm"
+    ],
+    "tests_shipped": 44,
+    "workflow_tests": 4,
+    "behaviour_tag_counts": {
+      "happy_path": 9,
+      "error": 26,
+      "edge": 5,
+      "workflow": 4
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.8864,
+        "reward_pct": "88.64%",
+        "tier": "easy",
+        "tests_passed": 39
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.5682,
+        "reward_pct": "56.82%",
+        "tier": "medium",
+        "tests_passed": 25
+      }
+    }
+  },
+  {
+    "instance_id": "881c5ab6",
+    "task_id": "881c5ab6-a725-434d-8b4b-f90744b0cd6a",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 73,
+    "workflow_tests": 7,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 6,
+      "happy_path": 40,
+      "error_invalid_args": 16,
+      "workflow": 7
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 73
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9589,
+        "reward_pct": "95.89%",
+        "tier": "easy",
+        "tests_passed": 70
+      }
+    }
+  },
+  {
+    "instance_id": "89766629",
+    "task_id": "89766629-81bb-4b99-9a92-a9a6742006fb",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query"
+    ],
+    "tests_shipped": 90,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 8,
+      "happy_path": 48,
+      "error_invalid_args": 17,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 90
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9889,
+        "reward_pct": "98.89%",
+        "tier": "easy",
+        "tests_passed": 89
+      }
+    }
+  },
+  {
+    "instance_id": "8cc443cc",
+    "task_id": "8cc443cc-1f5a-45b9-b0e2-b55511a77a12",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 110,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 11,
+      "happy_path": 56,
+      "error_invalid_args": 26,
+      "error_nonexistent": 5,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.8,
+        "reward_pct": "80.00%",
+        "tier": "easy",
+        "tests_passed": 88
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9909,
+        "reward_pct": "99.09%",
+        "tier": "easy",
+        "tests_passed": 109
+      }
+    }
+  },
+  {
+    "instance_id": "90b629b2",
+    "task_id": "90b629b2-3f48-443c-8056-1c94f8b9cde0",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 110,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 6,
+      "edge": 10,
+      "happy_path": 55,
+      "error_invalid_args": 27,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9455,
+        "reward_pct": "94.55%",
+        "tier": "easy",
+        "tests_passed": 104
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1636,
+        "reward_pct": "16.36%",
+        "tier": "hard",
+        "tests_passed": 18
+      }
+    }
+  },
+  {
+    "instance_id": "94f62f3e",
+    "task_id": "94f62f3e-974d-4c5d-bcb4-641762b5c4ca",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "update-item"
+    ],
+    "tests_shipped": 77,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 7,
+      "happy_path": 40,
+      "error_invalid_args": 14,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.974,
+        "reward_pct": "97.40%",
+        "tier": "easy",
+        "tests_passed": 75
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1558,
+        "reward_pct": "15.58%",
+        "tier": "hard",
+        "tests_passed": 12
+      }
+    }
+  },
+  {
+    "instance_id": "9f39d5c7",
+    "task_id": "9f39d5c7-56a3-4473-b27b-674b06f018a8",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 8,
+    "pr_range": "8 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 110,
+    "workflow_tests": 10,
+    "behaviour_tag_counts": {
+      "edge": 10,
+      "happy_path": 56,
+      "error_invalid_args": 29,
+      "error_nonexistent": 5,
+      "workflow": 10
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9455,
+        "reward_pct": "94.55%",
+        "tier": "easy",
+        "tests_passed": 104
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.8455,
+        "reward_pct": "84.55%",
+        "tier": "easy",
+        "tests_passed": 93
+      }
+    }
+  },
+  {
+    "instance_id": "a0072407",
+    "task_id": "a0072407-156d-40a8-8ede-b3c8a9648321",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "update-item"
+    ],
+    "tests_shipped": 89,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 9,
+      "happy_path": 48,
+      "error_invalid_args": 15,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 89
+      },
+      "Claude Haiku 4.5": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 89
+      }
+    }
+  },
+  {
+    "instance_id": "a2ad06c7",
+    "task_id": "a2ad06c7-a33e-4d2c-9a69-66ced8ceafda",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "ls",
+      "mb",
+      "mv",
+      "sync"
+    ],
+    "tests_shipped": 65,
+    "workflow_tests": 7,
+    "behaviour_tag_counts": {
+      "happy_path": 9,
+      "error": 22,
+      "edge": 27,
+      "workflow": 7
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.8923,
+        "reward_pct": "89.23%",
+        "tier": "easy",
+        "tests_passed": 58
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.2,
+        "reward_pct": "20.00%",
+        "tier": "hard",
+        "tests_passed": 13
+      }
+    }
+  },
+  {
+    "instance_id": "a780a233",
+    "task_id": "a780a233-87da-497a-beb0-9a2c5240fd39",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Medium",
+    "difficulty": "Medium",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "mb",
+      "mv",
+      "rm",
+      "sync"
+    ],
+    "tests_shipped": 52,
+    "workflow_tests": 4,
+    "behaviour_tag_counts": {
+      "happy_path": 10,
+      "error": 34,
+      "edge": 4,
+      "workflow": 4
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9038,
+        "reward_pct": "90.38%",
+        "tier": "easy",
+        "tests_passed": 47
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.5192,
+        "reward_pct": "51.92%",
+        "tier": "medium",
+        "tests_passed": 27
+      }
+    }
+  },
+  {
+    "instance_id": "a8a05402",
+    "task_id": "a8a05402-f144-48a3-bf4a-e0dcfa028801",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 109,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 6,
+      "edge": 10,
+      "happy_path": 56,
+      "error_invalid_args": 25,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9633,
+        "reward_pct": "96.33%",
+        "tier": "easy",
+        "tests_passed": 105
+      },
+      "Claude Haiku 4.5": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 109
+      }
+    }
+  },
+  {
+    "instance_id": "af25acd5",
+    "task_id": "af25acd5-c0f4-4ea0-89e3-d10d429be07e",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query"
+    ],
+    "tests_shipped": 96,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_invalid_args": 23,
+      "edge": 9,
+      "happy_path": 48,
+      "error_nonexistent": 4,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 96
+      },
+      "Claude Haiku 4.5": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 96
+      }
+    }
+  },
+  {
+    "instance_id": "b1b0f66f",
+    "task_id": "b1b0f66f-c04f-4221-a63a-b0db84af1456",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 94,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 8,
+      "happy_path": 48,
+      "error_invalid_args": 21,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9574,
+        "reward_pct": "95.74%",
+        "tier": "easy",
+        "tests_passed": 90
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1915,
+        "reward_pct": "19.15%",
+        "tier": "hard",
+        "tests_passed": 18
+      }
+    }
+  },
+  {
+    "instance_id": "b6cba170",
+    "task_id": "b6cba170-bc24-42b8-8b2f-a0088f41ebfa",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 109,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "edge": 11,
+      "happy_path": 56,
+      "error_invalid_args": 25,
+      "error_nonexistent": 5,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.945,
+        "reward_pct": "94.50%",
+        "tier": "easy",
+        "tests_passed": 103
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.945,
+        "reward_pct": "94.50%",
+        "tier": "easy",
+        "tests_passed": 103
+      }
+    }
+  },
+  {
+    "instance_id": "c6589969",
+    "task_id": "c6589969-9023-4dce-91e4-75b23ccf2675",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 110,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 6,
+      "edge": 10,
+      "happy_path": 56,
+      "error_invalid_args": 26,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 110
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.0,
+        "reward_pct": "0.00%",
+        "tier": "hard",
+        "tests_passed": 0
+      }
+    }
+  },
+  {
+    "instance_id": "c871ad27",
+    "task_id": "c871ad27-31de-45e0-a166-9b6f068787d0",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Medium",
+    "difficulty": "Medium",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "ls",
+      "mv",
+      "rb",
+      "sync"
+    ],
+    "tests_shipped": 52,
+    "workflow_tests": 4,
+    "behaviour_tag_counts": {
+      "happy_path": 5,
+      "error": 38,
+      "edge": 5,
+      "workflow": 4
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9808,
+        "reward_pct": "98.08%",
+        "tier": "easy",
+        "tests_passed": 51
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.6346,
+        "reward_pct": "63.46%",
+        "tier": "medium",
+        "tests_passed": 33
+      }
+    }
+  },
+  {
+    "instance_id": "ccd29e9a",
+    "task_id": "ccd29e9a-bc51-48f9-b0bd-3519cde50eec",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 90,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 8,
+      "happy_path": 48,
+      "error_invalid_args": 17,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9667,
+        "reward_pct": "96.67%",
+        "tier": "easy",
+        "tests_passed": 87
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9667,
+        "reward_pct": "96.67%",
+        "tier": "easy",
+        "tests_passed": 87
+      }
+    }
+  },
+  {
+    "instance_id": "cfdf362b",
+    "task_id": "cfdf362b-28b3-4fd9-9209-5420bdc1f6db",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 7,
+    "pr_range": "7 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "create-table",
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 89,
+    "workflow_tests": 9,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 8,
+      "happy_path": 47,
+      "error_invalid_args": 20,
+      "workflow": 9
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9663,
+        "reward_pct": "96.63%",
+        "tier": "easy",
+        "tests_passed": 86
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9888,
+        "reward_pct": "98.88%",
+        "tier": "easy",
+        "tests_passed": 88
+      }
+    }
+  },
+  {
+    "instance_id": "d3834150",
+    "task_id": "d3834150-d341-45f9-a440-3700df0a43d2",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "delete-table",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query"
+    ],
+    "tests_shipped": 96,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 8,
+      "happy_path": 47,
+      "error_invalid_args": 24,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 96
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.9479,
+        "reward_pct": "94.79%",
+        "tier": "easy",
+        "tests_passed": 91
+      }
+    }
+  },
+  {
+    "instance_id": "ef44d21c",
+    "task_id": "ef44d21c-577e-4d20-b3ff-7805c313a94c",
+    "scope": "S3",
+    "service": "aws s3",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "cp",
+      "ls",
+      "mb",
+      "rm",
+      "sync"
+    ],
+    "tests_shipped": 74,
+    "workflow_tests": 8,
+    "behaviour_tag_counts": {
+      "happy_path": 11,
+      "error": 27,
+      "edge": 28,
+      "workflow": 8
+    },
+    "python_version": "3.12",
+    "simulation_backend": "minio",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9054,
+        "reward_pct": "90.54%",
+        "tier": "easy",
+        "tests_passed": 67
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1757,
+        "reward_pct": "17.57%",
+        "tier": "hard",
+        "tests_passed": 13
+      }
+    }
+  },
+  {
+    "instance_id": "faf221cf",
+    "task_id": "faf221cf-b26d-4db0-9934-4f80f84cfa95",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "update-item"
+    ],
+    "tests_shipped": 75,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 8,
+      "happy_path": 40,
+      "error_invalid_args": 11,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9733,
+        "reward_pct": "97.33%",
+        "tier": "easy",
+        "tests_passed": 73
+      },
+      "Claude Haiku 4.5": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 75
+      }
+    }
+  },
+  {
+    "instance_id": "fd427016",
+    "task_id": "fd427016-bd3c-4a69-a41d-81b13d14a16c",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 5,
+    "pr_range": "5 cmds",
+    "language": "Easy",
+    "difficulty": "Easy",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query"
+    ],
+    "tests_shipped": 77,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 4,
+      "edge": 7,
+      "happy_path": 40,
+      "error_invalid_args": 14,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 1.0,
+        "reward_pct": "100.00%",
+        "tier": "easy",
+        "tests_passed": 77
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.974,
+        "reward_pct": "97.40%",
+        "tier": "easy",
+        "tests_passed": 75
+      }
+    }
+  },
+  {
+    "instance_id": "ffdb5c64",
+    "task_id": "ffdb5c64-9077-48e6-a8d5-3e453f9f800d",
+    "scope": "DynamoDB",
+    "service": "aws dynamodb",
+    "command_count": 6,
+    "pr_range": "6 cmds",
+    "language": "Hard",
+    "difficulty": "Hard",
+    "category": "feature",
+    "commands": [
+      "delete-item",
+      "get-item",
+      "list-tables",
+      "put-item",
+      "query",
+      "update-item"
+    ],
+    "tests_shipped": 92,
+    "workflow_tests": 12,
+    "behaviour_tag_counts": {
+      "error_nonexistent": 5,
+      "edge": 9,
+      "happy_path": 48,
+      "error_invalid_args": 18,
+      "workflow": 12
+    },
+    "python_version": "3.12",
+    "simulation_backend": "dynamodb_local",
+    "repo_url": "",
+    "models": {
+      "Claude Opus 4.8": {
+        "reward": 0.9674,
+        "reward_pct": "96.74%",
+        "tier": "easy",
+        "tests_passed": 89
+      },
+      "Claude Haiku 4.5": {
+        "reward": 0.1848,
+        "reward_pct": "18.48%",
+        "tier": "hard",
+        "tests_passed": 17
+      }
+    }
+  }
+]

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="res_config_settings_view_form_raiden_dashboard" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.raiden_dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Raiden Dashboard" string="Raiden Dashboard" name="raiden_dashboard">
+                    <block title="Dashboard Link Buttons">
+                        <setting string="Harbor Framework URL"
+                                 help="Override the first button link. Leave empty to use the placeholder URL.">
+                            <field name="raiden_trajectories_url"
+                                   placeholder="https://github.com/harbor-framework/harbor"/>
+                        </setting>
+                        <setting string="Agent SDK URL"
+                                 help="Override the second button link. Leave empty to use the placeholder URL.">
+                            <field name="raiden_dataset_url"
+                                   placeholder="https://github.com/Ethara-Ai/software-agent-sdk"/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
