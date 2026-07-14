@@ -393,7 +393,10 @@ def _apply_thinking_budget(gen_config, model):
 
 _MAX_OUTPUT_TOKENS_CEILING = 64000
 
-_GEN_MAX_OUTPUT_TOKENS = 32000
+# Start generation at the output ceiling: a higher cap costs nothing extra for
+# short outputs (billed per generated token, stops at finish=STOP) but avoids a
+# doomed truncate + unparseable-JSON double call on large dense image_label JSON.
+_GEN_MAX_OUTPUT_TOKENS = 64000
 
 
 def _json_parses(text):
@@ -1000,7 +1003,54 @@ def _image_type_contract(qtype, ab_dims=None):
         'Shape: {"name": "...", "question_type": "image_label", "prompt": '
         '"...", "difficulty": "medium", "image_specs": {...}}. EXACTLY ONE image '
         'with slot "single" is shown; the candidate LABELS the elements in it. '
-        "TWO supported forms. (1) DENSE SCREENSHOT LABELLING (PREFER for app / "
+        "MANDATORY PRIMARY FORM — REAL-PAGE CAPTURE: for image_label you MUST "
+        "return image_specs.source_url to a REAL, PUBLIC, non-login, reachable "
+        "TOP-LEVEL page that actually renders the interactive controls the SOP "
+        "is about. Do NOT invent a synthetic screenshot brief as the primary "
+        "output and do NOT ask an image model to render a fake UI — a made-up "
+        "screenshot has NO real DOM, so the platform cannot draw accurate "
+        "numbered boxes on it. Choose the REAL site matching the SOP's app and "
+        "seed from this golden set (pick the one whose product matches the SOP, "
+        "or another equally stable public homepage): https://github.com, "
+        "https://www.wikipedia.org, https://duckduckgo.com, "
+        "https://www.canva.com, https://open.spotify.com — a public landing / "
+        "homepage, NEVER a page behind login, paywall, or captcha. Emit "
+        'image_specs = {"source_url": "<the REAL public URL>", "application": '
+        '"<what app / site it is>", "viewport": {"width": 1440, "height": 900}, '
+        '"wait_ms": 2500, "dismiss": ["<CSS selector for a cookie / consent '
+        'ACCEPT button>", ...], "coverage_expected": "yes" | "no", "omit": '
+        '{"match_tag": "...", "match_type": "...", "match_text": "..."}, '
+        '"images": [{"slot": "single", "label": "Screenshot", "prompt": "<a '
+        "DENSE synthetic screenshot brief describing the SAME page, used by the "
+        "platform ONLY as an automatic FALLBACK if the live capture is "
+        'unavailable>"}]}. To keep that fallback SELF-CONTAINED and always '
+        "LABELLED (the live capture may be unavailable / rate-limited), you MUST "
+        "ALSO author the DENSE per-box map for that SAME synthetic screenshot: a "
+        '"boxes" list [{"number": 1, "box_2d": [ymin,xmin,ymax,xmax] on a 0-1000 '
+        "grid locating the control in the screenshot your images[0].prompt "
+        'describes, "element": "<short name>", "functionality": "<the ACTION it '
+        'performs>"}, ..., {"number": N, ...}] PLUS "answer_key": {"ideal_labels": '
+        '{"1": "<functionality of box 1>", ..., "N": "<functionality of box N>"}} '
+        "keyed by box number — EXACTLY as in the DENSE form (1) below. Then if the "
+        "platform ever renders the synthetic fallback it draws the numbered boxes "
+        "from YOUR coordinates deterministically with ZERO extra detection calls, "
+        "so the candidate always sees a clean numbered screenshot plus the "
+        "matching ideal_labels key. The platform drives a headless browser to "
+        "screenshot source_url and draw numbered boxes at the REAL element "
+        "geometry with a "
+        "mechanically-drafted behavioural key (ground truth BY CONSTRUCTION, "
+        "ZERO model inference); the boxes/answer key are NOT authored by you for "
+        "this form. source_url is REQUIRED; the images brief is SECONDARY and "
+        "exists ONLY as the documented synthetic fallback — ALWAYS include BOTH, "
+        "source_url first. dismiss lists the cookie / consent ACCEPT selectors "
+        "to click so an overlay does not hide the controls; wait_ms is the "
+        "settle delay. coverage_expected + omit leave ONE interactive element "
+        "deliberately unboxed so the coverage answer is \"No\" BY CONSTRUCTION "
+        "(omit works exactly as in the dense fallback form below). The remaining "
+        "forms are the SYNTHETIC FALLBACK shapes the platform renders only when "
+        "capture is unavailable — still author the images brief above so a "
+        "fallback exists, but never emit them WITHOUT a source_url. (1) DENSE "
+        "SCREENSHOT LABELLING (the fallback shape for an app / "
         "website / UI screenshots): the ONE image brief depicts an interface "
         "carrying MULTIPLE (5-15) interactive elements, and you number and label "
         "EVERY one of them. Emit image_specs = {\"images\": [{\"slot\": "
@@ -1289,6 +1339,93 @@ def _image_label_boxes(specs):
     return entries
 
 
+# Golden-set seeds used to REPAIR an image_label that omitted its (now
+# mandatory) source_url: map the model's stated application / site — or a site
+# name leaking through the synthetic brief — to a real, public, stable homepage
+# so the real-page DOM-capture path still runs instead of a synthetic render.
+# Ordered most-specific first; each host matches when any of its needles appears.
+_IMAGE_LABEL_URL_SEEDS = (
+    ("https://open.spotify.com", ("spotify",)),
+    ("https://github.com", ("github",)),
+    ("https://www.wikipedia.org", ("wikipedia", "wikimedia")),
+    ("https://duckduckgo.com", ("duckduckgo", "duck duck go")),
+    ("https://www.canva.com", ("canva",)),
+    ("https://www.youtube.com", ("youtube",)),
+    ("https://www.amazon.com", ("amazon",)),
+    ("https://www.google.com", ("google search", "google.com")),
+)
+
+
+def _repair_image_label_source_url(specs):
+    """Derive a real public source_url for an image_label item that omitted it.
+
+    source_url is MANDATORY for image_label, but generation must never fail
+    outright: when the model authored a synthetic brief with no source_url we try
+    to recover one from the stated ``application`` (or a known site name leaking
+    through the synthetic ``images`` brief) using the golden-set seeds, so the
+    real-page capture path runs instead of the fake-screenshot path. Returns a
+    URL string, or "" when nothing in the item names a known public site (the
+    caller then keeps the synthetic brief as the genuine fallback)."""
+    if not isinstance(specs, dict):
+        return ""
+    hay = (str(specs.get("application") or "") + " "
+           + str(specs.get("source_url") or "")).lower()
+    for img in (specs.get("images") or []):
+        if isinstance(img, dict):
+            hay += " " + str(img.get("prompt") or "").lower()
+            hay += " " + str(img.get("label") or "").lower()
+    for host, needles in _IMAGE_LABEL_URL_SEEDS:
+        if any(n in hay for n in needles):
+            return host
+    return ""
+
+
+def _apply_capture_directives(specs, vals):
+    """Persist the REAL-PAGE CAPTURE directives of an image_label ``image_specs``
+    into ``vals``: the url, a capture_config_json (viewport / wait_ms / dismiss),
+    an omit_spec_json, coverage_expected and label_application.
+
+    source_url is MANDATORY for image_label; when the model omitted it we try to
+    REPAIR one from the stated application via the golden-set seeds so the draft
+    still captures a real page. No-op only when there is no source_url AND none
+    can be derived (the item then relies on the synthetic fallback)."""
+    src = str(specs.get("source_url") or "").strip()
+    if not src:
+        src = _repair_image_label_source_url(specs)
+    if not src:
+        return
+    vals["source_url"] = src[:2000]
+    cfg: dict = {}
+    vp = specs.get("viewport")
+    if isinstance(vp, dict):
+        try:
+            w, h = int(vp.get("width") or 0), int(vp.get("height") or 0)
+        except (TypeError, ValueError):
+            w = h = 0
+        if w > 0 and h > 0:
+            cfg["viewport"] = {"width": w, "height": h}
+    if specs.get("wait_ms") is not None:
+        try:
+            cfg["wait_ms"] = int(specs.get("wait_ms"))
+        except (TypeError, ValueError):
+            pass
+    dismiss = specs.get("dismiss")
+    if isinstance(dismiss, list):
+        sels = [str(s).strip() for s in dismiss if str(s).strip()]
+        if sels:
+            cfg["dismiss"] = sels
+    if cfg:
+        vals["capture_config_json"] = json.dumps(cfg, ensure_ascii=False)
+    omit = specs.get("omit")
+    if isinstance(omit, dict) and omit:
+        vals["omit_spec_json"] = json.dumps(omit, ensure_ascii=False)
+    cov = str(specs.get("coverage_expected") or "yes").strip().lower()
+    vals["coverage_expected"] = "no" if cov == "no" else "yes"
+    app = str(specs.get("application") or "").strip()
+    if app:
+        vals["label_application"] = app[:200]
+
+
 def _image_label_draft_fields(specs):
     """Answer-key + image-brief draft fields for one image_label item.
 
@@ -1305,9 +1442,17 @@ def _image_label_draft_fields(specs):
     readable STRING in rubric_json so the answer-key editor and the legacy
     scoring fallback keep working; the per-box map lives in the behavioural key.
 
+    REAL-PAGE CAPTURE (preferred) form: when the model named a ``source_url``, we
+    persist it plus a ``capture_config_json`` (viewport / wait_ms / dismiss),
+    ``omit_spec_json``, ``coverage_expected`` and ``label_application`` so the
+    detect cron drives a live DOM capture; the dense/single ``images`` brief is
+    ALSO persisted (image_brief_json + any boxes) as the synthetic FALLBACK the
+    hybrid path renders when capture is unavailable or fails.
+
     SINGLE-BOX (legacy) form: a lone region + a single-string ideal_labels answer
     key, unchanged (no boxes, no behavioural key, detection runs post-approve)."""
     vals = {}
+    _apply_capture_directives(specs, vals)
     briefs = []
     for img in (specs.get("images") or []):
         if img.get("prompt"):
@@ -1711,18 +1856,32 @@ def _validate_question_item(it, qtype, ab_dims=None):
             errs.append("video_prompt needs answer_key with ideal_prompt")
     elif qtype == "image_label":
         specs = it.get("image_specs") or {}
-        imgs = specs.get("images") or []
-        if not isinstance(imgs, list) or not any(
-                isinstance(i, dict) and i.get("prompt") for i in imgs):
-            errs.append("image_label needs images[] with a prompt")
-        key = specs.get("answer_key") or {}
-        ideal = key.get("ideal_labels") if isinstance(key, dict) else None
-        has_map = isinstance(ideal, dict) and any(
-            str(v).strip() for v in ideal.values())
-        has_str = isinstance(ideal, str) and ideal.strip()
-        if not (_image_label_boxes(specs) or has_map or has_str):
-            errs.append("image_label needs answer_key.ideal_labels (a per-box "
-                        "map or a string) or a boxes[] plan with coordinates")
+        # source_url (real-page DOM capture) is the MANDATORY primary form; a
+        # repairable application name counts as a url, since it yields one.
+        has_url = bool(str(specs.get("source_url") or "").strip()
+                       or _repair_image_label_source_url(specs))
+        if not has_url:
+            # No source_url and none derivable: only accepted as the SYNTHETIC
+            # FALLBACK, which must be COMPLETE on its own (a brief PLUS an answer
+            # key/boxes) — an incomplete synthetic-only image_label is rejected
+            # so the contract's mandatory-source_url rule keeps its teeth.
+            imgs = specs.get("images") or []
+            has_brief = isinstance(imgs, list) and any(
+                isinstance(i, dict) and i.get("prompt") for i in imgs)
+            key = specs.get("answer_key") or {}
+            ideal = key.get("ideal_labels") if isinstance(key, dict) else None
+            has_map = isinstance(ideal, dict) and any(
+                str(v).strip() for v in ideal.values())
+            has_str = isinstance(ideal, str) and bool(ideal.strip())
+            has_key = has_map or has_str or bool(_image_label_boxes(specs))
+            if not has_brief:
+                errs.append("image_label needs a source_url to a real public "
+                            "page (mandatory real-page capture) or, as fallback, "
+                            "an images[] brief")
+            elif not has_key:
+                errs.append("image_label synthetic fallback needs an "
+                            "answer_key.ideal_labels (a per-box map or a string) "
+                            "or a boxes[] plan with coordinates")
     else:
         errs.append("unknown question_type %r" % qtype)
     return errs
