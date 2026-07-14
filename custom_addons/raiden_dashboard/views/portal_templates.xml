@@ -2,7 +2,7 @@
 <odoo>
 
   <!--
-    Raiden Showcase - public single-page editorial view.
+    Raiden Showcase: public single-page editorial view.
 
     Mounted at /raiden by controllers/main.py (RaidenShowcaseController).
     The client-side JS fetches /raiden/api/instances to render the dataset
@@ -18,7 +18,7 @@
     <head>
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
-      <title>RAIDEN - AWS CLI S3 + DynamoDB RL Environment · ETHARA AI</title>
+      <title>RAIDEN &#xB7; AWS CLI S3 + DynamoDB RL Environment &#xB7; ETHARA AI</title>
       <meta name="description" content="Raiden is a reinforcement-learning environment for agentic code generation: two scoped deliveries (10 aws s3 and 10 aws dynamodb Harbor-format tasks) that ask a model to implement the CLI surface from scratch, graded by a held-out suite of 1,577 E2E tests against simulated MinIO and DynamoDB Local backends."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
@@ -88,7 +88,7 @@
       <span class="badge mono">AGENTIC CODING · RL ENVIRONMENT</span>
     </div>
     <hr class="rule"/>
-    <p class="thesis">Can a coding agent build a stateful AWS CLI (aws s3 or aws dynamodb) from a spec it is never tested against?</p>
+    <p class="thesis">Can a coding agent build a stateful AWS CLI from a spec it is never tested against?</p>
     <p class="byline">by <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
   </header>
 
@@ -99,7 +99,7 @@
     <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Raiden is a reinforcement-learning <em>environment</em> - not a static Q/A set - for agentic code generation. It ships <b>two scoped deliveries</b>: 10 <code>aws s3</code> tasks and 10 <code>aws dynamodb</code> tasks. Each drops a coding agent into a container with a prose spec and no test code, asks it to build a subset of the CLI surface from scratch, and grades the result against a hidden end-to-end suite. The pass fraction is the reward. Both surfaces are deliberately stateful - buckets/objects and tables/items persist across commands - so the task rewards genuine implementation over recall. S3 is simulated by a per-session <code>MinIO</code> server and DynamoDB by an <code>amazon/dynamodb-local</code> sidecar, offline by construction.</p>
+        <p>Raiden is a reinforcement-learning <em>environment</em>, not a static Q/A set, for agentic code generation. It ships <b>two scoped deliveries</b>: 10 <code>aws s3</code> tasks and 10 <code>aws dynamodb</code> tasks. Each drops a coding agent into a container with a prose spec and no test code, asks it to build a subset of the CLI surface from scratch, and grades the result against a hidden end-to-end suite. The pass fraction is the reward. Both surfaces are deliberately stateful: buckets/objects and tables/items persist across commands, so the task rewards genuine implementation over recall. S3 is simulated by a per-session <code>MinIO</code> server and DynamoDB by an <code>amazon/dynamodb-local</code> sidecar, offline by construction.</p>
         <ul class="capabilities">
           <li>Held-out grading: the agent never sees the 1,577 E2E tests</li>
           <li>Two CLI surfaces: 7 <code>aws s3</code> + 8 <code>aws dynamodb</code> commands</li>
@@ -166,7 +166,7 @@
           <p class="phase-label">Principle 02</p>
           <h4 class="phase-title">Dense Scalar Reward</h4>
           <ul class="phase-body">
-            <li>reward = passed / total ∈ [0, 1] - the simplest dense signal</li>
+            <li>reward = passed / total ∈ [0, 1], the simplest dense signal</li>
             <li>No partial credit within a test, no weighting, no exit-code shortcut</li>
             <li>Turns the suite into a dense curriculum over DynamoDB behaviours</li>
           </ul>
@@ -208,8 +208,8 @@
           <h4 class="phase-title">Environment Setup</h4>
           <ul class="phase-body">
             <li>Build the task container from a pinned sha256 base image</li>
-            <li>Ship an <code>instruction.md</code> spec - commands, I/O, error cases</li>
-            <li>Boot the simulation sidecar - MinIO for S3, DynamoDB Local for DynamoDB</li>
+            <li>Ship an <code>instruction.md</code> spec: commands, I/O, error cases</li>
+            <li>Boot the simulation sidecar: MinIO for S3, DynamoDB Local for DynamoDB</li>
             <li>Put <code>/workspace/submission/</code> first on <code>PATH</code></li>
           </ul>
         </article>
@@ -230,7 +230,7 @@
             <li>Apply the submission and run pytest with randomization off</li>
             <li>Cross-check collected count against <code>tests_shipped</code></li>
             <li>Compute reward = passed / total and write <code>reward.txt</code></li>
-            <li>Always exit 0 - the reward file is the grading channel</li>
+            <li>Always exit 0; the reward file is the grading channel</li>
           </ul>
         </article>
       </div>
@@ -253,29 +253,29 @@
     <div class="charts">
       <figure class="chart chart--hero">
         <button type="button" class="chart-trigger" aria-label="Preview per-task reward chart full size">
-          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/opus_vs_haiku.png?v=20" alt="Per-task reward across all 20 AWS CLI tasks (10 S3 + 10 DynamoDB) - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/opus_vs_haiku.png?v=20" alt="Per-task reward across all 20 AWS CLI tasks (10 S3 + 10 DynamoDB): Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 - Per-task reward across all 20 tasks (green = S3, blue = DynamoDB), sorted by Haiku - Opus 4.8 μ 95.6% vs Haiku 4.5 μ 48.9%</figcaption>
+        <figcaption>Fig. 1: Per-task reward across all 20 tasks (green = S3, blue = DynamoDB), sorted by Haiku. Opus 4.8 μ 95.6% vs Haiku 4.5 μ 48.9%</figcaption>
       </figure>
     </div>
 
-    <p class="section-desc">Reward and inference cost by difficulty tier - Easy (6), Medium (4), Hard (10), calibrated on observed Haiku 4.5 reward.</p>
+    <p class="section-desc">Reward and inference cost by difficulty tier: Easy (6), Medium (4), Hard (10), calibrated on observed Haiku 4.5 reward.</p>
 
     <div class="charts">
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview mean reward by tier chart full size">
-          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/reward_by_tier.png?v=20" alt="Mean reward by difficulty tier - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/reward_by_tier.png?v=20" alt="Mean reward by difficulty tier: Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 2 - Mean reward by tier - Opus holds ~95% across tiers while Haiku falls 90.9% to 19.9%</figcaption>
+        <figcaption>Fig. 2: Mean reward by tier. Opus holds ~95% across tiers while Haiku falls 90.9% to 19.9%</figcaption>
       </figure>
       <figure class="chart">
         <button type="button" class="chart-trigger" aria-label="Preview cost by tier chart full size">
-          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/cost_by_tier.png?v=20" alt="Mean agent cost per run by difficulty tier - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/cost_by_tier.png?v=20" alt="Mean agent cost per run by difficulty tier: Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 3 - Mean agent cost per run by tier (USD) - roughly flat, Medium priciest</figcaption>
+        <figcaption>Fig. 3: Mean agent cost per run by tier (USD). Roughly flat, Medium priciest</figcaption>
       </figure>
     </div>
 
@@ -352,7 +352,7 @@
           <option value="opus_reward" selected="selected">Opus 4.8</option>
           <option value="haiku_reward">Haiku 4.5</option>
         </select>
-        <button type="button" id="rd-eval-sort-dir-btn" class="sort-dir-btn" title="Descending - click to reverse">↓</button>
+        <button type="button" id="rd-eval-sort-dir-btn" class="sort-dir-btn" title="Descending, click to reverse">↓</button>
       </div>
       <div class="eval-meta">
         <span id="rd-eval-count">Loading...</span>
@@ -443,7 +443,7 @@
 
 </div><!-- /.page -->
 
-      <!-- Lightbox overlay - hidden until a chart image is clicked. -->
+      <!-- Lightbox overlay, hidden until a chart image is clicked. -->
       <div class="lightbox" id="lightbox" role="dialog" aria-modal="true"
            aria-labelledby="lightbox-caption" aria-hidden="true" hidden="hidden">
         <button type="button" class="lightbox-close" id="lightbox-close"
