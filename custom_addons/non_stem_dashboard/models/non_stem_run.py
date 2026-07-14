@@ -4,6 +4,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import uuid
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
@@ -48,6 +49,37 @@ class NonStemRun(models.Model):
     management_dashboard_html = fields.Text(
         string="Management Dashboard HTML", readonly=True,
     )
+    public_token = fields.Char(
+        string="Public Token", readonly=True, copy=False,
+    )
+    public_url = fields.Char(
+        string="Public Dashboard Link", compute="_compute_public_url",
+    )
+    is_current_user_manager = fields.Boolean(
+        compute="_compute_is_current_user_manager",
+    )
+
+    @api.depends("public_token")
+    def _compute_public_url(self):
+        base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url", "")
+        for rec in self:
+            if rec.public_token:
+                rec.public_url = f"{base_url}/non_stem_dashboard/public/{rec.public_token}"
+            else:
+                rec.public_url = False
+
+    def _compute_is_current_user_manager(self):
+        user = self.env.user
+        is_mgr = user._is_admin() or user.has_group("non_stem_dashboard.group_manager")
+        for rec in self:
+            rec.is_current_user_manager = is_mgr
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if not vals.get("public_token"):
+                vals["public_token"] = uuid.uuid4().hex
+        return super().create(vals_list)
 
     def action_run_pipeline(self):
         self.ensure_one()
@@ -153,6 +185,18 @@ class NonStemRun(models.Model):
     def check_is_manager(self):
         user = self.env.user
         return user._is_admin() or user.has_group("non_stem_dashboard.group_manager")
+
+    def action_copy_public_link(self):
+        self.ensure_one()
+        if not self.public_token:
+            self.public_token = uuid.uuid4().hex
+        base_url = self.env["ir.config_parameter"].sudo().get_param("web.base.url", "")
+        url = f"{base_url}/non_stem_dashboard/public/{self.public_token}"
+        return {
+            "type": "ir.actions.client",
+            "tag": "non_stem_copy_public_link",
+            "params": {"url": url},
+        }
 
     def action_view_tasker_dashboard(self):
         self.ensure_one()
