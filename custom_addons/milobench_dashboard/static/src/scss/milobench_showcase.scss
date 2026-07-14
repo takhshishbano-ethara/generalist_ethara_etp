@@ -1,0 +1,166 @@
+.mb-showcase {
+    max-width: 960px;
+    margin: 24px auto;
+    padding: 24px;
+    color: #0B0E14;
+    font-family: 'Inter', 'DM Sans', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+
+    .mb-showcase-header {
+        text-align: center;
+        padding: 24px 0 32px;
+        border-bottom: 1px solid #E5E7EB;
+        margin-bottom: 32px;
+    }
+
+    .mb-tag {
+        display: inline-block;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        color: #6366F1;
+        text-transform: uppercase;
+        margin-bottom: 12px;
+    }
+
+    .mb-title {
+        font-size: 48px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+        margin: 0 0 12px;
+    }
+
+    .mb-subtitle {
+        font-size: 16px;
+        color: #4B5563;
+        max-width: 640px;
+        margin: 0 auto 12px;
+    }
+
+    .mb-byline {
+        color: #6B7280;
+        font-size: 13px;
+        a { color: #6366F1; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+    }
+
+    .mb-section {
+        margin-bottom: 32px;
+    }
+
+    .mb-section-title {
+        font-size: 18px;
+        font-weight: 600;
+        margin: 0 0 12px;
+        color: #111827;
+    }
+
+    .mb-metric-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 12px;
+    }
+
+    .mb-metric-card {
+        padding: 16px;
+        background: #F9FAFB;
+        border: 1px solid #E5E7EB;
+        border-radius: 12px;
+        text-align: center;
+    }
+
+    .mb-metric-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: #111827;
+    }
+
+    .mb-metric-label {
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        color: #6B7280;
+        text-transform: uppercase;
+        margin-top: 4px;
+    }
+
+    .mb-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+
+    .mb-table th,
+    .mb-table td {
+        padding: 10px 12px;
+        border-bottom: 1px solid #F3F4F6;
+        text-align: left;
+    }
+
+    .mb-table th {
+        font-weight: 600;
+        color: #374151;
+        background: #F9FAFB;
+    }
+
+    .mb-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+    .mb-tier-cell {
+        text-transform: capitalize;
+        font-weight: 600;
+    }
+
+    .mb-color-dot {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+        vertical-align: middle;
+    }
+
+    .mb-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        flex-wrap: wrap;
+    }
+
+    .mb-btn {
+        display: inline-flex;
+        align-items: center;
+        padding: 10px 18px;
+        border-radius: 999px;
+        border: 1px solid #6366F1;
+        background: transparent;
+        color: #6366F1;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background 0.15s ease, color 0.15s ease;
+    }
+
+    .mb-btn:hover {
+        background: #EEF2FF;
+    }
+
+    .mb-btn-filled {
+        background: #6366F1;
+        color: white;
+    }
+
+    .mb-btn-filled:hover {
+        background: #4F46E5;
+    }
+
+    .mb-loading {
+        text-align: center;
+        color: #6B7280;
+        padding: 40px 0;
+    }
+}
+
+@media (max-width: 900px) {
+    .mb-showcase .mb-metric-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 600px) {
+    .mb-showcase .mb-metric-grid { grid-template-columns: repeat(2, 1fr); }
+    .mb-showcase .mb-title { font-size: 36px; }
+}

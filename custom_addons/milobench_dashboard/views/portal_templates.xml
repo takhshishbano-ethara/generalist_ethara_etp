@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="portal_showcase" name="Milo-Bench Portal">
+        <html lang="en" data-theme="dark">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>Milo-Bench - Long-horizon software engineering benchmark</title>
+                <meta name="description" content="Milo-Bench measures milestone-scale engineering competence across whole codebases, across eight languages, scored on a continuous scale."/>
+                <link rel="preconnect" href="https://fonts.googleapis.com"/>
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+                <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant:wght@400;500;600;700&amp;family=DM+Sans:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap"/>
+                <link rel="stylesheet" t-attf-href="/milobench_dashboard/static/src/portal/css/milobench_portal.css?v=#{asset_version}"/>
+                <script>
+                    (function(){
+                        try {
+                            var stored = localStorage.getItem('milobench:theme');
+                            var t = (stored === 'light' || stored === 'dark')
+                                ? stored
+                                : 'dark';
+                            document.documentElement.setAttribute('data-theme', t);
+                            document.documentElement.classList.add('mb-js');
+                        } catch(e){
+                            document.documentElement.setAttribute('data-theme', 'dark');
+                        }
+                    })();
+                </script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" defer="defer"></script>
+                <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" defer="defer"></script>
+                <script t-attf-src="/milobench_dashboard/static/src/portal/js/milobench_portal.js?v=#{asset_version}" defer="defer"></script>
+            </head>
+            <body>
+                <svg style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">
+                    <defs>
+                        <filter id="mb-chart-dark" color-interpolation-filters="sRGB">
+                            <feColorMatrix type="matrix" values="
+                                -1  0  0  0  1
+                                 0 -1  0  0  1
+                                 0  0 -1  0  1
+                                -1 -1 -1  0  2.6"/>
+                        </filter>
+                    </defs>
+                </svg>
+                <a class="skip-link" href="#mb-main">Skip to content</a>
+                <button id="mb-theme-toggle" class="mb-theme-toggle" type="button" aria-pressed="false" aria-label="Toggle theme">
+                    <svg class="mb-theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                    <svg class="mb-theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="4"/>
+                        <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+                    </svg>
+                </button>
+                <div id="mb-portal">
+                    <header class="masthead">
+                        <div class="mast-top">
+                            <h1 class="wordmark">MILO-BENCH</h1>
+                            <span class="mast-badge mono">LONG-HORIZON SOFTWARE EVOLUTION</span>
+                        </div>
+                        <hr class="mast-rule"/>
+                        <p class="thesis thesis-two-line">
+                            <span>Measuring long-horizon software-engineering competence</span>
+                            <span>at the granularity of milestones.</span>
+                        </p>
+                        <p class="byline mono">by 
+                            
+                            <a href="https://www.ethara.ai" target="_blank" rel="noopener">Ethara AI</a></p>
+                    </header>
+                    <section class="hero-banner" data-animate="fade-up">
+                        <div class="hero-banner-inner">
+                            <img class="hero-image" src="/milobench_dashboard/static/src/portal/img/hero.png" alt="Milo-Bench: long-horizon software engineering measured across whole milestones" loading="eager"/>
+                        </div>
+                        <div class="hero-actions">
+                            <a class="mb-btn mb-btn-primary" t-att-href="github_url" target="_blank">GitHub</a>
+                            <a class="mb-btn" t-att-href="huggingface_url" target="_blank">HuggingFace</a>
+                        </div>
+                    </section>
+                    <main id="mb-main">
+                        <section class="section" id="section-overview" data-animate="fade-up">
+                            <p class="section-label mono">§01 · Overview</p>
+                            <div class="overview-grid">
+                                <div class="overview-prose">
+                                    <p>
+                                        Milo-Bench measures long-horizon software-engineering capability, not just isolated
+                                        coding ability. It evaluates whether an agent can complete milestone-scale engineering
+                                        tasks that span multiple files, languages, and architectural components while keeping
+                                        an existing production codebase correct - not the individual functions or short bug
+                                        fixes that narrower benchmarks target. Where SWE-bench and Multi-SWE-bench score
+                                        single-issue fixes, Milo-Bench targets whole milestones resolved across a codebase over
+                                        a long agent trajectory.
+                                    </p>
+                                    <ul class="capabilities">
+                                        <li>Milestone-scale tasks spanning multiple files and architectural components</li>
+                                        <li>Multi-language coverage across 8 programming languages, 19 codebases</li>
+                                        <li>Continuous partial-credit scoring so long-task progress stays visible</li>
+                                        <li>Network-sealed verifier - reference solutions cannot influence a run</li>
+                                        <li>Three frontier models (Claude Opus 4.8, Gemini 3.1 Pro, GPT-5.5) × 3 runs each</li>
+                                    </ul>
+                                </div>
+                                <aside class="glance" aria-label="At a glance">
+                                    <p class="glance-label mono">At a glance</p>
+                                    <dl class="glance-list">
+                                        <div class="glance-row">
+                                            <dt>Tasks</dt>
+                                            <dd>
+                                                <b>30</b>
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Difficulty tiers</dt>
+                                            <dd>
+                                                <b>5</b>
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Models</dt>
+                                            <dd>
+                                                <b>3</b>
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Runs per task</dt>
+                                            <dd>
+                                                <b>9</b> (3 × 3)
+                                            
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Graded runs</dt>
+                                            <dd>
+                                                <b>270</b>
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Languages</dt>
+                                            <dd>
+                                                <b>8</b>
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Codebases</dt>
+                                            <dd>
+                                                <b>19</b>
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Scoring</dt>
+                                            <dd>Continuous · partial credit
+                                            
+                                            </dd>
+                                        </div>
+                                        <div class="glance-row">
+                                            <dt>Verifier</dt>
+                                            <dd>Network-sealed
+                                            
+                                            </dd>
+                                        </div>
+                                    </dl>
+                                </aside>
+                            </div>
+                            <figure class="chart-figure">
+                                <img src="/milobench_dashboard/static/src/portal/img/pass_rate.png" alt="Per-model pass rate vs reference-patch complexity" loading="lazy"/>
+                                <figcaption>Per-model pass rate vs reference-patch complexity (
+                                    
+                                    <code>src_hunks</code>).
+                                
+                                </figcaption>
+                            </figure>
+                        </section>
+                        <section class="section" id="section-tiers" data-animate="fade-up">
+                            <div class="section-label">§02 · Difficulty tiers
+                            
+                            </div>
+                            <h2 class="section-title">Five outcome-based tiers</h2>
+                            <p class="section-lead">
+                                Tiers are computed from observed model performance across runs. Trivial tasks are
+                                solved by nearly every run; Expert tasks by none. This is what the models actually
+                                experienced, not any property fixed in advance.
+                            </p>
+                            <div class="tier-grid" id="mb-tier-grid">
+                            </div>
+                            <div class="chart-double">
+                                <figure class="chart-figure">
+                                    <img src="/milobench_dashboard/static/src/portal/img/pass_rate_by_tier.png" alt="Pass rate by difficulty tier" loading="lazy"/>
+                                    <figcaption>Pass rate by difficulty tier.
+                                    
+                                    </figcaption>
+                                </figure>
+                                <figure class="chart-figure">
+                                    <img src="/milobench_dashboard/static/src/portal/img/cost_by_tier.png" alt="Mean agent cost per run by difficulty tier" loading="lazy"/>
+                                    <figcaption>Mean agent cost per run by difficulty tier.
+                                    
+                                    </figcaption>
+                                </figure>
+                            </div>
+                        </section>
+                        <section class="section" id="section-models" data-animate="fade-up">
+                            <div class="section-label">§03 · Model comparison
+                            
+                            </div>
+                            <h2 class="section-title">Head-to-head, three frontier models</h2>
+                            <div class="table-scroll">
+                                <table class="mb-table" id="mb-model-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Model</th>
+                                            <th>Provider</th>
+                                            <th class="num">Runs</th>
+                                            <th class="num">Pass@3</th>
+                                            <th class="num">Mean score</th>
+                                            <th class="num">Total cost</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            <p class="section-note">
+                                Pass rate captures how hard the tasks are, not how far apart the models are.
+                                Mean score keeps crediting partial progress where pass rate bottoms out - this can
+                                even flip the model ranking (GPT-5.5 leads by pass@3, Claude Opus 4.8 by mean score).
+                            </p>
+                        </section>
+                        <section class="section" id="section-matrix" data-animate="fade-up">
+                            <div class="section-label">§04 · Per-tier per-model
+                            
+                            </div>
+                            <h2 class="section-title">Where the models differ</h2>
+                            <div class="matrix-grid">
+                                <div class="matrix-block">
+                                    <h3>Pass@3 by tier</h3>
+                                    <div class="table-scroll">
+                                        <table class="mb-table mb-matrix" id="mb-passrate-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Tier</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="matrix-block">
+                                    <h3>Mean score by tier</h3>
+                                    <div class="table-scroll">
+                                        <table class="mb-table mb-matrix" id="mb-meanscore-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Tier</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody></tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section" id="section-scoring" data-animate="fade-up">
+                            <div class="section-label">§05 · Scoring methodology
+                            
+                            </div>
+                            <h2 class="section-title">Network-sealed, continuous, partial credit</h2>
+                            <p class="section-lead">
+                                The verifier computes a continuous score per run: 
+                                
+                                <code>score = recall × regression_factor</code>.
+                                A run solves a task only when score is exactly 1.0. The verifier runs network-sealed,
+                                so the reference solution cannot influence a run.
+                            </p>
+                            <div class="scoring-pipeline">
+                                <div class="pipeline-step">
+                                    <div class="pipeline-index">1
+                                    
+                                    </div>
+                                    <div class="pipeline-body">
+                                        <h4>Task</h4>
+                                        <p>instruction.md + Docker environment</p>
+                                    </div>
+                                </div>
+                                <div class="pipeline-arrow">→
+                                
+                                </div>
+                                <div class="pipeline-step">
+                                    <div class="pipeline-index">2
+                                    
+                                    </div>
+                                    <div class="pipeline-body">
+                                        <h4>Agent</h4>
+                                        <p>long tool-use trajectory</p>
+                                    </div>
+                                </div>
+                                <div class="pipeline-arrow">→
+                                
+                                </div>
+                                <div class="pipeline-step">
+                                    <div class="pipeline-index">3
+                                    
+                                    </div>
+                                    <div class="pipeline-body">
+                                        <h4>Patch</h4>
+                                        <p>edits across files &amp; languages</p>
+                                    </div>
+                                </div>
+                                <div class="pipeline-arrow">→
+                                
+                                </div>
+                                <div class="pipeline-step pipeline-sealed">
+                                    <div class="pipeline-index">4
+                                    
+                                    </div>
+                                    <div class="pipeline-body">
+                                        <h4>Verifier</h4>
+                                        <p>network-sealed target tests</p>
+                                    </div>
+                                </div>
+                                <div class="pipeline-arrow">→
+                                
+                                </div>
+                                <div class="pipeline-step">
+                                    <div class="pipeline-index">5
+                                    
+                                    </div>
+                                    <div class="pipeline-body">
+                                        <h4>Score</h4>
+                                        <p>recall × regression_factor</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="section" id="section-coverage" data-animate="fade-up">
+                            <div class="section-label">§06 · Coverage
+                            
+                            </div>
+                            <h2 class="section-title">8 languages across 19 codebases</h2>
+                            <div class="lang-grid" id="mb-lang-grid">
+                            </div>
+                        </section>
+                        <section class="section" id="section-viewer" data-animate="fade-up">
+                            <div class="section-label">§07 · Dataset viewer
+                            
+                            </div>
+                            <h2 class="section-title">Browse the 30 tasks</h2>
+                            <div class="viewer-controls">
+                                <input type="search" id="mb-search" class="mb-input" placeholder="Search by task, codebase or UUID…" aria-label="Search tasks"/>
+                                <select id="mb-filter-tier" class="mb-select" aria-label="Filter by tier">
+                                    <option value="">All tiers</option>
+                                    <option value="trivial">Trivial</option>
+                                    <option value="easy">Easy</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="hard">Hard</option>
+                                    <option value="expert">Expert</option>
+                                </select>
+                                <select id="mb-filter-lang" class="mb-select" aria-label="Filter by language">
+                                    <option value="">All languages</option>
+                                </select>
+                                <select id="mb-sort-by" class="mb-select" aria-label="Sort by">
+                                    <option value="task_slug">Sort · Task</option>
+                                    <option value="difficulty">Sort · Difficulty</option>
+                                    <option value="language">Sort · Language</option>
+                                    <option value="src_hunks">Sort · Src hunks</option>
+                                    <option value="pass_rate">Sort · Pass rate</option>
+                                    <option value="mean_score">Sort · Mean score</option>
+                                </select>
+                                <button type="button" id="mb-sort-dir" class="mb-btn mb-btn-mini" aria-label="Toggle sort direction">↑
+                                
+                                </button>
+                                <span class="viewer-count" id="mb-viewer-count">0 tasks</span>
+                            </div>
+                            <div class="table-scroll">
+                                <table class="mb-table mb-viewer-table" id="mb-viewer-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Task</th>
+                                            <th>Codebase</th>
+                                            <th>Language</th>
+                                            <th>Tier</th>
+                                            <th class="num">Src hunks</th>
+                                            <th class="num">Pass rate</th>
+                                            <th class="num">Mean score</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            <div class="pagination" id="mb-pagination">
+                            </div>
+                        </section>
+                        <section class="section" id="section-resources" data-animate="fade-up">
+                            <div class="section-label">§08 · Resources
+                            
+                            </div>
+                            <h2 class="section-title">Explore the sources</h2>
+                            <div class="resource-grid">
+                                <a class="resource-card" t-att-href="github_url" target="_blank">
+                                    <div class="resource-kind">Repository
+                                    
+                                    </div>
+                                    <h3>GitHub</h3>
+                                    <p>Full dataset, trajectories, verifier configuration and reproduction notes.</p>
+                                    <div class="resource-url" t-esc="github_url"/></a>
+                                <a class="resource-card" t-att-href="huggingface_url" target="_blank">
+                                    <div class="resource-kind">Dataset
+                                    
+                                    </div>
+                                    <h3>HuggingFace</h3>
+                                    <p>Structured dataset card with feature schema, splits, and download stats.</p>
+                                    <div class="resource-url" t-esc="huggingface_url"/></a>
+                            </div>
+                        </section>
+                    </main>
+                    <footer class="mb-footer">
+                        <div>© Ethara.AI · Milo-Bench is a curated 30-task sample released for evaluation.
+                        
+                        </div>
+                        <div>
+                            <a t-att-href="github_url" target="_blank">source</a> · 
+                            
+                            <a t-att-href="huggingface_url" target="_blank">dataset</a>
+                        </div>
+                    </footer>
+                </div>
+            </body>
+        </html>
+    </template>
+</odoo>

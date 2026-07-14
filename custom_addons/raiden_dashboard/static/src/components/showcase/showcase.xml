@@ -17,10 +17,10 @@
             <section class="rd-section rd-description">
                 <p>
                     Raiden is a reinforcement-learning environment for agentic code
-                    generation. Each of its 40 Harbor-format tasks drops a coding agent
+                    generation. Each of its 20 Harbor-format tasks drops a coding agent
                     into a container with a prose spec and no test code, asks it to
                     implement a subset of an <code>aws s3</code> or <code>aws dynamodb</code> surface
-                    from scratch, and grades the result against a hidden suite of 3,404
+                    from scratch, and grades the result against a hidden suite of 1,577
                     end-to-end tests running on a fully simulated, offline-by-construction
                     MinIO or DynamoDB Local backend. The pass fraction is the scalar reward.
                 </p>
@@ -30,7 +30,7 @@
                 <ul class="rd-capabilities-list">
                     <li><span class="rd-cap-arrow">&#x2192;</span> Stateful CLI evaluation: build <code>aws s3</code> and <code>aws dynamodb</code> surfaces from a spec</li>
                     <li><span class="rd-cap-arrow">&#x2192;</span> Two surfaces: 7 <code>aws s3</code> + 8 <code>aws dynamodb</code> commands</li>
-                    <li><span class="rd-cap-arrow">&#x2192;</span> Held-out grading: the agent never sees the 3,404 E2E tests</li>
+                    <li><span class="rd-cap-arrow">&#x2192;</span> Held-out grading: the agent never sees the 1,577 E2E tests</li>
                     <li><span class="rd-cap-arrow">&#x2192;</span> Hermetic, offline MinIO (S3) and DynamoDB Local (DynamoDB) sidecars</li>
                     <li><span class="rd-cap-arrow">&#x2192;</span> Dense scalar reward = passed / total &#x2208; [0, 1], anti-NOP guarded</li>
                 </ul>
@@ -39,14 +39,14 @@
             <section class="rd-section rd-metrics">
                 <div class="rd-metric-grid">
                     <div class="rd-metric-card">
-                        <span class="rd-metric-value">40</span>
+                        <span class="rd-metric-value">20</span>
                         <span class="rd-metric-label">Harbor Tasks</span>
-                        <span class="rd-metric-detail">10 S3 &#xB7; 30 DynamoDB</span>
+                        <span class="rd-metric-detail">10 S3 &#xB7; 10 DynamoDB</span>
                     </div>
                     <div class="rd-metric-card">
-                        <span class="rd-metric-value">3,404</span>
+                        <span class="rd-metric-value">1,577</span>
                         <span class="rd-metric-label">Held-out Tests</span>
-                        <span class="rd-metric-detail">~85 per task &#xB7; 381 workflow</span>
+                        <span class="rd-metric-detail">~79 per task &#xB7; 158 workflow</span>
                     </div>
                     <div class="rd-metric-card">
                         <span class="rd-metric-value">2</span>

@@ -554,6 +554,121 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
         with self.assertRaises(UserError):
             alloc.with_user(self.user_ql).write({"rubric_score": 50.0})
 
+
+    def test_handoff_does_not_touch_stage_1s_data(self):
+        """The reported "all my data got removed" bug — it is not one, and this
+        pins it.
+
+        Hand-off creates stage 2 EMPTY (it generates its own trajectory) and Odoo
+        drops you straight onto that blank record. It looks like a wipe. It is not:
+        stage 1 keeps every field. If this test ever fails, the wipe is real.
+        """
+        s1 = self._make_alloc(suffix="no-wipe")
+        self._complete_stage1(s1)
+        before = {f: s1[f] for f in (
+            "drive_link", "baseline_drive_link", "baseline_gen_status",
+            "manual_qc_status", "rubric_score", "pytest_score", "overall_score")}
+        self.assertEqual(s1.status, "ready_next_stage")
+
+        self.env["kensei2.tracker.stage.handoff"].with_user(self.user_ql).create({
+            "allocation_id": s1.id,
+            "tasker_member_id": self.member_other.id,
+        }).action_confirm()
+        s1.invalidate_recordset()
+
+        # stage 1 is untouched
+        for f, v in before.items():
+            self.assertEqual(s1[f], v, "hand-off changed stage 1's %s" % f)
+        self.assertEqual(s1.status, "ready_next_stage")
+
+        # stage 2 is empty — that is the design, not a bug
+        s2 = self.Alloc.search([("task_id", "=", s1.task_id), ("stage_no", "=", 2)])
+        self.assertEqual(s2.status, "ready_baseline")
+        self.assertFalse(s2.baseline_drive_link)
+        self.assertEqual(s2.manual_qc_status, "in_progress")
+
+    def test_display_name_names_the_stage(self):
+        """Both stages share the task_id, so without the stage the "Handed off from"
+        link shows the record its own UUID — as if handed off from itself."""
+        s1 = self._make_alloc(suffix="dispname")
+        self.assertEqual(s1.display_name, "%s (Stage 1)" % s1.task_id)
+        self._complete_stage1(s1)
+        self.env["kensei2.tracker.stage.handoff"].with_user(self.user_ql).create({
+            "allocation_id": s1.id,
+            "tasker_member_id": self.member_other.id,
+        }).action_confirm()
+        s2 = self.Alloc.search([("task_id", "=", s1.task_id), ("stage_no", "=", 2)])
+        self.assertEqual(s2.display_name, "%s (Stage 2)" % s2.task_id)
+        self.assertNotEqual(s1.display_name, s2.display_name,
+                            "the two stages display identically — the parent link is unreadable")
+
+
+    def test_every_locked_input_is_force_save(self):
+        """THE "my stage-2 data vanished on save" BUG.
+
+        Every stage input is gated `readonly="is_locked"`, and is_locked is computed
+        from `status`, which is computed from those very inputs. So filling the LAST
+        field flips status -> 'deliverable', which flips is_locked -> True, which
+        turns the fields the user just filled READONLY — mid-edit, via onchange.
+
+        Odoo does not send readonly fields in web_save. The payload came out empty,
+        web_save was never called (confirmed in the server log: 9 onchange calls, 0
+        web_save), the client discarded the edits, and the form re-read the untouched
+        record. The data looked deleted; it had simply never been sent.
+
+        force_save="1" is the documented escape hatch: send the field even though it
+        turned readonly. Without it on EVERY locked input, the same field silently
+        goes missing from the save again.
+        """
+        import re
+        from odoo.addons.kensei2.models.kensei2_tracker_allocation import (
+            Kensei2TrackerAllocation)
+        arch = self.Alloc.get_views([(False, "form")])["views"]["form"]["arch"]
+
+        for fname in Kensei2TrackerAllocation._LOCKED_INPUT_FIELDS:
+            # every EDITABLE occurrence (readonly=is_locked...) must force_save
+            for tag in re.findall(
+                    r'<field name="%s"[^>]*/>' % fname, arch):
+                if "is_locked" not in tag:
+                    continue          # a readonly="1" mirror — never dirty, never sent
+                self.assertIn(
+                    'force_save="1"', tag,
+                    "%s can turn readonly mid-edit (is_locked) but is not "
+                    "force_save — its value will be dropped from the save." % fname)
+
+    def test_completing_stage_2_persists_through_the_form(self):
+        """Drive the exact browser path: onchange -> web_save. The onchange is what
+        flips is_locked; the web_save must still land."""
+        s1 = self._make_alloc(suffix="formsave")
+        self._complete_stage1(s1)
+        self.env["kensei2.tracker.stage.handoff"].with_user(self.user_ql).create({
+            "allocation_id": s1.id,
+            "tasker_member_id": self.member_other.id,
+        }).action_confirm()
+        s2 = self.Alloc.search([("task_id", "=", s1.task_id), ("stage_no", "=", 2)])
+
+        payload = {
+            "baseline_drive_link": "https://passitk.example.com",
+            "baseline_gen_status": "done",
+            "qced_by": self.env.user.id,
+            "manual_qc_status": "done",
+        }
+        # 1) the client's onchange — this is what turns the fields readonly
+        oc = s2.onchange({"id": s2.id, **payload},
+                         ["manual_qc_status"],
+                         {"status": {}, "is_locked": {}})
+        self.assertEqual(oc["value"]["status"], "deliverable")
+        self.assertTrue(oc["value"]["is_locked"],
+                        "premise changed: is_locked no longer flips during onchange")
+
+        # 2) the save must STILL persist, readonly-mid-edit or not
+        s2.web_save(payload, {"status": {}})
+        s2.invalidate_recordset()
+        self.assertEqual(s2.status, "deliverable")
+        self.assertEqual(s2.baseline_drive_link, "https://passitk.example.com")
+        self.assertEqual(s2.manual_qc_status, "done")
+        self.assertTrue(s2.date_final)
+
     def test_cannot_hand_off_twice(self):
         alloc = self._ready_stage1()
         Wiz = self.env["kensei2.tracker.stage.handoff"].with_user(self.user_ql)

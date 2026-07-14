@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_milobench_task_list" model="ir.ui.view">
+        <field name="name">milobench.task.list</field>
+        <field name="model">milobench.task</field>
+        <field name="arch" type="xml">
+            <list string="Milo-Bench Tasks" default_order="difficulty_seq, task_slug">
+                <field name="task_slug"/>
+                <field name="codebase"/>
+                <field name="language"/>
+                <field name="difficulty" decoration-success="difficulty == 'trivial'" decoration-info="difficulty == 'easy'" decoration-warning="difficulty == 'medium'" decoration-danger="difficulty == 'hard'" decoration-muted="difficulty == 'expert'" widget="badge"/>
+                <field name="src_hunks"/>
+                <field name="run_count"/>
+                <field name="pass_count"/>
+                <field name="pass_rate" widget="progressbar"/>
+                <field name="mean_score" widget="progressbar"/>
+                <field name="uuid" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_milobench_task_kanban" model="ir.ui.view">
+        <field name="name">milobench.task.kanban</field>
+        <field name="model">milobench.task</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="difficulty" class="o_kanban_dashboard">
+                <field name="difficulty"/>
+                <field name="pass_rate"/>
+                <field name="mean_score"/>
+                <field name="language"/>
+                <field name="codebase"/>
+                <field name="task_slug"/>
+                <field name="run_count"/>
+                <field name="pass_count"/>
+                <templates>
+                    <t t-name="card">
+                        <div class="oe_kanban_global_click p-2">
+                            <div class="d-flex justify-content-between">
+                                <strong><field name="task_slug"/></strong>
+                                <span class="badge text-bg-secondary"><field name="language"/></span>
+                            </div>
+                            <div class="text-muted small mt-1"><field name="codebase"/></div>
+                            <div class="mt-2 d-flex justify-content-between">
+                                <span>Pass Rate</span>
+                                <strong><field name="pass_rate" widget="float" digits="[6,1]"/>%</strong>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span>Mean Score</span>
+                                <strong><field name="mean_score" widget="float" digits="[6,1]"/>%</strong>
+                            </div>
+                            <div class="d-flex justify-content-between mt-1 text-muted small">
+                                <span><field name="pass_count"/>/<field name="run_count"/> runs</span>
+                            </div>
+                        </div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <record id="view_milobench_task_form" model="ir.ui.view">
+        <field name="name">milobench.task.form</field>
+        <field name="model">milobench.task</field>
+        <field name="arch" type="xml">
+            <form string="Milo-Bench Task">
+                <sheet>
+                    <div class="oe_title">
+                        <label for="task_slug"/>
+                        <h1><field name="task_slug" placeholder="task-slug"/></h1>
+                        <div class="text-muted"><field name="uuid" readonly="1"/></div>
+                    </div>
+                    <group>
+                        <group>
+                            <field name="difficulty"/>
+                            <field name="language"/>
+                            <field name="src_hunks"/>
+                            <field name="category"/>
+                            <field name="codebase"/>
+                            <field name="keywords"/>
+                        </group>
+                        <group>
+                            <field name="run_count"/>
+                            <field name="pass_count"/>
+                            <field name="pass_rate" widget="progressbar"/>
+                            <field name="mean_score" widget="progressbar"/>
+                        </group>
+                    </group>
+                    <group string="Environment" col="4">
+                        <field name="env_cpus"/>
+                        <field name="env_memory_mb"/>
+                        <field name="env_storage_mb"/>
+                        <field name="env_gpus"/>
+                        <field name="verifier_timeout_sec"/>
+                        <field name="agent_timeout_sec"/>
+                    </group>
+                    <group string="Source Links">
+                        <field name="dataset_url" widget="url"/>
+                        <field name="trajectories_url" widget="url"/>
+                        <field name="instruction_url" widget="url"/>
+                    </group>
+                    <notebook>
+                        <page string="Runs">
+                            <field name="run_ids">
+                                <list>
+                                    <field name="model_id"/>
+                                    <field name="run_number"/>
+                                    <field name="score" widget="progressbar"/>
+                                    <field name="score_binary" widget="boolean_toggle"/>
+                                    <field name="recall"/>
+                                    <field name="regression_factor"/>
+                                    <field name="cost_usd"/>
+                                    <field name="tokens_input"/>
+                                    <field name="tokens_output"/>
+                                    <field name="n_episodes"/>
+                                    <field name="status"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_milobench_task_search" model="ir.ui.view">
+        <field name="name">milobench.task.search</field>
+        <field name="model">milobench.task</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="task_slug"/>
+                <field name="codebase"/>
+                <field name="uuid"/>
+                <field name="keywords"/>
+                <filter string="Trivial" name="tier_trivial" domain="[('difficulty','=','trivial')]"/>
+                <filter string="Easy" name="tier_easy" domain="[('difficulty','=','easy')]"/>
+                <filter string="Medium" name="tier_medium" domain="[('difficulty','=','medium')]"/>
+                <filter string="Hard" name="tier_hard" domain="[('difficulty','=','hard')]"/>
+                <filter string="Expert" name="tier_expert" domain="[('difficulty','=','expert')]"/>
+                <separator/>
+                <group>
+                    <filter string="Difficulty" name="group_difficulty" context="{'group_by':'difficulty'}"/>
+                    <filter string="Language" name="group_language" context="{'group_by':'language'}"/>
+                    <filter string="Codebase" name="group_codebase" context="{'group_by':'codebase'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="view_milobench_task_graph" model="ir.ui.view">
+        <field name="name">milobench.task.graph</field>
+        <field name="model">milobench.task</field>
+        <field name="arch" type="xml">
+            <graph string="Milo-Bench Tasks" type="bar" sample="1">
+                <field name="difficulty"/>
+                <field name="mean_score" type="measure"/>
+                <field name="pass_rate" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="view_milobench_task_pivot" model="ir.ui.view">
+        <field name="name">milobench.task.pivot</field>
+        <field name="model">milobench.task</field>
+        <field name="arch" type="xml">
+            <pivot string="Tasks by Difficulty x Language">
+                <field name="difficulty" type="row"/>
+                <field name="language" type="col"/>
+                <field name="mean_score" type="measure"/>
+                <field name="pass_rate" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_milobench_task" model="ir.actions.act_window">
+        <field name="name">Tasks</field>
+        <field name="res_model">milobench.task</field>
+        <field name="view_mode">kanban,list,form,graph,pivot</field>
+        <field name="search_view_id" ref="view_milobench_task_search"/>
+    </record>
+</odoo>

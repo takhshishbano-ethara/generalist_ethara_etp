@@ -1,0 +1,7 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_milobench_task_user,milobench.task.user,model_milobench_task,base.group_user,1,0,0,0
+access_milobench_task_admin,milobench.task.admin,model_milobench_task,base.group_system,1,1,1,1
+access_milobench_model_user,milobench.model.user,model_milobench_model,base.group_user,1,0,0,0
+access_milobench_model_admin,milobench.model.admin,model_milobench_model,base.group_system,1,1,1,1
+access_milobench_run_user,milobench.run.user,model_milobench_run,base.group_user,1,0,0,0
+access_milobench_run_admin,milobench.run.admin,model_milobench_run,base.group_system,1,1,1,1

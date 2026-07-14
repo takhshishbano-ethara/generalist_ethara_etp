@@ -601,7 +601,7 @@
       var btn = document.getElementById("rd-eval-sort-dir-btn");
       if (!btn) return;
       btn.textContent = evalCurrentSortDir === 1 ? "\u2191" : "\u2193";
-      btn.title = evalCurrentSortDir === 1 ? "Ascending \u2013 click to reverse" : "Descending \u2013 click to reverse";
+      btn.title = evalCurrentSortDir === 1 ? "Ascending, click to reverse" : "Descending, click to reverse";
     }
 
     var tableWrap = document.getElementById("rd-eval-table-wrap");

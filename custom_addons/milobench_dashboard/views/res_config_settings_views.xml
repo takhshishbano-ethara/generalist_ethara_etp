@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_config_settings_view_form_milobench" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.milobench.dashboard</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app string="Milo-Bench Dashboard" name="milobench_dashboard">
+                    <block title="External Data Sources">
+                        <setting string="GitHub Repository" help="Source repo hosting the Milo-Bench samples.">
+                            <field name="milobench_github_url" placeholder="https://github.com/EtharaOrion/milo-bench-samples"/>
+                        </setting>
+                        <setting string="HuggingFace Dataset" help="Public HuggingFace dataset URL.">
+                            <field name="milobench_huggingface_url" placeholder="https://huggingface.co/datasets/ethara/milo-bench-samples"/>
+                        </setting>
+                        <setting string="Paper / Report" help="Long-form methodology write-up.">
+                            <field name="milobench_paper_url" placeholder="https://..."/>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="action_milobench_settings" model="ir.actions.act_window">
+        <field name="name">Settings</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+        <field name="context">{'module': 'milobench_dashboard', 'bin_size': False}</field>
+    </record>
+</odoo>

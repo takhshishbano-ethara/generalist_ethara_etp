@@ -7,8 +7,8 @@
 Raiden Dashboard
 ================
 A single-page dashboard for the Raiden reinforcement-learning environment:
-40 Harbor-format agentic-coding tasks (10 aws s3 + 30 aws dynamodb) asking a model
-to build the CLI surface from scratch, graded by a held-out suite of 3,404
+20 Harbor-format agentic-coding tasks (10 aws s3 + 10 aws dynamodb) asking a model
+to build the CLI surface from scratch, graded by a held-out suite of 1,577
 E2E tests against simulated MinIO and DynamoDB Local backends. Available
 as both a backend client action and a public portal page at /raiden.
     """,

@@ -72,3 +72,15 @@ class NonStemDashboardView extends Component {
 }
 
 registry.category("actions").add("non_stem_dashboard_view", NonStemDashboardView);
+
+// Client action to copy public link to clipboard
+async function copyPublicLink(env, action) {
+    const url = action.params && action.params.url;
+    if (url) {
+        await navigator.clipboard.writeText(url);
+        env.services.notification.add("Public link copied to clipboard!", {
+            type: "success",
+        });
+    }
+}
+registry.category("actions").add("non_stem_copy_public_link", copyPublicLink);

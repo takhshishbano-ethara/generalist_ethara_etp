@@ -43,12 +43,20 @@
                                         class="btn-primary me-2"
                                         icon="fa-bar-chart"/>
                                 <button type="object"
+                                        name="action_copy_public_link"
+                                        string="Copy Public Link"
+                                        class="btn-outline-secondary me-2"
+                                        icon="fa-link"
+                                        invisible="not is_current_user_manager"/>
+                                <button type="object"
                                         name="action_view_management_dashboard"
                                         string="View Management Dashboard"
                                         class="btn-success"
                                         icon="fa-dashboard"
                                         groups="non_stem_dashboard.group_manager,base.group_system"/>
                             </div>
+                            <field name="public_url" invisible="1"/>
+                            <field name="is_current_user_manager" invisible="1"/>
                         </group>
                     </group>
                     <notebook invisible="state == 'draft'">

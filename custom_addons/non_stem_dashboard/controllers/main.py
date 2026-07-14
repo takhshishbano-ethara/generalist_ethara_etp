@@ -39,6 +39,22 @@ class NonStemDashboardController(http.Controller):
         )
 
     @http.route(
+        "/non_stem_dashboard/public/<string:token>",
+        type="http", auth="public", website=False, csrf=False,
+    )
+    def public_tasker_dashboard(self, token, **kw):
+        run = request.env["non.stem.run"].sudo().search(
+            [("public_token", "=", token), ("state", "=", "done")], limit=1,
+        )
+        if not run or not run.tasker_dashboard_html:
+            return request.not_found()
+        return http.Response(
+            run.tasker_dashboard_html,
+            content_type="text/html",
+            status=200,
+        )
+
+    @http.route(
         "/non_stem_dashboard/api/runs",
         type="json", auth="user",
     )
