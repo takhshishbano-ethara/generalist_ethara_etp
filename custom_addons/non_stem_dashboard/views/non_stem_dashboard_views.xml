@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Form View -->
+    <record id="view_non_stem_run_form" model="ir.ui.view">
+        <field name="name">non.stem.run.form</field>
+        <field name="model">non.stem.run</field>
+        <field name="arch" type="xml">
+            <form string="Non Stem Dashboard Run">
+                <header>
+                    <button name="action_run_pipeline"
+                            type="object"
+                            string="Run Pipeline"
+                            class="btn-primary"
+                            invisible="state != 'draft'"
+                            confirm="This will run the performance pipeline. Continue?"/>
+                    <button name="action_run_pipeline"
+                            type="object"
+                            string="Re-run Pipeline"
+                            class="btn-secondary"
+                            invisible="state not in ('done', 'error')"
+                            confirm="This will re-run the pipeline. Continue?"/>
+                    <field name="state" widget="statusbar"
+                           statusbar_visible="draft,running,done"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" placeholder="Run Name"/></h1>
+                    </div>
+                    <group>
+                        <group string="Input Files">
+                            <field name="consolidated_csv" filename="consolidated_filename"/>
+                            <field name="consolidated_filename" invisible="1"/>
+                            <field name="resource_sheet_csv" filename="resource_sheet_filename"/>
+                            <field name="resource_sheet_filename" invisible="1"/>
+                        </group>
+                        <group string="Output" invisible="state != 'done'">
+                            <field name="output_dir"/>
+                            <div colspan="2">
+                                <button type="object"
+                                        name="action_view_tasker_dashboard"
+                                        string="View Tasker Dashboard"
+                                        class="btn-primary me-2"
+                                        icon="fa-bar-chart"/>
+                                <button type="object"
+                                        name="action_view_management_dashboard"
+                                        string="View Management Dashboard"
+                                        class="btn-success"
+                                        icon="fa-dashboard"
+                                        groups="non_stem_dashboard.group_manager,base.group_system"/>
+                            </div>
+                        </group>
+                    </group>
+                    <notebook invisible="state == 'draft'">
+                        <page string="Pipeline Log" invisible="not log_output">
+                            <field name="log_output" readonly="1"/>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Tree View -->
+    <record id="view_non_stem_run_tree" model="ir.ui.view">
+        <field name="name">non.stem.run.tree</field>
+        <field name="model">non.stem.run</field>
+        <field name="arch" type="xml">
+            <list string="Non Stem Dashboard Runs">
+                <field name="name"/>
+                <field name="consolidated_filename"/>
+                <field name="state" widget="badge"
+                       decoration-info="state == 'draft'"
+                       decoration-warning="state == 'running'"
+                       decoration-success="state == 'done'"
+                       decoration-danger="state == 'error'"/>
+                <field name="create_date"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_non_stem_run" model="ir.actions.act_window">
+        <field name="name">Pipeline Runs</field>
+        <field name="res_model">non.stem.run</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- Dashboard Client Action -->
+    <record id="action_non_stem_dashboard_view" model="ir.actions.client">
+        <field name="name">Non Stem Dashboards</field>
+        <field name="tag">non_stem_dashboard_view</field>
+    </record>
+
+    <!-- Menu Items -->
+    <menuitem id="menu_non_stem_root"
+              name="Non Stem Dashboard"
+              web_icon="non_stem_dashboard,static/description/icon.png"
+              sequence="100"/>
+
+    <menuitem id="menu_non_stem_runs"
+              name="Pipeline Runs"
+              parent="menu_non_stem_root"
+              action="action_non_stem_run"
+              sequence="10"/>
+
+    <menuitem id="menu_non_stem_dashboards"
+              name="View Dashboards"
+              parent="menu_non_stem_root"
+              action="action_non_stem_dashboard_view"
+              sequence="20"/>
+
+</odoo>

@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="non_stem_dashboard.DashboardView">
+    <div class="o_action non_stem_dashboard_view d-flex flex-column h-100">
+        <!-- Toolbar -->
+        <div class="d-flex align-items-center gap-3 p-3 bg-light border-bottom">
+            <h3 class="mb-0 me-auto">Non Stem Dashboards</h3>
+
+            <t t-if="state.runs.length > 0">
+                <select class="form-select" style="width: auto;"
+                        t-on-change="onRunChange">
+                    <t t-foreach="state.runs" t-as="run" t-key="run.id">
+                        <option t-att-value="run.id"
+                                t-att-selected="run.id === state.selectedRun">
+                            <t t-esc="run.name"/> — <t t-esc="run.create_date"/>
+                        </option>
+                    </t>
+                </select>
+
+                <t t-if="state.isManager">
+                    <select class="form-select" style="width: auto;"
+                            t-on-change="onTypeChange">
+                        <option value="tasker">Tasker Performance Dashboard</option>
+                        <option value="management">Management Dashboard</option>
+                    </select>
+                </t>
+
+                <button class="btn btn-outline-primary" t-on-click="openFullScreen"
+                        title="Open in new tab">
+                    <i class="fa fa-external-link"/> Full Screen
+                </button>
+            </t>
+
+            <t t-if="state.isManager">
+                <button class="btn btn-primary" t-on-click="openNewRun">
+                    <i class="fa fa-plus"/> New Run
+                </button>
+            </t>
+        </div>
+
+        <!-- Dashboard iframe -->
+        <div class="flex-grow-1 position-relative">
+            <t t-if="state.loading">
+                <div class="d-flex align-items-center justify-content-center h-100">
+                    <div class="spinner-border text-primary" role="status"/>
+                    <span class="ms-2">Loading...</span>
+                </div>
+            </t>
+            <t t-elif="state.runs.length === 0">
+                <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted">
+                    <i class="fa fa-bar-chart fa-4x mb-3"/>
+                    <h4>No dashboard runs yet</h4>
+                    <p>Create a new run by uploading your CSV files.</p>
+                    <button class="btn btn-primary" t-on-click="openNewRun">
+                        <i class="fa fa-plus"/> Create First Run
+                    </button>
+                </div>
+            </t>
+            <t t-else="">
+                <iframe t-att-src="dashboardUrl"
+                        class="w-100 h-100 border-0"
+                        style="min-height: 600px;"/>
+            </t>
+        </div>
+    </div>
+</t>
+
+</templates>
