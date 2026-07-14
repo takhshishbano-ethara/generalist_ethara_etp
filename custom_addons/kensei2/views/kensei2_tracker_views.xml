@@ -7,7 +7,7 @@
       <field name="name">kensei2.tracker.allocation.kanban</field>
       <field name="model">kensei2.tracker.allocation</field>
       <field name="arch" type="xml">
-        <kanban default_group_by="status" group_create="false" class="o_kanban_small_column">
+        <kanban default_group_by="status_label" group_create="false" class="o_kanban_small_column">
           <field name="final_status"/>
           <templates>
             <t t-name="card">
@@ -78,7 +78,12 @@
                    info    — someone is actively working it
                    warning — parked, waiting on another human to act
                    success — done       danger — dead -->
-          <field name="status" widget="badge"
+          <!-- status_label, not status: the list mixes both stages, and one Selection
+               label is wrong for half the rows (a stage-2 row must read "Pass It K
+               Generated", not "Baseline Generated"). The raw value still drives the
+               colours. -->
+          <field name="status" column_invisible="1"/>
+          <field name="status_label" string="Current Status" widget="badge"
                  decoration-success="status == 'deliverable'"
                  decoration-danger="status == 'failed'"
                  decoration-info="status in ('in_progress','ready_baseline','baseline_generated')"
@@ -154,11 +159,9 @@
                  keeps `value === currentValue` regardless of statusbar_visible, so a
                  failed task still shows Failed — it just no longer takes up a slot on
                  every healthy one. -->
-            <!-- Stage 1's bar reads from `status` (…Ready for Baseline → Baseline
-                 Generated…). Stage 2's reads from `stage2_status`, the same values
-                 under stage 2's own names (…Ready for Pass It K → Pass It K
-                 Generated…). One Selection cannot carry two label sets, and only
-                 stage 2 was renamed — hence the two fields. -->
+            <!-- One bar PER STAGE — and each stage names the trajectory step its own
+                 way: stage 1 says Baseline, stage 2 says Pass It K. Same stored values;
+                 `stage2_status` is just `status` under stage 2's labels. -->
             <field name="status" widget="kensei2_statusbar" invisible="stage_no == 2"
                    statusbar_visible="in_progress,tasker_qc_completed,ready_baseline,baseline_generated,manual_qc,ready_next_stage"/>
             <field name="stage2_status" widget="kensei2_statusbar" invisible="stage_no != 2"
@@ -260,8 +263,6 @@
                 <field name="assigned_date" readonly="not is_manager"/>
                 <!-- Fixed at 2 by the model. Shown for context, never an input. -->
                 <field name="total_stages" readonly="1"/>
-                <!-- Same pair as the status bar: stage 2 reads its status under its
-                     own names (Pass It K), stage 1 keeps saying Baseline. -->
                 <field name="status" readonly="1" invisible="stage_no == 2"/>
                 <field name="stage2_status" readonly="1" invisible="stage_no != 2"/>
                 <field name="final_status" readonly="1"/>
@@ -453,7 +454,7 @@
                                required="baseline_gen_status == 'failed'"
                                placeholder="Reason for failure…" force_save="1"/>
                       </group>
-                      <!-- Unlocked by Baseline Generation = Done; _check_baseline_metrics
+                      <!-- Unlocked by Pass It K Generation = Done; _check_baseline_metrics
                            then refuses to save that Done without a QCed By. -->
                       <group string="Evaluation Metrics">
                         <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
@@ -548,11 +549,9 @@
                        generated and QCed By is set. -->
                   <page string="Pass It K" name="page_s2_baseline_trajectory"
                         invisible="stage_no != 2 and not has_stage_2">
-                    <!-- Labels are overridden HERE, not on the model, because these are
-                         the SAME fields stage 1 uses for its baseline step. Renaming them
-                         on the model would rename them on stage 1 too, where the step is
-                         still called Baseline Trajectory. Stage 2's tab is the only place
-                         that calls this work Pass It K, so the rename belongs to the view. -->
+                    <!-- The whole Tracker calls this step Pass It K. Stage 1 and stage 2
+                         share these very fields, so it is one step done twice, not two
+                         different things — hence one name, on the model AND here. -->
                     <group invisible="stage_no != 2">
                       <group string="Pass It K">
                         <field name="baseline_drive_link" string="Pass It K Drive Link"

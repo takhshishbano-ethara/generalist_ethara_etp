@@ -9,8 +9,10 @@
                         <th class="o_ktd_col_pl"><t t-out="props.head"/></th>
                         <th>Total</th>
                         <th>In Auth</th>
-                        <th>Ready</th>
-                        <th>In Traj</th>
+                        <th title="Stage 1 — signed off, ready for its Baseline trajectory">Ready</th>
+                        <th title="Stage 1 — Baseline trajectory generated">In Traj</th>
+                        <th title="Stage 2 — ready for its Pass It K trajectory">PIK Ready</th>
+                        <th title="Stage 2 — Pass It K trajectory generated">Pass It K</th>
                         <th>Manual QC</th>
                         <th>Handed Off</th>
                         <th>Verified</th>
@@ -21,7 +23,7 @@
                 <tbody>
                     <t t-if="total === 0">
                         <tr>
-                            <td colspan="11" class="o_ktd_empty">
+                            <td colspan="13" class="o_ktd_empty">
                                 <i class="fa fa-inbox me-1"/>No allocations yet.
                             </td>
                         </tr>
@@ -39,6 +41,8 @@
                             <td><t t-out="row.in_auth"/></td>
                             <td><t t-out="row.ready"/></td>
                             <td><t t-out="row.in_traj"/></td>
+                            <td><t t-out="row.pik_ready"/></td>
+                            <td class="o_ktd_cell_pik"><t t-out="row.pass_it_k"/></td>
                             <td><t t-out="row.manual_qc"/></td>
                             <td><t t-out="row.handed_off"/></td>
                             <td class="o_ktd_cell_verified"><t t-out="row.verified"/></td>

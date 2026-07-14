@@ -325,6 +325,9 @@
 
 .o_ktd_funnel_in_authoring { background: #fef3e6; }
 .o_ktd_funnel_in_trajectory { background: #e6f7f5; }
+// Pass It K is stage 2's trajectory: same family as In Trajectory (teal), a step
+// deeper, so the pair reads as "same kind of work, later stage" at a glance.
+.o_ktd_funnel_pass_it_k { background: #d5f0eb; }
 .o_ktd_funnel_manual_qc { background: #fdeaf1; }
 .o_ktd_funnel_ready_next_stage { background: #ede9f7; }
 .o_ktd_funnel_verified { background: #e8f5e9; }
@@ -376,6 +379,13 @@
 
     .o_ktd_cell_verified {
         color: #10b981;
+        font-weight: 700;
+    }
+
+    // Pass It K is stage 2's trajectory. Tinted to match its funnel card so the
+    // eye ties the column to the card without re-reading the header.
+    .o_ktd_cell_pik {
+        color: #0f766e;
         font-weight: 700;
     }
 

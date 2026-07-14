@@ -118,17 +118,15 @@ class Kensei2TrackerAllocation(models.Model):
              '(Task ID, Stage), not per row.',
     )
 
-    # Stage 2's status bar, IN STAGE 2's OWN WORDS.
-    #
-    # Both stages run the same pipeline and share the same stored status values — so
-    # they share one Selection, and a Selection can carry only ONE set of labels.
-    # Stage 2 calls the trajectory step "Pass It K"; stage 1 still calls it Baseline.
-    # There is no way to say both with one field, so stage 2 gets a read-only
-    # projection of `status` carrying its own labels, and the form shows whichever
-    # one belongs to the stage you are on.
-    #
-    # The VALUES are identical to STATUS_SELECTION — only the labels differ. Nothing
-    # is stored, so there is no migration and no second source of truth.
+
+    # ------------------------------------------------------------------ #
+    #  Stage 2 speaks its own dialect
+    # ------------------------------------------------------------------ #
+    # Both stages run the same pipeline over the same fields and the same STORED
+    # values — but they name the trajectory step differently: stage 1 calls it
+    # Baseline, stage 2 calls it Pass It K. A Selection carries exactly ONE set of
+    # labels, so `status` holds stage 1's and this holds stage 2's. Same values,
+    # different words. Nothing extra is stored; there is no second source of truth.
     STAGE2_STATUS_SELECTION = [
         ('in_progress', 'Authoring'),
         ('tasker_qc_completed', 'Tasker QC'),
@@ -142,14 +140,29 @@ class Kensei2TrackerAllocation(models.Model):
     stage2_status = fields.Selection(
         selection=STAGE2_STATUS_SELECTION, string='Current Status',
         compute='_compute_stage2_status',
-        help="Stage 2's view of the Current Status — the same pipeline, named the "
-             "way stage 2 names it (Pass It K rather than Baseline).",
+        help="The same Current Status, in stage 2's words (Pass It K, not Baseline).",
     )
 
     @api.depends('status')
     def _compute_stage2_status(self):
         for rec in self:
             rec.stage2_status = rec.status
+
+    # The list and the kanban show BOTH stages in one table, so a single Selection
+    # label is always wrong for half the rows. This picks the right one PER ROW.
+    # Stored, so it can be sorted and grouped like any other column.
+    status_label = fields.Char(
+        string='Current Status', compute='_compute_status_label',
+        store=True, index=True,
+    )
+
+    @api.depends('status', 'stage_no')
+    def _compute_status_label(self):
+        s1 = dict(self.STATUS_SELECTION)
+        s2 = dict(self.STAGE2_STATUS_SELECTION)
+        for rec in self:
+            table = s2 if rec.stage_no and rec.stage_no >= 2 else s1
+            rec.status_label = table.get(rec.status, rec.status or '')
 
     @api.depends('task_id', 'stage_no')
     def _compute_display_name(self):
@@ -356,8 +369,6 @@ class Kensei2TrackerAllocation(models.Model):
         string='Stage 1 Completed On', compute='_compute_stage_mirrors')
 
     # Stage 2's shorter pipeline (baseline trajectory + manual QC only).
-    # Stage 2's status, mirrored onto whichever record you are looking at — so it
-    # carries stage 2's LABELS (Pass It K), not stage 1's (Baseline). Same values.
     s2_status = fields.Selection(
         selection=STAGE2_STATUS_SELECTION, string='Stage 2 Status',
         compute='_compute_stage_mirrors')
@@ -688,7 +699,7 @@ class Kensei2TrackerAllocation(models.Model):
         source of truth without a second (chained) recompute.
 
         The two stages run DIFFERENT pipelines. Stage 1 authors the task and gets it
-        verified (Tasker QC -> PL Verification -> Ready for Baseline). Stage 2 picks
+        verified (Tasker QC -> PL Verification -> Ready for Pass It K). Stage 2 picks
         that finished task up, so those three steps are already behind it: it starts
         at 'ready_baseline' and only generates the trajectory and manual-QCs it.
         """

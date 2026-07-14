@@ -7,21 +7,34 @@ from odoo.http import request
 
 _logger = logging.getLogger(__name__)
 
-# Funnel stages: (css-key, label, list of allocation statuses that count toward it).
+# Funnel stages.
+#
+# THE SAME STORED STATUS MEANS DIFFERENT WORK ON DIFFERENT STAGES. `baseline_generated`
+# on stage 1 is a Baseline trajectory; on stage 2 it is a Pass It K trajectory. They
+# are separate steps of the pipeline, not one step counted twice — so they get
+# separate buckets, and a bucket is keyed on (stage_no, status), never on status
+# alone. Folding them together is what made a stage-2 task vanish into "In Trajectory"
+# with nothing anywhere showing it was in Pass It K.
+#
+# `stage` = None means the bucket counts that status on EITHER stage.
 # css-key matches the .o_ktd_funnel_* pastel classes in tracker_dashboard.scss.
-# Every non-terminal-failed status maps into exactly one bucket; the earlier
-# "Input Bundles"/'task_created' and 'pass1' entries were dropped because the
-# model never produces those statuses (see STATUS_SELECTION).
 _FUNNEL = [
-    ("in_authoring", "In Authoring", ["in_progress", "tasker_qc_completed"]),
-    ("in_trajectory", "In Trajectory", ["ready_baseline", "baseline_generated"]),
-    ("manual_qc", "Manual QC", ["manual_qc"]),
+    # Authoring is NOT stage-gated. In practice only stage 1 reaches it (see
+    # _compute_status), but the status field admits it on either stage, and a bucket
+    # that gates on stage 1 would leave such a row in no card at all -- counted in
+    # Total and shown nowhere. The two trajectory steps below are the only genuinely
+    # stage-specific ones, because they are the only ones the two ladders NAME
+    # differently.
+    ("in_authoring",     "In Authoring",         ["in_progress", "tasker_qc_completed"], None),
+    ("in_trajectory",    "In Trajectory",        ["ready_baseline", "baseline_generated"], 1),
+    ("pass_it_k",        "In Pass It K",         ["ready_baseline", "baseline_generated"], 2),
+    ("manual_qc",        "Manual QC",            ["manual_qc"], None),
     # A non-final stage that finished its pipeline: the task is NOT delivered, it
     # is waiting to be handed to the next stage. Its own funnel step so it is
     # never mistaken for a delivered task.
-    ("ready_next_stage", "Ready for Next Stage", ["ready_next_stage"]),
-    ("verified", "Verified", ["deliverable"]),
-    ("failed", "Failed", ["failed"]),
+    ("ready_next_stage", "Ready for Next Stage", ["ready_next_stage"], None),
+    ("verified",         "Verified",             ["deliverable"], None),
+    ("failed",           "Failed",               ["failed"], None),
 ]
 
 # Non-terminal statuses (used for the "In Progress" stat + drill-down).
@@ -32,15 +45,45 @@ _ACTIVE_STATUSES = [
     "baseline_generated", "manual_qc", "ready_next_stage",
 ]
 
-# allocation status -> progress-table column. 'ready_next_stage' has its own
-# column: a stage in that state is FINISHED and waiting to be handed off, which is
-# not the same thing as sitting in Manual QC (where it used to be folded in).
+# (stage_no, status) -> progress-table column. Stage-aware for the same reason the
+# funnel is: stage 1's Baseline and stage 2's Pass It K share a stored value but are
+# different work, and a table that merges them cannot show where anything actually is.
+# A `None` stage matches either.
 _PROGRESS_BUCKET = {
-    "in_progress": "in_auth", "tasker_qc_completed": "in_auth",
-    "ready_baseline": "ready", "baseline_generated": "in_traj",
-    "manual_qc": "manual_qc", "ready_next_stage": "handed_off",
-    "deliverable": "verified", "failed": "blocked",
+    (None, "in_progress"): "in_auth",
+    (None, "tasker_qc_completed"): "in_auth",
+    (1, "ready_baseline"): "ready",
+    (1, "baseline_generated"): "in_traj",
+    (2, "ready_baseline"): "pik_ready",
+    (2, "baseline_generated"): "pass_it_k",
+    (None, "manual_qc"): "manual_qc",
+    (None, "ready_next_stage"): "handed_off",
+    (None, "deliverable"): "verified",
+    (None, "failed"): "blocked",
 }
+
+# Every column the progress table can hold, in render order.
+_PROGRESS_COLUMNS = ("in_auth", "ready", "in_traj", "pik_ready", "pass_it_k",
+                     "manual_qc", "handed_off", "verified", "blocked")
+
+
+def _pipeline_stage(stage_no):
+    """Which of the two PIPELINES a stage runs — 1 (authoring) or 2 (Pass It K).
+
+    Mirrors _compute_status, which branches on `stage_no >= 2`: everything past
+    stage 2 runs the stage-2 ladder and so produces stage-2 statuses. Matching the
+    raw stage number instead would leave a stage-3 row in no bucket at all — absent
+    from the funnel and from every progress column while still counted in Total, so
+    the row's cells would not add up to its own total.
+    """
+    return 2 if stage_no and stage_no >= 2 else 1
+
+
+def _bucket_for(stage_no, status):
+    """The progress-table column for one (stage, status), or None if it has none."""
+    return (_PROGRESS_BUCKET.get((_pipeline_stage(stage_no), status))
+            or _PROGRESS_BUCKET.get((None, status)))
+
 
 # A stage's own work is finished in these states — used by the Daily Tracker,
 # which credits the tasker who completed THAT stage (finishing a non-final stage
@@ -61,13 +104,28 @@ _MAX_PAGE_SIZE = 5000
 
 
 def _funnel(sc):
-    """Build the RL-pipeline funnel cards from a {status: count} map. Shared by
-    the org dashboard and the per-tasker performance view."""
-    return [
-        {"key": key, "label": label,
-         "value": sum(sc.get(s, 0) for s in statuses), "statuses": statuses}
-        for key, label, statuses in _FUNNEL
-    ]
+    """Funnel cards from a {(stage_no, status): count} map.
+
+    Keyed on the PAIR, not on status alone — stage 1's Baseline and stage 2's Pass
+    It K share the stored value `baseline_generated` but are different steps, and
+    they get their own cards. Each card carries the (statuses, stage) it counted so
+    the drill-down opens exactly those records and nothing else.
+    """
+    cards = []
+    for key, label, statuses, stage in _FUNNEL:
+        value = sum(c for (st, s_), c in sc.items()
+                    if s_ in statuses
+                    and (stage is None or _pipeline_stage(st) == stage))
+        cards.append({"key": key, "label": label, "value": value,
+                      "statuses": statuses, "stage": stage})
+    return cards
+
+
+def _status_counts(Alloc, domain):
+    """{(stage_no, status): count} — one grouped query, stage included."""
+    return {(stage, status): count
+            for stage, status, count in Alloc._read_group(
+                domain, ["stage_no", "status"], ["__count"])}
 
 
 def _iso_date(v):
@@ -129,16 +187,16 @@ def _progress_rows(Alloc, group_field, base_domain=None):
         if not row:
             row = rows[rid] = {
                 "id": rid, "name": _label(rec) if rec else "Unassigned",
-                "total": 0, "in_auth": 0, "ready": 0, "in_traj": 0,
-                "manual_qc": 0, "handed_off": 0, "verified": 0, "blocked": 0,
-                "avg_score": None,
+                "total": 0, "avg_score": None,
+                **{c: 0 for c in _PROGRESS_COLUMNS},
             }
         return row
 
-    for rec, status, count in Alloc._read_group(base_domain, [group_field, "status"], ["__count"]):
+    for rec, stage, status, count in Alloc._read_group(
+            base_domain, [group_field, "stage_no", "status"], ["__count"]):
         row = _row(rec)
         row["total"] += count
-        col = _PROGRESS_BUCKET.get(status)
+        col = _bucket_for(stage, status)
         if col:
             row[col] += count
     for rec, avg in Alloc._read_group(
@@ -357,8 +415,17 @@ class Kensei2TrackerController(http.Controller):
                  for lead, in Alloc._read_group([("team_lead_id", "!=", False)], ["team_lead_id"])]
         projects = sorted(
             p for p, in Alloc._read_group([("project", "!=", False)], ["project"]) if p)
-        statuses = [{"value": k, "label": v}
-                    for k, v in Alloc._fields["status"].selection]
+        # The filter matches the STORED status, which two stages share under
+        # different names: picking "Baseline Generated" also returns every stage-2
+        # row, whose real name is "Pass It K Generated". Naming only one of them
+        # makes the dropdown lie about what it selects, so where the two ladders
+        # disagree the option names both.
+        s2 = dict(Alloc.STAGE2_STATUS_SELECTION)
+        statuses = [
+            {"value": k,
+             "label": v if s2.get(k, v) == v else "%s / %s" % (v, s2[k])}
+            for k, v in Alloc._fields["status"].selection
+        ]
         return {
             "pls": sorted(pls, key=lambda x: (x["name"] or "").lower()),
             "team_leads": sorted(leads, key=lambda x: (x["name"] or "").lower()),
@@ -562,9 +629,7 @@ class Kensei2TrackerController(http.Controller):
             people_domain.append(("stage_no", "=", stage_no))
 
         # ----- counts by status (one grouped query) -----
-        sc = {status: count
-              for status, count in Alloc._read_group(task_domain, ["status"], ["__count"])}
-
+        sc = _status_counts(Alloc, task_domain)
         funnel = _funnel(sc)
 
         # ----- team composition (roster counts, scoped to the caller's team) -----
@@ -584,8 +649,8 @@ class Kensei2TrackerController(http.Controller):
 
         # ----- stats (within range; drill-down where meaningful) -----
         total = sum(sc.values())
-        completed = sc.get("deliverable", 0)
-        failed = sc.get("failed", 0)
+        completed = sum(c for (_st, s_), c in sc.items() if s_ == "deliverable")
+        failed = sum(c for (_st, s_), c in sc.items() if s_ == "failed")
         active = total - completed - failed
         avg_overall = next((avg for avg, in Alloc._read_group(
             task_domain + [("overall_score", ">", 0)], [], ["overall_score:avg"])), None)
@@ -656,15 +721,16 @@ class Kensei2TrackerController(http.Controller):
         if dt:
             dom.append(("assigned_date", "<=", dt))
 
-        sc = {s: c for s, c in Alloc._read_group(dom, ["status"], ["__count"])}
+        sc = _status_counts(Alloc, dom)
         total = sum(sc.values())
         # This is a PERSONAL performance view, so it measures what this tasker
         # finished. Completing a non-final stage ('ready_next_stage') is real work
         # they delivered — it counts, even though the task itself is not delivered
         # yet. (The org dashboard's "Completed" stat deliberately counts only
         # 'deliverable', because there it is TASKS being counted, not effort.)
-        completed = sum(sc.get(s, 0) for s in _STAGE_DONE_STATUSES)
-        blocked = sc.get("failed", 0)
+        completed = sum(c for (_st, s_), c in sc.items()
+                        if s_ in _STAGE_DONE_STATUSES)
+        blocked = sum(c for (_st, s_), c in sc.items() if s_ == "failed")
         active = total - completed - blocked
         comp_rate = round(100 * completed / (completed + blocked), 1) \
             if (completed + blocked) else None
