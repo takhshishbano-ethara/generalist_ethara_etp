@@ -19,22 +19,38 @@ _logger = logging.getLogger(__name__)
 # `stage` = None means the bucket counts that status on EITHER stage.
 # css-key matches the .o_ktd_funnel_* pastel classes in tracker_dashboard.scss.
 _FUNNEL = [
+    # Ordered as the two workflows actually run: stage 1's ladder, then stage 2's.
+    # The two stages are INDEPENDENT pipelines that happen to share stored status
+    # values, so every step either names its stage or is genuinely common to both.
+    #
+    #   Stage 1: Authoring -> Tasker QC -> Ready for Baseline -> Baseline Generated
+    #            -> Stage 1 Manual QC -> Ready for Next Stage
+    #   Stage 2: Ready for Pass It K -> Pass It K Generated -> Stage 2 Manual QC
+    #            -> Deliverable
+    #
+    # `stage` = None means the bucket counts that status on EITHER stage.
+    # css-key matches the .o_ktd_funnel_* pastel classes in tracker_dashboard.scss.
+
     # Authoring is NOT stage-gated. In practice only stage 1 reaches it (see
     # _compute_status), but the status field admits it on either stage, and a bucket
     # that gates on stage 1 would leave such a row in no card at all -- counted in
-    # Total and shown nowhere. The two trajectory steps below are the only genuinely
-    # stage-specific ones, because they are the only ones the two ladders NAME
-    # differently.
-    ("in_authoring",     "In Authoring",         ["in_progress", "tasker_qc_completed"], None),
-    ("in_trajectory",    "In Trajectory",        ["ready_baseline", "baseline_generated"], 1),
-    ("pass_it_k",        "In Pass It K",         ["ready_baseline", "baseline_generated"], 2),
-    ("manual_qc",        "Manual QC",            ["manual_qc"], None),
+    # Total and shown nowhere.
+    ("in_authoring",  "In Authoring",           ["in_progress", "tasker_qc_completed"], None),
+    # --- stage 1 ---
+    ("in_trajectory", "Stage 1 Baseline",          ["ready_baseline", "baseline_generated"], 1),
+    ("manual_qc_s1",  "Stage 1 Manual QC",         ["manual_qc"], 1),
     # A non-final stage that finished its pipeline: the task is NOT delivered, it
-    # is waiting to be handed to the next stage. Its own funnel step so it is
-    # never mistaken for a delivered task.
+    # is waiting to be handed to stage 2. Its own step so it is never mistaken for
+    # a delivered task. Only stage 1 can reach it, but it is left un-gated so a
+    # task configured with >2 stages still lands somewhere.
     ("ready_next_stage", "Ready for Next Stage", ["ready_next_stage"], None),
-    ("verified",         "Verified",             ["deliverable"], None),
-    ("failed",           "Failed",               ["failed"], None),
+    # --- stage 2 ---
+    ("pass_it_k",     "Stage 2 Pass It K",         ["ready_baseline", "baseline_generated"], 2),
+    ("manual_qc_s2",  "Stage 2 Manual QC",         ["manual_qc"], 2),
+    # Only the FINAL stage can deliver, so in a two-stage task this is stage 2's
+    # terminal step. Un-gated for the same reason as ready_next_stage.
+    ("verified",      "Deliverable",            ["deliverable"], None),
+    ("failed",        "Failed",                 ["failed"], None),
 ]
 
 # Non-terminal statuses (used for the "In Progress" stat + drill-down).
@@ -50,21 +66,31 @@ _ACTIVE_STATUSES = [
 # different work, and a table that merges them cannot show where anything actually is.
 # A `None` stage matches either.
 _PROGRESS_BUCKET = {
+    # (stage_no, status) -> progress-table column. Stage-aware because the two
+    # ladders share stored values under different names: 'baseline_generated' is
+    # Baseline on stage 1 and Pass It K on stage 2, and 'manual_qc' is each stage's
+    # OWN QC gate. A table that merges them cannot show where anything actually is.
+    # A `None` stage matches either.
     (None, "in_progress"): "in_auth",
     (None, "tasker_qc_completed"): "in_auth",
+    # stage 1
     (1, "ready_baseline"): "ready",
     (1, "baseline_generated"): "in_traj",
+    (1, "manual_qc"): "s1_qc",
+    (None, "ready_next_stage"): "handed_off",
+    # stage 2
     (2, "ready_baseline"): "pik_ready",
     (2, "baseline_generated"): "pass_it_k",
-    (None, "manual_qc"): "manual_qc",
-    (None, "ready_next_stage"): "handed_off",
+    (2, "manual_qc"): "s2_qc",
     (None, "deliverable"): "verified",
+    # either
     (None, "failed"): "blocked",
 }
 
-# Every column the progress table can hold, in render order.
-_PROGRESS_COLUMNS = ("in_auth", "ready", "in_traj", "pik_ready", "pass_it_k",
-                     "manual_qc", "handed_off", "verified", "blocked")
+# Every column the progress table can hold, in render order: stage 1's ladder, then
+# stage 2's, then the shared failure bucket.
+_PROGRESS_COLUMNS = ("in_auth", "ready", "in_traj", "s1_qc", "handed_off",
+                     "pik_ready", "pass_it_k", "s2_qc", "verified", "blocked")
 
 
 def _pipeline_stage(stage_no):
@@ -767,15 +793,17 @@ class Kensei2TrackerController(http.Controller):
 
         funnel = _funnel(sc)
 
-        # recent tasks
-        status_labels = dict(Alloc._fields["status"].selection)
+        # recent tasks. A tasker's recent list mixes stage-1 and stage-2 rows, so the
+        # label MUST come from the record (status_label is stored and stage-aware) and
+        # not from the status Selection -- that one table carries stage 1's names, and
+        # would print a stage-2 row as "Baseline Generated" / "Stage 1 Manual QC".
         recent = []
         for a in Alloc.search(dom, order="assigned_date desc, id desc", limit=10):
             recent.append({
                 "id": a.id, "task_id": a.task_id,
                 "stage": a.stage_no, "total_stages": a.total_stages,
                 "persona": a.persona_id.name or "",
-                "status": a.status, "status_label": status_labels.get(a.status, a.status),
+                "status": a.status, "status_label": a.status_label,
                 "overall": a.overall_score or None,
                 "assigned": a.assigned_date and a.assigned_date.isoformat(),
                 "completed": a.date_final and a.date_final.date().isoformat(),

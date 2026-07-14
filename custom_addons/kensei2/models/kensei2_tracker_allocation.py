@@ -89,7 +89,7 @@ class Kensei2TrackerAllocation(models.Model):
         ('tasker_qc_completed', 'Tasker QC'),
         ('ready_baseline', 'Ready for Baseline'),
         ('baseline_generated', 'Baseline Generated'),
-        ('manual_qc', 'Manual QC'),
+        ('manual_qc', 'Stage 1 Manual QC'),
         # Finishing the pipeline does NOT mean the task is delivered: a task runs
         # over several stages. A non-final stage lands here — its work is done and
         # it is waiting to be handed off to the next stage. Only the FINAL stage
@@ -132,7 +132,7 @@ class Kensei2TrackerAllocation(models.Model):
         ('tasker_qc_completed', 'Tasker QC'),
         ('ready_baseline', 'Ready for Pass It K'),
         ('baseline_generated', 'Pass It K Generated'),
-        ('manual_qc', 'Manual QC'),
+        ('manual_qc', 'Stage 2 Manual QC'),
         ('ready_next_stage', 'Ready for Next Stage'),
         ('deliverable', 'Deliverable'),
         ('failed', 'Failed'),

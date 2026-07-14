@@ -323,13 +323,20 @@
     }
 }
 
+// The funnel shows BOTH workflows side by side, so colour carries the stage: each
+// stage's steps share a hue family and stage 2 sits a shade deeper than stage 1.
+// Without that, "S1 · Manual QC" and "S2 · Manual QC" read as one repeated card.
 .o_ktd_funnel_in_authoring { background: #fef3e6; }
+
+// --- stage 1: teal / pink / violet ---
 .o_ktd_funnel_in_trajectory { background: #e6f7f5; }
-// Pass It K is stage 2's trajectory: same family as In Trajectory (teal), a step
-// deeper, so the pair reads as "same kind of work, later stage" at a glance.
-.o_ktd_funnel_pass_it_k { background: #d5f0eb; }
-.o_ktd_funnel_manual_qc { background: #fdeaf1; }
+.o_ktd_funnel_manual_qc_s1 { background: #fdeaf1; }
 .o_ktd_funnel_ready_next_stage { background: #ede9f7; }
+
+// --- stage 2: the same families, one step deeper ---
+.o_ktd_funnel_pass_it_k { background: #cfeee8; }
+.o_ktd_funnel_manual_qc_s2 { background: #fbd8e6; }
+
 .o_ktd_funnel_verified { background: #e8f5e9; }
 .o_ktd_funnel_failed { background: #fdecea; }
 
@@ -375,6 +382,26 @@
     .o_ktd_col_pl {
         text-align: left;
         font-weight: 600;
+    }
+
+    // Stage bands. The grouped header only means something if the columns under it
+    // are visibly bound together, so each stage gets a faint ground and the boundary
+    // between the two workflows gets a real rule.
+    .o_ktd_s1 { background: rgba(16, 148, 136, 0.045); }
+    .o_ktd_s2 { background: rgba(16, 148, 136, 0.10); }
+
+    .o_ktd_group_row {
+        th { text-align: center; font-size: 0.68rem; letter-spacing: 0.06em; }
+
+        .o_ktd_group_s1 { background: rgba(16, 148, 136, 0.10); }
+        .o_ktd_group_s2 { background: rgba(16, 148, 136, 0.18); }
+    }
+
+    // the seam between stage 1's last column and stage 2's first
+    .o_ktd_group_s2,
+    th.o_ktd_s2:first-of-type,
+    td.o_ktd_s2:first-of-type {
+        border-left: 2px solid rgba(16, 148, 136, 0.35);
     }
 
     .o_ktd_cell_verified {

@@ -342,7 +342,14 @@
                       <field name="tasker_email" optional="show"/>
                       <field name="assigned_pl_id" string="PL" optional="show"/>
                       <field name="assigned_date"/>
-                      <field name="status" widget="badge"
+                      <!-- This list shows EVERY stage of the task at once, so it is
+                           the one place a stage-1 and a stage-2 row sit side by side.
+                           Rendering raw `status` here labels both from stage 1's
+                           Selection, so the stage-2 row would read "Baseline
+                           Generated" and "Stage 1 Manual QC". status_label is stored
+                           and stage-aware; status stays only to drive decorations. -->
+                      <field name="status" column_invisible="1"/>
+                      <field name="status_label" string="Status" widget="badge"
                              decoration-success="status == 'deliverable'"
                              decoration-danger="status == 'failed'"
                              decoration-warning="status in ('manual_qc','ready_next_stage')"/>
@@ -664,7 +671,14 @@
                actually opens this page to answer. -->
           <filter name="f_waiting_pl" string="Waiting on PL"
                   domain="[('drive_link', '!=', False), ('pl_verified_status', '=', 'in_progress')]"/>
-          <filter name="f_manual_qc" string="Waiting on Manual QC" domain="[('status', '=', 'manual_qc')]"/>
+          <!-- Manual QC is each stage's OWN gate, and the two stages store the same
+               value for it. A single "Waiting on Manual QC" filter therefore mixes
+               stage 1's QC with stage 2's, which are different queues worked by
+               different people. Split, so a lead can open exactly their own. -->
+          <filter name="f_manual_qc_s1" string="Waiting on Stage 1 Manual QC"
+                  domain="[('status', '=', 'manual_qc'), ('stage_no', '=', 1)]"/>
+          <filter name="f_manual_qc_s2" string="Waiting on Stage 2 Manual QC"
+                  domain="[('status', '=', 'manual_qc'), ('stage_no', '=', 2)]"/>
           <filter name="f_ready_next" string="Awaiting Hand-off" domain="[('status', '=', 'ready_next_stage')]"/>
           <filter name="f_stalled" string="Stalled &gt; 7 Days"
                   domain="[('final_status', '=', 'in_progress'),
@@ -681,7 +695,12 @@
             <filter name="g_tasker" string="Tasker" context="{'group_by': 'tasker_member_id'}"/>
             <filter name="g_pl" string="PL" context="{'group_by': 'pl_id'}"/>
             <filter name="g_function" string="Function" context="{'group_by': 'function'}"/>
-            <filter name="g_status" string="Status" context="{'group_by': 'status'}"/>
+            <!-- status_label, NOT status. Grouping on the raw value merges the two
+                 stages into one group and titles it with whichever stage's label the
+                 Selection happens to carry, so every stage-2 group would read
+                 "Stage 1 Manual QC". status_label is the stored, stage-aware name
+                 (the kanban already groups on it). -->
+            <filter name="g_status" string="Status" context="{'group_by': 'status_label'}"/>
             <filter name="g_final" string="Final Status" context="{'group_by': 'final_status'}"/>
             <filter name="g_persona" string="Persona" context="{'group_by': 'persona_id'}"/>
             <filter name="g_assigned" string="Assignment Date" context="{'group_by': 'assigned_date'}"/>

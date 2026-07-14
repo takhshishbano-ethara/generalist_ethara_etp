@@ -3,27 +3,36 @@
     <t t-name="kensei2.ProgressTable">
         <div class="o_ktd_table_wrap">
             <table class="o_ktd_table">
+                <!-- Two banded groups, because the stages are two INDEPENDENT
+                     workflows, not one pipeline. They share stored status values
+                     under different names, so a flat header (one "Manual QC", one
+                     "Baseline") cannot say which stage a number belongs to. -->
                 <thead>
+                    <tr class="o_ktd_group_row">
+                        <th class="o_ktd_col_idx" rowspan="2">#</th>
+                        <th class="o_ktd_col_pl" rowspan="2"><t t-out="props.head"/></th>
+                        <th rowspan="2">Total</th>
+                        <th colspan="5" class="o_ktd_group_s1">STAGE 1 — Baseline</th>
+                        <th colspan="4" class="o_ktd_group_s2">STAGE 2 — Pass It K</th>
+                        <th rowspan="2">Blocked</th>
+                        <th rowspan="2">Avg Score</th>
+                    </tr>
                     <tr>
-                        <th class="o_ktd_col_idx">#</th>
-                        <th class="o_ktd_col_pl"><t t-out="props.head"/></th>
-                        <th>Total</th>
-                        <th>In Auth</th>
-                        <th title="Stage 1 — signed off, ready for its Baseline trajectory">Ready</th>
-                        <th title="Stage 1 — Baseline trajectory generated">In Traj</th>
-                        <th title="Stage 2 — ready for its Pass It K trajectory">PIK Ready</th>
-                        <th title="Stage 2 — Pass It K trajectory generated">Pass It K</th>
-                        <th>Manual QC</th>
-                        <th>Handed Off</th>
-                        <th>Verified</th>
-                        <th>Blocked</th>
-                        <th>Avg Score</th>
+                        <th class="o_ktd_s1" title="Authoring / Tasker QC">Authoring</th>
+                        <th class="o_ktd_s1" title="Stage 1 — signed off, ready for its Baseline trajectory">Ready</th>
+                        <th class="o_ktd_s1" title="Stage 1 — Baseline trajectory generated">Baseline</th>
+                        <th class="o_ktd_s1" title="Stage 1 Manual QC">Manual QC</th>
+                        <th class="o_ktd_s1" title="Stage 1 finished — waiting to hand off to Stage 2">Next Stage</th>
+                        <th class="o_ktd_s2" title="Stage 2 — ready for its Pass It K trajectory">PIK Ready</th>
+                        <th class="o_ktd_s2" title="Stage 2 — Pass It K trajectory generated">Pass It K</th>
+                        <th class="o_ktd_s2" title="Stage 2 Manual QC">Manual QC</th>
+                        <th class="o_ktd_s2" title="Stage 2 complete — delivered">Deliverable</th>
                     </tr>
                 </thead>
                 <tbody>
                     <t t-if="total === 0">
                         <tr>
-                            <td colspan="13" class="o_ktd_empty">
+                            <td colspan="14" class="o_ktd_empty">
                                 <i class="fa fa-inbox me-1"/>No allocations yet.
                             </td>
                         </tr>
@@ -38,14 +47,17 @@
                             <td class="o_ktd_col_idx"><t t-out="row._idx"/></td>
                             <td class="o_ktd_col_pl"><t t-out="row.name"/></td>
                             <td><t t-out="row.total"/></td>
-                            <td><t t-out="row.in_auth"/></td>
-                            <td><t t-out="row.ready"/></td>
-                            <td><t t-out="row.in_traj"/></td>
-                            <td><t t-out="row.pik_ready"/></td>
-                            <td class="o_ktd_cell_pik"><t t-out="row.pass_it_k"/></td>
-                            <td><t t-out="row.manual_qc"/></td>
-                            <td><t t-out="row.handed_off"/></td>
-                            <td class="o_ktd_cell_verified"><t t-out="row.verified"/></td>
+                            <!-- stage 1 -->
+                            <td class="o_ktd_s1"><t t-out="row.in_auth"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.ready"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.in_traj"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.s1_qc"/></td>
+                            <td class="o_ktd_s1"><t t-out="row.handed_off"/></td>
+                            <!-- stage 2 -->
+                            <td class="o_ktd_s2"><t t-out="row.pik_ready"/></td>
+                            <td class="o_ktd_s2 o_ktd_cell_pik"><t t-out="row.pass_it_k"/></td>
+                            <td class="o_ktd_s2"><t t-out="row.s2_qc"/></td>
+                            <td class="o_ktd_s2 o_ktd_cell_verified"><t t-out="row.verified"/></td>
                             <td t-att-class="row.blocked > 0 ? 'o_ktd_cell_blocked' : ''">
                                 <t t-out="row.blocked"/>
                             </td>
