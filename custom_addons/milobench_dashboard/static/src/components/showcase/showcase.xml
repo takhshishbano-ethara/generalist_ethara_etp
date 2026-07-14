@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="milobench_dashboard.MilobenchShowcase">
+    <div class="mb-showcase">
+        <header class="mb-showcase-header">
+            <span class="mb-tag">LONG-HORIZON SOFTWARE ENGINEERING</span>
+            <h1 class="mb-title">Milo-Bench</h1>
+            <p class="mb-subtitle">
+                Measuring milestone-scale engineering competence across whole codebases,
+                across eight languages, scored on a continuous scale.
+            </p>
+            <p class="mb-byline">
+                by <strong>Ethara.AI</strong> — <a t-att-href="state.githubUrl" target="_blank">github</a>
+                · <a t-att-href="state.huggingfaceUrl" target="_blank">huggingface</a>
+                · <a t-att-href="state.paperUrl" target="_blank">readme</a>
+            </p>
+        </header>
+
+        <section t-if="state.loading" class="mb-section mb-loading">
+            <p>Loading benchmark data…</p>
+        </section>
+
+        <t t-if="!state.loading and state.summary">
+            <section class="mb-section mb-metrics">
+                <div class="mb-metric-grid">
+                    <div class="mb-metric-card">
+                        <div class="mb-metric-value"><t t-esc="state.summary.task_count"/></div>
+                        <div class="mb-metric-label">Tasks</div>
+                    </div>
+                    <div class="mb-metric-card">
+                        <div class="mb-metric-value"><t t-esc="state.summary.model_count"/></div>
+                        <div class="mb-metric-label">Models</div>
+                    </div>
+                    <div class="mb-metric-card">
+                        <div class="mb-metric-value"><t t-esc="state.summary.run_count"/></div>
+                        <div class="mb-metric-label">Graded runs</div>
+                    </div>
+                    <div class="mb-metric-card">
+                        <div class="mb-metric-value"><t t-esc="state.summary.language_count"/></div>
+                        <div class="mb-metric-label">Languages</div>
+                    </div>
+                    <div class="mb-metric-card">
+                        <div class="mb-metric-value"><t t-esc="state.summary.codebase_count"/></div>
+                        <div class="mb-metric-label">Codebases</div>
+                    </div>
+                    <div class="mb-metric-card">
+                        <div class="mb-metric-value"><t t-esc="formatPercent(state.summary.pass_rate_overall)"/></div>
+                        <div class="mb-metric-label">Overall pass@3</div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="mb-section mb-models">
+                <h2 class="mb-section-title">Models</h2>
+                <table class="mb-table">
+                    <thead>
+                        <tr>
+                            <th>Model</th>
+                            <th>Provider</th>
+                            <th class="mb-num">Runs</th>
+                            <th class="mb-num">Pass@3</th>
+                            <th class="mb-num">Mean score</th>
+                            <th class="mb-num">Total cost</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="state.summary.models" t-as="m" t-key="m.key">
+                            <td>
+                                <span class="mb-color-dot" t-attf-style="background:{{ m.color }}"/>
+                                <strong t-esc="m.display_name"/>
+                            </td>
+                            <td class="text-muted" t-esc="m.provider"/>
+                            <td class="mb-num" t-esc="m.run_count"/>
+                            <td class="mb-num" t-esc="formatPercent(m.pass_at_3)"/>
+                            <td class="mb-num" t-esc="formatPercent(m.mean_score)"/>
+                            <td class="mb-num" t-esc="formatMoney(m.total_cost_usd)"/>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+
+            <section class="mb-section mb-tiers">
+                <h2 class="mb-section-title">Difficulty tiers</h2>
+                <table class="mb-table">
+                    <thead>
+                        <tr>
+                            <th>Tier</th>
+                            <th class="mb-num">Tasks</th>
+                            <th class="mb-num">Runs</th>
+                            <th class="mb-num">Mean score</th>
+                            <th class="mb-num">Pass rate</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="['trivial','easy','medium','hard','expert']" t-as="tier" t-key="tier">
+                            <td class="mb-tier-cell" t-esc="tier"/>
+                            <td class="mb-num" t-esc="state.summary.tiers[tier] and state.summary.tiers[tier].task_count or 0"/>
+                            <td class="mb-num" t-esc="state.summary.tiers[tier] and state.summary.tiers[tier].run_count or 0"/>
+                            <td class="mb-num" t-esc="formatPercent(state.summary.tiers[tier] and state.summary.tiers[tier].mean_score)"/>
+                            <td class="mb-num" t-esc="formatPercent(state.summary.tiers[tier] and state.summary.tiers[tier].pass_rate)"/>
+                        </tr>
+                    </tbody>
+                </table>
+            </section>
+        </t>
+
+        <section class="mb-section mb-actions">
+            <button class="mb-btn" t-on-click="openTasks">Browse tasks</button>
+            <button class="mb-btn" t-on-click="openRuns">Browse runs</button>
+            <button class="mb-btn mb-btn-filled" t-on-click="openPortal">Open public portal</button>
+        </section>
+    </div>
+</t>
+
+</templates>
