@@ -60,6 +60,11 @@ class HrApplicant(models.Model):
     resume_llm_completion_tokens = fields.Integer(string='Completion Tokens')
     resume_llm_latency_ms = fields.Integer(string='LLM Latency (ms)')
     resume_screened_at = fields.Datetime(string='Last Screened At')
+    resume_manual_override_reason = fields.Text(string='Manual Override Reason')
+    resume_manual_override_at = fields.Datetime(string='Overridden At')
+    resume_manual_override_by_id = fields.Many2one(
+        'res.users', string='Overridden By', ondelete='set null',
+    )
 
     def write(self, vals):
         if 'job_id' in vals:
