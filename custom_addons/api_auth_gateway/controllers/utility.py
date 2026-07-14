@@ -1,17 +1,26 @@
 from odoo import http
 from odoo.http import request
 from werkzeug.utils import secure_filename
+from werkzeug.routing import Map, Rule
+from werkzeug.exceptions import NotFound, MethodNotAllowed
 from datetime import datetime, date, timedelta
 
 IST_OFFSET = timedelta(hours=5, minutes=30)
 import functools
 import json
 import calendar
+import logging
 import mimetypes
 import time
 import re
 import uuid
 import os
+
+_logger = logging.getLogger(__name__)
+
+_EXPRESS_PARAM_RE = re.compile(r'(?<=/):([A-Za-z_][A-Za-z0-9_]*)')
+_BRACE_PARAM_RE = re.compile(r'(?<=/)\{([A-Za-z_][A-Za-z0-9_]*)\}')
+_CONVERTER_RE = re.compile(r'^<[^>]+>$')
 
 
 EXECUTIVE_ROLE_REFS = (
@@ -77,6 +86,140 @@ def return_Response(message, status=200, errors=[], data=None):
         mimetype='application/json'
     )
 
+def _normalize_pattern(pattern):
+    if not pattern:
+        return pattern
+    p = pattern.strip()
+    p = _EXPRESS_PARAM_RE.sub(r'<string:\1>', p)
+    p = _BRACE_PARAM_RE.sub(r'<string:\1>', p)
+    return p
+
+
+def _canonical(pattern):
+    if not pattern:
+        return ''
+    return _normalize_pattern(pattern).rstrip('/') or '/'
+
+
+@functools.lru_cache(maxsize=2048)
+def _compile_pattern(pattern):
+    normalized = _normalize_pattern(pattern)
+    if not normalized:
+        return None
+    try:
+        return Map([Rule(normalized, endpoint='match', strict_slashes=False)])
+    except Exception as exc:
+        _logger.debug("api_auth_gateway: cannot compile url_pattern %r: %s", pattern, exc)
+        return None
+
+
+def _current_server_name():
+    try:
+        httpreq = getattr(request, 'httprequest', None)
+        host = getattr(httpreq, 'host', None) if httpreq is not None else None
+        if host:
+            return host.split(':', 1)[0]
+    except Exception:
+        pass
+    return 'localhost'
+
+
+def _pattern_matches(pattern, path, method='GET'):
+    if not pattern or not path:
+        return False
+    if _canonical(pattern) == _canonical(path):
+        return True
+    url_map = _compile_pattern(pattern)
+    if url_map is None:
+        return False
+    try:
+        url_map.bind(_current_server_name()).match(path, method=(method or 'GET').upper())
+        return True
+    except (NotFound, MethodNotAllowed):
+        return False
+    except Exception:
+        return False
+
+
+def _current_url_patterns():
+    patterns = []
+    httpreq = getattr(request, 'httprequest', None)
+    if httpreq is not None:
+        rule = getattr(httpreq, 'url_rule', None)
+        rule_str = getattr(rule, 'rule', None) if rule is not None else None
+        if rule_str:
+            patterns.append(rule_str)
+    try:
+        endpoint = getattr(request, 'endpoint', None)
+    except Exception:
+        endpoint = None
+    if endpoint is not None:
+        routing = getattr(endpoint, 'routing', None) or {}
+        for r in routing.get('routes', []) or []:
+            if r and r not in patterns:
+                patterns.append(r)
+    return tuple(patterns)
+
+
+def _current_path():
+    httpreq = getattr(request, 'httprequest', None)
+    return httpreq.path if httpreq else None
+
+
+def _current_method():
+    httpreq = getattr(request, 'httprequest', None)
+    return httpreq.method.upper() if httpreq else None
+
+
+def _is_variable_segment(seg):
+    if not seg:
+        return False
+    if _CONVERTER_RE.match(seg):
+        return True
+    if seg.startswith(':') and len(seg) > 1:
+        return True
+    if seg.startswith('{') and seg.endswith('}') and len(seg) > 2:
+        return True
+    return False
+
+
+def _is_path_converter(seg):
+    return seg.startswith('<path:') or seg == '<path>'
+
+
+def _skeleton_matches(stored_pattern, request_path):
+    if not stored_pattern or not request_path:
+        return False
+    stored = (_normalize_pattern(stored_pattern) or '').rstrip('/') or '/'
+    path = request_path.rstrip('/') or '/'
+    stored_parts = stored.split('/')
+    path_parts = path.split('/')
+    for i, s in enumerate(stored_parts):
+        if _is_path_converter(s):
+            return len(path_parts) >= i + 1
+        if i >= len(path_parts):
+            return False
+        if _is_variable_segment(s):
+            continue
+        if s != path_parts[i]:
+            return False
+    return len(stored_parts) == len(path_parts)
+
+
+def _endpoint_allowed(endpoint, url_patterns, path, method='GET'):
+    stored = endpoint.url_pattern
+    if not stored:
+        return False
+    stored_canon = _canonical(stored)
+    if url_patterns:
+        for registered in url_patterns:
+            if _canonical(registered) == stored_canon:
+                return True
+    if _pattern_matches(stored, path, method=method):
+        return True
+    return _skeleton_matches(stored, path)
+
+
 def validate_token(func):
     @functools.wraps(func)
     def wrap(self, *args, **kwargs):
@@ -96,17 +239,25 @@ def validate_token(func):
         if not access_token_data.user_id.user_role:
             return return_Response(message="No role assigned to your account.", status=403)
 
-        url_pattern = _current_url_pattern()
-        print(url_pattern,'---------------', access_token_data.user_id.user_role)
-        method = _current_method()
-        if not url_pattern:
+        url_patterns = _current_url_patterns()
+        path = _current_path()
+        method = _current_method() or 'GET'
+        if not url_patterns and not path:
             return return_Response(message="Endpoint not resolvable.", status=403)
 
-        allowed = access_token_data.user_id.user_role.sudo().endpoint_ids.filtered(
-            lambda e: e.url_pattern == url_pattern
+        user_endpoints = access_token_data.user_id.user_role.sudo().endpoint_ids
+        allowed = user_endpoints.filtered(
+            lambda e: _endpoint_allowed(e, url_patterns, path, method=method)
         )
-        print(allowed)
         if not allowed:
+            _logger.warning(
+                "api_auth_gateway: 403 for user=%s role=%s method=%s path=%s "
+                "routes=%s stored=%s",
+                access_token_data.user_id.login,
+                access_token_data.user_id.user_role.name,
+                method, path, list(url_patterns),
+                [(e.method, e.url_pattern) for e in user_endpoints],
+            )
             return return_Response(
                 message="Your role is not allowed to access this endpoint.",
                 status=403,
@@ -114,21 +265,6 @@ def validate_token(func):
 
         return func(self, *args, **kwargs)
     return wrap
-
-
-def _current_url_pattern():
-    httpreq = getattr(request, 'httprequest', None)
-    if httpreq is None:
-        return None
-    rule = getattr(httpreq, 'url_rule', None)
-    if rule is not None and getattr(rule, 'rule', None):
-        return rule.rule
-    return httpreq.path
-
-
-def _current_method():
-    httpreq = getattr(request, 'httprequest', None)
-    return httpreq.method.upper() if httpreq else None
 
 
 def require_endpoint_access(func):
@@ -141,13 +277,14 @@ def require_endpoint_access(func):
         if not user.user_role:
             return return_Response(message="No role assigned to your account.", status=403)
 
-        url_pattern = _current_url_pattern()
-        method = _current_method()
-        if not url_pattern or not method:
+        url_patterns = _current_url_patterns()
+        path = _current_path()
+        method = _current_method() or 'GET'
+        if not url_patterns and not path:
             return return_Response(message="Endpoint not resolvable.", status=403)
 
         allowed = user.user_role.sudo().endpoint_ids.filtered(
-            lambda e: e.url_pattern == url_pattern and e.method == method
+            lambda e: _endpoint_allowed(e, url_patterns, path, method=method)
         )
         if not allowed:
             return return_Response(

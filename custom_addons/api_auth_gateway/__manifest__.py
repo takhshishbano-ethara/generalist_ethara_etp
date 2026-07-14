@@ -9,7 +9,6 @@
         'views/res_users_views.xml',
         'data/api_role_data.xml',
         'data/api_endpoint_data.xml',
-        'data/api_role_endpoint_data.xml',
         'data/password_reset_data.xml',
         'data/password_change_data.xml',
     ],
