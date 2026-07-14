@@ -77,7 +77,7 @@ The override is uploaded as a `.md` in **Settings → System Prompts** (`views/r
    - **Directive** (`:1123-1144`):
       - If **Force Question Type** is a valid type → `_forced_type_directive(forced, count, ab_dims)`: "Generate EXACTLY N … EVERY item's question_type MUST be `<type>`" + that type's required shape (text types from `_FORCED_TYPE_SPEC`; an **image** type instead carries its full image_specs contract from `_image_question_directive`, so a forced `image_ab` run is instructed to emit a `flaw_plan`) + `_SELF_CONTAINED_RULE`.
       - Else → the **generic SOP directive**: follow the format in the SOP (and sample if attached), approximate count, allowed types = `QUESTION_TYPE_PROMPT_LIST`, the **image-majority policy** for visual SOPs, JSON-only, + `_image_contracts_note(ab_dims)` (the image_specs OUTPUT CONTRACTS, incl. image_ab's `flaw_plan`) + `_SELF_CONTAINED_RULE`.
-5. **Model call.** `_call_vertex` (`services/vertex.py:380`) with `response_json=True`, `_GEN_MAX_OUTPUT_TOKENS=32000`, `temperature=0.5`. Built-in MAX_TOKENS / unparseable-JSON single retry with doubled budget (`:449-477`).
+5. **Model call.** `_call_vertex` (`services/vertex.py:380`) with `response_json=True`, `_GEN_MAX_OUTPUT_TOKENS=64000`, `temperature=0.5`. Built-in MAX_TOKENS / unparseable-JSON single retry with doubled budget (`:449-477`).
 6. **Parse.** `_extract_json_array` (`:559`) — accepts a bare array or an object wrapping it under `skills/items/questions/data/results` (`_unwrap_json_list` `:541`).
 7. **Per-item pipeline** (`:1167-1213`), for each dict item:
    - Resolve `qtype` (forced type wins; else the item's `question_type` if valid, else `mcq`).

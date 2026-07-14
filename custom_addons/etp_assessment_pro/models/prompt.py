@@ -395,22 +395,55 @@ class EtpAssessmentPrompt(models.Model):
                     prompt.id, attempt + 1, _TAG_EXTRACT_FINALIZE_MAX_ATTEMPTS)
                 time.sleep(0.1 * (attempt + 1))
 
+    def _run_tag_extract_inline(self):
+        """Extract THIS SOP's semantic tags SYNCHRONOUSLY and store them, with no
+        cron: run the Vertex extract call now and write tag_ids + tags_json +
+        tag_extract_state='done' directly, so tags appear the moment the button
+        returns. Records a terminal 'failed' state and raises a friendly UserError
+        on a Vertex quota (429) or any extraction error, so a run is NEVER left
+        stuck in 'queued'. Returns the resulting tag recordset. Reuses
+        vertex.extract_tags_from_sop + tag._get_or_create (the same building
+        blocks the retired cron used)."""
+        self.ensure_one()
+        from ..services import vertex
+        self.write({"tag_extract_state": "generating", "tag_extract_error": False})
+        try:
+            names, raw = vertex.extract_tags_from_sop(self.env, self)
+        except vertex.VertexQuotaError as exc:
+            self.write({"tag_extract_state": "failed",
+                        "tag_extract_error": "Vertex quota hit (429); retry shortly."})
+            raise UserError(
+                "Tag extraction hit the Vertex rate limit (429). Please try "
+                "again in a moment.") from exc
+        except Exception as exc:  # noqa: BLE001 - record terminal state, surface it
+            self.write({"tag_extract_state": "failed",
+                        "tag_extract_error": str(exc)[:300]})
+            raise UserError("Tag extraction failed: %s" % exc) from exc
+        tags = self.env["etp.assessment.pro.tag"]._get_or_create(names)
+        self.write({
+            "tag_ids": [(6, 0, tags.ids)],
+            "tags_json": raw or False,
+            "tag_extract_state": "done",
+        })
+        return tags
+
     def action_extract_tags(self):
-        """Queue this SOP for background semantic-tag extraction. Off-request for
-        the same 'cursor already closed' reason as SOP generation; guarded on a
-        SOP resource existing, mirroring action_generate_from_sop."""
+        """Extract this SOP's semantic tags NOW (synchronously) and store them, so
+        the tags appear immediately on the generator. MANUAL-ONLY: there is no tag
+        cron anymore, so the button runs the extraction inline instead of merely
+        queuing it (nothing is left waiting on a cron that no longer exists)."""
         self.ensure_one()
         if not self.resource_ids and not (self.source_text or "").strip():
             raise UserError(
                 "Upload a SOP document (or add notes) before extracting tags.")
-        self.write({"tag_extract_state": "queued", "tag_extract_error": False})
+        tags = self._run_tag_extract_inline()
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Tag Extraction Queued",
-                "message": "Reading your SOP in the background — semantic tags "
-                           "appear here within a minute; refresh to see them.",
+                "title": "Tags Extracted",
+                "message": "%d semantic tag(s) extracted from the SOP."
+                           % len(tags),
                 "type": "success", "sticky": False,
             },
         }
@@ -671,25 +704,32 @@ class EtpAssessmentPrompt(models.Model):
 
     @api.model
     def action_backfill_all_tags(self):
-        """Queue every un-tagged generator that has a SOP resource for the
-        existing background tag-extraction cron. Callable from the config menu
+        """Extract tags NOW for every un-tagged generator that has a SOP resource,
+        inline (MANUAL-ONLY; there is no tag cron). Callable from the config menu
         (an ir.actions.server). Only touches idle/failed generators with no tags
-        yet, so it never re-queues work already done or in flight."""
+        yet; each generator is extracted through _run_tag_extract_inline and
+        isolated so one failure records its own 'failed' state without aborting the
+        batch (nothing is left stuck in 'queued')."""
         prompts = self.search([
             ("tag_extract_state", "in", ("idle", "failed")),
             ("tag_ids", "=", False),
             ("resource_ids.category", "=", "sop"),
         ])
-        prompts.write({"tag_extract_state": "queued",
-                       "tag_extract_error": False})
+        done = 0
+        for prompt in prompts:
+            try:
+                prompt._run_tag_extract_inline()
+                done += 1
+            except UserError:
+                _logger.exception(
+                    "Tag backfill failed for generator %s", prompt.id)
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
             "params": {
-                "title": "Tag Backfill Queued",
-                "message": "%d generator(s) queued for tag extraction — tags "
-                           "appear as the background cron drains them."
-                           % len(prompts),
+                "title": "Tag Backfill Complete",
+                "message": "Extracted tags for %d of %d generator(s)."
+                           % (done, len(prompts)),
                 "type": "success", "sticky": False,
             },
         }
@@ -775,6 +815,23 @@ class EtpAssessmentPromptQuestion(models.Model):
         help="image_label DENSE: the app/site the screenshot depicts, copied "
              "onto the bank image on approve and graded as one identification "
              "checklist point.")
+    source_url = fields.Char(
+        string="Source URL", copy=False,
+        help="image_label REAL-PAGE CAPTURE (preferred): a stable public web "
+             "page URL. Copied onto the 'single' bank image on approve so the "
+             "detect cron captures the live DOM (numbered boxes at real element "
+             "geometry) instead of labelling a synthetic render; the synthetic "
+             "brief is kept as the hybrid fallback.")
+    capture_config_json = fields.Text(
+        string="Capture Config (JSON)", copy=False,
+        help='image_label capture directives {"viewport","wait_ms","dismiss"} '
+             "copied onto the bank image on approve and threaded into the live "
+             "capture (settle delay + cookie/consent dismissal).")
+    omit_spec_json = fields.Text(
+        string="Omit Spec (JSON)", copy=False,
+        help="image_label capture directive that leaves ONE interactive element "
+             'deliberately unboxed so the coverage answer is "No" by '
+             "construction; copied onto the bank image on approve.")
     official_reasoning = fields.Text(
         string="Official Reasoning",
         help="image_ab: the official rationale the LLM grades the candidate's "
@@ -1035,7 +1092,9 @@ class EtpAssessmentPromptQuestion(models.Model):
                 for spec in (parsed or []):
                     if not isinstance(spec, dict):
                         continue
-                    src = spec.get("url") or spec.get("src") or spec.get("data")
+                    src = (spec.get("annotated_url") or spec.get("annotated_data")
+                           or spec.get("url") or spec.get("src")
+                           or spec.get("data"))
                     if not src:
                         continue
                     label = _html.escape(str(
@@ -1504,7 +1563,119 @@ class EtpAssessmentPromptQuestion(models.Model):
                 vals["image_url"] = url
             if b64:
                 vals["image"] = b64
-            Image.create(vals)
+            image = Image.create(vals)
+            if bank_question.question_type == "image_label" and slot == "single":
+                self._carry_label_capture(image)
+            self._carry_or_detect_label(bank_question, image, slot, spec)
+
+    def _carry_label_capture(self, image):
+        """Copy the REAL-PAGE CAPTURE directives authored for a source_url
+        image_label onto the 'single' bank image so the detect cron / capture
+        path drives a live DOM capture (primary), keeping the rendered synthetic
+        brief as the hybrid fallback. Also carries the model-authored DENSE
+        per-box map (label_boxes_json + behavioural key + omitted element) so the
+        synthetic fallback can draw numbered boxes deterministically with ZERO
+        detect calls; detections_json is deliberately left empty so the primary
+        capture still runs first. No-op when no source_url was authored."""
+        self.ensure_one()
+        src = (self.source_url or "").strip()
+        if not src:
+            return
+        vals = {"source_url": src}
+        if (self.capture_config_json or "").strip():
+            vals["capture_config_json"] = self.capture_config_json
+        if (self.omit_spec_json or "").strip():
+            vals["omit_spec_json"] = self.omit_spec_json
+        if self.coverage_expected:
+            vals["coverage_expected"] = self.coverage_expected
+        if (self.label_application or "").strip():
+            vals["label_application"] = self.label_application
+        if (self.label_boxes_json or "").strip():
+            vals["label_boxes_json"] = self.label_boxes_json
+        if (self.behavioural_key_json or "").strip():
+            vals["behavioural_key_json"] = self.behavioural_key_json
+        if (self.omitted_element_json or "").strip():
+            vals["omitted_element_json"] = self.omitted_element_json
+        image.write(vals)
+
+    @staticmethod
+    def _inline_image_bytes(spec):
+        """Decode the just-rendered image bytes carried INLINE in an images_json
+        spec (its base64/data-URL ``data``), independent of whether
+        _materialize_images offloaded the picture to S3 (ingest returns b64=False
+        after an S3 upload, yet the in-memory bytes are still right here). Returns
+        b"" for a pure external-URL spec, which has nothing to detect in memory."""
+        import base64 as _b64
+        from ..services import image_ingest
+        data = (spec.get("data") or "").strip()
+        if not data:
+            candidate = (spec.get("url") or spec.get("src") or "").strip()
+            if candidate.startswith("data:"):
+                data = candidate
+        if not data:
+            return b""
+        payload, _ctype = image_ingest._strip_data_url(data)
+        if not payload or not image_ingest._is_valid_b64(payload):
+            return b""
+        try:
+            return _b64.b64decode(payload)
+        except (ValueError, TypeError):
+            return b""
+
+    def _carry_or_detect_label(self, bank_question, image, slot, spec):
+        """Approve-time answer-key handoff for an image_label 'single' image.
+
+        FIRST CHOICE: CARRY the render-time detection already stashed in the
+        draft spec (detections_json + annotated overlay, computed by
+        _detect_label_on_render the moment the draft rendered) straight onto the
+        bank image with ZERO Vertex calls — approval never re-detects.
+
+        FALLBACK: only when the draft carries no key (render-time detect failed,
+        or the picture was supplied without a render pass) detect ONCE here on
+        the inline rendered bytes — still failure-isolated inside
+        image._detect_inline, which never rolls back the approve and never spends
+        the cron retry budget, so a keyless image is left for
+        _cron_detect_image_labels to retry from storage.
+
+        Scoped to image_label 'single' with NO model-authored DENSE key (that key
+        is drawn deterministically by _apply_authored_label_key)."""
+        self.ensure_one()
+        if bank_question.question_type != "image_label" or slot != "single":
+            return
+        if (image.source_url or "").strip():
+            return
+        if (self.behavioural_key_json or "").strip():
+            return
+        if self._carry_render_detection(image, spec):
+            return
+        raw = self._inline_image_bytes(spec)
+        if not raw:
+            return
+        image._detect_inline(raw, ui=(bank_question.detection_mode == "ui"))
+
+    @staticmethod
+    def _carry_render_detection(image, spec):
+        """Copy a render-time detection stashed in the draft's images_json spec
+        onto the bank ``image`` with no re-detection: the numbered-box
+        detections_json plus the annotated overlay (data-URL and/or S3 url).
+        Returns True when a key was carried, False when the spec has none (so the
+        caller falls back to a single inline detect)."""
+        if not isinstance(spec, dict):
+            return False
+        det = (spec.get("detections_json") or "").strip()
+        if not det:
+            return False
+        from ..services import image_ingest
+        vals = {"detections_json": det}
+        annotated = (spec.get("annotated_data") or "").strip()
+        if annotated:
+            payload, _ctype = image_ingest._strip_data_url(annotated)
+            if payload and image_ingest._is_valid_b64(payload):
+                vals["annotated_image"] = payload
+        if (spec.get("annotated_url") or "").strip():
+            vals["annotated_image_url"] = spec["annotated_url"]
+        image.write(vals)
+        return True
 
     def _apply_authored_label_key(self, bank_question):
         """Attach a DENSE (model-authored) image_label answer key to the 'single'
@@ -1523,6 +1694,8 @@ class EtpAssessmentPromptQuestion(models.Model):
             lambda i: i.slot == "single")[:1]
         if not img:
             return
+        if (img.source_url or "").strip():
+            return
         try:
             geometry = _json.loads(self.label_boxes_json or "[]")
         except (ValueError, TypeError):
@@ -1532,6 +1705,7 @@ class EtpAssessmentPromptQuestion(models.Model):
             "coverage_expected": self.coverage_expected or "yes",
             "omitted_element_json": self.omitted_element_json or False,
             "label_application": self.label_application or False,
+            "label_boxes_json": self.label_boxes_json or False,
         }
         dets = [
             {"box_2d": g["box_2d"], "label": g.get("label") or "",
@@ -1619,6 +1793,136 @@ class EtpAssessmentPromptQuestion(models.Model):
             "b": [str(f) for f in (planted.get("b") or []) if str(f).strip()],
         }
 
+    def _dense_preview_dets(self):
+        """Parse the model-authored per-box map (label_boxes_json) into the
+        imaging.annotate_image detections shape [{box_2d,label,description}], or
+        [] when the draft carries no usable dense map (mirrors the bank image's
+        _dense_detections so the draft preview and the approved fallback draw
+        the SAME boxes)."""
+        import json as _json
+        self.ensure_one()
+        raw = (self.label_boxes_json or "").strip()
+        if not raw:
+            return []
+        try:
+            geometry = _json.loads(raw)
+        except (ValueError, TypeError):
+            return []
+        dets = []
+        for g in geometry if isinstance(geometry, list) else []:
+            if (isinstance(g, dict)
+                    and isinstance(g.get("box_2d"), (list, tuple))
+                    and len(g["box_2d"]) == 4):
+                dets.append({
+                    "box_2d": list(g["box_2d"]),
+                    "label": str(g.get("label") or "").strip(),
+                    "description": str(g.get("description") or "").strip(),
+                })
+        return dets
+
+    def _draw_dense_preview(self, images):
+        """Draw the model-authored dense per-box map onto each just-rendered
+        'single' synthetic screenshot deterministically (Pillow via
+        imaging.annotate_image, ZERO Vertex calls) and stash the numbered overlay
+        (annotated_data) + detections_json into its images_json spec, so the
+        DRAFT preview shows numbered boxes for source_url + dense drafts instead
+        of a bare screenshot. No-op when the draft has no dense map (a legacy
+        synthetic draft falls through to the render-time Gemini detect). The
+        bank-image answer key is untouched: a source_url image still drives a live
+        DOM capture and a dense image is drawn by _apply_authored_label_key at
+        approve, and neither carries this preview key (_carry_or_detect_label
+        returns early for both)."""
+        import base64 as _b64
+        import json as _json
+        self.ensure_one()
+        dets = self._dense_preview_dets()
+        if not dets:
+            return images
+        from ..services import imaging
+        for spec in images:
+            if not isinstance(spec, dict):
+                continue
+            if (spec.get("slot") or "single") != "single":
+                continue
+            if (spec.get("annotated_data") or "").strip():
+                continue
+            raw = self._inline_image_bytes(spec)
+            if not raw:
+                continue
+            try:
+                annotated_png, label_key = imaging.annotate_image(raw, dets)
+            except Exception:  # noqa: BLE001 - preview draw must never fail render
+                _logger.exception(
+                    "Dense preview draw failed for draft %s", self.id)
+                continue
+            spec["annotated_data"] = (
+                "data:image/png;base64,%s"
+                % _b64.b64encode(annotated_png).decode())
+            spec["detections_json"] = _json.dumps(label_key, ensure_ascii=False)
+        return images
+
+    def _detect_label_on_render(self, images):
+        """RENDER-TIME image_label detection: the moment a draft's 'single'
+        image is rendered, run element detection on the JUST-rendered in-memory
+        bytes and stash the numbered-box answer key + annotated overlay INTO the
+        matching images_json spec, so a reviewer SEES the boxed image on the
+        DRAFT before approving. Approval later CARRIES this to the bank image
+        without re-detecting (_carry_or_detect_label).
+
+        image_label only, honouring detection_mode. A source_url or DENSE
+        model-authored draft (label_boxes_json) instead has its numbered boxes
+        drawn on the rendered synthetic screenshot deterministically from that
+        map (_draw_dense_preview, ZERO Vertex calls) so the DRAFT preview is
+        boxed too; its bank-image answer key is still owned by the live DOM
+        capture (source_url) or _apply_authored_label_key (dense) at approve, so
+        the render-time Gemini detect below runs ONLY for a legacy synthetic
+        draft that carries no model-authored map. FAILURE ISOLATED: each
+        detection runs in its own savepoint and any error is logged + swallowed
+        so it NEVER rolls back or fails the render; the spec is simply left
+        keyless for _cron_detect_image_labels to retry after approval, spending
+        NONE of the 3-attempt detection budget here."""
+        self.ensure_one()
+        if self.question_type != "image_label" or not isinstance(images, list):
+            return images
+        images = self._draw_dense_preview(images)
+        if (self.source_url or "").strip():
+            return images
+        if (self.behavioural_key_json or "").strip():
+            return images
+        QImage = self.env["etp.assessment.pro.question.image"]
+        ui = (self.detection_mode == "ui")
+        for spec in images:
+            if not isinstance(spec, dict):
+                continue
+            if (spec.get("slot") or "single") != "single":
+                continue
+            if (spec.get("detections_json") or "").strip():
+                continue
+            raw = self._inline_image_bytes(spec)
+            if not raw:
+                continue
+            try:
+                with self.env.cr.savepoint():
+                    core = QImage._annotate_bytes_core(
+                        raw, ui=ui,
+                        usage_ctx={"prompt_id": self.prompt_id.id or False,
+                                   "note": (self.name or "")[:80]},
+                        key_hint="draftannot-%s-single" % self.id)
+            except Exception:  # noqa: BLE001 - detection must never fail render
+                _logger.exception(
+                    "Render-time detect failed for draft %s; leaving the image "
+                    "keyless for the detect cron to retry after approval",
+                    self.id)
+                continue
+            if not core:
+                continue
+            spec["detections_json"] = core["detections_json"]
+            spec["annotated_data"] = (
+                "data:image/png;base64,%s" % core["annotated_b64"])
+            if core["annotated_url"]:
+                spec["annotated_url"] = core["annotated_url"]
+        return images
+
     def _render_all_images(self):
         """Render ALL of this draft's briefs, ALL-OR-NOTHING: a draft is only
         marked 'rendered' when every brief produced a picture, so a partial
@@ -1664,6 +1968,7 @@ class EtpAssessmentPromptQuestion(models.Model):
                             "etp_assessment flaw verification failed for draft "
                             "%s; storing rendered images unverified", self.id)
                         verification = None
+            images = self._detect_label_on_render(images)
             vals = {
                 "images_json": _json.dumps(images, ensure_ascii=False),
                 "image_state": "rendered",

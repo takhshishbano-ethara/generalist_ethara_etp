@@ -345,10 +345,16 @@ def apply_omit(boxes, omit):
     return list(boxes), None
 
 
-def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None):
+def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None,
+                         dismiss=None, wait_ms=2500):
     """Open ``url`` in headless Chromium, enumerate its interactive DOM elements,
     screenshot it, draw numbered boxes at the real DOM geometry (via the shared
     imaging overlay), and mechanically draft a behavioural answer key.
+
+    ``wait_ms`` is the settle delay after ``load`` (default 2500) before the DOM
+    is enumerated; ``dismiss`` is a list of CSS selectors for cookie/consent
+    "accept" controls — each is clicked (errors ignored, exactly as the reference
+    generator's dismiss loop) so an overlay does not hide the real page elements.
 
     When ``omit`` is set, ONE matching interactive element is left unboxed and
     recorded as the ground-truth omission so ``coverage_expected`` is "no" (the
@@ -364,6 +370,12 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None):
             "Playwright is not available; cannot capture a live URL.")
     from . import imaging
     vw, vh = viewport
+    try:
+        settle = int(wait_ms)
+    except (TypeError, ValueError):
+        settle = 2500
+    if settle < 0:
+        settle = 2500
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         try:
@@ -371,7 +383,21 @@ def capture_and_annotate(url, viewport=(1440, 900), dsf=2, omit=None):
                 viewport={"width": int(vw), "height": int(vh)},
                 device_scale_factor=dsf)
             page.goto(url, wait_until="load", timeout=60000)
-            page.wait_for_timeout(2500)
+            page.wait_for_timeout(settle)
+            # dismiss cookie/consent overlays: click each selector, ignore any
+            # error (the overlay may be absent), then settle briefly so the
+            # overlay finishes tearing down before the DOM is enumerated
+            dismissed = False
+            for sel in (dismiss or []):
+                if not str(sel).strip():
+                    continue
+                try:
+                    page.click(sel, timeout=2000)
+                    dismissed = True
+                except Exception:  # noqa: BLE001 - overlay may not be present
+                    pass
+            if dismissed:
+                page.wait_for_timeout(500)
             boxes = page.evaluate(_COLLECT_JS) or []
             screenshot_png = page.screenshot(full_page=False)
         finally:

@@ -22,6 +22,7 @@ import re
 import uuid
 from unittest.mock import patch
 
+from odoo.addons.kensei2.controllers import tracker
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import tagged
 from odoo.tests.common import HttpCase, TransactionCase
@@ -669,6 +670,65 @@ class TestTrackerStageHandoff(Kensei2TrackerCommon):
         self.assertEqual(s2.manual_qc_status, "done")
         self.assertTrue(s2.date_final)
 
+
+    def test_stage_1_says_baseline_and_stage_2_says_pass_it_k(self):
+        """Each stage names the trajectory step its own way, on EVERY surface.
+
+        Both stages run the same pipeline over the same fields and the SAME stored
+        values (`ready_baseline`, `baseline_generated`) — but stage 1 calls the step
+        Baseline and stage 2 calls it Pass It K. A Selection carries one set of
+        labels, so `status` holds stage 1's and `stage2_status` holds stage 2's.
+
+        The trap this guards: the list and kanban mix both stages, so rendering the
+        raw `status` label showed "Baseline Generated" on a stage-2 row whose form
+        said "Pass It K Generated" — the same task reading two different things.
+        `status_label` picks the right one per row. If any surface goes back to the
+        single Selection, this fails.
+        """
+        Alloc = self.env["kensei2.tracker.allocation"]
+        s1 = dict(Alloc._fields["status"].selection)
+        s2 = dict(Alloc._fields["stage2_status"].selection)
+
+        # 1. the two dialects
+        self.assertEqual(s1["ready_baseline"], "Ready for Baseline")
+        self.assertEqual(s1["baseline_generated"], "Baseline Generated")
+        self.assertEqual(s2["ready_baseline"], "Ready for Pass It K")
+        self.assertEqual(s2["baseline_generated"], "Pass It K Generated")
+
+        # 2. same STORED values — the labels differ, the data does not
+        self.assertEqual(set(s1), set(s2))
+
+        # 3. status_label picks per ROW (this is what the list and kanban render)
+        a1 = self._make_alloc(suffix="lbl1")
+        a1.write({"drive_link": "https://d/a", "pl_verified_status": "done",
+                  "baseline_ready_status": "done"})
+        a1.invalidate_recordset()
+        self.assertEqual(a1.stage_no, 1)
+        self.assertEqual(a1.status, "ready_baseline")
+        self.assertEqual(a1.status_label, "Ready for Baseline",
+                         "a stage-1 row must read Baseline")
+
+        self._complete_stage1(a1)
+        self.env["kensei2.tracker.stage.handoff"].with_user(self.user_ql).create({
+            "allocation_id": a1.id,
+            "tasker_member_id": self.member_other.id,
+        }).action_confirm()
+        a2 = self.Alloc.search([("task_id", "=", a1.task_id), ("stage_no", "=", 2)])
+        self.assertEqual(a2.status, "ready_baseline")           # same stored value…
+        self.assertEqual(a2.status_label, "Ready for Pass It K",  # …different word
+                         "a stage-2 row must read Pass It K")
+        self.assertEqual(a2.stage2_status, "ready_baseline")
+
+        # 4. the dashboard gives the two stages SEPARATE funnel cards. It used to
+        #    carry one card that merely renamed itself with the stage filter, so
+        #    with no filter (the default view) Pass It K was invisible and its
+        #    tasks were counted as stage-1 trajectory work.
+        cards = {c["key"]: c for c in tracker._funnel({(2, "ready_baseline"): 1})}
+        self.assertEqual(cards["pass_it_k"]["value"], 1)
+        self.assertEqual(cards["pass_it_k"]["label"], "Stage 2 Pass It K")
+        self.assertEqual(cards["in_trajectory"]["value"], 0,
+                         "a stage-2 task must not be counted as stage-1 trajectory")
+
     def test_cannot_hand_off_twice(self):
         alloc = self._ready_stage1()
         Wiz = self.env["kensei2.tracker.stage.handoff"].with_user(self.user_ql)
@@ -838,6 +898,160 @@ class TestTrackerDashboardDataAccess(Kensei2TrackerCommon):
             "that restrict it are absent), so there is nothing for _label to defend "
             "against here")
 
+
+
+class TestTrackerStageAwareDashboard(Kensei2TrackerCommon):
+    """The dashboard must not merge Baseline (stage 1) with Pass It K (stage 2).
+
+    Both stages store the SAME status values -- 'ready_baseline' and
+    'baseline_generated' -- because they run the same two rungs; only the NAMES
+    differ. Every dashboard surface used to bucket on the status alone, so a stage-2
+    task in Pass It K was counted and displayed as stage-1 "In Trajectory", and Pass
+    It K had no card and no column of its own anywhere.
+    """
+
+    def test_the_two_stages_share_the_stored_status(self):
+        """The premise. If this ever stops holding, the tests below prove nothing."""
+        s1 = self._make_alloc(suffix="sd-premise-1", stage_no=1)
+        self._complete_stage1_to_baseline(s1)
+        s2 = self._make_alloc(suffix="sd-premise-2", stage_no=2)
+        s2.write({"baseline_drive_link": "https://drive.example.com/pik"})
+        self.assertEqual(s1.status, "baseline_generated")
+        self.assertEqual(s2.status, s1.status)
+        # ...and yet they are DIFFERENT work, which only the label reveals.
+        self.assertEqual(s1.status_label, "Baseline Generated")
+        self.assertEqual(s2.status_label, "Pass It K Generated")
+
+    def test_baseline_and_pass_it_k_get_their_own_funnel_cards(self):
+        cards = {c["key"]: c for c in tracker._funnel({
+            (1, "baseline_generated"): 3,
+            (2, "baseline_generated"): 5,
+        })}
+        self.assertEqual(cards["in_trajectory"]["value"], 3,
+                         "stage 2's Pass It K leaked into stage 1's In Trajectory")
+        self.assertEqual(cards["pass_it_k"]["value"], 5,
+                         "Pass It K has no card of its own")
+        self.assertEqual(cards["pass_it_k"]["label"], "Stage 2 Pass It K")
+
+    def test_funnel_card_drilldown_carries_its_stage(self):
+        """Both cards count the same statuses, so the stage is the ONLY thing that
+        keeps their drill-downs apart. Without it, clicking either opens both."""
+        cards = {c["key"]: c for c in tracker._funnel({})}
+        self.assertEqual(cards["in_trajectory"]["stage"], 1)
+        self.assertEqual(cards["pass_it_k"]["stage"], 2)
+        self.assertEqual(cards["in_trajectory"]["statuses"],
+                         cards["pass_it_k"]["statuses"])
+        # Manual QC is each stage's OWN gate and stores the same value on both, so it
+        # splits for exactly the same reason the trajectory step does.
+        self.assertEqual(cards["manual_qc_s1"]["stage"], 1)
+        self.assertEqual(cards["manual_qc_s2"]["stage"], 2)
+        self.assertEqual(cards["manual_qc_s1"]["statuses"],
+                         cards["manual_qc_s2"]["statuses"])
+        # A step that genuinely belongs to no single stage stays stage-less.
+        self.assertIsNone(cards["failed"]["stage"])
+
+    def test_progress_columns_split_by_stage(self):
+        self.assertEqual(tracker._bucket_for(1, "baseline_generated"), "in_traj")
+        self.assertEqual(tracker._bucket_for(2, "baseline_generated"), "pass_it_k")
+        self.assertEqual(tracker._bucket_for(1, "ready_baseline"), "ready")
+        self.assertEqual(tracker._bucket_for(2, "ready_baseline"), "pik_ready")
+        # each stage QCs its own work, in its own column
+        self.assertEqual(tracker._bucket_for(1, "manual_qc"), "s1_qc")
+        self.assertEqual(tracker._bucket_for(2, "manual_qc"), "s2_qc")
+        # genuinely shared rungs land in one column from either stage
+        for stage in (1, 2):
+            self.assertEqual(tracker._bucket_for(stage, "deliverable"), "verified")
+            self.assertEqual(tracker._bucket_for(stage, "failed"), "blocked")
+
+    def test_every_reachable_status_lands_in_exactly_one_column_and_one_card(self):
+        """No row may fall between the buckets.
+
+        A (stage, status) with no column is still counted in the row's Total, so its
+        cells would silently fail to add up to their own total -- a task visible in
+        the total and present nowhere else on the table.
+        """
+        s1 = [k for k, _l in self.Alloc.STATUS_SELECTION]
+        s2 = [k for k, _l in self.Alloc.STAGE2_STATUS_SELECTION]
+        # stage 3+ runs the stage-2 ladder (see _compute_status), so it must bucket too
+        for stage, statuses in ((1, s1), (2, s2), (3, s2)):
+            for status in statuses:
+                col = tracker._bucket_for(stage, status)
+                self.assertIn(col, tracker._PROGRESS_COLUMNS,
+                              "stage %s / %s has no progress column" % (stage, status))
+                cards = [c for c in tracker._funnel({(stage, status): 1})
+                         if c["value"]]
+                self.assertEqual(
+                    len(cards), 1,
+                    "stage %s / %s landed in %d funnel cards, want exactly 1"
+                    % (stage, status, len(cards)))
+
+    def test_progress_rows_report_pass_it_k_separately(self):
+        """End to end, through the real endpoint payload."""
+        s1 = self._make_alloc(suffix="sd-row-1", stage_no=1)
+        self._complete_stage1_to_baseline(s1)
+        s2 = self._make_alloc(suffix="sd-row-2", stage_no=2)
+        s2.write({"baseline_drive_link": "https://drive.example.com/pik"})
+
+        rows = tracker._progress_rows(
+            self.Alloc.sudo(), "pl_id", [("id", "in", (s1 | s2).ids)])
+        row = next(r for r in rows if r["total"] == 2)
+        self.assertEqual(row["in_traj"], 1, "stage 1 Baseline")
+        self.assertEqual(row["pass_it_k"], 1, "stage 2 Pass It K")
+        self.assertEqual(
+            sum(row[c] for c in tracker._PROGRESS_COLUMNS), row["total"],
+            "the columns must account for every task in Total")
+
+    def test_each_stage_names_its_own_manual_qc(self):
+        """The two QC gates share a stored value but are different queues."""
+        s1 = self._make_alloc(suffix="sd-qc-1", stage_no=1)
+        self._complete_stage1_to_baseline(s1)
+        s1.write({"baseline_gen_status": "done", "qced_by": self.env.user.id})
+        s2 = self._make_alloc(suffix="sd-qc-2", stage_no=2)
+        s2.write({"baseline_drive_link": "https://drive.example.com/pik",
+                  "baseline_gen_status": "done", "qced_by": self.env.user.id})
+
+        self.assertEqual(s1.status, "manual_qc")
+        self.assertEqual(s2.status, "manual_qc")          # same stored value...
+        self.assertEqual(s1.status_label, "Stage 1 Manual QC")   # ...different queue
+        self.assertEqual(s2.status_label, "Stage 2 Manual QC")
+
+    def test_stage_1_never_delivers_and_stage_2_never_hands_off(self):
+        """The two ladders have different terminal steps.
+
+        Stage 1 ends at Ready for Next Stage -- it can never reach Deliverable,
+        because only the FINAL stage delivers. Stage 2, being final, ends at
+        Deliverable and never hands off.
+        """
+        s1 = self._make_alloc(suffix="sd-term-1", stage_no=1)
+        self._complete_stage1(s1)
+        self.assertEqual(s1.status, "ready_next_stage")
+        self.assertNotEqual(s1.status, "deliverable")
+
+        s2 = self._make_alloc(suffix="sd-term-2", stage_no=2)
+        s2.write({"baseline_drive_link": "https://drive.example.com/pik",
+                  "baseline_gen_status": "done", "qced_by": self.env.user.id,
+                  "manual_qc_status": "done"})
+        self.assertTrue(s2.is_final_stage)
+        self.assertEqual(s2.status, "deliverable")
+        self.assertNotEqual(s2.status, "ready_next_stage")
+
+    def test_daily_status_filter_names_both_ladders(self):
+        """The filter matches the stored status, which spans both stages -- so an
+        option labelled only 'Baseline Generated' silently returns Pass It K rows."""
+        labels = dict(self.Alloc.STATUS_SELECTION)
+        s2 = dict(self.Alloc.STAGE2_STATUS_SELECTION)
+        ambiguous = [k for k in labels if k in s2 and s2[k] != labels[k]]
+        self.assertEqual(sorted(ambiguous),
+                         ["baseline_generated", "manual_qc", "ready_baseline"])
+
+    @staticmethod
+    def _complete_stage1_to_baseline(alloc):
+        alloc.write({
+            "drive_link": "https://drive.example.com/a",
+            "pl_verified_status": "done",
+            "baseline_ready_status": "done",
+            "baseline_drive_link": "https://drive.example.com/b",
+        })
 
 
 class TestTrackerPersona(Kensei2TrackerCommon):

@@ -1,12 +1,13 @@
 import base64
 import io
 import json
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from odoo.tests.common import TransactionCase
 
 from odoo.addons.etp_assessment_pro.services import (
-    vertex, scoring, consistency, imaging)
+    vertex, scoring, consistency, imaging, dom_capture, image_ingest,
+    s3_service)
 from odoo.addons.etp_assessment_pro.controllers import portal as portal_ctrl
 
 
@@ -687,6 +688,7 @@ class TestSopDirectGeneration(_Base):
             vertex.generate_questions_from_sop(self.env, prompt)
 
 
+
 class TestImagelessQuestionGuards(_Base):
     """A candidate must never get an image question with no image. Two guards:
     approval is blocked until images render, and exam selection drops any image
@@ -910,6 +912,164 @@ class TestImageLabelDetectionMode(TestImageLabelDetection):
         self.assertEqual(draft.approved_question_id.detection_mode, "ui")
 
 
+class TestImageLabelInlineDetection(_Base):
+    """image_label detection runs at RENDER time on the just-rendered in-memory
+    bytes, so the reviewer SEES the numbered-box overlay on the DRAFT before
+    approving. Approval only CARRIES the already-computed key to the bank image
+    (no second detect). A render-time detect failure never rolls back the render
+    nor spends the detection budget, leaving the image for the cron to retry."""
+
+    _BOXES = [
+        {"box_2d": [100, 100, 400, 400], "label": "car",
+         "description": "a red car"},
+        {"box_2d": [50, 600, 300, 900], "label": "dog",
+         "description": "a brown dog"},
+    ]
+
+    def _label_draft(self, detection_mode="object"):
+        prompt = self.env["etp.assessment.pro.prompt"].create({"name": "ILP"})
+        return self.env["etp.assessment.pro.prompt.question"].create({
+            "prompt_id": prompt.id, "name": "IL draft",
+            "question_type": "image_label",
+            "question_prompt": "Label the image.",
+            "detection_mode": detection_mode,
+            "image_brief_json": json.dumps([
+                {"slot": "single", "label": "Image",
+                 "prompt": "a street with a car and a dog"}]),
+            "image_state": "pending"})
+
+    def _render(self, draft, detect=None, side_effect=None):
+        rendered = [{"slot": "single", "label": "Image",
+                     "data": "data:image/png;base64,%s"
+                     % base64.b64encode(_png_bytes()).decode()}]
+        det_kw = ({"side_effect": side_effect} if side_effect is not None
+                  else {"return_value": detect if detect is not None
+                        else self._BOXES})
+        with patch.object(vertex, "render_draft_images",
+                          return_value=rendered), \
+                patch.object(vertex, "detect_image_elements",
+                             **det_kw) as m:
+            ok = draft._render_all_images()
+        draft.invalidate_recordset()
+        return ok, m
+
+    def _draft_spec(self, draft):
+        return json.loads(draft.images_json)[0]
+
+    def _single_image(self, draft):
+        img = draft.approved_question_id.image_ids.filtered(
+            lambda i: i.slot == "single")[:1]
+        img.invalidate_recordset()
+        return img
+
+    def test_detection_runs_at_render_time_on_draft(self):
+        draft = self._label_draft()
+        ok, m = self._render(draft)
+        self.assertTrue(ok)
+        self.assertEqual(draft.image_state, "rendered")
+        spec = self._draft_spec(draft)
+        key = json.loads(spec["detections_json"])
+        self.assertEqual([e["number"] for e in key], [1, 2])   # boxes on draft
+        self.assertTrue(
+            spec["annotated_data"].startswith("data:image/png;base64,"))
+        m.assert_called_once()
+        self.assertFalse(m.call_args.kwargs.get("ui"))         # object mode
+
+    def test_render_time_detection_honors_ui_detection_mode(self):
+        draft = self._label_draft(detection_mode="ui")
+        _ok, m = self._render(draft)
+        self.assertTrue(m.call_args.kwargs.get("ui"))
+
+    def test_draft_preview_shows_annotated_overlay(self):
+        draft = self._label_draft()
+        self._render(draft)
+        self.assertIn("data:image/png;base64,", draft.image_preview or "")
+
+    def _source_url_dense_draft(self):
+        prompt = self.env["etp.assessment.pro.prompt"].create({"name": "ILP"})
+        dense = [{"number": 1, "box_2d": [40, 30, 90, 300], "label": "Search",
+                  "description": "Focuses the search field"},
+                 {"number": 2, "box_2d": [40, 820, 90, 980], "label": "Cart",
+                  "description": "Opens the cart"}]
+        return self.env["etp.assessment.pro.prompt.question"].create({
+            "prompt_id": prompt.id, "name": "IL src draft",
+            "question_type": "image_label",
+            "question_prompt": "Label every control.",
+            "source_url": "https://github.com",
+            "label_boxes_json": json.dumps(dense),
+            "behavioural_key_json": json.dumps([
+                {"number": 1, "element": "Search",
+                 "functionality": "Focuses the search field"},
+                {"number": 2, "element": "Cart",
+                 "functionality": "Opens the cart"}]),
+            "image_brief_json": json.dumps([
+                {"slot": "single", "label": "Screenshot",
+                 "prompt": "a page with a search box and a cart"}]),
+            "image_state": "pending"})
+
+    def test_source_url_draft_preview_boxed_from_dense_map_without_detect(self):
+        draft = self._source_url_dense_draft()
+        ok, m = self._render(draft)
+        self.assertTrue(ok)
+        m.assert_not_called()                    # dense map -> ZERO Vertex detect
+        spec = self._draft_spec(draft)
+        key = json.loads(spec["detections_json"])
+        self.assertEqual([e["number"] for e in key], [1, 2])
+        self.assertTrue(
+            spec["annotated_data"].startswith("data:image/png;base64,"))
+        self.assertIn("data:image/png;base64,", draft.image_preview or "")
+
+    def test_source_url_dense_preview_does_not_leak_key_to_bank_image(self):
+        draft = self._source_url_dense_draft()
+        self._render(draft)
+        with patch.object(vertex, "detect_image_elements") as m:
+            draft.action_approve()
+        m.assert_not_called()
+        img = self._single_image(draft)
+        self.assertEqual(img.source_url, "https://github.com")
+        self.assertFalse(img.detections_json)    # live capture still owns the key
+
+    def test_approval_carries_key_without_redetecting(self):
+        draft = self._label_draft()
+        self._render(draft)
+        with patch.object(vertex, "detect_image_elements") as m:
+            draft.action_approve()
+        m.assert_not_called()                            # no second detect
+        draft.invalidate_recordset()
+        self.assertEqual(draft.state, "approved")
+        img = self._single_image(draft)
+        key = json.loads(img.detections_json)
+        self.assertEqual([e["number"] for e in key], [1, 2])   # carried
+        self.assertTrue(img.annotated_image)                   # overlay carried
+
+    def test_render_failure_keeps_render_and_spares_budget(self):
+        draft = self._label_draft()
+
+        def _boom(*a, **k):
+            raise RuntimeError("vertex exploded")
+
+        ok, _m = self._render(draft, side_effect=_boom)
+        self.assertTrue(ok)                              # render committed
+        self.assertEqual(draft.image_state, "rendered")
+        spec = self._draft_spec(draft)
+        self.assertNotIn("detections_json", spec)        # no key at render time
+        with patch.object(vertex, "detect_image_elements", side_effect=_boom):
+            draft.action_approve()                       # fallback must NOT raise
+        draft.invalidate_recordset()
+        self.assertEqual(draft.state, "approved")        # render/approve kept
+        img = self._single_image(draft)
+        self.assertFalse(img.detections_json)            # still no key
+        self.assertEqual(img.detection_attempts, 0)      # cron budget untouched
+        self.assertTrue(img.image or img.image_url)      # source kept for retry
+        with patch.object(vertex, "detect_image_elements",
+                          return_value=self._BOXES), \
+                patch.object(self.env.cr, "commit", lambda: None):
+            self.env["etp.assessment.pro.question.image"]\
+                ._cron_detect_image_labels()
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)             # cron retried from store
+
+
 class TestImagePromptTwoImage(_Base):
     """image_prompt renders BOTH a reference and an output image for a
     transform task (the old code took the first brief and dropped the rest),
@@ -1004,3 +1164,338 @@ class TestImagePromptTwoImage(_Base):
         self.assertEqual(set(q.image_ids.mapped("slot")),
                          {"reference", "output"})
         self.assertTrue(q._has_required_images())
+
+
+class TestImageLabelSourceUrlCapture(_Base):
+    """image_label REAL-PAGE CAPTURE (primary) + synthetic hybrid fallback: a
+    source_url draft persists the capture directives, approval carries them to
+    the 'single' bank image, the detect path drives a live DOM capture threading
+    dismiss/wait_ms, and an unavailable / failed / zero-box capture degrades to
+    the synthetic render+detect path. No real network / Vertex / Playwright."""
+
+    _BOXES = [
+        {"box_2d": [100, 100, 400, 400], "label": "car",
+         "description": "a red car"},
+        {"box_2d": [50, 600, 300, 900], "label": "dog",
+         "description": "a brown dog"},
+    ]
+
+    def _source_item(self):
+        return {
+            "name": "Label GH", "prompt": "Label every control.",
+            "question_type": "image_label",
+            "image_specs": {
+                "source_url": "https://github.com",
+                "application": "GitHub",
+                "viewport": {"width": 1440, "height": 900},
+                "wait_ms": 3000,
+                "dismiss": [".cookie-accept", "#onetrust-accept-btn-handler"],
+                "coverage_expected": "yes",
+                "images": [{"slot": "single", "label": "Screenshot",
+                            "prompt": "a synthetic GitHub homepage screenshot"}],
+                "answer_key": {"ideal_labels": "the GitHub homepage controls"}}}
+
+    def _capture_result(self, boxes=True):
+        manifest = [{"number": 1, "tag": "a", "role": "", "name": "Search",
+                     "text": "Search", "href": "https://github.com/search",
+                     "box_css": [10, 10, 90, 40], "in_shadow": False,
+                     "boxed_via_label": False}] if boxes else []
+        key = [{"number": 1, "element": "Search",
+                "functionality": "Opens Search"}] if boxes else []
+        label_key = [{"number": 1, "label": "Search",
+                      "description": "Opens Search",
+                      "box_px": [10, 10, 90, 40]}] if boxes else []
+        return {
+            "screenshot_png": _png_bytes(), "annotated_png": _png_bytes(),
+            "dom_manifest": manifest, "behavioural_key": key,
+            "label_key": label_key, "omitted_element": None,
+            "coverage_expected": "yes"}
+
+    def _capture_image(self, config=True, image=True):
+        q = self.Question.create({
+            "name": "Cap", "prompt": "Label.", "question_type": "image_label"})
+        vals = {"question_id": q.id, "label": "Image", "slot": "single",
+                "source_url": "https://github.com"}
+        if image:
+            vals["image"] = base64.b64encode(_png_bytes())
+        if config:
+            vals["capture_config_json"] = json.dumps({
+                "viewport": {"width": 1440, "height": 900}, "wait_ms": 3000,
+                "dismiss": [".cookie-accept"]})
+        return self.env["etp.assessment.pro.question.image"].create(vals)
+
+    def test_draft_fields_persist_source_url_and_capture_config(self):
+        vals = vertex._build_image_draft_fields(
+            self.env, "image_label", self._source_item())
+        self.assertEqual(vals["source_url"], "https://github.com")
+        cfg = json.loads(vals["capture_config_json"])
+        self.assertEqual(cfg["viewport"], {"width": 1440, "height": 900})
+        self.assertEqual(cfg["wait_ms"], 3000)
+        self.assertIn(".cookie-accept", cfg["dismiss"])
+        self.assertEqual(vals["coverage_expected"], "yes")
+        self.assertEqual(vals["label_application"], "GitHub")
+        briefs = json.loads(vals["image_brief_json"])   # synthetic fallback kept
+        self.assertTrue(briefs and briefs[0]["prompt"])
+
+    def test_validation_accepts_source_url_only(self):
+        item = {"name": "x", "prompt": "p", "question_type": "image_label",
+                "image_specs": {"source_url": "https://www.wikipedia.org"}}
+        self.assertEqual(
+            vertex._validate_question_item(item, "image_label"), [])
+
+    def _synthetic_spotify_item(self):
+        """A synthetic-only image_label (fake Spotify UI, NO source_url) — the
+        exact shape the live bug produced."""
+        return {
+            "name": "Label Spotify", "prompt": "Label every control.",
+            "question_type": "image_label",
+            "image_specs": {
+                "application": "Spotify",
+                "images": [{"slot": "single", "label": "Screenshot",
+                            "prompt": "a synthetic Spotify player UI"}],
+                "answer_key": {"ideal_labels": "the Spotify player controls"}}}
+
+    def test_missing_source_url_is_repaired_from_application(self):
+        item = self._synthetic_spotify_item()
+        # the mandatory-source_url contract accepts it (a real URL is derivable)
+        self.assertEqual(
+            vertex._validate_question_item(item, "image_label"), [])
+        vals = vertex._build_image_draft_fields(self.env, "image_label", item)
+        # persisted draft now carries a REAL public URL, not a synthetic-only draft
+        self.assertEqual(vals["source_url"], "https://open.spotify.com")
+        self.assertEqual(vals["coverage_expected"], "yes")
+        briefs = json.loads(vals["image_brief_json"])   # synthetic kept as fallback
+        self.assertTrue(briefs and briefs[0]["prompt"])
+
+    def test_synthetic_only_without_answer_key_is_rejected(self):
+        # unknown app, no source_url, brief but NO answer key/boxes -> rejected
+        item = {"name": "x", "prompt": "p", "question_type": "image_label",
+                "image_specs": {
+                    "application": "SomeInternalTool",
+                    "images": [{"slot": "single", "prompt": "a made-up UI"}]}}
+        errs = vertex._validate_question_item(item, "image_label")
+        self.assertTrue(errs)
+        vals = vertex._build_image_draft_fields(self.env, "image_label", item)
+        self.assertFalse(vals.get("source_url"))   # nothing derivable, no url
+
+    def test_approve_carries_capture_directives_to_single_image(self):
+        prompt = self.env["etp.assessment.pro.prompt"].create({"name": "SU"})
+        vals = vertex._build_image_draft_fields(
+            self.env, "image_label", self._source_item())
+        png = base64.b64encode(_png_bytes()).decode()
+        draft = self.env["etp.assessment.pro.prompt.question"].create({
+            "prompt_id": prompt.id, "name": "SU draft",
+            "question_type": "image_label",
+            "question_prompt": "Label every control.",
+            "source_url": vals["source_url"],
+            "capture_config_json": vals["capture_config_json"],
+            "coverage_expected": vals["coverage_expected"],
+            "label_application": vals["label_application"],
+            "image_brief_json": vals["image_brief_json"],
+            "images_json": json.dumps([
+                {"slot": "single", "label": "Screenshot",
+                 "data": "data:image/png;base64,%s" % png}]),
+            "image_state": "rendered"})
+        draft.action_approve()
+        draft.invalidate_recordset()
+        self.assertEqual(draft.state, "approved")
+        img = draft.approved_question_id.image_ids.filtered(
+            lambda i: i.slot == "single")[:1]
+        self.assertEqual(img.source_url, "https://github.com")
+        self.assertTrue(img.capture_config_json)
+        self.assertEqual(img.coverage_expected, "yes")
+        self.assertEqual(img.label_application, "GitHub")
+        self.assertFalse(img.detections_json)   # left keyless for the capture path
+
+    def test_capture_yields_real_page_detections(self):
+        img = self._capture_image()
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
+                patch.object(dom_capture, "capture_and_annotate",
+                             return_value=self._capture_result()):
+            self.assertTrue(img._detect_and_annotate())
+        img.invalidate_recordset()
+        self.assertTrue(img.annotated_image)
+        key = json.loads(img.detections_json)
+        self.assertEqual(key[0]["label"], "Search")
+        self.assertTrue(img.dom_manifest_json)
+        self.assertTrue(img.behavioural_key_json)
+
+    def test_capture_makes_zero_image_model_calls(self):
+        # a source_url row must NEVER render (gemini-3-pro-image) or detect
+        img = self._capture_image()
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
+                patch.object(dom_capture, "capture_and_annotate",
+                             return_value=self._capture_result()), \
+                patch.object(vertex, "generate_image") as gen, \
+                patch.object(vertex, "detect_image_elements") as det:
+            self.assertTrue(img._detect_and_annotate())
+        gen.assert_not_called()          # no image-model render
+        det.assert_not_called()          # no Gemini box-detection
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)   # boxes came from the DOM capture
+
+    def test_dismiss_and_wait_ms_threaded_into_capture(self):
+        img = self._capture_image()
+        spy = MagicMock(return_value=self._capture_result())
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
+                patch.object(dom_capture, "capture_and_annotate", spy):
+            img._detect_and_annotate()
+        self.assertEqual(spy.call_args.args[0], "https://github.com")
+        kwargs = spy.call_args.kwargs
+        self.assertEqual(kwargs["wait_ms"], 3000)
+        self.assertEqual(kwargs["dismiss"], [".cookie-accept"])
+        self.assertEqual(kwargs["viewport"], (1440, 900))
+
+    def test_capture_unavailable_falls_back_to_synthetic(self):
+        img = self._capture_image()
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", False), \
+                patch.object(vertex, "detect_image_elements",
+                             return_value=self._BOXES) as m:
+            self.assertTrue(img._detect_and_annotate())
+        m.assert_called_once()                       # synthetic render+detect ran
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)
+        self.assertTrue(img.annotated_image)
+
+    def test_capture_zero_boxes_falls_back_to_synthetic(self):
+        img = self._capture_image()
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
+                patch.object(dom_capture, "capture_and_annotate",
+                             return_value=self._capture_result(boxes=False)), \
+                patch.object(vertex, "detect_image_elements",
+                             return_value=self._BOXES) as m:
+            self.assertTrue(img._detect_and_annotate())
+        m.assert_called_once()                       # zero DOM boxes -> synthetic
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)
+
+    def test_capture_error_falls_back_to_synthetic(self):
+        img = self._capture_image()
+
+        def _boom(*a, **k):
+            raise RuntimeError("net unreachable")
+
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
+                patch.object(dom_capture, "capture_and_annotate",
+                             side_effect=_boom), \
+                patch.object(vertex, "detect_image_elements",
+                             return_value=self._BOXES) as m:
+            self.assertTrue(img._detect_and_annotate())
+        m.assert_called_once()
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)
+
+    def test_offloaded_s3_image_fetched_via_authenticated_download(self):
+        P = self.env["ir.config_parameter"].sudo()
+        P.set_param("etp_assessment_pro.s3_bucket", "mybucket")
+        P.set_param("etp_assessment_pro.s3_region", "us-east-1")
+        P.set_param("etp_assessment_pro.s3_access_key_id", "AK")
+        P.set_param("etp_assessment_pro.s3_secret_key", "SK")
+        q = self.Question.create({
+            "name": "S3", "prompt": "Label.", "question_type": "image_label"})
+        img = self.env["etp.assessment.pro.question.image"].create({
+            "question_id": q.id, "label": "Image", "slot": "single",
+            "image_url":
+                "https://mybucket.s3.us-east-1.amazonaws.com/etp/foo.png"})
+        png = _png_bytes()
+        with patch.object(s3_service, "download",
+                          return_value=(png, "image/png")) as dl, \
+                patch.object(image_ingest, "_download") as pub:
+            raw = img._source_image_bytes()
+        dl.assert_called_once()                      # authenticated S3 GET
+        pub.assert_not_called()                      # NOT an unsigned public GET
+        self.assertEqual(raw, png)
+
+    _DENSE_BOXES = [
+        {"number": 1, "box_2d": [40, 30, 90, 300], "label": "Search",
+         "description": "Focuses the search field"},
+        {"number": 2, "box_2d": [40, 820, 90, 980], "label": "Cart",
+         "description": "Opens the cart"},
+    ]
+
+    def _capture_image_with_dense_map(self):
+        img = self._capture_image()
+        img.write({"label_boxes_json": json.dumps(self._DENSE_BOXES)})
+        return img
+
+    def _source_item_dense(self):
+        item = self._source_item()
+        item["image_specs"]["boxes"] = [
+            {"number": 1, "box_2d": [40, 30, 90, 300], "element": "Search",
+             "functionality": "Focuses the search field"},
+            {"number": 2, "box_2d": [40, 820, 90, 980], "element": "Cart",
+             "functionality": "Opens the cart"}]
+        item["image_specs"]["answer_key"] = {
+            "ideal_labels": {"1": "Focuses the search field",
+                             "2": "Opens the cart"}}
+        return item
+
+    def test_fallback_draws_boxes_from_dense_map_without_detect(self):
+        img = self._capture_image_with_dense_map()
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", False), \
+                patch.object(vertex, "detect_image_elements") as det:
+            self.assertTrue(img._detect_and_annotate())
+        det.assert_not_called()                      # dense map -> ZERO detect calls
+        img.invalidate_recordset()
+        key = json.loads(img.detections_json)
+        self.assertEqual([e["number"] for e in key], [1, 2])
+        self.assertEqual(key[0]["label"], "Search")
+        self.assertTrue(img.annotated_image)
+
+    def test_fallback_dense_map_used_on_capture_error_too(self):
+        img = self._capture_image_with_dense_map()
+
+        def _boom(*a, **k):
+            raise RuntimeError("net unreachable")
+
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", True), \
+                patch.object(dom_capture, "capture_and_annotate",
+                             side_effect=_boom), \
+                patch.object(vertex, "detect_image_elements") as det:
+            self.assertTrue(img._detect_and_annotate())
+        det.assert_not_called()                      # dense map covers the failure
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)
+        self.assertTrue(img.annotated_image)
+
+    def test_build_source_url_item_carries_dense_fallback_map(self):
+        vals = vertex._build_image_draft_fields(
+            self.env, "image_label", self._source_item_dense())
+        self.assertEqual(vals["source_url"], "https://github.com")
+        geometry = json.loads(vals["label_boxes_json"])
+        self.assertEqual(geometry[0]["box_2d"], [40, 30, 90, 300])
+        self.assertTrue(vals["behavioural_key_json"])
+
+    def test_approve_carries_dense_fallback_then_draws_without_detect(self):
+        prompt = self.env["etp.assessment.pro.prompt"].create({"name": "SUD"})
+        vals = vertex._build_image_draft_fields(
+            self.env, "image_label", self._source_item_dense())
+        png = base64.b64encode(_png_bytes()).decode()
+        draft = self.env["etp.assessment.pro.prompt.question"].create({
+            "prompt_id": prompt.id, "name": "SUD draft",
+            "question_type": "image_label",
+            "question_prompt": "Label every control.",
+            "source_url": vals["source_url"],
+            "capture_config_json": vals.get("capture_config_json") or False,
+            "coverage_expected": vals["coverage_expected"],
+            "label_application": vals["label_application"],
+            "behavioural_key_json": vals["behavioural_key_json"],
+            "label_boxes_json": vals["label_boxes_json"],
+            "image_brief_json": vals["image_brief_json"],
+            "images_json": json.dumps([
+                {"slot": "single", "label": "Screenshot",
+                 "data": "data:image/png;base64,%s" % png}]),
+            "image_state": "rendered"})
+        draft.action_approve()
+        draft.invalidate_recordset()
+        img = draft.approved_question_id.image_ids.filtered(
+            lambda i: i.slot == "single")[:1]
+        self.assertTrue(img.label_boxes_json)        # dense fallback map carried
+        self.assertFalse(img.detections_json)        # capture-primary still runs
+        with patch.object(dom_capture, "PLAYWRIGHT_AVAILABLE", False), \
+                patch.object(vertex, "detect_image_elements") as det:
+            self.assertTrue(img._detect_and_annotate())
+        det.assert_not_called()
+        img.invalidate_recordset()
+        self.assertTrue(img.detections_json)
+        self.assertTrue(img.annotated_image)

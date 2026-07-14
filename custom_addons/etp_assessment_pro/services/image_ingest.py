@@ -78,6 +78,21 @@ def _download(url):
         return None, None
 
 
+def download_bytes(env, url):
+    """Fetch a remote image -> (b64, content_type), or (None, None) on failure.
+
+    An object living in OUR configured S3 bucket is fetched via an AUTHENTICATED
+    server-side S3 GET (a plain public GET 403s on a private bucket); any other
+    URL (external site / CDN) uses the unsigned HTTP GET."""
+    from . import s3_service
+    key = s3_service.object_key_from_url(env, url)
+    if key:
+        raw, ctype = s3_service.download(env, key)
+        if raw:
+            return base64.b64encode(raw).decode(), ctype or _content_type_for(url)
+    return _download(url)
+
+
 def ingest(env, url=None, data=None, key_hint="qimg", content_type=None):
     """Resolve an image/video spec to ``(url, b64)``. Never raises.
 
@@ -114,7 +129,7 @@ def ingest(env, url=None, data=None, key_hint="qimg", content_type=None):
             return ingest(env, data=url, key_hint=key_hint)
         if not configured:
             return url, False
-        b64, ctype = _download(url)
+        b64, ctype = download_bytes(env, url)
         if not b64:
             return url, False
         try:

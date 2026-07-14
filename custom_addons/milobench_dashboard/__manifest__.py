@@ -13,7 +13,7 @@ Mirrors the public Milo-Bench samples dataset (30 tasks x 3 models x 3 runs =
 * Persistent ORM models for tasks, models, and runs.
 * Backend list / kanban / form / graph / pivot views.
 * An OWL client action giving an executive overview.
-* A public portal page at /milobench-samples with an interactive tasks viewer.
+* A public portal page at /milo-bench-samples with an interactive tasks viewer.
 * A JSON API exposing summary, tasks, and runs.
 
 Data sources:

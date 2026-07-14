@@ -132,7 +132,14 @@ export class Kensei2TrackerDashboard extends Kensei2DashboardBase {
         if (!card.statuses || !card.statuses.length) {
             return; // e.g. "Avg Score" has nothing to open
         }
-        this._openAllocations([["status", "in", card.statuses]], card.label);
+        // The STAGE matters: "In Trajectory" and "In Pass It K" count the very same
+        // statuses on different stages. Without it, clicking either card would open
+        // both — the exact merge the funnel exists to undo.
+        const domain = [["status", "in", card.statuses]];
+        if (card.stage) {
+            domain.push(["stage_no", "=", card.stage]);
+        }
+        this._openAllocations(domain, card.label);
     }
 
     // A row is one person on the currently selected axis. The drill-down repeats

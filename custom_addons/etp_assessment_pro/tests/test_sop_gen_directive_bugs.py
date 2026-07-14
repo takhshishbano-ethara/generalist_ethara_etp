@@ -21,6 +21,7 @@ from unittest.mock import patch
 from psycopg2 import errors as pg_errors
 
 from odoo.tests.common import TransactionCase, tagged
+from odoo.exceptions import UserError
 
 from odoo.addons.etp_assessment_pro.services import vertex
 from odoo.addons.etp_assessment_pro.constants import validate_flaw_plan
@@ -228,3 +229,48 @@ class TestTagExtractSerializationResilience(TransactionCase):
         self.assertFalse(prompt.tag_extract_error)
         self.assertTrue(prompt.tag_ids,
                         "tags committed before the race must survive it")
+
+
+@tagged("-at_install", "post_install")
+class TestTagExtractManualOnly(TransactionCase):
+    """Tag extraction is MANUAL-ONLY: the Extract Tags button runs the Vertex
+    extract inline and stores the tags (never merely queues), a failure records a
+    terminal 'failed' state (never stuck in 'queued'), and the scheduled tag-cron
+    ir.cron record no longer exists."""
+
+    def test_button_extracts_inline_and_stores_tags(self):
+        Prompt = self.env["etp.assessment.pro.prompt"]
+        prompt = Prompt.create({
+            "name": "Manual tags", "source_text": "Author some questions."})
+
+        def fake_extract(env, prompt_rec):
+            return (["domain:logistics", "task:routing"], '{"tags": []}')
+
+        with patch.object(vertex, "extract_tags_from_sop",
+                          side_effect=fake_extract):
+            prompt.action_extract_tags()
+        prompt.invalidate_recordset()
+        self.assertEqual(prompt.tag_extract_state, "done")
+        self.assertNotEqual(prompt.tag_extract_state, "queued")
+        self.assertEqual(sorted(prompt.tag_ids.mapped("name")),
+                         ["domain:logistics", "task:routing"])
+
+    def test_button_records_failure_not_queued(self):
+        Prompt = self.env["etp.assessment.pro.prompt"]
+        prompt = Prompt.create({
+            "name": "Manual tags fail", "source_text": "x"})
+
+        def boom(env, prompt_rec):
+            raise RuntimeError("vertex exploded")
+
+        with patch.object(vertex, "extract_tags_from_sop", side_effect=boom):
+            with self.assertRaises(UserError):
+                prompt.action_extract_tags()
+        self.assertNotEqual(prompt.tag_extract_state, "queued")
+        self.assertFalse(prompt.tag_ids)
+
+    def test_tag_cron_record_removed(self):
+        self.assertFalse(
+            self.env.ref("etp_assessment_pro.ir_cron_extract_tags",
+                         raise_if_not_found=False),
+            "the scheduled tag-extraction cron must no longer exist")
