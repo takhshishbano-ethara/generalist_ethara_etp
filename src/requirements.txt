@@ -102,6 +102,7 @@ networkx==3.5
 nltk==3.9.1
 num2words==0.5.13
 numpy==2.2.6
+scipy==1.18.0
 oauthlib==3.3.1
 ofxparse==0.21
 openai==2.3.0
