@@ -1,0 +1,701 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <record id="endpoint_api_create_slack_channel" model="api.endpoint">
+            <field name="url_pattern">/api/create_slack_channel</field>
+        </record>
+        <record id="endpoint_api_get_jsonl_data" model="api.endpoint">
+            <field name="url_pattern">/api/get_jsonl_data</field>
+        </record>
+        <record id="endpoint_api_get_llm_response" model="api.endpoint">
+            <field name="url_pattern">/api/get_llm_response</field>
+        </record>
+        <record id="endpoint_api_invite_slack_user" model="api.endpoint">
+            <field name="url_pattern">/api/invite_slack_user</field>
+        </record>
+        <record id="endpoint_api_kensei_upload_tasks" model="api.endpoint">
+            <field name="url_pattern">/api/kensei/upload_tasks</field>
+        </record>
+        <record id="endpoint_api_kensei2_upload_tasks" model="api.endpoint">
+            <field name="url_pattern">/api/kensei2/upload_tasks</field>
+        </record>
+        <record id="endpoint_api_skoll_get_jsonl_data" model="api.endpoint">
+            <field name="url_pattern">/api/skoll/get_jsonl_data</field>
+        </record>
+        <record id="endpoint_api_v1_action_cancel_project" model="api.endpoint">
+            <field name="url_pattern">/api/v1/action_cancel_project</field>
+        </record>
+        <record id="endpoint_api_v1_action_close_project" model="api.endpoint">
+            <field name="url_pattern">/api/v1/action_close_project</field>
+        </record>
+        <record id="endpoint_api_v1_action_pause_project" model="api.endpoint">
+            <field name="url_pattern">/api/v1/action_pause_project</field>
+        </record>
+        <record id="endpoint_api_v1_action_start_project" model="api.endpoint">
+            <field name="url_pattern">/api/v1/action_start_project</field>
+        </record>
+        <record id="endpoint_api_v1_add_whatsapp_members" model="api.endpoint">
+            <field name="url_pattern">/api/v1/add_whatsapp_members</field>
+        </record>
+        <record id="endpoint_api_v1_allocation_request" model="api.endpoint">
+            <field name="url_pattern">/api/v1/allocation/request</field>
+        </record>
+        <record id="endpoint_api_v1_allocation_request_by_request_id_submit" model="api.endpoint">
+            <field name="url_pattern">/api/v1/allocation/request/&lt;int:request_id&gt;/submit</field>
+        </record>
+        <record id="endpoint_api_v1_allocation_request_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v1/allocation/request/approve</field>
+        </record>
+        <record id="endpoint_api_v1_allocation_request_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v1/allocation/request/reject</field>
+        </record>
+        <record id="endpoint_api_v1_allocation_request_reset" model="api.endpoint">
+            <field name="url_pattern">/api/v1/allocation/request/reset</field>
+        </record>
+        <record id="endpoint_api_v1_allocation_requests_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/allocation/requests_list</field>
+        </record>
+        <record id="endpoint_api_v1_auth_token" model="api.endpoint">
+            <field name="url_pattern">/api/v1/auth_token</field>
+        </record>
+        <record id="endpoint_api_v1_auth_token_unlink" model="api.endpoint">
+            <field name="url_pattern">/api/v1/auth_token_unlink</field>
+        </record>
+        <record id="endpoint_api_v1_candidate_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidate/create</field>
+        </record>
+        <record id="endpoint_api_v1_candidate_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/candidate/list</field>
+        </record>
+        <record id="endpoint_api_v1_change_password_send_otp" model="api.endpoint">
+            <field name="url_pattern">/api/v1/change_password/send_otp</field>
+        </record>
+        <record id="endpoint_api_v1_change_password_verify_otp" model="api.endpoint">
+            <field name="url_pattern">/api/v1/change_password/verify_otp</field>
+        </record>
+        <record id="endpoint_api_v1_change_users_password" model="api.endpoint">
+            <field name="url_pattern">/api/v1/change_users_password</field>
+        </record>
+        <record id="endpoint_api_v1_create_notification" model="api.endpoint">
+            <field name="url_pattern">/api/v1/create_notification</field>
+        </record>
+        <record id="endpoint_api_v1_create_project_record" model="api.endpoint">
+            <field name="url_pattern">/api/v1/create_project_record</field>
+        </record>
+        <record id="endpoint_api_v1_documenso_documents" model="api.endpoint">
+            <field name="url_pattern">/api/v1/documenso/documents</field>
+        </record>
+        <record id="endpoint_api_v1_documenso_documents_by_doc_id" model="api.endpoint">
+            <field name="url_pattern">/api/v1/documenso/documents/&lt;int:doc_id&gt;</field>
+        </record>
+        <record id="endpoint_api_v1_employee_dashboard" model="api.endpoint">
+            <field name="url_pattern">/api/v1/employee/dashboard</field>
+        </record>
+        <record id="endpoint_api_v1_employees_offboard" model="api.endpoint">
+            <field name="url_pattern">/api/v1/employees/offboard</field>
+        </record>
+        <record id="endpoint_api_v1_employees_update" model="api.endpoint">
+            <field name="url_pattern">/api/v1/employees/update</field>
+        </record>
+        <record id="endpoint_api_v1_export_project_connected_table_xlsx" model="api.endpoint">
+            <field name="url_pattern">/api/v1/export_project_connected_table_xlsx</field>
+        </record>
+        <record id="endpoint_api_v1_export_project_project_report" model="api.endpoint">
+            <field name="url_pattern">/api/v1/export_project_project_report</field>
+        </record>
+        <record id="endpoint_api_v1_forgot_password" model="api.endpoint">
+            <field name="url_pattern">/api/v1/forgot_password</field>
+        </record>
+        <record id="endpoint_api_v1_get_aire_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_aire_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_cto_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_cto_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_employee_designation" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_employee_designation</field>
+        </record>
+        <record id="endpoint_api_v1_get_employee_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_employee_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_logged_user_details" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_logged_user_details</field>
+        </record>
+        <record id="endpoint_api_v1_get_menu_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_menu_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_notification_category_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_notification_category_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_pl_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_pl_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_project_blockers" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_project_blockers</field>
+        </record>
+        <record id="endpoint_api_v1_get_project_customer_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_project_customer_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_project_detail_view" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_project_detail_view</field>
+        </record>
+        <record id="endpoint_api_v1_get_project_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_project_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_project_skill_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_project_skill_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_project_status" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_project_status</field>
+        </record>
+        <record id="endpoint_api_v1_get_swe_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_swe_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v1_get_task_template_type" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_task_template_type</field>
+        </record>
+        <record id="endpoint_api_v1_get_whatsapp_member_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/get_whatsapp_member_list</field>
+        </record>
+        <record id="endpoint_api_v1_greythr_employee_by_employee_id_buckets" model="api.endpoint">
+            <field name="url_pattern">/api/v1/greythr/employee/&lt;int:employee_id&gt;/buckets</field>
+        </record>
+        <record id="endpoint_api_v1_greythr_leaves" model="api.endpoint">
+            <field name="url_pattern">/api/v1/greythr/leaves</field>
+        </record>
+        <record id="endpoint_api_v1_job_approval_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v1/job/approval/approve</field>
+        </record>
+        <record id="endpoint_api_v1_job_approval_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v1/job/approval/reject</field>
+        </record>
+        <record id="endpoint_api_v1_job_approval_view" model="api.endpoint">
+            <field name="url_pattern">/api/v1/job/approval/view</field>
+        </record>
+        <record id="endpoint_api_v1_lead_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/lead/create</field>
+        </record>
+        <record id="endpoint_api_v1_leave_mgmt_allocate" model="api.endpoint">
+            <field name="url_pattern">/api/v1/leave_mgmt/allocate</field>
+        </record>
+        <record id="endpoint_api_v1_leave_mgmt_bulk_upload" model="api.endpoint">
+            <field name="url_pattern">/api/v1/leave_mgmt/bulk_upload</field>
+        </record>
+        <record id="endpoint_api_v1_leave_mgmt_employee_by_employee_id_buckets" model="api.endpoint">
+            <field name="url_pattern">/api/v1/leave_mgmt/employee/&lt;int:employee_id&gt;/buckets</field>
+        </record>
+        <record id="endpoint_api_v1_leave_mgmt_employees" model="api.endpoint">
+            <field name="url_pattern">/api/v1/leave_mgmt/employees</field>
+        </record>
+        <record id="endpoint_api_v1_leave_mgmt_leave_types" model="api.endpoint">
+            <field name="url_pattern">/api/v1/leave_mgmt/leave_types</field>
+        </record>
+        <record id="endpoint_api_v1_project_allocation_employee" model="api.endpoint">
+            <field name="url_pattern">/api/v1/project_allocation/employee</field>
+        </record>
+        <record id="endpoint_api_v1_refresh_token" model="api.endpoint">
+            <field name="url_pattern">/api/v1/refresh_token</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/approve</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_create" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/create</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_delete" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/delete</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/detail</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_export" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/export</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_list" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/list</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_mark_reimbursed" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/mark_reimbursed</field>
+        </record>
+        <record id="endpoint_api_v1_reimbursement_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reimbursement/reject</field>
+        </record>
+        <record id="endpoint_api_v1_reset_password" model="api.endpoint">
+            <field name="url_pattern">/api/v1/reset_password</field>
+        </record>
+        <record id="endpoint_api_v1_sign_out_all_session" model="api.endpoint">
+            <field name="url_pattern">/api/v1/sign_out_all_session</field>
+        </record>
+        <record id="endpoint_api_v1_tasks" model="api.endpoint">
+            <field name="url_pattern">/api/v1/tasks</field>
+        </record>
+        <record id="endpoint_api_v1_update_notification" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_notification</field>
+        </record>
+        <record id="endpoint_api_v1_update_profile_information" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_profile_information</field>
+        </record>
+        <record id="endpoint_api_v1_update_project_details_aire_portal_info" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_project_details_aire_portal_info</field>
+        </record>
+        <record id="endpoint_api_v1_update_project_details_swe_portal_info" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_project_details_swe_portal_info</field>
+        </record>
+        <record id="endpoint_api_v1_update_project_pl_portal_skill_teams" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_project_pl_portal_skill_teams</field>
+        </record>
+        <record id="endpoint_api_v1_update_project_record" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_project_record</field>
+        </record>
+        <record id="endpoint_api_v1_update_user_appearance" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_user_appearance</field>
+        </record>
+        <record id="endpoint_api_v1_update_user_appearance_notification" model="api.endpoint">
+            <field name="url_pattern">/api/v1/update_user_appearance_notification</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_admin_by_resource" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/admin/&lt;string:resource&gt;</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_admin_by_resource_by_rid" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/admin/&lt;string:resource&gt;/&lt;int:rid&gt;</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_articles" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/articles</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_dashboard" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/dashboard</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_faqs" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/faqs</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_feedback" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/feedback</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_grievances" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/grievances</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_grievances_by_rid" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/grievances/&lt;int:rid&gt;</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_holidays" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/holidays</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_leave_by_rid_cancel" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/leave/&lt;int:rid&gt;/cancel</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_leave_apply" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/leave/apply</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_leave_summary" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/leave/summary</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_org_chart" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/org_chart</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_org_chart_person" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/org_chart/person</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_process_flows" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/process_flows</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_training" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/training</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_training_document" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/training/document</field>
+        </record>
+        <record id="endpoint_api_v1_wiki_training_progress" model="api.endpoint">
+            <field name="url_pattern">/api/v1/wiki/training/progress</field>
+        </record>
+        <record id="endpoint_api_v2_employees" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees</field>
+        </record>
+        <record id="endpoint_api_v2_employees_by_employee_id" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/&lt;int:employee_id&gt;</field>
+        </record>
+        <record id="endpoint_api_v2_employees_assignable_employees" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/assignable_employees</field>
+        </record>
+        <record id="endpoint_api_v2_employees_assignment_history" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/assignment_history</field>
+        </record>
+        <record id="endpoint_api_v2_employees_bulk_create" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/bulk_create</field>
+        </record>
+        <record id="endpoint_api_v2_employees_change_assignment" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/change_assignment</field>
+        </record>
+        <record id="endpoint_api_v2_employees_check_bulk_create_file" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/check_bulk_create_file</field>
+        </record>
+        <record id="endpoint_api_v2_employees_detail_view" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees/detail_view</field>
+        </record>
+        <record id="endpoint_api_v2_employees_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/employees_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_active_project_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_active_project_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_blocker_assignee_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_blocker_assignee_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_blocker_issues_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_blocker_issues_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_cto_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_cto_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_employee_project_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_employee_project_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_leave_types" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_leave_types</field>
+        </record>
+        <record id="endpoint_api_v2_get_offboarding_reasons" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_offboarding_reasons</field>
+        </record>
+        <record id="endpoint_api_v2_get_on_bench_employees" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_on_bench_employees</field>
+        </record>
+        <record id="endpoint_api_v2_get_pl_dashboard_active_tasker_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_pl_dashboard_active_tasker_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_pl_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_pl_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_qc_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_qc_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_qc_dashboard_tasker_performance_breakdown" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_qc_dashboard_tasker_performance_breakdown</field>
+        </record>
+        <record id="endpoint_api_v2_get_tasker_dashboard_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_tasker_dashboard_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_tasker_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_tasker_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_tasker_name_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_tasker_name_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_tasker_project_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_tasker_project_list</field>
+        </record>
+        <record id="endpoint_api_v2_get_user_role" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_user_role</field>
+        </record>
+        <record id="endpoint_api_v2_get_user_role_employee_onboarding" model="api.endpoint">
+            <field name="url_pattern">/api/v2/get_user_role_employee_onboarding</field>
+        </record>
+        <record id="endpoint_api_v2_project_team_member_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/project_team_member_list</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_all_employee_attendance_today" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/all_employee_attendance/today</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_allocations" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/allocations</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_allocations_bulk" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/allocations/bulk</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_allocations_delete" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/allocations/delete</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_analytics_overview" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/analytics/overview</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_analytics_productivity" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/analytics/productivity</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_assignments" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_assignments</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_assignments_history" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_assignments/history</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_assignments_return" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_assignments/return</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_categories" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_categories</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_requests" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_requests</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_requests_by_req_id" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_requests/&lt;int:req_id&gt;</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_requests_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_requests/approve</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_requests_fulfil" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_requests/fulfil</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_requests_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_requests/reject</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_asset_requests_submit" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/asset_requests/submit</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_assets" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/assets</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_assets_available" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/assets/available</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_attendance" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/attendance</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_attendance_punch_in" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/attendance/punch_in</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_attendance_punch_out" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/attendance/punch_out</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_attendance_today" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/attendance/today</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers_action" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers/action</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers_cto_action" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers/cto_action</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers_pl_action" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers/pl_action</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers_pl_validate" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers/pl_validate</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers_qr_action" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers/qr_action</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_blockers_stats" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/blockers/stats</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_bug_reports" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/bug_reports</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_bug_reports_delete" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/bug_reports/delete</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_check_i_am_on_leave" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/check_i_am_on_leave</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_create_blocker_record" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/create_blocker_record</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_crons_trigger_all" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/crons/trigger_all</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_dashboard_founder" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/dashboard/founder</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_dashboard_leave_impact" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/dashboard/leave_impact</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_dashboard_project_health" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/dashboard/project_health</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_dashboard_qr_analytics" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/dashboard/qr_analytics</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_dashboard_rankings" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/dashboard/rankings</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_dashboard_risk_quality" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/dashboard/risk_quality</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_employees_by_employee_id_asset_profile" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/employees/&lt;int:employee_id&gt;/asset_profile</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_blocker_detail" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/blocker_detail</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_blockers" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/blockers</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_employees" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/employees</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_project_blockers" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/project_blockers</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_project_health" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/project_health</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_project_team" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/project_team</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_projects" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/projects</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_tasks" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/tasks</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_export_team_overview" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/export/team_overview</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_files_delete" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/files/delete</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_files_upload" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/files/upload</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_flags" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/flags</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_flags_resolve" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/flags/resolve</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_hierarchy_performance" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/hierarchy/performance</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_inactivity_check" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/inactivity_check</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_leaves" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/leaves</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_leaves_by_leave_id_attachment" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/leaves/&lt;int:leave_id&gt;/attachment</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_leaves_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/leaves/approve</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_leaves_hierarchy" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/leaves/hierarchy</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_leaves_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/leaves/reject</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_me_asset_profile" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/me/asset_profile</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_my_assets" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/my_assets</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_notifications" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/notifications</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_notifications_read" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/notifications/read</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_productivity_tasker" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/productivity/tasker</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_project_dashboard" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/project/dashboard</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_project_hierarchy" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/project/hierarchy</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_project_member_history" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/project/member_history</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_project_offboard_member" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/project/offboard_member</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_project_task_summary" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/project/task_summary</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_project_team_analytics" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/project/team_analytics</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_projects" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/projects</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_projects_release_member" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/projects/release_member</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_projects_update" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/projects/update</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_role_management_change_role" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/role_management/change_role</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_role_management_counts" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/role_management/counts</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_role_management_employees" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/role_management/employees</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_rubric_approve" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/rubric/approve</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_rubric_reject" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/rubric/reject</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_by_task_id_rubric_ratings" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/&lt;int:task_id&gt;/rubric_ratings</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_active" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/active</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_create" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/create</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_delete" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/delete</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_end" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/end</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_grammar_check" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/grammar_check</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_pause" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/pause</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_rating" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/rating</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_responses" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/responses</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_review" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/review</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_start" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/start</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_today" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks/today</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_tasks_group_by_project" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/tasks_group_by_project</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_today_leaves_list" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/today_leaves_list</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_users" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/users</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_users_bulk_onboard" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/users/bulk_onboard</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_users_offboarded" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/users/offboarded</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_users_pls" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/users/pls</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_users_qrs" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/users/qrs</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_users_team" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/users/team</field>
+        </record>
+        <record id="endpoint_api_v2_taskforge_validated_bugs" model="api.endpoint">
+            <field name="url_pattern">/api/v2/taskforge/validated_bugs</field>
+        </record>
+    </data>
+</odoo>

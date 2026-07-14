@@ -21,8 +21,49 @@ class ApiRole(models.Model):
     name = fields.Char(required=True)
     department_id = fields.Many2one('department.role', string='Role Department')
     line_ids = fields.Many2many('api.role.line', string="Permissions")
+    endpoint_ids = fields.One2many('api.role.endpoint', 'role_id', string='Allowed Endpoints')
     project_type = fields.Selection([('non-stem', 'Non Stem'), ('stem', 'Stem'), ('technical', 'Technical')], default='technical')
     user_type = fields.Char(string='User Type')
+
+
+HTTP_METHODS = [
+    ('GET', 'GET'),
+    ('POST', 'POST'),
+    ('PUT', 'PUT'),
+    ('PATCH', 'PATCH'),
+    ('DELETE', 'DELETE'),
+    ('OPTIONS', 'OPTIONS'),
+    ('HEAD', 'HEAD'),
+]
+
+
+class ApiEndpoint(models.Model):
+    _name = 'api.endpoint'
+    _description = 'API Endpoint Grant on a Role'
+    _rec_name = 'url_pattern'
+
+    url_pattern = fields.Char(string='URL Pattern')
+    note = fields.Char()
+    domain = fields.Char()
+
+class ApiRoleEndpoint(models.Model):
+    _name = 'api.role.endpoint'
+    _description = 'API Endpoint Grant on a Role'
+    _order = 'url_pattern, method'
+
+    role_id = fields.Many2one('api.role', required=True, ondelete='cascade', index=True)
+    api_end_point_id = fields.Many2one('api.endpoint', string='API Endpoint')
+    url_pattern = fields.Char(related='api_end_point_id.url_pattern')
+    method = fields.Selection(HTTP_METHODS, string='HTTP Method', required=True, default='GET', index=True)
+    note = fields.Char()
+
+    _sql_constraints = [
+        (
+            'role_url_method_uniq',
+            'unique(role_id, url_pattern, method)',
+            'This endpoint is already granted to the role.',
+        ),
+    ]
 
     # @api.onchange('user_type', 'name')
     # def onchange_user_type(self):

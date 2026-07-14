@@ -1,5 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <record id="view_api_endpoint_tree" model="ir.ui.view">
+        <field name="name">api.endpoint.tree</field>
+        <field name="model">api.endpoint</field>
+        <field name="arch" type="xml">
+            <list string="API Endpoint" editable="bottom">
+                <field name="url_pattern"/>
+                <field name="note"/>
+                <field name="domain"/>
+            </list>
+        </field>
+    </record>
     <record id="view_department_role_tree" model="ir.ui.view">
         <field name="name">department.role.tree</field>
         <field name="model">department.role</field>
@@ -46,19 +57,30 @@
                             <field name="user_type" placeholder="e.g. Mobile App User"/>
                         </h1>
                     </div>
-                    <group>
-                        <separator string="Access Control List"/>
-                    </group>
-                    <field name="line_ids">
-                        <list editable="bottom">
-                            <field name="sequence" widget="handle"/>
-                            <field name="menu_name"/>
-                            <field name="can_read"/>
-                            <field name="can_create"/>
-                            <field name="can_write"/>
-                            <field name="can_delete"/>
-                        </list>
-                    </field>
+                    <notebook>
+                        <page string="Menu Permissions" name="permissions">
+                            <field name="line_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="menu_name"/>
+                                    <field name="can_read"/>
+                                    <field name="can_create"/>
+                                    <field name="can_write"/>
+                                    <field name="can_delete"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Allowed Endpoints" name="endpoints">
+                            <field name="endpoint_ids">
+                                <list editable="bottom">
+                                    <field name="method"/>
+                                    <field name="api_end_point_id"/>
+<!--                                    <field name="url_pattern"/>-->
+                                    <field name="note"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
             </form>
         </field>
@@ -97,6 +119,17 @@
         </field>
     </record>
 
+    <record id="action_api_endpoint" model="ir.actions.act_window">
+        <field name="name">Api Endpoint</field>
+        <field name="res_model">api.endpoint</field>
+        <field name="view_mode">list</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first Department to manage permissions.
+            </p>
+        </field>
+    </record>
+
     <menuitem id="menu_api_config_root"
               name="API Gateway"
               sequence="50"
@@ -106,6 +139,12 @@
               name="API Roles"
               parent="menu_api_config_root"
               action="action_api_role"
+              sequence="10"/>
+
+    <menuitem id="menu_api_end_point"
+              name="API Endpoint"
+              parent="menu_api_config_root"
+              action="action_api_endpoint"
               sequence="10"/>
 
     <menuitem id="menu_department_roles"

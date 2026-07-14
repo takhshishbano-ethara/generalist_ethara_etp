@@ -1,5 +1,7 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_api_role,api.role,model_api_role,,1,1,1,1
+access_api_endpoint,api.endpoint,model_api_endpoint,,1,1,1,1
+access_api_role_endpoint,api.role.endpoint,model_api_role_endpoint,,1,1,1,1
 access_department_role,department.role,model_department_role,,1,1,1,1
 access_api_role_line,api.role.line,model_api_role_line,,1,1,1,1
 access_api_access_token,api.access_token,model_api_access_token,,1,1,1,1

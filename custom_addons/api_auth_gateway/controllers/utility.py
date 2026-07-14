@@ -14,6 +14,27 @@ import uuid
 import os
 
 
+EXECUTIVE_ROLE_REFS = (
+    'api_auth_gateway.role_cto_technical',
+    'api_auth_gateway.role_cfo_technical',
+)
+
+
+def executive_role_ids(env):
+    ids = []
+    for ref in EXECUTIVE_ROLE_REFS:
+        rec = env.ref(ref, raise_if_not_found=False)
+        if rec:
+            ids.append(rec.id)
+    return ids
+
+
+def is_executive_role(user):
+    if not user or not user.user_role:
+        return False
+    return user.user_role.id in executive_role_ids(user.env)
+
+
 def return_Response(message, status=200, errors=[], data=None):
     res = {
         'message': message,
@@ -69,6 +90,70 @@ def validate_token(func):
         if access_token_data.has_expired():
             return return_Response(message="token seems to have expired or invalid", status=401)
         request.update_env(user=access_token_data.user_id.id)
+        if not access_token_data.user_id or access_token_data.user_id._is_public():
+            return return_Response(message="Authentication required.", status=401)
+
+        if not access_token_data.user_id.user_role:
+            return return_Response(message="No role assigned to your account.", status=403)
+
+        url_pattern = _current_url_pattern()
+        print(url_pattern,'---------------', access_token_data.user_id.user_role)
+        method = _current_method()
+        if not url_pattern:
+            return return_Response(message="Endpoint not resolvable.", status=403)
+
+        allowed = access_token_data.user_id.user_role.sudo().endpoint_ids.filtered(
+            lambda e: e.url_pattern == url_pattern
+        )
+        print(allowed)
+        if not allowed:
+            return return_Response(
+                message="Your role is not allowed to access this endpoint.",
+                status=403,
+            )
+
+        return func(self, *args, **kwargs)
+    return wrap
+
+
+def _current_url_pattern():
+    httpreq = getattr(request, 'httprequest', None)
+    if httpreq is None:
+        return None
+    rule = getattr(httpreq, 'url_rule', None)
+    if rule is not None and getattr(rule, 'rule', None):
+        return rule.rule
+    return httpreq.path
+
+
+def _current_method():
+    httpreq = getattr(request, 'httprequest', None)
+    return httpreq.method.upper() if httpreq else None
+
+
+def require_endpoint_access(func):
+    @functools.wraps(func)
+    def wrap(self, *args, **kwargs):
+        user = request.env.user
+        if not user or user._is_public():
+            return return_Response(message="Authentication required.", status=401)
+
+        if not user.user_role:
+            return return_Response(message="No role assigned to your account.", status=403)
+
+        url_pattern = _current_url_pattern()
+        method = _current_method()
+        if not url_pattern or not method:
+            return return_Response(message="Endpoint not resolvable.", status=403)
+
+        allowed = user.user_role.sudo().endpoint_ids.filtered(
+            lambda e: e.url_pattern == url_pattern and e.method == method
+        )
+        if not allowed:
+            return return_Response(
+                message="Your role is not allowed to access this endpoint.",
+                status=403,
+            )
         return func(self, *args, **kwargs)
     return wrap
 
