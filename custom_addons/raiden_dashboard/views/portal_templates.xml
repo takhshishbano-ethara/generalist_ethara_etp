@@ -19,7 +19,7 @@
       <meta charset="UTF-8"/>
       <meta name="viewport" content="width=device-width, initial-scale=1"/>
       <title>RAIDEN - AWS CLI S3 + DynamoDB RL Environment · ETHARA AI</title>
-      <meta name="description" content="Raiden is a reinforcement-learning environment for agentic code generation: two scoped deliveries (10 aws s3 and 30 aws dynamodb Harbor-format tasks) that ask a model to implement the CLI surface from scratch, graded by a held-out suite of 3,404 E2E tests against simulated MinIO and DynamoDB Local backends."/>
+      <meta name="description" content="Raiden is a reinforcement-learning environment for agentic code generation: two scoped deliveries (10 aws s3 and 10 aws dynamodb Harbor-format tasks) that ask a model to implement the CLI surface from scratch, graded by a held-out suite of 1,577 E2E tests against simulated MinIO and DynamoDB Local backends."/>
       <meta name="theme-color" content="#F7F8FA" media="(prefers-color-scheme: light)"/>
       <meta name="theme-color" content="#0B0E14" media="(prefers-color-scheme: dark)"/>
 
@@ -99,9 +99,9 @@
     <p class="section-label" id="overview-label">§01 · Overview</p>
     <div class="overview-grid">
       <div class="prose">
-        <p>Raiden is a reinforcement-learning <em>environment</em> - not a static Q/A set - for agentic code generation. It ships <b>two scoped deliveries</b>: 10 <code>aws s3</code> tasks and 30 <code>aws dynamodb</code> tasks. Each drops a coding agent into a container with a prose spec and no test code, asks it to build a subset of the CLI surface from scratch, and grades the result against a hidden end-to-end suite. The pass fraction is the reward. Both surfaces are deliberately stateful - buckets/objects and tables/items persist across commands - so the task rewards genuine implementation over recall. S3 is simulated by a per-session <code>MinIO</code> server and DynamoDB by an <code>amazon/dynamodb-local</code> sidecar, offline by construction.</p>
+        <p>Raiden is a reinforcement-learning <em>environment</em> - not a static Q/A set - for agentic code generation. It ships <b>two scoped deliveries</b>: 10 <code>aws s3</code> tasks and 10 <code>aws dynamodb</code> tasks. Each drops a coding agent into a container with a prose spec and no test code, asks it to build a subset of the CLI surface from scratch, and grades the result against a hidden end-to-end suite. The pass fraction is the reward. Both surfaces are deliberately stateful - buckets/objects and tables/items persist across commands - so the task rewards genuine implementation over recall. S3 is simulated by a per-session <code>MinIO</code> server and DynamoDB by an <code>amazon/dynamodb-local</code> sidecar, offline by construction.</p>
         <ul class="capabilities">
-          <li>Held-out grading: the agent never sees the 3,404 E2E tests</li>
+          <li>Held-out grading: the agent never sees the 1,577 E2E tests</li>
           <li>Two CLI surfaces: 7 <code>aws s3</code> + 8 <code>aws dynamodb</code> commands</li>
           <li>Dense scalar reward = passed / total ∈ [0, 1], anti-NOP guarded</li>
           <li>Hermetic, offline MinIO (S3) and DynamoDB Local (DynamoDB) sidecars</li>
@@ -112,10 +112,10 @@
       <aside class="glance" aria-label="At a glance">
         <p class="glance-label mono">At a glance</p>
         <dl class="glance-list">
-          <div class="glance-row"><dt>Tasks</dt><dd><b>40</b></dd></div>
-          <div class="glance-row"><dt>Held-out tests</dt><dd><b>3,404</b></dd></div>
-          <div class="glance-row"><dt>Workflow tests</dt><dd><b>381</b></dd></div>
-          <div class="glance-row"><dt>S3 · DynamoDB</dt><dd><b>10 · 30</b></dd></div>
+          <div class="glance-row"><dt>Tasks</dt><dd><b>20</b></dd></div>
+          <div class="glance-row"><dt>Held-out tests</dt><dd><b>1,577</b></dd></div>
+          <div class="glance-row"><dt>Workflow tests</dt><dd><b>158</b></dd></div>
+          <div class="glance-row"><dt>S3 · DynamoDB</dt><dd><b>10 · 10</b></dd></div>
           <div class="glance-row"><dt>Models</dt><dd><b>2</b></dd></div>
           <div class="glance-row"><dt>Backends</dt><dd>MinIO · DynamoDB Local</dd></div>
         </dl>
@@ -130,13 +130,13 @@
     <div class="kpi-row" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
       <div class="kpi-card">
         <p class="kpi-label">Harbor Tasks</p>
-        <p class="kpi-value"><span class="kpi-big">40</span></p>
-        <p class="kpi-sub mono">10 aws s3 · 30 aws dynamodb</p>
+        <p class="kpi-value"><span class="kpi-big">20</span></p>
+        <p class="kpi-sub mono">10 aws s3 · 10 aws dynamodb</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Held-out Tests</p>
-        <p class="kpi-value"><span class="kpi-big">3,404</span></p>
-        <p class="kpi-sub mono">626 aws s3 · 2,778 aws dynamodb</p>
+        <p class="kpi-value"><span class="kpi-big">1,577</span></p>
+        <p class="kpi-sub mono">626 aws s3 · 951 aws dynamodb</p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Calibration Models</p>
@@ -243,50 +243,62 @@
 
     <div class="reveal">
       <p class="reveal-line">
-        Two Anthropic models were run end-to-end against all 40 tasks under the openhands-sdk v1.12.0 / harbor 0.13.1 scaffold (pass@1).
+        Two Anthropic models were run end-to-end against all 20 tasks under the openhands-sdk v1.12.0 / harbor 0.13.1 scaffold (pass@1).
       </p>
       <p class="reveal-line reveal-kicker">
-        Claude Opus 4.8 leads Claude Haiku 4.5 on every one of the 40 tasks. The capability gap is widest on aws s3 (Opus 92.8% vs Haiku 44.8%, +48.0 pts) and narrower on aws dynamodb (Opus 97.6% vs Haiku 72.3%, +25.3 pts). Combined mean gap +31.0 pts.
+        Claude Opus 4.8 stays near the ceiling on all 20 tasks (mean 95.6%) while Claude Haiku 4.5 spreads across the full range (mean 48.9%). The gap tracks difficulty: on the 10 Hard tasks Opus holds 94.8% while Haiku drops to 19.9%. Combined mean gap +46.7 pts.
       </p>
     </div>
 
     <div class="charts">
       <figure class="chart chart--hero">
         <button type="button" class="chart-trigger" aria-label="Preview per-task reward chart full size">
-          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/opus_vs_haiku.png" alt="Per-task reward across all 40 AWS CLI tasks (10 S3 + 30 DynamoDB) - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/opus_vs_haiku.png?v=20" alt="Per-task reward across all 20 AWS CLI tasks (10 S3 + 10 DynamoDB) - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
           <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
         </button>
-        <figcaption>Fig. 1 - Per-task reward across all 40 tasks (green = S3, blue = DynamoDB), sorted by Haiku - Opus 4.8 μ 96.4% vs Haiku 4.5 μ 65.4%</figcaption>
+        <figcaption>Fig. 1 - Per-task reward across all 20 tasks (green = S3, blue = DynamoDB), sorted by Haiku - Opus 4.8 μ 95.6% vs Haiku 4.5 μ 48.9%</figcaption>
       </figure>
     </div>
 
-    <p class="section-desc">Distribution of Claude Haiku 4.5 reward - the discriminating axis, since Opus saturates.</p>
+    <p class="section-desc">Reward and inference cost by difficulty tier - Easy (6), Medium (4), Hard (10), calibrated on observed Haiku 4.5 reward.</p>
 
-    <div class="quality-grid">
+    <div class="charts">
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview mean reward by tier chart full size">
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/reward_by_tier.png?v=20" alt="Mean reward by difficulty tier - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 2 - Mean reward by tier - Opus holds ~95% across tiers while Haiku falls 90.9% to 19.9%</figcaption>
+      </figure>
+      <figure class="chart">
+        <button type="button" class="chart-trigger" aria-label="Preview cost by tier chart full size">
+          <img class="rd-chart-card" src="/raiden_dashboard/static/src/portal/img/cost_by_tier.png?v=20" alt="Mean agent cost per run by difficulty tier - Claude Opus 4.8 vs Claude Haiku 4.5" loading="lazy"/>
+          <span class="chart-zoom-hint" aria-hidden="true">Click to expand</span>
+        </button>
+        <figcaption>Fig. 3 - Mean agent cost per run by tier (USD) - roughly flat, Medium priciest</figcaption>
+      </figure>
+    </div>
+
+    <div class="quality-grid" style="grid-template-columns: repeat(3, minmax(0, 1fr));">
       <div class="quality-card quality-clean" data-animate="fade-up" data-delay="0">
-        <span class="rd-quality-num">5</span>
-        <span class="quality-label">= 100% REWARD</span>
-        <span class="quality-pct mono">12.5%</span>
+        <span class="rd-quality-num">6</span>
+        <span class="quality-label">EASY · HAIKU 75%+</span>
+        <span class="quality-pct mono">30.0%</span>
       </div>
       <div class="quality-card quality-fixable" data-animate="fade-up" data-delay="1">
-        <span class="rd-quality-num">17</span>
-        <span class="quality-label">75-99% REWARD</span>
-        <span class="quality-pct mono">42.5%</span>
+        <span class="rd-quality-num">4</span>
+        <span class="quality-label">MEDIUM · 50-75%</span>
+        <span class="quality-pct mono">20.0%</span>
       </div>
       <div class="quality-card quality-degraded" data-animate="fade-up" data-delay="2">
-        <span class="rd-quality-num">4</span>
-        <span class="quality-label">50-75% REWARD</span>
-        <span class="quality-pct mono">10.0%</span>
-      </div>
-      <div class="quality-card quality-broken" data-animate="fade-up" data-delay="3">
-        <span class="rd-quality-num">14</span>
-        <span class="quality-label">&lt; 50% REWARD</span>
-        <span class="quality-pct mono">35.0%</span>
+        <span class="rd-quality-num">10</span>
+        <span class="quality-label">HARD · &lt; 50%</span>
+        <span class="quality-pct mono">50.0%</span>
       </div>
     </div>
 
     <div class="confidence-strip" data-animate="fade-up">
-      <span class="rd-confidence-big">96.4%</span>
+      <span class="rd-confidence-big">95.6%</span>
       <span class="confidence-lbl mono">Claude Opus 4.8 Mean Reward</span>
     </div>
   </section>
@@ -299,7 +311,7 @@
     <div class="kpi-row" aria-label="Headline statistics for the delivery">
       <div class="kpi-card">
         <p class="kpi-label">Total Tasks</p>
-        <p class="kpi-value"><span class="kpi-big">40</span></p>
+        <p class="kpi-value"><span class="kpi-big">20</span></p>
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Scopes</p>
@@ -307,11 +319,11 @@
       </div>
       <div class="kpi-card">
         <p class="kpi-label">Held-out Tests</p>
-        <p class="kpi-value"><span class="kpi-big">3,404</span></p>
+        <p class="kpi-value"><span class="kpi-big">1,577</span></p>
       </div>
       <div class="kpi-card kpi-card--accent">
         <p class="kpi-label">Opus Mean Reward</p>
-        <p class="kpi-value"><span class="kpi-big">96.4<small>%</small></span></p>
+        <p class="kpi-value"><span class="kpi-big">95.6<small>%</small></span></p>
       </div>
     </div>
 
@@ -370,7 +382,7 @@
   <!-- ================= §07 MODEL COMPARISON ================= -->
   <section class="section" id="models" aria-labelledby="models-label">
     <p class="section-label" id="models-label">§07 · Scope comparison</p>
-    <p class="section-desc">The two scoped deliveries side by side. Opus 4.8 leads Haiku 4.5 on every task; the capability gap is far wider on the S3 surface.</p>
+    <p class="section-desc">The two scoped deliveries side by side. Opus 4.8 stays near the ceiling on both surfaces while Haiku 4.5 lands well below, widest on the S3 surface.</p>
 
     <div class="kpi-row" style="grid-template-columns: repeat(2, 1fr);">
       <div class="kpi-card" style="min-height: auto;">
@@ -384,12 +396,12 @@
         </dl>
       </div>
       <div class="kpi-card" style="min-height: auto;">
-        <p class="kpi-label">aws dynamodb · 30 tasks</p>
+        <p class="kpi-label">aws dynamodb · 10 tasks</p>
         <dl class="glance-list" style="margin-top: 12px;">
-          <div class="glance-row"><dt>Opus 4.8 mean</dt><dd><b>97.6%</b></dd></div>
-          <div class="glance-row"><dt>Haiku 4.5 mean</dt><dd><b>72.3%</b></dd></div>
-          <div class="glance-row"><dt>Mean gap</dt><dd><b>+25.3 pts</b></dd></div>
-          <div class="glance-row"><dt>Held-out tests</dt><dd><b>2,778</b></dd></div>
+          <div class="glance-row"><dt>Opus 4.8 mean</dt><dd><b>98.4%</b></dd></div>
+          <div class="glance-row"><dt>Haiku 4.5 mean</dt><dd><b>53.0%</b></dd></div>
+          <div class="glance-row"><dt>Mean gap</dt><dd><b>+45.4 pts</b></dd></div>
+          <div class="glance-row"><dt>Held-out tests</dt><dd><b>951</b></dd></div>
           <div class="glance-row"><dt>Backend</dt><dd>DynamoDB Local</dd></div>
         </dl>
       </div>
