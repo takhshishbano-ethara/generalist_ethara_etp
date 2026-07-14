@@ -32,4 +32,33 @@
     <menuitem name="Test Results" id="kensei2.menu_kensei2_test_results" parent="kensei2.menu_kensei2_root"
               action="action_kensei2_test_results" sequence="45"
               groups="kensei2.group_kensei2_tasker"/>
+<menuitem name="Kensei2 Tracker" id="kensei2.menu_kensei2_tracker_root"
+              parent="kensei2.menu_kensei2_root" sequence="50"
+              groups="kensei2.group_kensei2_tasker,base.group_system"/>
+
+    <!-- Single Dashboard entry — the client action renders the org overview for
+         QL/PL/admin and the personal dashboard for plain taskers. -->
+    <menuitem name="Dashboard" id="kensei2.menu_kensei2_tracker_dashboard"
+              parent="kensei2.menu_kensei2_tracker_root"
+              action="kensei2_dashboard_action" sequence="10"
+              groups="kensei2.group_kensei2_tasker,base.group_system"/>
+    <menuitem name="Task Allocation" id="kensei2.menu_kensei2_tracker_allocation"
+              parent="kensei2.menu_kensei2_tracker_root"
+              action="kensei2_tracker_allocation_action" sequence="20"
+              groups="kensei2.group_kensei2_tasker,base.group_system"/>
+    <menuitem name="Daily Tracker" id="kensei2.menu_kensei2_tracker_daily"
+              parent="kensei2.menu_kensei2_tracker_root"
+              action="kensei2_tracker_daily_action" sequence="25"
+              groups="kensei2.group_kensei2_ql,base.group_system"/>
+    <!-- Persona inventory for the Tracker: what exists, what is assigned, to whom,
+         and where it is in the pipeline. Also the home of Bulk Upload Personas. -->
+    <menuitem name="Personas" id="kensei2.menu_kensei2_tracker_personas"
+              parent="kensei2.menu_kensei2_tracker_root"
+              action="kensei2_tracker_persona_action" sequence="30"
+              groups="kensei2.group_kensei2_ql,base.group_system"/>
+    <menuitem name="Team Management" id="kensei2.menu_kensei2_tracker_team"
+              parent="kensei2.menu_kensei2_tracker_root"
+              action="kensei2_tracker_team_member_action" sequence="35"
+              groups="kensei2.group_kensei2_ql,base.group_system"/>
+
 </odoo>

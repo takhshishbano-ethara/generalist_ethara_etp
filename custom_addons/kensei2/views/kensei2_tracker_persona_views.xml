@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <data>
+
+    <!-- ===================== Tracker Persona: List ===================== -->
+    <!-- Distinct from the generic Personas list under the Kensei2 app: this one is
+         about ALLOCATION — is this persona in play, who has it, and where is it. -->
+    <record model="ir.ui.view" id="kensei2_tracker_persona_list">
+      <field name="name">kensei2.tracker.persona.list</field>
+      <field name="model">kensei2.persona</field>
+      <field name="arch" type="xml">
+        <!-- Unassigned personas are the actionable ones (they are waiting to be
+             allocated), so they stay at normal weight; assigned ones recede. -->
+        <list string="Personas" sample="1" multi_edit="1" js_class="kensei2_stats_list"
+              decoration-muted="assignment_status == 'assigned'">
+          <header>
+            <button name="%(action_kensei2_persona_import)d" type="action"
+                    string="Upload Personas" class="btn-primary text-nowrap"
+                    icon="fa-upload" display="always"
+                    groups="kensei2.group_kensei2_ql"/>
+            <button name="%(action_kensei2_tracker_bulk_allocation)d" type="action"
+                    string="Bulk Allocation" class="btn-secondary text-nowrap"
+                    icon="fa-random" display="always"
+                    groups="kensei2.group_kensei2_ql"/>
+          </header>
+
+          <field name="name"/>
+          <field name="l1_category" optional="show"/>
+          <field name="l2_category" optional="show"/>
+
+          <field name="assignment_status" widget="badge"
+                 decoration-success="assignment_status == 'assigned'"
+                 decoration-warning="assignment_status == 'unassigned'"/>
+
+          <!-- Who has it, and where it is -->
+          <field name="current_task_ref" string="Task ID" optional="show"/>
+          <field name="current_stage" string="Stage" optional="show"/>
+          <field name="current_tasker_id" string="Tasker" optional="show"/>
+          <field name="current_pl_id" string="PL" optional="show"/>
+          <field name="current_status" string="Task Status" widget="badge"
+                 optional="show"
+                 decoration-success="current_status == 'deliverable'"
+                 decoration-danger="current_status == 'failed'"
+                 decoration-warning="current_status in ('manual_qc','ready_next_stage')"/>
+          <field name="allocation_count" string="Allocations" optional="hide"/>
+
+          <button name="action_view_allocations" type="object"
+                  string="Allocations" icon="fa-list"
+                  invisible="allocation_count == 0"/>
+        </list>
+      </field>
+    </record>
+
+    <!-- ===================== Tracker Persona: Search ===================== -->
+    <record model="ir.ui.view" id="kensei2_tracker_persona_search">
+      <field name="name">kensei2.tracker.persona.search</field>
+      <field name="model">kensei2.persona</field>
+      <field name="arch" type="xml">
+        <search string="Personas">
+          <field name="name"/>
+          <field name="l1_category"/>
+          <field name="l2_category"/>
+          <field name="current_task_ref" string="Task ID"/>
+          <field name="current_tasker_id" string="Tasker"/>
+
+          <!-- Unassigned first: that is the queue to act on. -->
+          <filter name="f_unassigned" string="Unassigned"
+                  domain="[('assignment_status', '=', 'unassigned')]"/>
+          <filter name="f_assigned" string="Assigned"
+                  domain="[('assignment_status', '=', 'assigned')]"/>
+          <separator/>
+          <filter name="f_in_flight" string="In Flight"
+                  domain="[('current_status', 'not in', ('deliverable', 'failed')),
+                           ('assignment_status', '=', 'assigned')]"/>
+          <filter name="f_delivered" string="Delivered"
+                  domain="[('current_status', '=', 'deliverable')]"/>
+          <filter name="f_failed" string="Failed"
+                  domain="[('current_status', '=', 'failed')]"/>
+          <separator/>
+          <filter name="f_archived" string="Archived" domain="[('active', '=', False)]"/>
+
+          <group>
+            <filter name="g_assignment" string="Assignment"
+                    context="{'group_by': 'assignment_status'}"/>
+            <filter name="g_status" string="Task Status"
+                    context="{'group_by': 'current_status'}"/>
+            <filter name="g_tasker" string="Tasker"
+                    context="{'group_by': 'current_tasker_id'}"/>
+            <filter name="g_pl" string="PL" context="{'group_by': 'current_pl_id'}"/>
+            <filter name="g_l1" string="L1 Category" context="{'group_by': 'l1_category'}"/>
+          </group>
+        </search>
+      </field>
+    </record>
+
+    <!-- ===================== Action ===================== -->
+    <record model="ir.actions.act_window" id="kensei2_tracker_persona_action">
+      <field name="name">Personas</field>
+      <field name="res_model">kensei2.persona</field>
+      <field name="view_mode">list,form</field>
+      <field name="search_view_id" ref="kensei2_tracker_persona_search"/>
+      <!-- Bind the tracker-specific LIST while reusing the existing persona form. -->
+      <field name="view_ids" eval="[(5, 0, 0),
+            (0, 0, {'view_mode': 'list', 'view_id': ref('kensei2_tracker_persona_list')}),
+            (0, 0, {'view_mode': 'form', 'view_id': ref('kensei2.kensei2_persona_form')})]"/>
+      <field name="help" type="html">
+        <p class="o_view_nocontent_smiling_face">No personas yet</p>
+        <p>Use <b>Bulk Upload Personas</b> to import them from a CSV, then
+           <b>Bulk Allocation</b> to distribute them to taskers.</p>
+      </field>
+    </record>
+
+  </data>
+</odoo>

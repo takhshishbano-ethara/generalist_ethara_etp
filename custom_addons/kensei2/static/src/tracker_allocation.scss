@@ -1,0 +1,82 @@
+// Task Allocation form tweaks (scoped to .o_kensei2_alloc_form so nothing else
+// in the app is affected).
+.o_kensei2_alloc_form {
+
+    // Widen the sheet so the whole status progress bar fits across the top
+    // instead of collapsing early stages into a "…" dropdown.
+    .o_form_sheet_bg,
+    .o_form_sheet {
+        max-width: 100%;
+    }
+
+    // Make the status bar span the full header width instead of being pushed to
+    // the right (Odoo default: margin-left:auto), and let each stage grow to
+    // fill the row evenly.
+    //
+    // The parent must be `.o_field_statusbar` (the field wrapper), not
+    // `.o_form_statusbar` (the header) — core uses that same child combinator.
+    //
+    // DO NOT set `flex-flow` here. Odoo renders the stage buttons in REVERSED DOM
+    // order on purpose — see StatusBarField.getSortedItems():
+    //     inline.reverse(); // CSS rules account for this list to be reversed
+    // and then flips them back with `flex-flow: row-reverse wrap-reverse`. The two
+    // cancel out to a straight left-to-right bar. Overriding it here would leave
+    // the reversed DOM showing through, i.e. Failed → … → In Progress.
+    .o_field_statusbar > .o_statusbar_status {
+        --o-statusbar-padding-x: 0.75rem;
+        margin-left: 0;
+        flex: 1 1 auto;
+
+        // THE WHOLE GAME IS: DO NOT LET THIS ROW WRAP.
+        //
+        // Core's StatusBarField.adjustVisibleItems() does
+        //     while (this.areItemsWrapping()) { …hide stages into a "…" dropdown… }
+        // so a row that wraps does not gracefully flow onto a second line — it
+        // FOLDS STAGES AWAY. That is the "stage names are cut off" report.
+        //
+        // The previous rule set `flex: 1 0 auto` (grow, never shrink) on the
+        // buttons, which guarantees the row is at least as wide as the sum of the
+        // labels — i.e. it guaranteed the wrap it was trying to prevent. Combined
+        // with the old ~129-character label set, the bar folded at every width.
+        //
+        // Now: the labels are short (see STATUS_SELECTION), and the buttons MAY
+        // shrink a little (`flex: 1 1 auto`) so six of them settle onto one row
+        // instead of tipping it into a wrap. `min-width: 0` is required — a flex
+        // item will not shrink below its content without it, which is the classic
+        // reason "flex-shrink: 1" appears to do nothing.
+        > .o_arrow_button:not(.d-none) {
+            flex: 1 1 auto;
+            min-width: 0;
+            justify-content: center;
+            white-space: nowrap;
+        }
+    }
+
+    // Last resort. If a stage name STILL cannot fit (a very narrow window, a long
+    // translation), ellipsize the label rather than let it spill over the arrow
+    // notch into the next stage — a clipped word is readable, two overlapping ones
+    // are not. The full name stays available via the button's title tooltip.
+    .o_field_statusbar .o_arrow_button {
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    // Completed stages = GREEN (distinct from grey "upcoming"). The done class is
+    // applied by the `kensei2_statusbar` widget from the field's selection order +
+    // each button's data-value, so this does NOT depend on the statusbar's
+    // (reversed) DOM order — no `~`/`:has` sibling-order hack.
+    .o_statusbar_status .o_arrow_button.o_kensei2_stage_done {
+        &, &:disabled, &:hover, &:focus {
+            background-color: #d1fae5;            // light green = completed
+            color: #065f46 !important;            // dark green text (beats muted)
+            font-weight: 500;
+        }
+    }
+
+    // Show the Assignment Date in full — stop it being clipped to day/month.
+    .o_field_date,
+    .o_field_widget[name="assigned_date"] {
+        white-space: nowrap;
+        min-width: 8rem;
+    }
+}

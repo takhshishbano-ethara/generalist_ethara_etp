@@ -22,3 +22,4 @@ from . import test_background_workers
 from . import test_sandbox_data
 from . import test_sandbox_internals
 from . import test_integration
+from . import test_kensei2_tracker

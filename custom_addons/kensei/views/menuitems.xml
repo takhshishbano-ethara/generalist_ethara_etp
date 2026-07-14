@@ -35,32 +35,5 @@
 
     <!-- ===================== Kensei Tracker ===================== -->
     <!-- Nested under the Kensei app, right after "Test Results" (seq 45). -->
-    <menuitem name="Kensei Tracker" id="kensei.menu_kensei_tracker_root"
-              parent="kensei.menu_kensei_root" sequence="50"
-              groups="kensei.group_kensei_tasker,base.group_system"/>
-
-    <!-- Single Dashboard entry — the client action renders the org overview for
-         QL/PL/admin and the personal dashboard for plain taskers. -->
-    <menuitem name="Dashboard" id="kensei.menu_kensei_tracker_dashboard"
-              parent="kensei.menu_kensei_tracker_root"
-              action="kensei_dashboard_action" sequence="10"
-              groups="kensei.group_kensei_tasker,base.group_system"/>
-    <menuitem name="Task Allocation" id="kensei.menu_kensei_tracker_allocation"
-              parent="kensei.menu_kensei_tracker_root"
-              action="kensei_tracker_allocation_action" sequence="20"
-              groups="kensei.group_kensei_tasker,base.group_system"/>
-    <menuitem name="Daily Tracker" id="kensei.menu_kensei_tracker_daily"
-              parent="kensei.menu_kensei_tracker_root"
-              action="kensei_tracker_daily_action" sequence="25"
-              groups="kensei.group_kensei_ql,base.group_system"/>
-    <!-- Persona inventory for the Tracker: what exists, what is assigned, to whom,
-         and where it is in the pipeline. Also the home of Bulk Upload Personas. -->
-    <menuitem name="Personas" id="kensei.menu_kensei_tracker_personas"
-              parent="kensei.menu_kensei_tracker_root"
-              action="kensei_tracker_persona_action" sequence="30"
-              groups="kensei.group_kensei_ql,base.group_system"/>
-    <menuitem name="Team Management" id="kensei.menu_kensei_tracker_team"
-              parent="kensei.menu_kensei_tracker_root"
-              action="kensei_tracker_team_member_action" sequence="35"
-              groups="kensei.group_kensei_ql,base.group_system"/>
+    
 </odoo>

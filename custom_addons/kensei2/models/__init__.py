@@ -1,5 +1,6 @@
 from . import (
     res_config_settings,
+    res_users,
     kensei2,
     kensei2_api_request,
     kensei2_domain,
@@ -8,4 +9,10 @@ from . import (
     kensei2_sandbox_k8s,
     kensei2_test_result,
     kensei2_reward_metrics,
+    kensei2_tracker_allocation,
+    kensei2_tracker_bulk_allocation,
+    kensei2_persona_import,
+    kensei2_tracker_stage_handoff,
+    kensei2_tracker_team_member,
+    kensei2_tracker_team_import,
 )

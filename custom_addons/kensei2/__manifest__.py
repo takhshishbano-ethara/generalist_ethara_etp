@@ -1,6 +1,6 @@
 {
     "name": "Kensei 2.0",
-    "version": "19.0.1.2.0",
+    "version": "19.0.1.3.0",
     "category": "Tools",
     "summary": "Kensei2 — LLM task management with sandbox environments and file attachments",
     "description": """
@@ -10,9 +10,16 @@
         hybrid HTTP upload + WebSocket reference architecture.
     """,
     "author": "Ethara",
-    "depends": ["base", "web", "hr", "bus"],
+    # mail            — kensei2.tracker.allocation inherits mail.thread +
+    #                   mail.activity.mixin (the chatter is the audit trail).
+    # etp_user_roles  — the Tracker's record rules bind to etp_user_roles.group_*
+    #                   (tasker / quality_lead / project_lead / quality_reviewer /
+    #                   cto / hr_admin / it_admin). Without it those refs cannot
+    #                   resolve and the security XML fails to load.
+    "depends": ["base", "web", "hr", "bus", "mail", "etp_user_roles"],
     "data": [
         "security/kensei2_security.xml",
+        "security/kensei2_tracker_security.xml",
         "security/ir.model.access.csv",
         "data/cron.xml",
         "data/persona_seed.xml",
@@ -23,6 +30,14 @@
         "views/kensei2_views.xml",
         "views/api_request_views.xml",
         "views/test_result_views.xml",
+        # ---- Kensei2 Tracker ----
+        "views/kensei2_persona_import_views.xml",
+        "views/kensei2_tracker_bulk_allocation_views.xml",
+        "views/kensei2_tracker_persona_views.xml",
+        "views/kensei2_tracker_stage_handoff_views.xml",
+        "views/kensei2_tracker_views.xml",
+        "views/kensei2_tracker_team_import_views.xml",
+        "views/kensei2_tracker_team_views.xml",
         "views/menuitems.xml",
     ],
     "installable": True,
@@ -62,6 +77,29 @@
             "kensei2/static/src/costing_dashboard/costing_dashboard.js",
             "kensei2/static/src/costing_dashboard/costing_dashboard.xml",
             "kensei2/static/src/costing_dashboard/costing_dashboard.scss",
+            # ---- Kensei2 Tracker ----
+            # tracker_common must precede anything importing @kensei2/tracker_common.
+            "kensei2/static/src/tracker_common.js",
+            "kensei2/static/src/team_notification_service.js",
+            "kensei2/static/src/list_stats/list_stats.js",
+            "kensei2/static/src/list_stats/list_stats.xml",
+            "kensei2/static/src/list_stats/list_stats.scss",
+            "kensei2/static/src/dashboard_base/dashboard_base.js",
+            "kensei2/static/src/dashboard_base/dashboard_base.xml",
+            "kensei2/static/src/progress_table/progress_table.js",
+            "kensei2/static/src/progress_table/progress_table.xml",
+            "kensei2/static/src/kensei2_statusbar/kensei2_statusbar.js",
+            "kensei2/static/src/tracker_dashboard/tracker_dashboard.js",
+            "kensei2/static/src/tracker_dashboard/tracker_dashboard.xml",
+            "kensei2/static/src/tracker_dashboard/tracker_dashboard.scss",
+            "kensei2/static/src/tasker_dashboard/tasker_dashboard.js",
+            "kensei2/static/src/tasker_dashboard/tasker_dashboard.xml",
+            "kensei2/static/src/tasker_dashboard/tasker_dashboard.scss",
+            "kensei2/static/src/kensei2_dashboard/kensei2_dashboard.js",
+            "kensei2/static/src/tracker_daily/tracker_daily.js",
+            "kensei2/static/src/tracker_daily/tracker_daily.xml",
+            "kensei2/static/src/tracker_daily/tracker_daily.scss",
+            "kensei2/static/src/tracker_allocation.scss",
         ],
     },
 }

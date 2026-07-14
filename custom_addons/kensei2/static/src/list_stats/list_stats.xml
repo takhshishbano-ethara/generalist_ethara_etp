@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- One card. Deliberately the SAME anatomy as the Daily Tracker's summary
+         cards (tinted icon tile + value + uppercase label) — the two surfaces are
+         one menu click apart and should read as the same product. -->
+    <t t-name="kensei2.ListStats.Card">
+        <div t-attf-class="o_kls_icon o_kls_ic_{{card.tone}}">
+            <i t-attf-class="fa {{card.icon}}"/>
+        </div>
+        <div class="o_kls_body">
+            <div class="o_kls_value"><t t-out="display(card)"/></div>
+            <div class="o_kls_label"><t t-out="card.label"/></div>
+        </div>
+    </t>
+
+    <t t-name="kensei2.ListStats">
+        <div class="o_kls" t-if="props.cards.length or props.loading">
+            <div class="o_kls_cards">
+
+                <!-- first load: hold the height so the table below never jumps -->
+                <t t-if="props.loading and !props.cards.length">
+                    <t t-foreach="[1, 2, 3, 4]" t-as="i" t-key="i">
+                        <div class="o_kls_card o_kls_ghost">
+                            <div class="o_kls_icon"/>
+                            <div class="o_kls_body">
+                                <div class="o_kls_value"/>
+                                <div class="o_kls_label"/>
+                            </div>
+                        </div>
+                    </t>
+                </t>
+
+                <t t-else="">
+                    <t t-foreach="props.cards" t-as="card" t-key="card.key">
+                        <!-- A card that can narrow the list is a real <button>, so
+                             Enter/Space, the focus ring and screen-reader support
+                             come for free. A card that cannot (the total, an
+                             average) is a plain <div> — nothing looks clickable
+                             unless it is. -->
+                        <button t-if="isClickable(card)"
+                                type="button"
+                                class="o_kls_card o_kls_action"
+                                t-att-class="{ 'o_kls_dim': props.loading }"
+                                t-att-title="tooltip(card)"
+                                t-on-click="() => this.onClick(card)">
+                            <t t-call="kensei2.ListStats.Card"/>
+                        </button>
+
+                        <div t-else=""
+                             class="o_kls_card"
+                             t-att-class="{ 'o_kls_dim': props.loading }"
+                             t-att-title="tooltip(card)">
+                            <t t-call="kensei2.ListStats.Card"/>
+                        </div>
+                    </t>
+                </t>
+            </div>
+        </div>
+    </t>
+
+    <!-- Slot the cards between the control panel and the rows. Inherits the stock
+         list view rather than reimplementing it, so search, selection, the cog
+         menu, editable rows and optional columns all keep working. -->
+    <t t-name="kensei2.StatsListView" t-inherit="web.ListView" t-inherit-mode="primary">
+        <xpath expr="//t[@t-component='props.Renderer']" position="before">
+            <Kensei2ListStats
+                cards="statsState.cards"
+                loading="statsState.loading"
+                onCardClick.bind="onCardClick"/>
+        </xpath>
+    </t>
+
+</templates>

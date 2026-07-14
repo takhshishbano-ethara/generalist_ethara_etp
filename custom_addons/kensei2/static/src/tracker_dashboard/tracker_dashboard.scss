@@ -1,0 +1,433 @@
+// ============================================================================
+// Kensei2 Tracker — RL Dashboard
+// Replicates the "Kensei2-RL Dashboard" spreadsheet layout: purple section
+// headers, colored metric cards, and a per-PL progress table.
+// ============================================================================
+
+.o_kensei2_tracker_dashboard {
+    // Reuse the app navbar colour so the section headers stay consistent with
+    // the theme (instead of a separate hard-coded purple).
+    --ktd-purple: #{$o-navbar-background};
+    --ktd-purple-soft: #ede9f7;
+    --ktd-border: #e5e7eb;
+    --ktd-text: #1f2937;
+    --ktd-text-muted: #6b7280;
+    --ktd-radius: 6px;
+
+    padding: 1.25rem 1.5rem 2rem;
+    background: #f9fafb;
+    font-family: inherit;
+    color: var(--ktd-text);
+
+    // SCROLLING — `height: 100%` is load-bearing. Do NOT change it to
+    // `min-height: 100%` (or drop it): that is what broke scrolling before.
+    //
+    // Odoo's ActionContainer renders `<div class="o_action_manager">` and passes
+    // the `o_action` class to the action component as a PROP (className), which
+    // the component is expected to put on its own root. This dashboard does not
+    // do that, so its root is a direct child of `.o_action_manager` WITHOUT the
+    // `.o_action` class — meaning core's `> .o_action { height:100%; display:flex;
+    // overflow:hidden }` rules never apply to it, and `.o_action_manager` itself
+    // is a plain block (`height:100%; overflow:hidden`), not a flex container.
+    //
+    // So the root's height stays `auto` = its content height. It grows past the
+    // parent, the parent clips it (`overflow: hidden`), and `overflow-y: auto`
+    // here never fires because nothing bounds the height — the page simply cannot
+    // scroll and everything below the fold is unreachable. (Flex tricks like
+    // `flex: 1 1 auto; min-height: 0` are inert here: the parent is not flex.)
+    //
+    // `height: 100%` resolves against `.o_action_manager`'s definite 100% height,
+    // giving this element a bounded box — which is exactly what `overflow-y: auto`
+    // needs in order to produce its own scrollbar.
+    height: 100%;
+    overflow-y: auto;
+}
+
+// --- Top bar ---
+.o_ktd_topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.o_ktd_topbar_titles {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.o_ktd_title {
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--ktd-purple);
+    display: flex;
+    align-items: center;
+}
+
+.o_ktd_subtitle {
+    font-size: 0.8125rem;
+    color: var(--ktd-text-muted);
+}
+
+.o_ktd_topbar_actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.o_ktd_filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--ktd-border);
+    background: #fff;
+    border-radius: var(--ktd-radius);
+    flex-wrap: wrap;
+}
+
+.o_ktd_filter_icon {
+    color: var(--ktd-text-muted);
+}
+
+.o_ktd_date {
+    border: 1px solid var(--ktd-border);
+    border-radius: 4px;
+    padding: 0.1875rem 0.375rem;
+    font-size: 0.8125rem;
+    color: var(--ktd-text);
+    background: #fff;
+}
+
+.o_ktd_date_sep {
+    color: var(--ktd-text-muted);
+}
+
+.o_ktd_preset {
+    padding: 0.1875rem 0.5rem;
+    border: 1px solid var(--ktd-border);
+    background: #fff;
+    color: var(--ktd-text-muted);
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.12s ease;
+
+    &:hover {
+        border-color: var(--ktd-purple);
+        color: var(--ktd-purple);
+        background: var(--ktd-purple-soft);
+    }
+
+    &.o_ktd_preset_active {
+        background: var(--ktd-purple);
+        border-color: var(--ktd-purple);
+        color: #fff;
+    }
+}
+
+.o_ktd_refresh_btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.4375rem 0.875rem;
+    border: 1px solid var(--ktd-border);
+    background: #fff;
+    color: var(--ktd-text);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    border-radius: var(--ktd-radius);
+    cursor: pointer;
+    transition: all 0.15s ease;
+
+    &:hover:not(:disabled) {
+        background: var(--ktd-purple-soft);
+        border-color: var(--ktd-purple);
+        color: var(--ktd-purple);
+    }
+
+    &:disabled {
+        opacity: 0.6;
+        cursor: default;
+    }
+}
+
+// --- Section ---
+.o_ktd_section {
+    margin-bottom: 1.25rem;
+    border: 1px solid var(--ktd-border);
+    border-radius: var(--ktd-radius);
+    overflow: hidden;
+    background: #fff;
+}
+
+.o_ktd_section_header {
+    background: var(--ktd-purple);
+    color: #fff;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    padding: 0.5rem 0.875rem;
+    display: flex;
+    align-items: center;
+}
+
+.o_ktd_section_header_split {
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+// --- Segmented controls (group-by axis + stage axis) ---
+// They sit on the purple section header, so they are drawn as translucent white
+// chips rather than borrowing the light-on-white card palette.
+.o_ktd_segments {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.o_ktd_segment {
+    display: inline-flex;
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    padding: 2px;
+}
+
+.o_ktd_segment_btn {
+    border: 0;
+    background: transparent;
+    color: rgba(255, 255, 255, 0.75);
+    font: inherit;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.75rem;
+    border-radius: 999px;
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+
+    &:hover:not(.o_ktd_segment_active) {
+        color: #fff;
+        background: rgba(255, 255, 255, 0.12);
+    }
+
+    &:focus-visible {
+        outline: 2px solid #fff;
+        outline-offset: 1px;
+    }
+}
+
+.o_ktd_segment_active {
+    background: #fff;
+    color: var(--ktd-purple);
+}
+
+// --- Metric cards row ---
+// `auto-fit` instead of a hard-coded 5 columns: the sections do NOT all hold five
+// cards (Team Composition has 4, the funnel now has 6 since "Ready for Next Stage"
+// was added, Stats has 5). A fixed 5-column grid left dead grey cells wherever the
+// count did not divide evenly, and pushed the funnel's 6th card ("Failed") onto a
+// row of its own next to a large empty block — the grey came from the grid's own
+// background showing through the empty tracks. auto-fit creates exactly as many
+// columns as there are cards, so every row is filled whatever the count.
+.o_ktd_cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1px;
+    background: var(--ktd-border);
+
+    @media (max-width: 900px) {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.o_ktd_metric_card {
+    background: #fff;
+    padding: 1rem 1.25rem 1.125rem;
+    text-align: center;
+    border-top: 3px solid var(--ktd-purple);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 96px;
+}
+
+.o_ktd_metric_label {
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ktd-text-muted);
+}
+
+.o_ktd_metric_value {
+    font-size: 1.875rem;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+}
+
+// Per-card accent (border-top + value colour), keyed by card.key. These were
+// previously inline styles fed from hex codes in the Python controller.
+@each $key, $color in (
+    // team composition (roster)
+    "total": $o-navbar-background, "tasker": #3b82f6, "ql": #06b6d4, "pl": #6366f1,
+    // stats
+    "active": #f59e0b, "completions": #10b981, "failed": #ef4444, "avg_score": #f59e0b
+) {
+    .o_ktd_metric_#{$key} {
+        border-top-color: $color;
+        .o_ktd_metric_value { color: $color; }
+    }
+}
+
+// --- Drill-down affordance (cards + table rows) ---
+.o_ktd_clickable {
+    cursor: pointer;
+    transition: box-shadow 0.12s ease, background 0.12s ease;
+
+    &:hover {
+        box-shadow: inset 0 0 0 2px var(--ktd-purple);
+    }
+}
+
+.o_ktd_table tbody tr.o_ktd_clickable:hover td {
+    background: var(--ktd-purple-soft);
+}
+
+// --- Funnel cards (soft pastel fills, matching the design) ---
+.o_ktd_funnel_card {
+    padding: 1rem 1.25rem 1.125rem;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+    justify-content: center;
+    min-height: 96px;
+
+    .o_ktd_metric_value {
+        font-size: 1.875rem;
+        color: var(--ktd-text);
+    }
+}
+
+.o_ktd_funnel_in_authoring { background: #fef3e6; }
+.o_ktd_funnel_in_trajectory { background: #e6f7f5; }
+.o_ktd_funnel_manual_qc { background: #fdeaf1; }
+.o_ktd_funnel_ready_next_stage { background: #ede9f7; }
+.o_ktd_funnel_verified { background: #e8f5e9; }
+.o_ktd_funnel_failed { background: #fdecea; }
+
+// --- Per-PL progress table ---
+.o_ktd_table_wrap {
+    overflow-x: auto;
+}
+
+.o_ktd_table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+
+    thead th {
+        background: var(--ktd-purple-soft);
+        color: var(--ktd-purple);
+        font-weight: 700;
+        font-size: 0.6875rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+        border-bottom: 1px solid var(--ktd-border);
+        white-space: nowrap;
+    }
+
+    tbody td {
+        padding: 0.5rem 0.75rem;
+        text-align: center;
+        border-bottom: 1px solid #f1f2f4;
+        font-variant-numeric: tabular-nums;
+    }
+
+    tbody tr:hover td {
+        background: #fafaf8;
+    }
+
+    .o_ktd_col_idx {
+        width: 2.5rem;
+        color: var(--ktd-text-muted);
+    }
+
+    .o_ktd_col_pl {
+        text-align: left;
+        font-weight: 600;
+    }
+
+    .o_ktd_cell_verified {
+        color: #10b981;
+        font-weight: 700;
+    }
+
+    .o_ktd_cell_blocked {
+        color: #ef4444;
+        font-weight: 700;
+    }
+}
+
+.o_ktd_empty {
+    text-align: center !important;
+    color: var(--ktd-text-muted);
+    padding: 2rem !important;
+}
+
+// --- Table pager ---
+.o_ktd_pager {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+    border-top: 1px solid var(--ktd-border);
+    font-size: 0.8125rem;
+    color: var(--ktd-text);
+}
+
+.o_ktd_pager_info {
+    font-variant-numeric: tabular-nums;
+    min-width: 3.5rem;
+    text-align: center;
+}
+
+.o_ktd_pager_btn {
+    border: 1px solid var(--ktd-border);
+    background: #fff;
+    color: var(--ktd-text);
+    border-radius: 4px;
+    width: 1.75rem;
+    height: 1.75rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        border-color: var(--ktd-purple);
+        color: var(--ktd-purple);
+        background: var(--ktd-purple-soft);
+    }
+    &:disabled {
+        opacity: 0.45;
+        cursor: default;
+    }
+}
