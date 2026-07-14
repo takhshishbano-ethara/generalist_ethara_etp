@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="hr_applicant_view_form_ethara_screening" model="ir.ui.view">
+        <field name="name">hr.applicant.form.ethara.screening</field>
+        <field name="model">hr.applicant</field>
+        <field name="inherit_id" ref="hr_recruitment.hr_applicant_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//header" position="inside">
+                <button name="action_screen_resume"
+                        type="object"
+                        string="Screen Resume (LLM)"
+                        class="btn-primary"
+                        icon="fa-magic"/>
+                <field name="resume_llm_status"
+                       widget="statusbar"
+                       statusbar_visible="pending,processing,completed,failed"/>
+            </xpath>
+            <xpath expr="//sheet" position="inside">
+                <notebook>
+                    <page string="AI Screening" name="ethara_ai_screening">
+                        <group>
+                            <group string="Verdict">
+                                <field name="resume_score"/>
+                                <field name="resume_recommendation"/>
+                                <field name="resume_screened_at"/>
+                            </group>
+                            <group string="LLM">
+                                <field name="resume_llm_model_used" readonly="1"/>
+                                <field name="resume_llm_prompt_tokens" readonly="1"/>
+                                <field name="resume_llm_completion_tokens" readonly="1"/>
+                                <field name="resume_llm_latency_ms" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="Summary">
+                            <field name="resume_summary" nolabel="1" readonly="1"/>
+                        </group>
+                        <group>
+                            <group string="Strengths">
+                                <field name="resume_strengths" nolabel="1" readonly="1"/>
+                            </group>
+                            <group string="Gaps">
+                                <field name="resume_gaps" nolabel="1" readonly="1"/>
+                            </group>
+                        </group>
+                        <group string="Raw LLM Payload"
+                               invisible="not resume_screening_payload">
+                            <field name="resume_screening_payload"
+                                   nolabel="1"
+                                   readonly="1"
+                                   widget="text"/>
+                        </group>
+                        <group string="Error"
+                               invisible="resume_llm_status != 'failed'">
+                            <field name="resume_llm_error"
+                                   nolabel="1"
+                                   readonly="1"/>
+                        </group>
+                    </page>
+                </notebook>
+            </xpath>
+        </field>
+    </record>
+</odoo>

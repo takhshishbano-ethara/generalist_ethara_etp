@@ -56,6 +56,120 @@ class ApiAuthController(http.Controller):
         role_data = finalize_tree(roots)
         return role_data
 
+    def apply_job_position(self, job_id=None):
+        Applicant = request.env['hr.applicant'].sudo()
+        Job = request.env['hr.job'].sudo()
+        user = request.env.user
+
+        if not job_id:
+            return return_Response(message="job_id is required.", status=400)
+        try:
+            job_id = int(job_id)
+        except (TypeError, ValueError):
+            return return_Response(
+                message="job_id must be an integer.", status=400,
+            )
+        job = Job.browse(job_id).exists()
+        if not job:
+            return return_Response(
+                message="Job posting not found.", status=404,
+            )
+
+        active_app = Applicant.search(
+            [
+                ('candidate_user_id', '=', user.id),
+                ('active', '=', True),
+                ('refuse_reason_id', '=', False),
+            ],
+            limit=1, order='id desc',
+        )
+        if active_app:
+            if active_app.job_id and active_app.job_id.id == job.id:
+                return return_Response(
+                    message="You have already applied for this job.",
+                    status=400,
+                )
+            if active_app.job_id:
+                return return_Response(
+                    message=(
+                        "You have an active application for '%s'. "
+                        "Withdraw it before applying to a new job."
+                    ) % active_app.job_id.name,
+                    status=400,
+                )
+            vals = {'job_id': job.id}
+            if job.department_id:
+                vals['department_id'] = job.department_id.id
+            active_app.write(vals)
+            self._trigger_resume_screen(active_app)
+            return return_Response(
+                message="Application submitted for %s." % job.name,
+                status=200,
+                data={'applicant_id': active_app.id},
+            )
+
+        source_app = Applicant.with_context(active_test=False).search(
+            [('candidate_user_id', '=', user.id)],
+            limit=1, order='id desc',
+        )
+        if not source_app:
+            return return_Response(
+                message=(
+                    "No candidate profile found for this user. "
+                    "Please complete registration first."
+                ),
+                status=404,
+            )
+
+        new_vals = {
+            'partner_name': source_app.partner_name or user.name,
+            'email_from': source_app.email_from or user.email,
+            'partner_phone': source_app.partner_phone,
+            'candidate_user_id': user.id,
+            'resume_url': source_app.resume_url,
+            'job_id': job.id,
+        }
+        for optional in (
+            'partner_id', 'aadhaar_number', 'aadhaar_card_url',
+            'company_id', 'gender', 'birthday', 'experience',
+            'experience_years', 'college_id',
+        ):
+            if optional not in source_app._fields:
+                continue
+            value = source_app[optional]
+            if not value:
+                continue
+            new_vals[optional] = value.id if hasattr(value, 'id') else value
+        if job.department_id:
+            new_vals['department_id'] = job.department_id.id
+
+        try:
+            new_app = Applicant.create(new_vals)
+        except Exception as exc:
+            _logger.exception(
+                "apply_job_position: failed to create applicant "
+                "for user %s job %s", user.id, job.id,
+            )
+            return return_Response(
+                message="Could not create application record.",
+                status=500, errors=[str(exc)],
+            )
+        self._trigger_resume_screen(new_app)
+        return return_Response(
+            message="Application submitted for %s." % job.name,
+            status=200,
+            data={'applicant_id': new_app.id, 'is_reapplication': True},
+        )
+
+    def _trigger_resume_screen(self, applicant):
+        try:
+            applicant.sudo()._schedule_resume_screening()
+        except Exception:
+            _logger.exception(
+                "Failed to schedule resume screening for applicant %s",
+                applicant.id,
+            )
+
     @http.route('/api/v1/auth_token', methods=['POST'], type='http', auth='none', csrf=False, cors='*')
     @validate_request({'login': {'type': 'str', 'required': True}, 'password': {'type': 'str', 'required': True}})
     def auth_token(self, **kwargs):
@@ -102,6 +216,18 @@ class ApiAuthController(http.Controller):
             if request.env.user.partner_id.country_id:
                 address += f", {request.env.user.partner_id.country_id.name}"
             role_data = self.get_the_menuitem_list(domain=[])
+            role_candidate = request.env.ref(
+                'api_auth_gateway.role_candidate_technical',
+                raise_if_not_found=False,
+            )
+            user_role = request.env.user.user_role
+            if (
+                jdata.get('job_id')
+                and role_candidate
+                and user_role
+                and user_role.id == role_candidate.id
+            ):
+                self.apply_job_position(job_id=jdata.get('job_id'))
             res = {
                 "data": {
                     'uid': uid,

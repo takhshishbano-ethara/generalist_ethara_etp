@@ -613,11 +613,38 @@ class EmployeeSelfRegistrationController(http.Controller):
                     raise _AbortRegistration(return_Response(
                         message="Failed to upload resume to storage", status=500,
                     ))
-
-                applicant.write({
+                updated_applicant_dict = {
                     'aadhaar_card_url': aadhaar_url,
                     'resume_url': resume_url,
-                })
+                }
+                raw_job_id = data.get('job_id')
+                if raw_job_id:
+                    try:
+                        job_id_int = int(raw_job_id)
+                    except (TypeError, ValueError):
+                        raise _AbortRegistration(return_Response(
+                            message="job_id must be an integer.",
+                            status=400,
+                        ))
+                    job = admin_env['hr.job'].browse(job_id_int).exists()
+                    if not job:
+                        raise _AbortRegistration(return_Response(
+                            message="Job posting not found.",
+                            status=404,
+                        ))
+                    updated_applicant_dict['job_id'] = job.id
+                    if job.department_id:
+                        updated_applicant_dict['department_id'] = job.department_id.id
+                applicant.write(updated_applicant_dict)
+
+                if updated_applicant_dict.get('job_id'):
+                    try:
+                        applicant.sudo()._schedule_resume_screening()
+                    except Exception:
+                        _logger.exception(
+                            "Failed to schedule resume screening for candidate %s (applicant %s)",
+                            personal_email, applicant.id,
+                        )
 
                 return return_Response(
                     message="Candidate profile created. You can log in with your personal email and password.",
