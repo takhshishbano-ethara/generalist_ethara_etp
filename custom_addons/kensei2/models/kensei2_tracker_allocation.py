@@ -118,6 +118,56 @@ class Kensei2TrackerAllocation(models.Model):
              '(Task ID, Stage), not per row.',
     )
 
+    # Stage 2's status bar, IN STAGE 2's OWN WORDS.
+    #
+    # Both stages run the same pipeline and share the same stored status values — so
+    # they share one Selection, and a Selection can carry only ONE set of labels.
+    # Stage 2 calls the trajectory step "Pass It K"; stage 1 still calls it Baseline.
+    # There is no way to say both with one field, so stage 2 gets a read-only
+    # projection of `status` carrying its own labels, and the form shows whichever
+    # one belongs to the stage you are on.
+    #
+    # The VALUES are identical to STATUS_SELECTION — only the labels differ. Nothing
+    # is stored, so there is no migration and no second source of truth.
+    STAGE2_STATUS_SELECTION = [
+        ('in_progress', 'Authoring'),
+        ('tasker_qc_completed', 'Tasker QC'),
+        ('ready_baseline', 'Ready for Pass It K'),
+        ('baseline_generated', 'Pass It K Generated'),
+        ('manual_qc', 'Manual QC'),
+        ('ready_next_stage', 'Ready for Next Stage'),
+        ('deliverable', 'Deliverable'),
+        ('failed', 'Failed'),
+    ]
+    stage2_status = fields.Selection(
+        selection=STAGE2_STATUS_SELECTION, string='Current Status',
+        compute='_compute_stage2_status',
+        help="Stage 2's view of the Current Status — the same pipeline, named the "
+             "way stage 2 names it (Pass It K rather than Baseline).",
+    )
+
+    @api.depends('status')
+    def _compute_stage2_status(self):
+        for rec in self:
+            rec.stage2_status = rec.status
+
+    @api.depends('task_id', 'stage_no')
+    def _compute_display_name(self):
+        """Show the STAGE alongside the Task ID.
+
+        Every stage of a task shares the task_id — that shared ID is what chains
+        them — and _rec_name is task_id, so without this BOTH stages display the
+        exact same string. The "Handed off from …" link on stage 2 then shows the
+        very UUID the record itself is showing, which reads as if the task were
+        handed off from itself. Naming the stage is what makes the link mean
+        something.
+        """
+        for rec in self:
+            if rec.task_id and rec.stage_no:
+                rec.display_name = "%s (Stage %s)" % (rec.task_id, rec.stage_no)
+            else:
+                rec.display_name = rec.task_id or _("New Task")
+
     @api.model
     def _new_task_uuid(self):
         """A UUID that is not already in use by another task.
@@ -175,6 +225,28 @@ class Kensei2TrackerAllocation(models.Model):
     )
     child_ids = fields.One2many(
         'kensei2.tracker.allocation', 'parent_id', string='Next Stages')
+    # "Handed off from …" needs to name the PERSON and the STAGE. Rendering parent_id
+    # itself showed its display_name — which is built from the task_id every stage
+    # shares, i.e. the same string the title already shows. Useless. These two say
+    # what the reader actually wants: which stage, and who worked it.
+    parent_stage_no = fields.Integer(
+        related='parent_id.stage_no', string='Previous Stage', readonly=True)
+    parent_tasker_id = fields.Many2one(
+        related='parent_id.tasker_member_id', string='Previous Tasker', readonly=True)
+
+    def action_open_parent(self):
+        """Open the stage this one was handed off from."""
+        self.ensure_one()
+        if not self.parent_id:
+            raise UserError(_("This stage was not handed off from another one."))
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Stage %s', self.parent_id.stage_no),
+            'res_model': 'kensei2.tracker.allocation',
+            'res_id': self.parent_id.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
     # True when this is the LATEST stage of its task (nothing handed off from it
     # yet). The Dashboard filters on this so a multi-stage task is counted ONCE,
     # at the stage it currently sits in, instead of once per stage record.
@@ -284,8 +356,10 @@ class Kensei2TrackerAllocation(models.Model):
         string='Stage 1 Completed On', compute='_compute_stage_mirrors')
 
     # Stage 2's shorter pipeline (baseline trajectory + manual QC only).
+    # Stage 2's status, mirrored onto whichever record you are looking at — so it
+    # carries stage 2's LABELS (Pass It K), not stage 1's (Baseline). Same values.
     s2_status = fields.Selection(
-        selection=STATUS_SELECTION, string='Stage 2 Status',
+        selection=STAGE2_STATUS_SELECTION, string='Stage 2 Status',
         compute='_compute_stage_mirrors')
     s2_assigned_pl_id = fields.Many2one(
         'res.users', string='PL', compute='_compute_stage_mirrors')

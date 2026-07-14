@@ -154,9 +154,14 @@
                  keeps `value === currentValue` regardless of statusbar_visible, so a
                  failed task still shows Failed — it just no longer takes up a slot on
                  every healthy one. -->
+            <!-- Stage 1's bar reads from `status` (…Ready for Baseline → Baseline
+                 Generated…). Stage 2's reads from `stage2_status`, the same values
+                 under stage 2's own names (…Ready for Pass It K → Pass It K
+                 Generated…). One Selection cannot carry two label sets, and only
+                 stage 2 was renamed — hence the two fields. -->
             <field name="status" widget="kensei2_statusbar" invisible="stage_no == 2"
                    statusbar_visible="in_progress,tasker_qc_completed,ready_baseline,baseline_generated,manual_qc,ready_next_stage"/>
-            <field name="status" widget="kensei2_statusbar" invisible="stage_no != 2"
+            <field name="stage2_status" widget="kensei2_statusbar" invisible="stage_no != 2"
                    statusbar_visible="ready_baseline,baseline_generated,manual_qc,deliverable"/>
           </header>
           <sheet>
@@ -169,10 +174,18 @@
             <div class="oe_title">
               <label for="task_id"/>
               <h1><field name="task_id" readonly="1"/></h1>
+              <!-- Name the PERSON, not the UUID. Every stage shares the task_id, so the
+                   parent_id link rendered the very same string the title above already
+                   shows — "handed off from <the id you are looking at>", which says
+                   nothing. What is actually useful here is WHO did the previous stage. -->
               <div class="text-muted" invisible="not parent_id">
-                Handed off from
-                <field name="parent_id" readonly="1" nolabel="1" class="oe_inline"
-                       options="{'no_open': False}"/>
+                <i class="fa fa-share me-1"/>Handed off from
+                <b>Stage <field name="parent_stage_no" readonly="1" nolabel="1" class="oe_inline"/></b>,
+                worked by
+                <b><field name="parent_tasker_id" readonly="1" nolabel="1" class="oe_inline"
+                          options="{'no_open': True}"/></b>
+                <button name="action_open_parent" type="object" string="Open it"
+                        class="btn-link btn-sm p-0 ms-2" icon="fa-external-link"/>
               </div>
             </div>
 
@@ -183,6 +196,18 @@
             <field name="is_final_stage" invisible="1"/>
             <field name="has_stage_2" invisible="1"/>
             <field name="is_locked" invisible="1"/>
+
+            <!-- A FRESH STAGE 2 IS EMPTY ON PURPOSE, and without saying so it reads as
+                 data loss: the hand-off drops you straight onto this record, every field
+                 is blank, and stage 1's work is on another tab entirely. Say it plainly,
+                 and point at where the work actually went. -->
+            <div class="alert alert-info" role="alert"
+                 invisible="stage_no != 2 or status != 'ready_baseline'">
+              <i class="fa fa-info-circle me-1"/>This is <b>Stage 2</b>, and it starts empty
+              on purpose — stage 2 generates its <b>own</b> Pass It K trajectory and QCs it.
+              <b>Nothing has been lost:</b> stage 1's drive link, scores and QC are intact on
+              the <b>Stage 1</b> tab.
+            </div>
 
             <!-- Outcome banners — above the notebook so they show on every tab. -->
             <div class="alert alert-success" role="alert" invisible="status != 'deliverable'">
@@ -235,7 +260,10 @@
                 <field name="assigned_date" readonly="not is_manager"/>
                 <!-- Fixed at 2 by the model. Shown for context, never an input. -->
                 <field name="total_stages" readonly="1"/>
-                <field name="status" readonly="1"/>
+                <!-- Same pair as the status bar: stage 2 reads its status under its
+                     own names (Pass It K), stage 1 keeps saying Baseline. -->
+                <field name="status" readonly="1" invisible="stage_no == 2"/>
+                <field name="stage2_status" readonly="1" invisible="stage_no != 2"/>
                 <field name="final_status" readonly="1"/>
               </group>
             </group>
@@ -348,8 +376,8 @@
                   <page string="1. Tasker QC" name="page_s1_tasker_qc">
                     <group invisible="stage_no != 1">
                       <field name="drive_link" widget="url" readonly="is_locked"
-                             placeholder="https://drive.google.com/…"/>
-                      <field name="tasker_qc_notes" readonly="is_locked" placeholder="Notes for this stage…"/>
+                             placeholder="https://drive.google.com/…" force_save="1"/>
+                      <field name="tasker_qc_notes" readonly="is_locked" placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <div class="text-muted small mt-2"
                          invisible="stage_no != 1 or drive_link">
@@ -365,13 +393,13 @@
                   <page string="2. PL Verification" name="page_s1_pl_verification"
                         invisible="stage_no == 1 and not drive_link">
                     <group invisible="stage_no != 1">
-                      <field name="pl_verified_status" readonly="is_locked or not drive_link"/>
+                      <field name="pl_verified_status" readonly="is_locked or not drive_link" force_save="1"/>
                       <field name="pl_verified_reason" readonly="is_locked"
                              invisible="pl_verified_status != 'failed'"
                              required="pl_verified_status == 'failed'"
-                             placeholder="Reason for failure…"/>
+                             placeholder="Reason for failure…" force_save="1"/>
                       <field name="pl_verified_notes" readonly="is_locked or not drive_link"
-                             placeholder="Notes for this stage…"/>
+                             placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <div class="text-muted small mt-2"
                          invisible="stage_no != 1 or pl_verified_status == 'done'">
@@ -390,14 +418,14 @@
                         invisible="stage_no == 1 and pl_verified_status != 'done'">
                     <group invisible="stage_no != 1">
                       <field name="baseline_ready_status"
-                             readonly="is_locked or pl_verified_status != 'done'"/>
+                             readonly="is_locked or pl_verified_status != 'done'" force_save="1"/>
                       <field name="baseline_ready_reason" readonly="is_locked"
                              invisible="baseline_ready_status != 'failed'"
                              required="baseline_ready_status == 'failed'"
-                             placeholder="Reason for failure…"/>
+                             placeholder="Reason for failure…" force_save="1"/>
                       <field name="baseline_ready_notes"
                              readonly="is_locked or pl_verified_status != 'done'"
-                             placeholder="Notes for this stage…"/>
+                             placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <div class="text-muted small mt-2"
                          invisible="stage_no != 1 or baseline_ready_status == 'done'">
@@ -417,27 +445,27 @@
                     <group invisible="stage_no != 1">
                       <group string="Trajectory">
                         <field name="baseline_drive_link" widget="url" readonly="is_locked"
-                               placeholder="https://drive.google.com/…"/>
+                               placeholder="https://drive.google.com/…" force_save="1"/>
                         <field name="baseline_gen_status"
-                               readonly="is_locked or not baseline_drive_link"/>
+                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
                         <field name="baseline_gen_reason" readonly="is_locked"
                                invisible="baseline_gen_status != 'failed'"
                                required="baseline_gen_status == 'failed'"
-                               placeholder="Reason for failure…"/>
+                               placeholder="Reason for failure…" force_save="1"/>
                       </group>
                       <!-- Unlocked by Baseline Generation = Done; _check_baseline_metrics
                            then refuses to save that Done without a QCed By. -->
                       <group string="Evaluation Metrics">
-                        <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'"/>
-                        <field name="pytest_score" readonly="is_locked or baseline_gen_status != 'done'"/>
-                        <field name="overall_score" readonly="is_locked or baseline_gen_status != 'done'"/>
+                        <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <field name="pytest_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <field name="overall_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
                         <field name="qced_by" options="{'no_open': True}"
-                               readonly="is_locked or baseline_gen_status != 'done'"/>
+                               readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
                       </group>
                     </group>
                     <group string="Notes" invisible="stage_no != 1">
                       <field name="baseline_gen_notes" nolabel="1" readonly="is_locked"
-                             placeholder="Notes for this stage…"/>
+                             placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <div class="text-muted small mt-2"
                          invisible="stage_no != 1 or (baseline_gen_status == 'done' and qced_by)">
@@ -466,13 +494,13 @@
                   <page string="5. Manual QC" name="page_s1_manual_qc"
                         invisible="stage_no == 1 and (baseline_gen_status != 'done' or not qced_by)">
                     <group invisible="stage_no != 1">
-                      <field name="manual_qc_status" readonly="is_locked"/>
+                      <field name="manual_qc_status" readonly="is_locked" force_save="1"/>
                       <field name="manual_qc_reason" readonly="is_locked"
                              invisible="manual_qc_status != 'failed'"
                              required="manual_qc_status == 'failed'"
-                             placeholder="Reason for failure…"/>
+                             placeholder="Reason for failure…" force_save="1"/>
                       <field name="manual_qc_notes" readonly="is_locked"
-                             placeholder="Notes for this stage…"/>
+                             placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 1">
                       <field name="s1_manual_qc_status" readonly="1"/>
@@ -520,34 +548,46 @@
                        generated and QCed By is set. -->
                   <page string="Pass It K" name="page_s2_baseline_trajectory"
                         invisible="stage_no != 2 and not has_stage_2">
+                    <!-- Labels are overridden HERE, not on the model, because these are
+                         the SAME fields stage 1 uses for its baseline step. Renaming them
+                         on the model would rename them on stage 1 too, where the step is
+                         still called Baseline Trajectory. Stage 2's tab is the only place
+                         that calls this work Pass It K, so the rename belongs to the view. -->
                     <group invisible="stage_no != 2">
                       <group string="Pass It K">
-                        <field name="baseline_drive_link" widget="url" readonly="is_locked"
-                               placeholder="https://drive.google.com/…"/>
-                        <field name="baseline_gen_status"
-                               readonly="is_locked or not baseline_drive_link"/>
-                        <field name="baseline_gen_reason" readonly="is_locked"
+                        <field name="baseline_drive_link" string="Pass It K Drive Link"
+                               widget="url" readonly="is_locked"
+                               placeholder="https://drive.google.com/…" force_save="1"/>
+                        <field name="baseline_gen_status" string="Pass It K Generation"
+                               readonly="is_locked or not baseline_drive_link" force_save="1"/>
+                        <field name="baseline_gen_reason" string="Pass It K Failure Reason"
+                               readonly="is_locked"
                                invisible="baseline_gen_status != 'failed'"
                                required="baseline_gen_status == 'failed'"
-                               placeholder="Reason for failure…"/>
+                               placeholder="Reason for failure…" force_save="1"/>
                       </group>
                       <group string="Evaluation Metrics">
-                        <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'"/>
-                        <field name="pytest_score" readonly="is_locked or baseline_gen_status != 'done'"/>
-                        <field name="overall_score" readonly="is_locked or baseline_gen_status != 'done'"/>
+                        <field name="rubric_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <field name="pytest_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
+                        <field name="overall_score" readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
                         <field name="qced_by" options="{'no_open': True}"
-                               readonly="is_locked or baseline_gen_status != 'done'"/>
+                               readonly="is_locked or baseline_gen_status != 'done'" force_save="1"/>
                       </group>
                     </group>
-                    <group string="Notes" invisible="stage_no != 2">
+                    <group string="Pass It K Notes" invisible="stage_no != 2">
                       <field name="baseline_gen_notes" nolabel="1" readonly="is_locked"
-                             placeholder="Notes for this stage…"/>
+                             placeholder="Notes for this stage…" force_save="1"/>
                     </group>
+                    <!-- The same tab as seen FROM STAGE 1: stage 2's work, read-only.
+                         Same naming, so the step is called Pass It K wherever it shows. -->
                     <group invisible="stage_no == 2">
-                      <group string="Trajectory">
-                        <field name="s2_baseline_drive_link" widget="url" readonly="1"/>
-                        <field name="s2_baseline_gen_status" readonly="1"/>
-                        <field name="s2_baseline_gen_reason" readonly="1"
+                      <group string="Pass It K">
+                        <field name="s2_baseline_drive_link" string="Pass It K Drive Link"
+                               widget="url" readonly="1"/>
+                        <field name="s2_baseline_gen_status" string="Pass It K Generation"
+                               readonly="1"/>
+                        <field name="s2_baseline_gen_reason" string="Pass It K Failure Reason"
+                               readonly="1"
                                invisible="s2_baseline_gen_status != 'failed'"/>
                       </group>
                       <group string="Evaluation Metrics">
@@ -557,12 +597,12 @@
                         <field name="s2_qced_by" readonly="1" options="{'no_open': True}"/>
                       </group>
                     </group>
-                    <group string="Notes" invisible="stage_no == 2">
+                    <group string="Pass It K Notes" invisible="stage_no == 2">
                       <field name="s2_baseline_gen_notes" nolabel="1" readonly="1"/>
                     </group>
                     <div class="text-muted small mt-2"
                          invisible="stage_no != 2 or (baseline_gen_status == 'done' and qced_by)">
-                      <i class="fa fa-lock me-1"/>Set <b>Baseline Generation</b> to
+                      <i class="fa fa-lock me-1"/>Set <b>Pass It K Generation</b> to
                       <b>Done</b> and fill <b>QCed By</b> to unlock <b>Manual QC</b>.
                     </div>
                   </page>
@@ -570,13 +610,13 @@
                   <page string="Manual QC" name="page_s2_manual_qc"
                         invisible="(stage_no != 2 and not has_stage_2) or (stage_no == 2 and (baseline_gen_status != 'done' or not qced_by))">
                     <group invisible="stage_no != 2">
-                      <field name="manual_qc_status" readonly="is_locked"/>
+                      <field name="manual_qc_status" readonly="is_locked" force_save="1"/>
                       <field name="manual_qc_reason" readonly="is_locked"
                              invisible="manual_qc_status != 'failed'"
                              required="manual_qc_status == 'failed'"
-                             placeholder="Reason for failure…"/>
+                             placeholder="Reason for failure…" force_save="1"/>
                       <field name="manual_qc_notes" readonly="is_locked"
-                             placeholder="Notes for this stage…"/>
+                             placeholder="Notes for this stage…" force_save="1"/>
                     </group>
                     <group invisible="stage_no == 2">
                       <field name="s2_manual_qc_status" readonly="1"/>
